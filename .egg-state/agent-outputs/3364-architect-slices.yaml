@@ -1,116 +1,118 @@
 slices:
   - id: 1
     name: |-
-      PR B — Long-haul monitoring tooling: wait-status filter flags + slice.closed event
+      PR B — COMPLETE (do not re-derive); add two carry-forward follow-ups: wire the production slice.closed emitter + end-to-end emission test
     goal: |-
-      Additive / low-risk. Two independent additions the skill consumes.
-      (1) skills/sdlc/bin/wait-status (328-line pure-stdlib launcher):
-      add --exclude-types (comma-separated event-type filter) and
-      --quiet to the arg parser (~:292-320) and apply the filtering
-      client-side at the two JSON print sites (print(json.dumps(line))
-      at :249 and :271) — drop a line whose event type is in the
-      exclude set; suppress non-essential lines under --quiet. Keep it
-      pure-stdlib and self-contained (no new imports/deps). Existing
-      --since/--inner-timeout/--max-iterations behavior and the
-      non-filtered default output stay unchanged (regression-guarded).
-      (2) Add SLICE_CLOSED = "slice.closed" to the EventType StrEnum in
-      orchestrator/events.py (:35) and emit it at BOTH
-      SliceScheduler.record_complete (slice_scheduler.py:361) and
-      record_failure (:371), carrying a payload that distinguishes
-      success vs failure and identifies the slice (a single event type
-      with an outcome field is cleaner than two types). Emit via an
-      injected emitter Callable added to __init__ — mirror the existing
-      _hitl_escalator seam (default None, stored, invoked OUTSIDE the
-      scheduler lock at :352-354) to avoid re-entrancy/deadlock; do not
-      emit inside the lock. Add "slice.closed" to _STATUS_WAIT_EVENT_TYPES
-      (orchestrator/routes/pipelines/__init__.py:405) so it passes the
-      /status/wait allowlist checked at _routes_status.py:349. Tests:
-      the two new flags (a filter that drops a type; --quiet); a slice
-      completion AND a slice failure each emit exactly one allowlisted
-      slice.closed event.
-    # root slice — independent, no dependencies
+      PR B (wait-status --exclude-types/--quiet + slice.closed event) is
+      already IMPLEMENTED and pushed: task-1-1/1-3 @ 4fcf1ed7a,
+      task-1-2 @ c2a77847a, task-1-4 @ 3593d497c. DO NOT re-run those four
+      tasks. Two post-consensus review findings were in flight when the
+      operator kicked the phase back to plan (cq-2) and MUST be carried into
+      this re-plan as explicit PR B follow-up tasks, not lost:
+      (A) WIRE the slice_closed_emitter at the production SliceScheduler
+      construction site orchestrator/routes/pipelines/_run_implement.py:86 —
+      it is currently default-None, so slice.closed NEVER fires in production
+      (the feature ships green-but-dead: unit/seam tests inject a capturing
+      lambda and the route test hand-publishes the event, so every test
+      passes while nothing emits in prod). Pass an _emit_event-backed
+      slice_closed_emitter at that site so record_complete/record_failure
+      actually emit onto the event bus.
+      (B) Add an INTEGRATION test that constructs SliceScheduler the way
+      _run_implement.py:86 does (production _emit_event-backed emitter) or
+      drives the _run_implement wiring, and asserts a real record_complete
+      emits exactly one slice.closed(complete) and record_failure exactly one
+      slice.closed(failure), each landing on the event bus AND passing the
+      _STATUS_WAIT_EVENT_TYPES allowlist — the scheduler-close -> bus -> route
+      chain, NOT a hand-published event. This closes the reviewer_contract
+      slice-1 NACK and proves AC-B5 end-to-end. Keep all existing PR B
+      suites; this is an addition. make test-all green.
+    # independent slice — no dependencies
   - id: 2
     name: |-
-      PR C — Supervision hardening: rate-limit classification + windowed paced retry + deterministic-loop guard
+      PR C — RE-PLANNED (cq-2): transient rate-limit classification via a distinct EX_RATE_LIMITED exit code mirroring the EX_AUTH_FATAL chain (#3447 JobSupervisor now in event_loop/)
     goal: |-
-      Behavioral / medium-high risk (highest in this pipeline; weight
-      toward test coverage). All in orchestrator/supervision_policy.py
-      and its JobSupervisor integration (concurrent_executor.py).
-      (1) Classification: detect the all-producers agent-invocation-
-      failure streak whose underlying error carries bare throttling
-      wording (HTTP 429 / "rate limit" / "overloaded" — exactly the
-      signatures shared/egg_agent/auth_errors.py deliberately keeps OFF
-      EX_AUTH_FATAL at :24-28/:45-47) and introduce a NEW transient
-      rate-limit classification distinct from abnormal, so this
-      signature does NOT feed the agent-invocation-fail-streak halt
-      (supervision_policy.py:25-26) that currently exhausts in minutes
-      because backoff caps at SUPERVISION_BACKOFF_CAP_SECONDS=30 (:19).
-      The all-producers signature is observable at the streak-exhaustion
-      broadcast site (concurrent_executor.py:988). (2) Windowed paced
-      retry: on that classification, pace retries across the rolling cap
-      window (hours-scale, not 30s) without hammering the API, using a
-      restart_phase-equivalent that PRESERVES landed slices (does not
-      reset completed slice runtimes — re-arm only the in-flight/failed
-      frontier). (3) Deterministic-loop guard: capture a failure
-      fingerprint (signature + phase/slice progression); if a restart
-      reproduces the IDENTICAL fingerprint at the SAME point, stop and
-      escalate instead of looping; if the restart advances state,
-      continue. (4) Bounding per resolved HITL cq-1: NO hard wall-clock
-      ceiling — emit an OVERSEER_ALERT once the cumulative wait crosses
-      a threshold (attended-operator visibility while auto-recovery
-      continues); do NOT conflate the loop-guard escalation with a
-      time-ceiling halt (orthogonal triggers). Invariance: EX_AUTH_FATAL
-      (incl. matched weekly/usage caps) and ordinary abnormal failures
-      behave UNCHANGED — the new path triggers ONLY on the throttling-
-      streak signature. Tests: throttling-streak -> rate-limit (not
-      abnormal); paced-retry pacing/window; landed-slice preservation
-      across a restart; loop-guard escalates on identical reproduction
-      vs. continues when the restart advances state; threshold
-      OVERSEER_ALERT fires.
+      SUPERSEDES the prior PR C plan. The operator resolved cq-2 (opt-3) to
+      pause and re-scope PR C because the contracted mechanism cannot work:
+      only a per-agent EXIT CODE crosses the pod boundary (handle_agent_failure
+      sees f"Container exited with code {N}"; exit_detail_for returns
+      "exit_code=N", kubernetes_spawner/_models.py:102-131) — the throttle
+      wording (429 / "rate limit" / "overloaded") is NOT observable
+      orchestrator-side, so classifying by wording at the streak site is
+      unimplementable. The ONLY faithful mechanism is a distinct exit code
+      mirroring EX_AUTH_FATAL (#3373), intercepted at the per-arm RECORDING
+      layer (relocated into event_loop/ by #3447) so it never feeds the
+      fail-streak halt. Corrected ~7-file chain (task_planner rebuilds the
+      slice-2 task set over it):
+      1. shared/egg_agent/auth_errors.py — add EX_RATE_LIMITED (distinct code,
+         e.g. 78) + is_transient_rate_limit_error(text) reusing the throttling
+         vocabulary this module already documents as excluded from
+         EX_AUTH_FATAL (:24-28/:45-47). Do NOT widen EX_AUTH_FATAL.
+      2. shared/egg_agent/__main__.py — return EX_RATE_LIMITED when
+         is_transient_rate_limit_error matches, beside the existing
+         EX_AUTH_FATAL return (:143); a genuine weekly-cap fatal still wins its
+         own match.
+      3. orchestrator/kubernetes_spawner/_models.py — map exit_code ==
+         EX_RATE_LIMITED -> JOB_OUTCOME_RATE_LIMITED, mirroring the
+         EX_AUTH_FATAL==77 -> _FATAL detection (:100) in JobStatusView.
+      4. orchestrator/event_loop/__init__.py — add the JOB_OUTCOME_RATE_LIMITED
+         constant beside JOB_OUTCOME_FATAL (:147).
+      5. orchestrator/event_loop/_loop.py — add a JOB_OUTCOME_RATE_LIMITED
+         branch in _observe_jobs (:86-116) dispatching to
+         supervisor.record_rate_limited, beside the FATAL -> record_fatal
+         branch (:94-101). This is the interception point.
+      6. orchestrator/event_loop/_supervisor.py — add record_rate_limited: a
+         PACED sibling of record_fatal (:205) that MUST NOT latch
+         _alerted_10/_exhausted or increment the abort streak; it records a
+         rate-limit-paced state (reset-time-paced when the error carries a
+         reset hint, else bounded backoff). This is the concrete AC-C1
+         realization ("not abnormal / does not trip the fail-streak halt") —
+         the single highest-value test assertion.
+      7. orchestrator/supervision_policy.py — hours-scale pacing-window
+         constants (distinct from the 30s SUPERVISION_BACKOFF_CAP_SECONDS) +
+         the loop-guard fingerprint definition (signature + phase/slice
+         progression).
+      8. orchestrator/concurrent_executor.py — windowed-retry driver,
+         deterministic-loop guard (escalate on identical fingerprint at the
+         same point), cq-1 threshold OVERSEER_ALERT, and the landed-slice-
+         preserving restart_phase-equivalent wiring. (Old plan anchor
+         "JobSupervisor integration (concurrent_executor.py)" predates #3447 —
+         this file is now the retry/loop-guard/alert layer, not the recording
+         layer.)
+      All acceptance criteria AC-C1..C7 and the binding cq-1 resolution are
+      UNCHANGED: no hard wall-clock ceiling; reset-time-paced retry when
+      present else bounded backoff; an OVERSEER_ALERT fires once cumulative
+      wait crosses a threshold (orthogonal to the loop-guard escalation —
+      neither is a time-ceiling halt). EX_AUTH_FATAL (incl. weekly caps) and
+      ordinary abnormal failures behave exactly as before; the new path fires
+      ONLY on the EX_RATE_LIMITED exit code. Heaviest test coverage in the
+      pipeline.
     # independent slice — no dependencies
   - id: 3
     name: |-
-      PR D — Slim the skill (GATED): coverage-map, then delete host detectors, then remove overseer_owns_host_detection
+      PR D — UNCHANGED: coverage-map gate, then delete host detectors, then remove overseer_owns_host_detection
     goal: |-
-      Deletion / medium risk, with a HARD internal gate — the
-      task_planner should split this slice into three ordered tasks
-      (D1 gates D2 and D3). D1 (GATE, do first): produce the
+      UNCHANGED from the confirmed plan (cq-2 does not touch PR D). Deletion /
+      medium risk with a HARD internal gate — task_planner keeps the three
+      ordered tasks (D1 gates D2 and D3). D1 (GATE, first): produce the
       coverage-map — for EACH of the five host detector blocks in
-      skills/sdlc/SKILL.md (Stall detection ~637, Silent agent
-      detection ~644, NACK escalation ~679, Long-Running Phase
-      Detection ~722, and the host-side detection TRIGGER of Stuck
-      Pipeline Rescue ~750) name the concrete overseer emitter and the
-      OVERSEER_ALERT subject the skill already surfaces. This is REAL
-      verification, not a rubber stamp: the host vocab (agent-stall /
-      agent-silent / agent-nack-unresolved / phase-long-running) exists
-      in production ONLY as a last-alert dedup map at
-      shared/egg_overseer/state.py:86 and is otherwise produced by the
-      overseer Haiku classifier/adjudicator (LLM path), while the live
-      overseer monitor emits a DIFFERENT deterministic vocab
-      (post_consensus_stall / incomplete_consensus_stall /
-      rerun_anomaly / status_inconsistency / hitl_propagation_failure /
-      cross_phase_inconsistency / orchestrator_unreachable via
-      _broadcast_alert in orchestrator/overseer/monitor/
-      _anomaly_checks.py + _consensus_stall.py). Any block that maps to
-      NO confirmed emitter is a HITL raised at the point of discovery —
-      NOT a silent delete into a dark gap. D2 (only after D1 confirms
-      parity): delete from SKILL.md the "Host detector migration (issue
-      #1962)" section (~553), the "Overseer-Absent Fallback" (~573),
-      the five host-side detector blocks, and the short-flow Stall
-      detection block (~1517) — detection/trigger prose ONLY. PRESERVE
-      (AC-D3, key regression surface): the Long-Running Implement Phase
-      and Unresolved NACK AskUserQuestion render-on-alert flows must
-      still fire on their OVERSEER_ALERTs; keep the user-initiated Stuck
-      Pipeline Rescue workflow (Steps 1-3) minus its host-side detection
-      trigger; keep the two thin last-resort backstops (never
-      blind-action a destructive recommendation — route through
-      AskUserQuestion; TaskStop the Monitor before re-arming). D3
-      (after D1): remove overseer_owns_host_detection ENTIRELY — the
-      Field at orchestrator/models/_config.py:388 and both getattr
-      references at orchestrator/routes/pipelines/_routes_status.py:126-127
-      (conclude the calibration window; do not flip the default);
-      grep-clean the symbol. Reviewer note: PR B (slice 1) also touches
-      the routes/pipelines package (allowlist in __init__.py) — a
-      different region from D3's _routes_status.py edit, but flag the
-      shared package for merge-seam awareness.
-    # independent slice — no cross-slice dependencies; internal D1->D2/D3 gate handled in task decomposition
+      skills/sdlc/SKILL.md (Stall ~637, Silent agent ~644, NACK escalation
+      ~679, Long-Running Phase Detection ~722, and the host-side detection
+      TRIGGER of Stuck Pipeline Rescue ~750) name the concrete overseer
+      emitter (deterministic _broadcast_alert structural check OR the Haiku
+      classifier action path) and the OVERSEER_ALERT subject the skill already
+      surfaces; the host vocab (agent-stall/silent/nack/long-running) exists in
+      prod only as a dedup map (shared/egg_overseer/state.py) and is otherwise
+      LLM-classifier-produced, distinct from the deterministic monitor vocab
+      (post_consensus_stall / incomplete_consensus_stall / rerun_anomaly /
+      status_inconsistency / hitl_propagation_failure /
+      cross_phase_inconsistency / orchestrator_unreachable) — so parity is real
+      verification. Any block mapping to NO confirmed emitter is a HITL at the
+      point of discovery, NOT a silent delete. D2 (after gate): delete the host
+      detector blocks + migration section + Overseer-Absent Fallback +
+      Stuck-Rescue host trigger + short-flow Stall block, PRESERVING the
+      Long-Running Implement Phase and Unresolved NACK AskUserQuestion
+      render-on-alert flows and the user-initiated Rescue Steps 1-3. D3 (after
+      gate): remove overseer_owns_host_detection ENTIRELY — the Field at
+      orchestrator/models/_config.py:388 and both refs at
+      orchestrator/routes/pipelines/_routes_status.py:126-127; grep-clean.
+    # independent slice — internal D1->D2/D3 gate in task decomposition
