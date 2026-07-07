@@ -26,7 +26,21 @@ import shlex
 import subprocess
 import sys
 
-from consensus_wrapper import build_consensus_wrapped_command
+import pytest
+from consensus_wrapper import (
+    _DEFAULT_FINDING_TOOL_CALL_CAP,
+    _TOOL_CALL_CAP_EXEMPT_ROLES,
+    REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR,
+    REVIEW_FINDING_TOOL_CALL_CAP_MODE_ENV_VAR,
+    ToolCallCapDecision,
+    _render_tool_call_cap_env_block,
+    build_consensus_wrapped_command,
+    build_event_pump_wrapped_command,
+    evaluate_finding_tool_call_cap,
+    review_finding_tool_call_cap,
+    tool_call_cap_log_record,
+)
+from review_findings_verdict import FINDINGS_MODE_ENV_VAR
 
 
 class TestEventPumpInvokesComposer:
@@ -1225,6 +1239,353 @@ open('orchestrator/tests/golden/event_pump_wrapper.sh.golden','w')\\
                     "(no ownership flag after #3164)."
                 )
             monkeypatch.delenv(var, raising=False)
+
+
+# ===========================================================================
+# Per-finding tool-call cap (#3523 S4 — item 2's non-prompt half; task-4-2)
+# ===========================================================================
+#
+# The wrapper owns a configurable per-finding scratch-check tool-call cap that
+# RIDES the S3 ``EGG_REVIEW_FINDINGS_MODE`` staged flag (off => inert + byte-
+# identical spawn command; log => record would-be hits; on => enforce; typo =>
+# off). These tests pin task-4-2's four acceptance cases at the cap's boundary:
+#
+#   1. Cap-boundary          — the cap triggers AT the configured limit (``>=``).
+#   2. Log-record-only       — ``log`` mode records a would-be hit, never enforces.
+#   3. Flag-typo-fails-to-off — an ``EGG_REVIEW_FINDINGS_MODE`` typo => off (inert).
+#   4. Default-when-unset     — the safe default cap (8) is applied when unset.
+#
+# The pure decision fn (``evaluate_finding_tool_call_cap``) takes injectable
+# ``role`` / ``cap`` / ``mode`` so the boundary cases are hermetic; the env
+# resolvers (``review_finding_tool_call_cap`` / the ridden ``review_findings_mode``)
+# are exercised via ``monkeypatch`` on their env vars.
+
+
+class TestReviewFindingToolCallCapResolution:
+    """``review_finding_tool_call_cap`` env resolution (task-4-2 default case).
+
+    Fail-safe: an unset / non-integer / non-positive value resolves to the
+    safe default. A typo must never degrade to ``0`` (which would forbid
+    EVERY scratch check) nor to a negative sentinel — the cap only ever
+    tightens a *positive* budget.
+    """
+
+    def test_default_is_eight(self):
+        # The documented safe default (mirrors the /review skill's
+        # medium-effort finding cap). Pinned so a silent change is caught.
+        assert _DEFAULT_FINDING_TOOL_CALL_CAP == 8
+
+    def test_unset_applies_default(self, monkeypatch):
+        monkeypatch.delenv(REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR, raising=False)
+        assert review_finding_tool_call_cap() == _DEFAULT_FINDING_TOOL_CALL_CAP
+
+    @pytest.mark.parametrize("raw,expected", [("1", 1), ("3", 3), ("8", 8), ("100", 100)])
+    def test_valid_positive_int_is_respected(self, monkeypatch, raw, expected):
+        monkeypatch.setenv(REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR, raw)
+        assert review_finding_tool_call_cap() == expected
+
+    @pytest.mark.parametrize("raw", ["", "  ", "abc", "8x", "3.5", "eight", "0x8", "--5"])
+    def test_non_integer_falls_to_default(self, monkeypatch, raw):
+        monkeypatch.setenv(REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR, raw)
+        assert review_finding_tool_call_cap() == _DEFAULT_FINDING_TOOL_CALL_CAP
+
+    @pytest.mark.parametrize("raw", ["0", "-1", "-8", "-100"])
+    def test_non_positive_falls_to_default(self, monkeypatch, raw):
+        # A "0 tool calls" cap would forbid every scratch check; a negative
+        # cap is a nonsense sentinel. Both degrade to the positive default.
+        monkeypatch.setenv(REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR, raw)
+        assert review_finding_tool_call_cap() == _DEFAULT_FINDING_TOOL_CALL_CAP
+
+
+class TestEvaluateFindingToolCallCapBoundary:
+    """The cap *triggers at the configured limit* (task-4-2 cap-boundary case).
+
+    A finding may spend up to ``cap`` scratch-check tool calls; the decision
+    reports ``cap_hit`` once the count REACHES ``cap`` (``>=``) — the budget is
+    exhausted and the next scratch check is the one over the line. All cases
+    inject ``mode``/``cap`` explicitly so the boundary is hermetic.
+    """
+
+    def test_below_cap_is_not_a_hit(self):
+        d = evaluate_finding_tool_call_cap(2, role="reviewer_security", cap=3, mode="on")
+        assert d.cap_hit is False
+        assert d.enforced is False
+        assert d.recorded is False
+
+    def test_exactly_at_cap_triggers(self):
+        # >= semantics: reaching the limit exhausts the budget.
+        d = evaluate_finding_tool_call_cap(3, role="reviewer_security", cap=3, mode="on")
+        assert d.cap_hit is True
+        assert d.enforced is True
+
+    def test_above_cap_triggers(self):
+        d = evaluate_finding_tool_call_cap(9, role="reviewer_security", cap=3, mode="on")
+        assert d.cap_hit is True
+        assert d.enforced is True
+
+    def test_one_below_cap_boundary(self):
+        # The exact off-by-one guard: cap-1 must NOT trigger, cap must.
+        below = evaluate_finding_tool_call_cap(7, role="reviewer_code", cap=8, mode="on")
+        at = evaluate_finding_tool_call_cap(8, role="reviewer_code", cap=8, mode="on")
+        assert below.cap_hit is False
+        assert at.cap_hit is True
+
+    def test_zero_tool_calls_never_hits_positive_cap(self):
+        d = evaluate_finding_tool_call_cap(0, role="reviewer_security", cap=8, mode="on")
+        assert d.cap_hit is False
+
+
+class TestEvaluateFindingToolCallCapModes:
+    """The three staged-flag arms: off inert, log records, on enforces.
+
+    Covers task-4-2's log-record-only case explicitly: in ``log`` mode a
+    would-be hit sets ``recorded`` but NOT ``enforced`` (the reviewer keeps
+    going); the mode's whole purpose is to measure how often the cap would
+    bite before an operator flips it to ``on``.
+    """
+
+    def test_off_mode_is_inert_even_far_over_cap(self):
+        d = evaluate_finding_tool_call_cap(999, role="reviewer_security", cap=3, mode="off")
+        assert d.cap_hit is False
+        assert d.enforced is False
+        assert d.recorded is False
+
+    def test_log_mode_records_without_enforcing(self):
+        d = evaluate_finding_tool_call_cap(5, role="reviewer_security", cap=3, mode="log")
+        assert d.cap_hit is True
+        assert d.recorded is True
+        assert d.enforced is False, (
+            "log mode must RECORD a would-be cap hit, never enforce it — "
+            "the reviewer keeps running scratch checks so the operator can "
+            "measure the would-be impact before flipping to on."
+        )
+
+    def test_log_mode_below_cap_records_nothing(self):
+        d = evaluate_finding_tool_call_cap(1, role="reviewer_security", cap=3, mode="log")
+        assert d.cap_hit is False
+        assert d.recorded is False
+
+    def test_on_mode_enforces_without_recording(self):
+        d = evaluate_finding_tool_call_cap(5, role="reviewer_security", cap=3, mode="on")
+        assert d.cap_hit is True
+        assert d.enforced is True
+        assert d.recorded is False
+
+    def test_enforced_and_recorded_are_mutually_exclusive(self):
+        # The dataclass invariant: a hit is EITHER enforced (on) or recorded
+        # (log), never both, never neither-when-hit.
+        for mode in ("off", "log", "on"):
+            d = evaluate_finding_tool_call_cap(10, role="reviewer_code", cap=2, mode=mode)
+            assert not (d.enforced and d.recorded)
+            if d.cap_hit:
+                assert d.enforced ^ d.recorded
+
+
+class TestEvaluateFindingToolCallCapTypoAndDefaults:
+    """Flag-typo-fails-to-off + default-cap-when-unset via live env resolution.
+
+    These exercise the env resolvers the decision fn defers to when ``mode`` /
+    ``cap`` are left ``None`` — the wiring an operator actually toggles.
+    """
+
+    @pytest.mark.parametrize("typo", ["onn", "enabled", "yesss", "l0g", "logg", "2", "true!"])
+    def test_mode_typo_resolves_to_off_and_is_inert(self, monkeypatch, typo):
+        # A misconfigured EGG_REVIEW_FINDINGS_MODE must degrade to off, so the
+        # cap can never silently strangle review. mode=None => live resolution.
+        monkeypatch.setenv(FINDINGS_MODE_ENV_VAR, typo)
+        monkeypatch.setenv(REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR, "1")
+        d = evaluate_finding_tool_call_cap(999, role="reviewer_security")
+        assert d.mode == "off"
+        assert d.cap_hit is False
+        assert d.enforced is False
+        assert d.recorded is False
+
+    def test_unset_mode_resolves_to_off(self, monkeypatch):
+        monkeypatch.delenv(FINDINGS_MODE_ENV_VAR, raising=False)
+        d = evaluate_finding_tool_call_cap(999, role="reviewer_security", cap=1)
+        assert d.mode == "off"
+        assert d.cap_hit is False
+
+    def test_default_cap_applied_when_env_unset(self, monkeypatch):
+        # cap=None + unset env => the safe default (8) is the live cap: 7 does
+        # not trigger, 8 does.
+        monkeypatch.delenv(REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR, raising=False)
+        below = evaluate_finding_tool_call_cap(7, role="reviewer_code", mode="on")
+        at = evaluate_finding_tool_call_cap(8, role="reviewer_code", mode="on")
+        assert below.cap == _DEFAULT_FINDING_TOOL_CALL_CAP
+        assert below.cap_hit is False
+        assert at.cap_hit is True
+
+    def test_env_cap_drives_live_boundary(self, monkeypatch):
+        # cap=None + env cap=2 => the decision reads the env value.
+        monkeypatch.setenv(REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR, "2")
+        d = evaluate_finding_tool_call_cap(2, role="reviewer_code", mode="on")
+        assert d.cap == 2
+        assert d.cap_hit is True
+
+
+class TestToolCallCapExemptRoles:
+    """Exempt roles never hit the cap regardless of mode (task-4-1 contract).
+
+    ``tester`` is exempt because its verdict comes from EXECUTING the whole
+    proposal (``make test`` / ``make lint``), an unbounded legitimate budget a
+    per-finding scratch cap would wrongly strangle mid-suite.
+    """
+
+    def test_tester_is_exempt(self):
+        assert "tester" in _TOOL_CALL_CAP_EXEMPT_ROLES
+
+    def test_exempt_role_never_hits_even_over_cap(self):
+        d = evaluate_finding_tool_call_cap(999, role="tester", cap=1, mode="on")
+        assert d.exempt is True
+        assert d.cap_hit is False
+        assert d.enforced is False
+        assert d.recorded is False
+
+    def test_non_exempt_role_hits(self):
+        d = evaluate_finding_tool_call_cap(999, role="reviewer_security", cap=1, mode="on")
+        assert d.exempt is False
+        assert d.cap_hit is True
+
+    def test_none_role_is_not_exempt(self):
+        # A missing role is treated as non-exempt (the cap still applies).
+        d = evaluate_finding_tool_call_cap(5, role=None, cap=1, mode="on")
+        assert d.exempt is False
+        assert d.cap_hit is True
+
+
+class TestToolCallCapLogRecord:
+    """The ``log``-mode BRC record (mirrors ``verdict_log_record``).
+
+    A pure, JSON-serializable dict the caller writes into the BRC artifacts so
+    an operator can see how often the cap WOULD have bitten before flipping
+    the flag to ``on``.
+    """
+
+    def test_record_shape_and_fields(self):
+        d = evaluate_finding_tool_call_cap(5, role="reviewer_security", cap=3, mode="log")
+        rec = tool_call_cap_log_record(d, role="reviewer_security", finding_id="f-1")
+        assert rec["kind"] == "tool_call_cap"
+        assert rec["mode"] == "log"
+        assert rec["role"] == "reviewer_security"
+        assert rec["finding_id"] == "f-1"
+        assert rec["cap"] == 3
+        assert rec["tool_calls"] == 5
+        assert rec["cap_hit"] is True
+        assert rec["recorded"] is True
+        assert rec["enforced"] is False
+        assert rec["exempt"] is False
+
+    def test_record_is_pure_json_serializable(self):
+        import json
+
+        d = evaluate_finding_tool_call_cap(9, role="reviewer_code", cap=2, mode="log")
+        rec = tool_call_cap_log_record(d, role="reviewer_code", finding_id="f-2")
+        # Round-trips without custom encoders.
+        assert json.loads(json.dumps(rec))["kind"] == "tool_call_cap"
+
+    def test_record_reflects_no_hit_below_cap(self):
+        d = evaluate_finding_tool_call_cap(1, role="reviewer_code", cap=3, mode="log")
+        rec = tool_call_cap_log_record(d, role="reviewer_code", finding_id="f-3")
+        assert rec["cap_hit"] is False
+        assert rec["recorded"] is False
+
+
+class TestRenderToolCallCapEnvBlock:
+    """The wrapper bash that exports the cap for the reviewer ack/nack arms.
+
+    ``off`` mode returns ``""`` so the spawn command is byte-identical to the
+    legacy path (the staged-flag "off => no behavior change" contract);
+    ``log`` / ``on`` return a block that exports the wrapper-owned cap NUMBER
+    and mode, gated on the reviewer arms and skipping the exempt roles.
+    """
+
+    def test_off_mode_renders_empty(self):
+        assert _render_tool_call_cap_env_block("off", 8) == ""
+
+    @pytest.mark.parametrize("mode", ["log", "on"])
+    def test_active_mode_exports_cap_and_mode(self, mode):
+        block = _render_tool_call_cap_env_block(mode, 5)
+        assert block != ""
+        assert f'export {REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR}="5"' in block
+        assert f'export {REVIEW_FINDING_TOOL_CALL_CAP_MODE_ENV_VAR}="{mode}"' in block
+
+    @pytest.mark.parametrize("mode", ["log", "on"])
+    def test_block_gated_on_reviewer_arms_only(self, mode):
+        # The producer ``propose`` arm is outside the cap; the block only
+        # fires for the reviewer ack/nack arms.
+        block = _render_tool_call_cap_env_block(mode, 8)
+        assert '[ "$action" = "ack" ]' in block
+        assert '[ "$action" = "nack" ]' in block
+
+    @pytest.mark.parametrize("mode", ["log", "on"])
+    def test_block_skips_exempt_roles(self, mode):
+        block = _render_tool_call_cap_env_block(mode, 8)
+        for role in _TOOL_CALL_CAP_EXEMPT_ROLES:
+            assert role in block, (
+                f"exempt role {role!r} must be named in the case-guard so its "
+                "scratch cap is skipped (tester runs the whole suite)."
+            )
+
+
+class TestBuildEventPumpToolCallCapWiring:
+    """End-to-end env-driven wiring in ``build_event_pump_wrapped_command``.
+
+    The builder resolves the ridden flag + cap at build time (orchestrator
+    process). This pins task-4-2's default + flag-typo-fails-to-off cases at
+    the spawn-command boundary: default/off/typo => NO cap export (byte-
+    identical legacy spawn); on/log => the cap is exported.
+    """
+
+    def _script(self) -> str:
+        return build_event_pump_wrapped_command("Prompt")[2]
+
+    def test_default_unset_renders_no_cap_block(self, monkeypatch):
+        # Default (unset findings mode) => off => the spawn command carries
+        # no cap export at all (byte-identical to the pre-S4 legacy path).
+        monkeypatch.delenv(FINDINGS_MODE_ENV_VAR, raising=False)
+        assert REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR not in self._script()
+
+    @pytest.mark.parametrize("typo", ["onn", "enabled", "l0g", "2", "bogus"])
+    def test_flag_typo_renders_no_cap_block(self, monkeypatch, typo):
+        # A misconfigured flag degrades to off — the cap export never appears.
+        monkeypatch.setenv(FINDINGS_MODE_ENV_VAR, typo)
+        assert REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR not in self._script()
+
+    def test_on_mode_renders_cap_block_with_default(self, monkeypatch):
+        monkeypatch.setenv(FINDINGS_MODE_ENV_VAR, "on")
+        monkeypatch.delenv(REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR, raising=False)
+        script = self._script()
+        assert (
+            f'export {REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR}="{_DEFAULT_FINDING_TOOL_CALL_CAP}"'
+            in script
+        )
+        assert f'export {REVIEW_FINDING_TOOL_CALL_CAP_MODE_ENV_VAR}="on"' in script
+
+    def test_log_mode_renders_cap_block_with_configured_value(self, monkeypatch):
+        monkeypatch.setenv(FINDINGS_MODE_ENV_VAR, "log")
+        monkeypatch.setenv(REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR, "4")
+        script = self._script()
+        assert f'export {REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR}="4"' in script
+        assert f'export {REVIEW_FINDING_TOOL_CALL_CAP_MODE_ENV_VAR}="log"' in script
+
+
+class TestToolCallCapDecisionType:
+    """``ToolCallCapDecision`` is the frozen pure-data carrier."""
+
+    def test_is_frozen(self):
+        import dataclasses
+
+        d = evaluate_finding_tool_call_cap(1, role="reviewer_code", cap=8, mode="off")
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            d.cap_hit = True  # type: ignore[misc]
+
+    def test_carries_resolved_inputs(self):
+        d = evaluate_finding_tool_call_cap(3, role="reviewer_code", cap=8, mode="log")
+        assert isinstance(d, ToolCallCapDecision)
+        assert d.cap == 8
+        assert d.tool_calls == 3
+        assert d.mode == "log"
 
     def test_golden_snapshot_is_the_one_shot_wrapper(self):
         """Sanity-check the committed golden really is the one-shot
