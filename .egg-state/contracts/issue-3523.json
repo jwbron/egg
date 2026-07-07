@@ -45,7 +45,7 @@
         {
           "id": "task-1-2",
           "description": "Add the CONFIRMED/PLAUSIBLE/REFUTED verification ladder, its symmetric evidence duties,\nthe \"blocking must reproduce\" / \"drop only the refuted; downgrade the unconfirmed\"\ncompanion rules, and the read-only scratch-check permission to the remaining specialist\ncriteria so every lens shares the same verify discipline:\n`shared/prompts/security-review-criteria.md`,\n`shared/prompts/concurrency-review-criteria.md`,\n`shared/prompts/agent-design-criteria.md`, and\n`shared/prompts/contract-review-criteria.md`. Keep each lens's domain content; append\nthe shared ladder section consistently, mirroring the /review skill vocabulary.",
-          "status": "pending",
+          "status": "complete",
           "commit": "1e6d257ae585c3fd41e72be31b85a4f9e3cc9c48",
           "checkpoint_id": null,
           "notes": "",
@@ -717,6 +717,17 @@
       "old_value": null,
       "new_value": "1e6d257ae585c3fd41e72be31b85a4f9e3cc9c48",
       "reason": "Linked commit 1e6d257 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T04:25:37.483914Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
       "checkpoint_id": null
     }
   ],
