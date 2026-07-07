@@ -397,7 +397,7 @@
           "id": "task-6-2",
           "description": "Add the optional review-stance conditional (precision-first on trivial tiers,\nrecall-first on high tiers) as ONE code-side conditional in the reviewer-criteria assembly\n(`orchestrator/routes/pipelines/_criteria.py`), selecting between the two stance framings\n(defined in code, not in the shared criteria files, to keep S1 independent) by the\nrouter's tier. Ship it log-first: apply the stance only in `on` mode under\n`EGG_RISK_ROUTER`. A single conditional; do not fork the prompt bodies.",
           "status": "pending",
-          "commit": null,
+          "commit": "07ea5b919",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "A single code-side stance conditional selects precision- vs recall-first framing by router\ntier, active only when EGG_RISK_ROUTER is on; off/log leave reviewer prompts unchanged; no\nshared/prompts file is edited by this slice.",
@@ -1058,6 +1058,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-6-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T06:13:46.354703Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.commit",
+      "old_value": null,
+      "new_value": "07ea5b919",
+      "reason": "Linked commit 07ea5b9 to task-6-2",
       "checkpoint_id": null
     }
   ],
