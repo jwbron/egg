@@ -524,6 +524,44 @@
       "resolved_at": "2026-07-07T00:18:44.007640Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "cq-3",
+      "question": "BLOCKED (slice-1, coder): cannot mark task-1-5 complete \u2014 the contract completer fails deterministically with \"Failed to apply mutation: list index out of range\" at field_path phases.0.tasks.4.commit, via BOTH mcp__task__complete AND `egg-contract complete-task`. Root cause: the completer resolves a task id POSITIONALLY by its numeric suffix (task-1-5 -> slice-1.tasks[4]) instead of by id lookup. After slice-1 was re-scoped (per decision-3) to hold only [task-1-5, task-1-6] at list positions 0-1, index 4 is out of range \u2014 so task-1-5 AND task-1-6 can never be flipped complete as structured. (Also observed: read vs write desync \u2014 mcp__sdlc__show_contract returns slice-1=[task-1-5, task-1-6] while the local .egg-state/contracts/issue-3364.json still holds [task-1-1..task-1-4].) IMPORTANT: the work itself is COMPLETE and landed \u2014 commit c2a77847ac88f0deb37a746bce1c9da9fc228022 wires the production slice_closed_emitter at orchestrator/routes/pipelines/_run_implement.py:86 and adds an end-to-end test; it is the current tip of origin/egg/issue-3364/slice-1 and satisfies task-1-5's ACs. Only the bookkeeping status flip is blocked, which in turn blocks the coder propose (propose requires task-1-5 complete) and thus all of slice-1 consensus. A prior plan_bug report_impasse did not clear the wedge (re-spawned on the identical blocker). This needs an operator/orchestrator-side repair; no coder-side file/staging workaround exists (hand-editing the gateway contract is a restricted write). How should this be resolved?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Operator/orchestrator marks task-1-5 (coder) and task-1-6 (tester) complete out-of-band, linking commit c2a77847a \u2014 bypassing the buggy positional completer \u2014 so slice-1 can proceed to consensus.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Re-index slice-1's tasks to dense low ids (rename task-1-5 -> task-1-1, task-1-6 -> task-1-2) so positional resolution (tasks[0], tasks[1]) matches, then agents complete them normally.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Fix the contract completer to resolve tasks by id rather than positional numeric-suffix, redeploy the orchestrator, then re-run completion (deeper fix; unblocks any future re-scoped-task pipeline).",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Reconcile the read/write contract desync (sync the live re-scoped contract [task-1-5, task-1-6] to the on-disk .egg-state copy) so both paths agree, then re-run completion.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -722,6 +760,54 @@
         "debounce_until": null
       },
       "reason": "Created HITL decision: PR C (slice-2) file-scope mismatch discovered duri...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T00:24:58.022177Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "BLOCKED (slice-1, coder): cannot mark task-1-5 complete \u2014 the contract completer fails deterministically with \"Failed to apply mutation: list index out of range\" at field_path phases.0.tasks.4.commit, via BOTH mcp__task__complete AND `egg-contract complete-task`. Root cause: the completer resolves a task id POSITIONALLY by its numeric suffix (task-1-5 -> slice-1.tasks[4]) instead of by id lookup. After slice-1 was re-scoped (per decision-3) to hold only [task-1-5, task-1-6] at list positions 0-1, index 4 is out of range \u2014 so task-1-5 AND task-1-6 can never be flipped complete as structured. (Also observed: read vs write desync \u2014 mcp__sdlc__show_contract returns slice-1=[task-1-5, task-1-6] while the local .egg-state/contracts/issue-3364.json still holds [task-1-1..task-1-4].) IMPORTANT: the work itself is COMPLETE and landed \u2014 commit c2a77847ac88f0deb37a746bce1c9da9fc228022 wires the production slice_closed_emitter at orchestrator/routes/pipelines/_run_implement.py:86 and adds an end-to-end test; it is the current tip of origin/egg/issue-3364/slice-1 and satisfies task-1-5's ACs. Only the bookkeeping status flip is blocked, which in turn blocks the coder propose (propose requires task-1-5 complete) and thus all of slice-1 consensus. A prior plan_bug report_impasse did not clear the wedge (re-spawned on the identical blocker). This needs an operator/orchestrator-side repair; no coder-side file/staging workaround exists (hand-editing the gateway contract is a restricted write). How should this be resolved?",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Operator/orchestrator marks task-1-5 (coder) and task-1-6 (tester) complete out-of-band, linking commit c2a77847a \u2014 bypassing the buggy positional completer \u2014 so slice-1 can proceed to consensus.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Re-index slice-1's tasks to dense low ids (rename task-1-5 -> task-1-1, task-1-6 -> task-1-2) so positional resolution (tasks[0], tasks[1]) matches, then agents complete them normally.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Fix the contract completer to resolve tasks by id rather than positional numeric-suffix, redeploy the orchestrator, then re-run completion (deeper fix; unblocks any future re-scoped-task pipeline).",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Reconcile the read/write contract desync (sync the live re-scoped contract [task-1-5, task-1-6] to the on-disk .egg-state copy) so both paths agree, then re-run completion.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: BLOCKED (slice-1, coder): cannot mark task-1-5 com...",
       "checkpoint_id": null
     }
   ],
