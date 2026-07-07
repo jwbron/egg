@@ -7,14 +7,32 @@ Covers the hard rules from the issue and the task-7-1 acceptance:
 - the pack **carries no editorializing fields** (evidence, never conclusions);
 - the pack is **mechanically path-ordered**;
 - the staged flag resolves off/log/on with unknown => off;
-- the independence guardrail keeps the tester / finding-verifier cold-start.
+- the independence guardrail keeps the tester / finding-verifier cold-start;
+- the gatherer exposes **no verdict / post / GitHub surface** (module surface +
+  the SYSTEM contract role + gateway deny-by-default gh restrictions);
+- **log-mode parity + cost recording**: ``off`` / ``log`` are byte-identical to a
+  cold-start reviewer prompt, while the log record captures the measured wave
+  cache-hit rate and per-wave cost;
+- **Delphi redaction is unaffected**: the pack is repo-facts-only, so there is no
+  producer self-assessment in it for redaction to act on.
 """
 
 from __future__ import annotations
 
 import subprocess
+from dataclasses import fields
 
+import evidence_gatherer
 import pytest
+from consensus_wrapper import aggregate_wave_cache_stats, evidence_prefix_log_record
+from egg_contracts.agent_roles import (
+    REVIEWER_CHECKOUT_ROLE_VALUES,
+    AgentCategory,
+    AgentRole,
+    Role,
+    get_contract_role,
+    get_role_definition,
+)
 from evidence_gatherer import (
     EVIDENCE_PACK_SCHEMA_VERSION,
     ChangedFileEvidence,
@@ -28,6 +46,12 @@ from evidence_gatherer import (
     render_pack,
     shares_evidence_prefix,
 )
+from routes.pipelines._criteria import (
+    apply_shared_evidence_prefix,
+    build_shared_evidence_prefix,
+)
+
+from gateway.agent_restrictions import check_agent_gh_operation
 
 # ---------------------------------------------------------------------------
 # Staged flag
@@ -255,3 +279,184 @@ class TestGatherEvidence:
         pack = gather_evidence(["x.py"], tmp_path, environment={}, runner=boom)
         assert pack.diff == ""
         assert isinstance(pack, EvidencePack)
+
+
+# ---------------------------------------------------------------------------
+# No verdict / post / GitHub surface (task-7-3 acceptance)
+# ---------------------------------------------------------------------------
+#
+# The gatherer is *unprivileged by construction*: it assembles evidence and
+# nothing else. This is guaranteed on two planes — the module exposes no verdict
+# / post / write callable, and the paired EVIDENCE_GATHERER role is structurally
+# denied verdict-casting, contract writes, and EVERY gh operation.
+
+
+class TestNoVerdictPostOrGitHubSurface:
+    def test_module_exposes_no_verdict_or_post_callable(self):
+        """The public module surface is read-only assembly — no verdict/post/write."""
+        # Token-equality (not substring) so 'pack' is not mistaken for 'ack'.
+        banned = {
+            "verdict", "ack", "nack", "post", "comment", "review",
+            "approve", "merge", "push", "gh",
+        }
+        offenders = [
+            name
+            for name in dir(evidence_gatherer)
+            if not name.startswith("_")
+            and callable(getattr(evidence_gatherer, name))
+            and banned & set(name.lower().split("_"))
+        ]
+        assert offenders == [], f"gatherer must expose no verdict/post surface: {offenders}"
+
+    def test_role_maps_to_system_not_reviewer(self):
+        """SYSTEM contract role: an observer, structurally unable to cast a verdict."""
+        assert get_contract_role(AgentRole.EVIDENCE_GATHERER) is Role.SYSTEM
+        assert get_contract_role(AgentRole.EVIDENCE_GATHERER) is not Role.REVIEWER
+
+    def test_role_is_not_a_checkout_reviewer(self):
+        assert AgentRole.EVIDENCE_GATHERER not in REVIEWER_CHECKOUT_ROLE_VALUES
+
+    def test_role_is_utility_category(self):
+        assert get_role_definition(AgentRole.EVIDENCE_GATHERER).category is AgentCategory.UTILITY
+
+    @pytest.mark.parametrize(
+        "gh_command",
+        [
+            "pr create --title x",
+            "pr review --approve 1",
+            "pr merge 1",
+            "issue comment 1 --body x",
+            "issue edit 1 --body x",
+            "pr comment 1 --body x",
+        ],
+    )
+    def test_every_gh_operation_denied_by_default(self, gh_command):
+        """Absent from AGENT_GH_RESTRICTIONS => deny-by-default rejects EVERY gh op."""
+        allowed, _reason = check_agent_gh_operation("evidence_gatherer", gh_command)
+        assert allowed is False
+
+    def test_file_access_writes_only_handoff_dir(self):
+        """Read-all, write-only-handoff: no source/tests/contracts/reviews writes."""
+        fa = get_role_definition(AgentRole.EVIDENCE_GATHERER).file_access
+        assert fa.allowed_write == [".egg-state/agent-outputs/"]
+        for blocked in (".egg-state/contracts/", ".egg-state/reviews/", "tests/", ".github/"):
+            assert blocked in fa.blocked_write
+
+
+# ---------------------------------------------------------------------------
+# Log-mode parity + cost recording (task-7-3 acceptance)
+# ---------------------------------------------------------------------------
+#
+# Item 5's whole bet is cost, and "measure the cache-hit rate + per-wave cost in
+# log mode before enabling" is an explicit acceptance criterion. The log record
+# must capture those numbers while changing NOTHING about prompt assembly —
+# ``off`` and ``log`` must be byte-identical to a true cold-start; only ``on``
+# prepends the shared prefix.
+
+_LENS_TAIL = "**CODE REVIEW** lens instruction tail (per-lens, distinct)."
+
+
+def _wave_pack():
+    return build_pack(
+        diff="diff --git a/x b/x\n@@\n+changed\n",
+        files=[ChangedFileEvidence(path="x.py", content="def x():\n    return 1\n")],
+        symbols=[],
+        environment={"python_version": "3.12.0"},
+    )
+
+
+class TestLogModeParityAndCostRecording:
+    def test_log_mode_is_byte_identical_to_cold_start(self, monkeypatch):
+        """log mode changes NO prompt assembly — parity vs the cold-start lens."""
+        monkeypatch.setenv("EGG_REVIEW_EVIDENCE_PREFIX", "log")
+        cold_start = _LENS_TAIL  # what the reviewer gets today, with no prefix
+        assembled = apply_shared_evidence_prefix(
+            _LENS_TAIL, reviewer_role="reviewer_code", evidence_pack=_wave_pack()
+        )
+        assert assembled == cold_start
+
+    def test_off_mode_is_byte_identical_to_cold_start(self, monkeypatch):
+        monkeypatch.setenv("EGG_REVIEW_EVIDENCE_PREFIX", "off")
+        assembled = apply_shared_evidence_prefix(
+            _LENS_TAIL, reviewer_role="reviewer_code", evidence_pack=_wave_pack()
+        )
+        assert assembled == _LENS_TAIL
+
+    def test_on_mode_prepends_prefix_proving_log_was_parity(self, monkeypatch):
+        """Contrast: only ``on`` actually changes assembly, so log-mode parity is real."""
+        monkeypatch.setenv("EGG_REVIEW_EVIDENCE_PREFIX", "on")
+        pack = _wave_pack()
+        assembled = apply_shared_evidence_prefix(
+            _LENS_TAIL, reviewer_role="reviewer_code", evidence_pack=pack
+        )
+        assert assembled != _LENS_TAIL
+        assert assembled.startswith(build_shared_evidence_prefix(pack))
+        assert assembled.endswith(_LENS_TAIL)
+
+    def test_log_record_captures_hit_rate_and_per_wave_cost(self, monkeypatch):
+        """log mode records the measured wave cache-hit rate AND per-wave cost."""
+        monkeypatch.setenv("EGG_REVIEW_EVIDENCE_PREFIX", "log")
+        rec = evidence_prefix_log_record(
+            wave_roles=["reviewer_security", "reviewer_code"],
+            shared_prefix_bytes=4096,
+            session_records=[
+                {"session": {"prompt_tokens": 1000, "cached_tokens": 900, "cost": 0.02}},
+                {"session": {"prompt_tokens": 1000, "cached_tokens": 700, "cost": 0.03}},
+            ],
+        )
+        assert rec["kind"] == "evidence_prefix"
+        assert rec["mode"] == "log"
+        assert rec["cache_stats"]["cache_hit_rate_pct"] == 80.0
+        assert rec["cache_stats"]["per_wave_cost"] == pytest.approx(0.05)
+        assert rec["cache_stats"]["sessions"] == 2
+
+    def test_per_wave_cost_is_none_when_uncaptured_not_zero(self):
+        """Absent cost reads as None ('not captured'), never a silent 0.0."""
+        stats = aggregate_wave_cache_stats(
+            [{"session": {"prompt_tokens": 100, "cached_tokens": 10}}]
+        )
+        assert stats["per_wave_cost"] is None
+        assert stats["cache_hit_rate_pct"] == 10.0
+
+
+# ---------------------------------------------------------------------------
+# Delphi redaction is unaffected (task-7-3 acceptance)
+# ---------------------------------------------------------------------------
+#
+# Delphi independence redacts a *producer's self-assessment* out of the review
+# input so lenses judge blind. The evidence pack carries REPO FACTS ONLY (diff,
+# files, symbols, env) — never a producer's attribution or self-assessment — so
+# there is nothing in it for Delphi redaction to act on: its output is unchanged.
+# Enforced structurally as a fixed repo-facts field allowlist so a future edge
+# that smuggles a producer-attributed field into the shared prefix fails here.
+
+
+class TestDelphiRedactionUnaffected:
+    _REPO_FACT_FIELDS = frozenset(
+        {"schema_version", "diff", "files", "symbols", "environment", "diff_truncated"}
+    )
+
+    def test_pack_schema_is_repo_facts_only(self):
+        """No producer/author/self-assessment field for Delphi to redact."""
+        actual = {f.name for f in fields(EvidencePack)}
+        assert actual == self._REPO_FACT_FIELDS
+
+    def test_no_producer_attribution_field(self):
+        smell = ("author", "producer", "agent", "self", "assessment", "opinion", "claim")
+        offenders = [
+            f.name
+            for f in fields(EvidencePack)
+            if any(s in f.name.lower() for s in smell)
+        ]
+        assert offenders == []
+
+    def test_rendered_pack_carries_no_producer_attribution(self):
+        pack = build_pack(
+            diff="diff --git a/x b/x\n@@\n+x\n",
+            files=[ChangedFileEvidence(path="x.py", content="def x(): ...\n")],
+            symbols=[SymbolEvidence(symbol="x", defined_in="x.py")],
+            environment={"python_version": "3.12.0"},
+        )
+        rendered = render_pack(pack).lower()
+        for marker in ("producer:", "author:", "my assessment", "i think", "self-assessment"):
+            assert marker not in rendered
