@@ -134,7 +134,7 @@
           "id": "task-2-2",
           "description": "Unit-test the finding schema and its boundary validator: a valid blocking finding\nround-trips; a blocking finding with no failure_scenario is flagged\nnon-blocking-eligible (never valid-blocking, never erroring); severity and confidence\nenums reject junk; the schema_version field is present and stable; serialization\nround-trips; additive unknown fields do not break validation.",
           "status": "pending",
-          "commit": null,
+          "commit": "6bc6c1304818cade977426a38b49dba29bd30cb7",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Tests cover the required-failure_scenario rule, enum validation, versioning, additive\ntolerance, and round-trip; all pass under `make test`.",
@@ -805,6 +805,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T04:42:19.899114Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "6bc6c1304818cade977426a38b49dba29bd30cb7",
+      "reason": "Linked commit 6bc6c13 to task-2-2",
       "checkpoint_id": null
     }
   ],
