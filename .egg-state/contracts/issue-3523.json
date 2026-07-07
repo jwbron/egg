@@ -689,24 +689,28 @@
         {
           "id": "opt-2",
           "label": "Re-integrate slice-1 at the orchestrator/pipeline level (the missed merge is a pipeline defect; recover slice-1 into the work chain before finalizing) rather than patching it into slice-8",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-3",
           "label": "Ship without the reviewer-prompt layer: document only the pieces present on-branch (schema, verdict, convergence, router+config+floors, tool-call cap, evidence prefix) and explicitly flag items 2 & 3 (ladder + method-angles) as NOT integrated",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-4",
           "label": "Other (explain in reply)",
-          "description": null
+          "description": null,
+          "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
-      "debounce_until": null
+      "resolved": true,
+      "resolution": "Other: the operator has already re-integrated the orphaned slice-1 work at the branch level, so proceed as if option 2 were completed. Commit 1e6d257ae was cherry-picked onto egg/issue-3523/slice-8 as a181d3f5fc73479ff9f1826caefcdd638b14172e (\"docs(3523): reviewer method-angles + verification ladder (slice-1, recovered)\"); the re-application was conflict-free (256 insertions, 0 deletions across the six shared/prompts/*-criteria.md files) and is already pushed. Documenter: fetch the latest slice-8 branch tip, verify the six criteria files now contain the verification ladder and the four method-angle procedures, and write docs/reference/review-quality.md as a current-state snapshot against the restored files; items 2 and 3 of issue #3523 ARE shipped on-branch now, so document them as shipped. Do not re-apply the content yourself and do not treat task-1-1/task-1-2 as incomplete; their content is on-branch at the new SHA. The root-cause pipeline defect (slice-2 branching from the contract-persist commit instead of the slice-1 code tip) is tracked separately in issue #3541 and is out of scope for slice-8.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-07T18:49:30.236011Z",
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
