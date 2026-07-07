@@ -133,7 +133,7 @@
         {
           "id": "task-2-2",
           "description": "Unit-test the finding schema and its boundary validator: a valid blocking finding\nround-trips; a blocking finding with no failure_scenario is flagged\nnon-blocking-eligible (never valid-blocking, never erroring); severity and confidence\nenums reject junk; the schema_version field is present and stable; serialization\nround-trips; additive unknown fields do not break validation.",
-          "status": "pending",
+          "status": "complete",
           "commit": "6bc6c1304818cade977426a38b49dba29bd30cb7",
           "checkpoint_id": null,
           "notes": "Added shared/egg_contracts/tests/test_review_findings.py (25 tests, all passing). Covers S2 acceptance: valid blocking round-trip; blocking-without-failure_scenario flagged non-blocking-eligible (never valid-blocking, never error, incl. whitespace-only); severity/confidence enum junk rejected at boundary; schema_version present/stable/default; Finding/FindingAnchor/FindingsPayload round-trips; additive unknown fields non-breaking via from_dict + retained via extra=\"allow\" constructor model_dump. Ran via `.venv/bin/pytest` with PYTHONPATH=shared (working-tree module); `make test` venv-sync is blocked by sandbox network (UnknownIssuer on pypi), not a test defect. Note surfaced for reviewers: coder docstring claims extra data \"round-trips\", but from_dict/to_dict enumerate fixed keys so extras arriving via the dict path are dropped (tolerated, not retained) \u2014 test asserts the acceptance's non-breakage guarantee, not preservation-through-from_dict.",
@@ -838,6 +838,17 @@
       "old_value": "6bc6c1304818cade977426a38b49dba29bd30cb7",
       "new_value": "6bc6c1304818cade977426a38b49dba29bd30cb7",
       "reason": "Linked commit 6bc6c13 to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T04:43:12.890272Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-2 as complete",
       "checkpoint_id": null
     }
   ],
