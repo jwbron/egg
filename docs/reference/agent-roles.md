@@ -11,7 +11,7 @@ Every agent role belongs to one of five categories. Categories enable dynamic te
 | **EXECUTION** | Produce artifacts (code, tests, docs, Jira mutations) | `coder`, `tester`, `documenter`, `applier` |
 | **ANALYSIS** | Analyze tasks and plan work | `refiner`, `architect`, `task_planner`, `risk_analyst`, `simplifier` |
 | **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_refine`, `first_principles_reviewer`, `reviewer_plan`, `reviewer_agent_design`, `reviewer_security`, `reviewer_concurrency` |
-| **UTILITY** | Cross-cutting support tasks | `autofixer`, `conflict_resolver` |
+| **UTILITY** | Cross-cutting support tasks | `autofixer`, `conflict_resolver`, `evidence_gatherer` |
 | **INTERFACE** | Pipeline health and monitoring | `overseer` |
 
 Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by category.
@@ -40,6 +40,7 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `reviewer_concurrency` | Review | Implement | Yes (with `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`) | coder, tester |
 | `autofixer` | Utility | Any | Yes | — |
 | `conflict_resolver` | Utility | Any | Yes | — |
+| `evidence_gatherer` | Utility | Any (runs ahead of a review wave) | Yes | — |
 | `overseer` | Interface | Per-phase (spawned/torn down at phase boundaries) | — | — (pipeline health monitoring) |
 
 All agents within a phase run concurrently via BRC consensus. Concurrency is enabled by default for the refine, plan, and implement phases, and can be extended to additional phases via the `concurrent_phases` config.
@@ -499,6 +500,19 @@ tests, and its mandate is two-fold: **(1) comprehensive regression coverage** �
 - Conflict resolution commits on the worktree branch
 - `.egg-state/agent-outputs/{identifier}-conflict_resolver-output.json` — Resolution decisions and rationale
 
+### `evidence_gatherer`
+
+**Category**: Utility
+
+**Purpose**: Read-only gatherer that assembles a single shared **evidence pack** (diff, changed files with enclosing context, caller/callee lists for changed symbols, verified environment facts) for a slice's review wave, so same-model reviewer lenses share a byte-identical prompt prefix instead of each cold-starting on the same diff. Collects evidence only — never analysis: `assert_pack_carries_no_conclusions()` structurally rejects any pack field that smells like a conclusion, and `render_pack()` orders strictly by path so no lens is anchored by gatherer framing. See [Review Quality Reference §5](review-quality.md) for the staged `EGG_REVIEW_EVIDENCE_PREFIX` rollout (`off`/`log`/`on`) and how the rendered pack is threaded into reviewer prompts via `build_shared_evidence_prefix()`.
+
+**File access**:
+- Allowed writes: `.egg-state/agent-outputs/`
+- Blocked: `src/`, `lib/`, `shared/`, `gateway/`, `sandbox/`, `action/`, `orchestrator/`, `docs/`, `tests/`, `test/`, `.egg-state/contracts/`, `.egg-state/drafts/`, `.egg-state/reviews/`, `.github/` — no source, test, doc, or config access; casts no verdict, posts nothing, touches no network
+
+**Outputs**:
+- `.egg-state/agent-outputs/{identifier}-evidence_gatherer-output.json` — the assembled evidence pack
+
 ## Interface Roles
 
 ### `overseer`
@@ -741,3 +755,4 @@ This is set automatically by the sandbox entrypoint using the `EGG_AGENT_ROLE` e
 - [Concurrent Execution Guide](../guides/concurrent-execution.md) — BRC consensus protocol
 - [Agent Development Guide](../guides/agent-development.md) — How to add new agent roles
 - [Architecture Overview](../architecture/README.md) — Role-based access control
+- [Review Quality Reference](review-quality.md) — Structured findings, risk-routed review graph, and the `evidence_gatherer` shared-evidence prefix
