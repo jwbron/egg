@@ -417,7 +417,7 @@
         {
           "id": "task-6-3",
           "description": "Unit-test the router wiring: log mode records the would-be graph/tier/cost and changes no\nreal lens graph or effort (parity versus the full-graph baseline); on mode applies gating\nand effort; a flag typo resolves to off; no-match => full graph + logged warning; the\nsecurity lens survives on a protected path even when the config would gate it; the stance\nconditional only fires in on mode.",
-          "status": "pending",
+          "status": "complete",
           "commit": "dc5145e474b7b7dc805d3b0283f2701704a0834f",
           "checkpoint_id": null,
           "notes": "",
@@ -1091,6 +1091,17 @@
       "old_value": null,
       "new_value": "dc5145e474b7b7dc805d3b0283f2701704a0834f",
       "reason": "Linked commit dc5145e to task-6-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T06:21:43.194844Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-6-3 as complete",
       "checkpoint_id": null
     }
   ],
