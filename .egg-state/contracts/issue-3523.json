@@ -660,6 +660,53 @@
       "resolved_at": "2026-07-07T04:20:49.410675Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "cq-1",
+      "question": "Integration defect blocking slice-8 documentation: slice-1's code changes are ORPHANED from the branch, so the shipped feature is missing issue #3523 items 2 & 3 (the reviewer-prompt verification ladder + method-angle procedures).\n\nEvidence:\n- Slice-1 content commit 1e6d257 (\"docs(3523): reviewer method-angles + verification ladder\") added the four method-angle procedures (line-by-line scan, removed-behavior audit, cross-file tracer, quote-the-rule discipline), the CONFIRMED/PLAUSIBLE/REFUTED verification ladder, the two companion rules (\"blocking must reproduce\" / \"drop only the refuted; downgrade the unconfirmed\"), the amplified-pre-existing-defect nuance, and the read-only scratch-check permission to all six shared/prompts/*-criteria.md files.\n- That commit lives ONLY on origin/egg/issue-3523/slice-1 and the slice-1 per-role branches. It is NOT an ancestor of HEAD. My branch base 916dc34b4 (\"Persist contract after slice slice-1 completion\") is NOT a descendant of 1e6d257 \u2014 slice-2 branched from the contract-persist commit, not from slice-1's code, so every downstream slice (2-8) excludes it.\n- Slices 2-7 code IS present on-branch (accumulated correctly). Only slice-1's content was lost. The contract still marks task-1-1 and task-1-2 \"complete\" pointing at the orphaned SHA 1e6d257.\n- On-branch, none of the six criteria files contain the ladder or method-angles (0 keyword hits). The slice-1-vs-HEAD diff is a clean superset (73/35/36/34/33/45 additions, ZERO deletions) \u2014 recovery applies without conflict.\n\nImpact: task-8-1 asks the documenter to write docs/reference/review-quality.md as a current-state snapshot documenting \"every shipped piece ... ladder, method angles\". Those pieces are absent from the deliverable branch. Documenting them as shipped would be documenting fiction; omitting them would ship an incomplete feature and contradict the contract's \"complete\" status for task-1-1/1-2. This is a cross-slice integration decision above the documenter's scope. How should we proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Re-apply slice-1's orphaned criteria edits within slice-8 (documenter owns shared/prompts; clean-superset re-application of commit 1e6d257), then write review-quality.md against the restored files",
+          "description": null,
+          "adds_task": {
+            "slice_id": "slice-8",
+            "description": "Recover slice-1's orphaned criteria edits: re-apply commit 1e6d257's additions to the six shared/prompts/*-criteria.md files (the four method-angle procedures + CONFIRMED/PLAUSIBLE/REFUTED verification ladder + the two companion rules + amplified-pre-existing-defect nuance + read-only scratch-check permission). The slice-1-vs-HEAD diff is a clean superset (pure additions, zero deletions) so it applies without conflict; match origin/egg/issue-3523/slice-1's file content exactly.",
+            "acceptance_criteria": "All six criteria files contain the CONFIRMED/PLAUSIBLE/REFUTED ladder and both companion rules; code-review-criteria.md and code-review-holistic-criteria.md additionally contain the four method-angle procedures and the amplified-defect nuance; each file's content matches origin/egg/issue-3523/slice-1's tip for that path (byte-equivalent to re-applying 1e6d257).",
+            "files_affected": [
+              "shared/prompts/code-review-criteria.md",
+              "shared/prompts/code-review-holistic-criteria.md",
+              "shared/prompts/security-review-criteria.md",
+              "shared/prompts/concurrency-review-criteria.md",
+              "shared/prompts/agent-design-criteria.md",
+              "shared/prompts/contract-review-criteria.md"
+            ],
+            "role": "documenter"
+          }
+        },
+        {
+          "id": "opt-2",
+          "label": "Re-integrate slice-1 at the orchestrator/pipeline level (the missed merge is a pipeline defect; recover slice-1 into the work chain before finalizing) rather than patching it into slice-8",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Ship without the reviewer-prompt layer: document only the pieces present on-branch (schema, verdict, convergence, router+config+floors, tool-call cap, evidence prefix) and explicitly flag items 2 & 3 (ladder + method-angles) as NOT integrated",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -1190,6 +1237,63 @@
       "old_value": "complete",
       "new_value": "complete",
       "reason": "Marked task-7-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T07:23:07.008656Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "Integration defect blocking slice-8 documentation: slice-1's code changes are ORPHANED from the branch, so the shipped feature is missing issue #3523 items 2 & 3 (the reviewer-prompt verification ladder + method-angle procedures).\n\nEvidence:\n- Slice-1 content commit 1e6d257 (\"docs(3523): reviewer method-angles + verification ladder\") added the four method-angle procedures (line-by-line scan, removed-behavior audit, cross-file tracer, quote-the-rule discipline), the CONFIRMED/PLAUSIBLE/REFUTED verification ladder, the two companion rules (\"blocking must reproduce\" / \"drop only the refuted; downgrade the unconfirmed\"), the amplified-pre-existing-defect nuance, and the read-only scratch-check permission to all six shared/prompts/*-criteria.md files.\n- That commit lives ONLY on origin/egg/issue-3523/slice-1 and the slice-1 per-role branches. It is NOT an ancestor of HEAD. My branch base 916dc34b4 (\"Persist contract after slice slice-1 completion\") is NOT a descendant of 1e6d257 \u2014 slice-2 branched from the contract-persist commit, not from slice-1's code, so every downstream slice (2-8) excludes it.\n- Slices 2-7 code IS present on-branch (accumulated correctly). Only slice-1's content was lost. The contract still marks task-1-1 and task-1-2 \"complete\" pointing at the orphaned SHA 1e6d257.\n- On-branch, none of the six criteria files contain the ladder or method-angles (0 keyword hits). The slice-1-vs-HEAD diff is a clean superset (73/35/36/34/33/45 additions, ZERO deletions) \u2014 recovery applies without conflict.\n\nImpact: task-8-1 asks the documenter to write docs/reference/review-quality.md as a current-state snapshot documenting \"every shipped piece ... ladder, method angles\". Those pieces are absent from the deliverable branch. Documenting them as shipped would be documenting fiction; omitting them would ship an incomplete feature and contradict the contract's \"complete\" status for task-1-1/1-2. This is a cross-slice integration decision above the documenter's scope. How should we proceed?",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Re-apply slice-1's orphaned criteria edits within slice-8 (documenter owns shared/prompts; clean-superset re-application of commit 1e6d257), then write review-quality.md against the restored files",
+            "description": null,
+            "adds_task": {
+              "slice_id": "slice-8",
+              "description": "Recover slice-1's orphaned criteria edits: re-apply commit 1e6d257's additions to the six shared/prompts/*-criteria.md files (the four method-angle procedures + CONFIRMED/PLAUSIBLE/REFUTED verification ladder + the two companion rules + amplified-pre-existing-defect nuance + read-only scratch-check permission). The slice-1-vs-HEAD diff is a clean superset (pure additions, zero deletions) so it applies without conflict; match origin/egg/issue-3523/slice-1's file content exactly.",
+              "acceptance_criteria": "All six criteria files contain the CONFIRMED/PLAUSIBLE/REFUTED ladder and both companion rules; code-review-criteria.md and code-review-holistic-criteria.md additionally contain the four method-angle procedures and the amplified-defect nuance; each file's content matches origin/egg/issue-3523/slice-1's tip for that path (byte-equivalent to re-applying 1e6d257).",
+              "files_affected": [
+                "shared/prompts/code-review-criteria.md",
+                "shared/prompts/code-review-holistic-criteria.md",
+                "shared/prompts/security-review-criteria.md",
+                "shared/prompts/concurrency-review-criteria.md",
+                "shared/prompts/agent-design-criteria.md",
+                "shared/prompts/contract-review-criteria.md"
+              ],
+              "role": "documenter"
+            }
+          },
+          {
+            "id": "opt-2",
+            "label": "Re-integrate slice-1 at the orchestrator/pipeline level (the missed merge is a pipeline defect; recover slice-1 into the work chain before finalizing) rather than patching it into slice-8",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Ship without the reviewer-prompt layer: document only the pieces present on-branch (schema, verdict, convergence, router+config+floors, tool-call cap, evidence prefix) and explicitly flag items 2 & 3 (ladder + method-angles) as NOT integrated",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Integration defect blocking slice-8 documentation:...",
       "checkpoint_id": null
     }
   ],
