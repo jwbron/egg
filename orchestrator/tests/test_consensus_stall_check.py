@@ -213,11 +213,13 @@ class TestConsensusStallCheck:
         mock_pc = MagicMock()
         mock_pc.get_peer_consensus_tracker.return_value = None
 
-        # Message fallback shows consensus complete
+        # Message fallback shows consensus complete (pipeline-level
+        # confirmation: no slice_id tag; #3542)
         mock_msg_store = MagicMock()
         mock_message = MagicMock()
         mock_message.message_type = "CONSENSUS_CONFIRMED"
         mock_message.from_role = "coder"
+        mock_message.metadata = {}
         mock_msg_store.get_messages.return_value = [mock_message]
 
         mock_msg_store_mod = MagicMock()
@@ -243,6 +245,58 @@ class TestConsensusStallCheck:
         # Health check should NOT have called reconstruct (no side effects)
         mock_pc.reconstruct_tracker_from_messages.assert_not_called()
         assert "tracker_reconstructed" not in result.details
+
+    def test_slice_tagged_confirmations_do_not_trigger_stall(self):
+        """Slice-scoped CONSENSUS_CONFIRMED messages are ignored by the fallback (#3542).
+
+        During a slice-DAG implement phase every slice's consensus traffic
+        lands on the same bus. Once one slice fully confirms, an unscoped
+        scan reports "consensus complete" for the rest of the pipeline's
+        life, letting aggressive stall recovery mark the implement phase
+        COMPLETE between slices (issue-3523 slice-7 to slice-8).
+        """
+        pipeline = _make_concurrent_pipeline(phase_started_seconds_ago=120)
+        ctx = _make_context(pipeline)
+
+        mock_ce = MagicMock()
+        mock_ce.is_concurrent_execution.return_value = True
+
+        # No pipeline-level tracker (cleared by a phase restart, or the
+        # phase is between slices).
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = None
+
+        # Every role confirmed, but for a *slice* round, not the pipeline.
+        mock_msg_store = MagicMock()
+        messages = []
+        for role in ("coder", "tester"):
+            msg = MagicMock()
+            msg.message_type = "CONSENSUS_CONFIRMED"
+            msg.from_role = role
+            msg.metadata = {"slice_id": "slice-1"}
+            messages.append(msg)
+        mock_msg_store.get_messages.return_value = messages
+
+        mock_msg_store_mod = MagicMock()
+        mock_msg_store_mod.get_message_store.return_value = mock_msg_store
+
+        mock_graph = MagicMock()
+        mock_graph.all_roles.return_value = {"coder", "tester"}
+        mock_graph_mod = MagicMock()
+        mock_graph_mod.get_review_graph_for_phase.return_value = mock_graph
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "concurrent_executor": mock_ce,
+                "peer_consensus": mock_pc,
+                "message_store": mock_msg_store_mod,
+                "review_graph": mock_graph_mod,
+            },
+        ):
+            result = ConsensusStallCheck(consensus_stall_grace_seconds=60).run(ctx)
+
+        assert result.status == HealthStatus.HEALTHY
 
     def test_idempotent(self):
         """Running the check twice produces the same result without side effects."""
