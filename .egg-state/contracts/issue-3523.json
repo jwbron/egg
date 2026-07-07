@@ -23,7 +23,7 @@
         {
           "id": "task-1-1",
           "description": "In `shared/prompts/code-review-criteria.md` and\n`shared/prompts/code-review-holistic-criteria.md`, add (a) the four named method-angle\nprocedures from item 3 \u2014 line-by-line scan (per changed line, what\ninput/state/timing/platform makes it wrong: inverted conditions, off-by-one, null\nderef, missing await, falsy-zero, wrong-variable copy-paste, swallowed errors),\nremoved-behavior audit (per deleted or replaced line, name the invariant it enforced\nand find where the new code re-establishes it, else a finding), cross-file tracer (grep\ncallers for broken call sites; check callees for unsafe in-slice parallel changes), and\nquote-the-rule discipline (flag a convention violation only when BOTH the exact written\nrule and the exact violating line can be quoted); and (b) the CONFIRMED/PLAUSIBLE/\nREFUTED verification ladder with symmetric evidence duties, the two companion rules\n(\"blocking must reproduce\", \"drop only the refuted; downgrade the unconfirmed\"), the\namplified-pre-existing-defect nuance (a pre-existing defect still CONFIRMS when the diff\nmaterially amplifies its consequence and must say so), and a read-only scratch-check\npermission. Mirror the Claude Code /review skill's finder angles (A-E) and finding\nshape \u2014 FETCH the verbatim reference first via\n`gh issue view 3523 --repo jwbron/egg --comments` (comments issuecomment-4898679999 and\nissuecomment-4898686738). Do not invent a bespoke vocabulary.",
-          "status": "pending",
+          "status": "complete",
           "commit": "1e6d257ae585c3fd41e72be31b85a4f9e3cc9c48",
           "checkpoint_id": null,
           "notes": "",
@@ -695,6 +695,17 @@
       "old_value": null,
       "new_value": "1e6d257ae585c3fd41e72be31b85a4f9e3cc9c48",
       "reason": "Linked commit 1e6d257 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T04:25:32.333604Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
       "checkpoint_id": null
     }
   ],
