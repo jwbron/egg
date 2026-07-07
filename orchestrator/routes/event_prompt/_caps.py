@@ -59,6 +59,14 @@ _TASK_TRUNCATION_SENTINEL: str = (
     "reimplement decisions)\n"
 )
 
+# Cap on each free-text field (question / resolution) rendered in the
+# #3537 park-release delta section. The env-side serializer
+# (``concurrent_executor._release_context_env_json``) already bounds the
+# whole payload to ~3 KB inside the 10 KB envelope; this render-side cap
+# is a second guard so a single long operator answer cannot crowd out
+# the sections that carry the event itself.
+RELEASE_RESOLUTION_MAX_CHARS: int = 1200
+
 # Cap on the inline copy of the per-iteration operator feedback (#3231).
 # The orchestrator-owned event-loop respawn path threads the operator's
 # ``request_changes`` / ``change_approach`` kickback — recorded on

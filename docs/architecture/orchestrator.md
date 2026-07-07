@@ -840,6 +840,20 @@ producers itself), so cyclic custom graphs cannot mutually `wait` into a
 deadlock. See `_pre_propose_upstream_producers` in
 `orchestrator/routes/consensus.py`.
 
+**No-op park release delta ([#3537](https://github.com/jwbron/egg/issues/3537)):**
+when the #3425 no-op park releases because the unresolved contract-decision
+set or the BRC state moved, the loop attaches the delta to the released
+probe spawn (`EGG_EVENT_RELEASE_CONTEXT`), and the pod-side prompt composer
+renders it as a leading "why you were respawned" section - the resolved
+`cq-N` ids with their resolution text, freshly-gating decisions, and BRC
+movement. Without it the probe's prompt is byte-identical to the invocation
+that parked, so a warm-resumed session (#3278) replays its cached "still
+blocked" conclusion and the arm livelocks on 30-minute heartbeat cycles.
+The section also instructs the agent to verify blockers via reads, never by
+retrying a previously-failing side-effectful call whose error is invariant
+to the thing being probed. Heartbeat releases carry no delta (nothing
+observably changed).
+
 ### Wake conditions (pre-confirm vs post-confirm)
 
 The orchestrator derives a role's wake conditions conditionally from

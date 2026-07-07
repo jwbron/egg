@@ -74,6 +74,16 @@ class TestRestartToolDefinitions:
         assert "reason" in props
         assert "reason" not in tool["inputSchema"].get("required", [])
 
+    def test_restart_agent_has_optional_fresh_session(self):
+        """restart_agent should expose an optional fresh_session flag (#3537)."""
+        from mcp_tools import PIPELINE_TOOLS
+
+        tool = next(t for t in PIPELINE_TOOLS if t["name"] == "restart_agent")
+        props = tool["inputSchema"]["properties"]
+        assert "fresh_session" in props
+        assert props["fresh_session"]["type"] == "boolean"
+        assert "fresh_session" not in tool["inputSchema"].get("required", [])
+
     def test_restart_agent_has_optional_slice_id(self):
         """restart_agent should expose an optional slice_id field (#2759)."""
         from mcp_tools import PIPELINE_TOOLS
@@ -186,6 +196,34 @@ class TestHandleRestartAgent:
         call_args = mock_req.call_args
         data = call_args.kwargs.get("data", {})
         assert "slice_id" not in data
+
+    def test_passes_fresh_session_in_request(self, handler):
+        """fresh_session should be forwarded in the POST body so the route
+        evicts the warm-resume record (#3537)."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True, "data": {}}
+            handler.handle_tool_call(
+                "restart_agent",
+                {"task_id": "issue-42", "agent_role": "coder", "fresh_session": True},
+            )
+
+        call_args = mock_req.call_args
+        data = call_args.kwargs.get("data", {})
+        assert data.get("fresh_session") is True
+
+    def test_omitted_fresh_session_not_in_request(self, handler):
+        """Omitting fresh_session leaves it off the body - the route's
+        default (preserve the session) applies."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"success": True, "data": {}}
+            handler.handle_tool_call(
+                "restart_agent",
+                {"task_id": "issue-42", "agent_role": "coder"},
+            )
+
+        call_args = mock_req.call_args
+        data = call_args.kwargs.get("data", {})
+        assert "fresh_session" not in data
 
 
 # ---------------------------------------------------------------------------

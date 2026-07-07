@@ -21,6 +21,7 @@ from ._render_delta import _render_delta_pointer_section, _render_producer_delta
 from ._render_event import _render_event_section
 from ._render_memory import _render_memory_pointer_section, _render_memory_section
 from ._render_nacks import _render_nacks_section
+from ._render_release import _render_release_context_section
 from ._render_task import _render_iteration_feedback_section, _render_task_section
 
 
@@ -37,6 +38,7 @@ def compose_event_prompt(
     jit_pull: bool = False,
     memory_rel_path: str = "",
     pipeline_id: str = "",
+    release_context: dict[str, Any] | None = None,
 ) -> str:
     """Compose the per-event one-shot prompt the wrapper hands the agent.
 
@@ -115,6 +117,14 @@ def compose_event_prompt(
         pipeline_id: Pipeline id interpolated into the ``brc-transcript``
             pull handle when ``jit_pull`` is ``True``. Empty renders a
             ``<pipeline_id>`` placeholder. Ignored on the legacy path.
+        release_context: The #3537 park-release delta - present only on the
+            probe spawn a fingerprint-change no-op-park release granted
+            (decoded from ``EGG_EVENT_RELEASE_CONTEXT``). Rendered directly
+            after the event section so a warm-resumed session sees WHAT
+            changed (resolved ``cq-N`` + resolution text, freshly-gating
+            decisions, BRC movement) before it can replay a cached "still
+            blocked" plan. ``None`` / empty omits the section - the
+            byte-stable common path.
 
     Returns:
         Rendered prompt string suitable for passing as the positional
@@ -131,6 +141,7 @@ def compose_event_prompt(
     base_branch = (base_branch or "main").strip() or "main"
 
     event_section = _render_event_section(role, event_payload)
+    release_section = _render_release_context_section(release_context)
     task_section = _render_task_section(task_description)
     iteration_section = _render_iteration_feedback_section(iteration_feedback)
     nacks_section = _render_nacks_section(nacks)
@@ -183,6 +194,7 @@ def compose_event_prompt(
             s
             for s in (
                 event_section,
+                release_section,
                 task_section,
                 iteration_section,
                 nacks_section,
@@ -243,6 +255,13 @@ def compose_event_prompt(
             break  # no truncation candidates left; fixed sections alone overshoot
 
     parts: list[str] = [event_section]
+    # #3537: the release delta leads (right after the event banner) so a
+    # warm-resumed session reads what changed before anything it might
+    # pattern-match against its cached prior plan. Bounded at the env
+    # serializer plus the per-field render cap, so it is never a
+    # truncation candidate.
+    if release_section:
+        parts.append(release_section)
     if task_section:
         parts.append(task_section)
     if iteration_section:

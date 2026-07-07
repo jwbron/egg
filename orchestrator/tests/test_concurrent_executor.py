@@ -1960,3 +1960,144 @@ class TestUnresolvedContractDecisionProbe:
 
             executor._start_event_loop([AgentRole.CODER], tracker=MagicMock())
         assert captured.get("hitl_probe") == executor._unresolved_contract_decision_ids
+
+
+class TestEventSpawnReleaseContext:
+    """#3537: the park-release delta rides the probe spawn as
+    ``EGG_EVENT_RELEASE_CONTEXT`` so the pod-side composer can tell the
+    respawned (possibly warm-resumed) agent WHAT changed while it was parked.
+    """
+
+    def _event_spawner(self, pipeline, mock_spawn):
+        from concurrent_executor import ConcurrentPhaseExecutor, _ExecutorEventSpawner
+        from egg_orchestrator.types import AgentRole
+
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+        return _ExecutorEventSpawner(
+            executor=executor,
+            roles=[AgentRole.CODER, AgentRole.REVIEWER_CODE],
+            slice_id=None,
+        )
+
+    def test_no_release_context_env_by_default(self):
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+
+        spawner.spawn_event(role="coder", action="propose", dedupe_key="k1")
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        assert "EGG_EVENT_RELEASE_CONTEXT" not in env
+
+    def test_release_context_env_injected_with_enrichment(self):
+        import json as _json
+
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+        details = [
+            {
+                "id": "cq-3",
+                "question": "Q?",
+                "resolved": True,
+                "resolution": "Answered.",
+                "resolved_by": "human",
+            }
+        ]
+        with patch.object(spawner._ex, "_contract_decision_details", return_value=details):
+            spawner.spawn_event(
+                role="coder",
+                action="propose",
+                dedupe_key="k1",
+                release_context={
+                    "resolved_decision_ids": ["cq-3"],
+                    "newly_gating_decision_ids": [],
+                },
+            )
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        decoded = _json.loads(env["EGG_EVENT_RELEASE_CONTEXT"])
+        assert decoded["resolved_decision_ids"] == ["cq-3"]
+        assert decoded["resolved_decisions"] == details
+
+    def test_release_context_enrichment_failure_ships_bare_ids(self):
+        import json as _json
+
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+        with patch.object(spawner._ex, "_contract_decision_details", return_value=[]):
+            spawner.spawn_event(
+                role="coder",
+                action="propose",
+                dedupe_key="k1",
+                release_context={"resolved_decision_ids": ["cq-3"], "brc_moved": True},
+            )
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        decoded = _json.loads(env["EGG_EVENT_RELEASE_CONTEXT"])
+        assert decoded == {"resolved_decision_ids": ["cq-3"], "brc_moved": True}
+
+
+class TestReleaseContextEnvJson:
+    """The env serializer keeps the delta under its byte budget."""
+
+    def test_small_payload_passes_through(self):
+        import json as _json
+
+        from concurrent_executor import _release_context_env_json
+
+        payload = {"resolved_decision_ids": ["cq-3"], "brc_moved": True}
+        assert _json.loads(_release_context_env_json(dict(payload))) == payload
+
+    def test_long_resolution_text_is_shrunk_under_budget(self):
+        import json as _json
+
+        from concurrent_executor import (
+            _RELEASE_CONTEXT_ENV_MAX_BYTES,
+            _release_context_env_json,
+        )
+
+        payload = {
+            "resolved_decision_ids": ["cq-3"],
+            "resolved_decisions": [
+                {
+                    "id": "cq-3",
+                    "question": "Q" * 10_000,
+                    "resolution": "R" * 10_000,
+                    "resolved_by": "human",
+                }
+            ],
+        }
+        raw = _release_context_env_json(payload)
+        assert len(raw.encode("utf-8")) <= _RELEASE_CONTEXT_ENV_MAX_BYTES
+        decoded = _json.loads(raw)
+        # The ids always survive; the text is truncated, not dropped.
+        assert decoded["resolved_decision_ids"] == ["cq-3"]
+        assert decoded["resolved_decisions"][0]["resolution"].endswith("…[truncated]")
+
+    def test_pathological_payload_drops_details_keeps_ids(self):
+        import json as _json
+
+        from concurrent_executor import (
+            _RELEASE_CONTEXT_ENV_MAX_BYTES,
+            _release_context_env_json,
+        )
+
+        payload = {
+            "resolved_decision_ids": [f"cq-{n}" for n in range(30)],
+            "resolved_decisions": [
+                {
+                    "id": f"cq-{n}",
+                    "question": "Q" * 500,
+                    "resolution": "R" * 500,
+                    "resolved_by": "human",
+                }
+                for n in range(30)
+            ],
+        }
+        raw = _release_context_env_json(payload)
+        assert len(raw.encode("utf-8")) <= _RELEASE_CONTEXT_ENV_MAX_BYTES
+        decoded = _json.loads(raw)
+        assert "resolved_decisions" not in decoded
+        assert len(decoded["resolved_decision_ids"]) == 30

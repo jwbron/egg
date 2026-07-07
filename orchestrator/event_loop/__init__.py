@@ -472,6 +472,13 @@ class JobSupervisor:
         # {dedupe_key: clock() of the last allowed park-probe spawn} — anchors
         # the retry heartbeat.
         self._noop_last_probe: dict[str, float] = {}
+        # #3537: {dedupe_key: release delta} - what changed when a
+        # fingerprint-change release granted the probe spawn (resolved /
+        # newly-gating decision ids, BRC movement). Written only by the
+        # fingerprint branch of ``noop_parked`` (never the heartbeat), popped
+        # by ``consume_noop_release_context`` on the loop's spawn path so the
+        # delta rides exactly the spawn the release granted.
+        self._noop_release_context: dict[str, dict[str, Any]] = {}
         # Once-per-key sticky latch for the no-op park alert.
         self._alerted_noop: dict[str, bool] = {}
 
@@ -503,6 +510,7 @@ class JobSupervisor:
     exhausted_report = _supervisor.exhausted_report
     reset_exhausted = _supervisor.reset_exhausted
     noop_parked = _supervisor.noop_parked
+    consume_noop_release_context = _supervisor.consume_noop_release_context
     _probe_hitl_fingerprint = _supervisor._probe_hitl_fingerprint
     _probe_brc_fingerprint = _supervisor._probe_brc_fingerprint
     reconcile = _supervisor.reconcile
@@ -520,7 +528,9 @@ class OrchestratorEventLoop:
     """Drive BRC forward by spawning one-shot pods per derived event.
 
     Collaborators are injected so the loop is unit-testable with no cluster:
-    ``spawner`` exposes ``spawn_event(role=, action=, dedupe_key=, payload=)``;
+    ``spawner`` exposes ``spawn_event(role=, action=, dedupe_key=, payload=)``
+    (plus, only on a park-release probe spawn, ``release_context=`` - the
+    #3537 delta of what changed while the arm was parked);
     ``agent_free_handler`` performs the agent-free confirm/complete side
     effect as ``handler(action=, role=, payload=)``; ``clock`` is a monotonic
     source the timing field reads. ``reconcile(live_dedupe_keys)`` seeds the

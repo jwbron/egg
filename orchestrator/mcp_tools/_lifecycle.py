@@ -33,6 +33,11 @@ def _handle_restart_agent(self, args: dict[str, Any]) -> dict[str, Any]:
     # value — which is unreachable unless the MCP tool can carry it.
     if args.get("slice_id"):
         data["slice_id"] = args["slice_id"]
+    # #3537: forward the session-eviction flag so the route drops the
+    # role's durable warm-resume record - without it a restart preserves
+    # the prior session and a poisoned session replays its cached plan.
+    if args.get("fresh_session"):
+        data["fresh_session"] = True
     try:
         result = self._make_request(
             f"/api/v1/pipelines/{task_id}/agents/{agent_role}/restart",

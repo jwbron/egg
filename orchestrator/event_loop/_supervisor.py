@@ -93,6 +93,7 @@ def retire(self, dedupe_key: str) -> None:
     self._noop_fingerprint.pop(dedupe_key, None)
     self._noop_brc_fingerprint.pop(dedupe_key, None)
     self._noop_last_probe.pop(dedupe_key, None)
+    self._noop_release_context.pop(dedupe_key, None)
     self._alerted_noop.pop(dedupe_key, None)
     logger.debug("JobSupervisor: retired key=%s — all supervision state dropped", dedupe_key)
 
@@ -414,6 +415,21 @@ def noop_parked(self, dedupe_key: str) -> bool:
     hitl_moved = current is not None and parked is not None and current != parked
     brc_moved = current_brc is not None and parked_brc is not None and current_brc != parked_brc
     if hitl_moved or brc_moved:
+        # #3537: record WHAT moved so the released probe spawn can be told.
+        # The park released precisely because the world changed, but the
+        # respawned pod re-derives an identical dedupe key + payload, so its
+        # prompt would otherwise be byte-identical to the one that parked -
+        # a warm-resumed session then replays its cached "still blocked"
+        # conclusion and the arm livelocks. The loop consumes this delta on
+        # the spawn path (consume_noop_release_context) and threads it into
+        # the event prompt. Computed BEFORE the anchors are refreshed below.
+        release_context: dict[str, Any] = {}
+        if hitl_moved:
+            release_context["resolved_decision_ids"] = sorted(parked - current)
+            release_context["newly_gating_decision_ids"] = sorted(current - parked)
+        if brc_moved:
+            release_context["brc_moved"] = True
+        self._noop_release_context[dedupe_key] = release_context
         # Refresh BOTH probe anchors on any release, not just the branch that
         # fired. If a single poll sees the contract-decision set AND the BRC
         # state move at once (the operator resolves a gating ``cq-N`` while
@@ -475,6 +491,26 @@ def noop_parked(self, dedupe_key: str) -> bool:
         )
         return False
     return True
+
+
+def consume_noop_release_context(self, dedupe_key: str) -> dict[str, Any] | None:
+    """Pop and return the park-release delta recorded for ``dedupe_key`` (#3537).
+
+    Set only by a fingerprint-change release in :meth:`noop_parked`; a retry
+    heartbeat release records nothing (nothing observably changed, so there
+    is no delta to carry). The loop calls this once, immediately before
+    dispatching the spawn, so the delta rides exactly the probe spawn the
+    release granted and never leaks onto a later, unrelated spawn of the
+    same key. Keys:
+
+    * ``resolved_decision_ids`` - contract decisions unresolved at park time
+      that have since left the unresolved set (resolved, or removed).
+    * ``newly_gating_decision_ids`` - decisions that became unresolved since
+      park (a fresh wedge the probe should surface, not fight).
+    * ``brc_moved`` - the consensus-state digest moved (a peer proposal /
+      verdict / confirm progressed while this arm was parked).
+    """
+    return self._noop_release_context.pop(dedupe_key, None)
 
 
 def _probe_hitl_fingerprint(self) -> frozenset[str] | None:
@@ -543,6 +579,7 @@ def reconcile(self, live_dedupe_keys: Iterable[str]) -> None:
     self._noop_fingerprint.clear()
     self._noop_brc_fingerprint.clear()
     self._noop_last_probe.clear()
+    self._noop_release_context.clear()
     self._alerted_noop.clear()
     # Re-initialise live-key set if the caller provides it.
     # We only need to know which keys exist, not the full history.

@@ -207,6 +207,16 @@ Because the sandbox has no direct write access to host state, the durable copy i
   together (one key, no split-brain), under a TTL that reaps abandoned state.
   Only the orchestrator writes it; the sandbox reaches it through
   `POST/GET /api/v1/pipelines/<pid>/session-state`.
+- **Operator eviction ([#3537](https://github.com/jwbron/egg/issues/3537))** -
+  warm resume faithfully replays whatever the prior session concluded, so a
+  session that encoded a *wrong* conclusion (e.g. "still blocked on cq-N")
+  replays it on every respawn, unreachable by bus messages or fresh worktree
+  state. `DELETE /api/v1/pipelines/<pid>/session-state?role=<role>[&slice_id=<slice>]`
+  drops the record, and `restart_agent` accepts `fresh_session: true` (REST body
+  and MCP tool) to evict it as part of the restart, so the next spawn
+  cold-reseeds from true contract/worktree state. A default restart still
+  preserves the record - eviction is opt-in because losing a healthy session
+  costs the accumulated context for no benefit.
 - **Live store stays ephemeral** — the agent's `$CLAUDE_CONFIG_DIR` is the pod's
   own filesystem (no host mount), so Claude Code writes the transcript locally
   during the run exactly as before.
