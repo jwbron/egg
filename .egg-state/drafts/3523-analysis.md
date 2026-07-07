@@ -250,3 +250,10 @@ schema field encodings, router config format, gatherer packaging) are implementa
 belong to the architect in the plan phase, not to operator HITL. If the plan phase surfaces a
 genuine scope fork (e.g. the shared-prefix fork point proving too shallow), it will be raised as a
 plan-phase decision then.
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+Operator reviewed the full draft analysis (3523-analysis.md at cda1336b) in the host session, verified the seams table, the reference-design mapping to the Claude Code /review skill, the cost-as-first-class acceptance criteria, and checked for unregistered decision-shaped content (none found; the four deferred choices are implementation-level and assigned to the plan phase). Attestation was confirmed via decision-1.
