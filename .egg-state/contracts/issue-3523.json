@@ -634,6 +634,32 @@
       "resolved_at": "2026-07-07T00:08:01.074780Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "[Phase gate: plan] The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.\n\nDecision ledger: 2 decision(s) registered this phase (decision-1, decision-2), 2 resolved.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Auto-approved per standing operator instruction for the plan phase gate. Operator directives verified present in the plan: Claude Code /review skill as reference vocabulary with the implementer directed to fetch the issue comments before writing prompt text; cost as first-class (router defaults low-risk slices to cheaper tiers; evidence-pack flag gated on measured net cost reduction in log mode); off->log->on staged flags with fail-safe-to-off for every behavior-shifting step.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-07T04:20:49.410675Z",
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
