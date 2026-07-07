@@ -11,7 +11,7 @@ Every agent role belongs to one of five categories. Categories enable dynamic te
 | **EXECUTION** | Produce artifacts (code, tests, docs, Jira mutations) | `coder`, `tester`, `documenter`, `applier` |
 | **ANALYSIS** | Analyze tasks and plan work | `refiner`, `architect`, `task_planner`, `risk_analyst`, `simplifier` |
 | **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_refine`, `first_principles_reviewer`, `reviewer_plan`, `reviewer_agent_design`, `reviewer_security`, `reviewer_concurrency` |
-| **UTILITY** | Cross-cutting support tasks | `autofixer`, `conflict_resolver` |
+| **UTILITY** | Cross-cutting support tasks | `autofixer`, `conflict_resolver`, `evidence_gatherer` |
 | **INTERFACE** | Pipeline health and monitoring | `overseer` |
 
 Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by category.
@@ -40,6 +40,7 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `reviewer_concurrency` | Review | Implement | Yes (with `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`) | coder, tester |
 | `autofixer` | Utility | Any | Yes | — |
 | `conflict_resolver` | Utility | Any | Yes | — |
+| `evidence_gatherer` | Utility | Implement (ahead of the review wave) | No | — |
 | `overseer` | Interface | Per-phase (spawned/torn down at phase boundaries) | — | — (pipeline health monitoring) |
 
 All agents within a phase run concurrently via BRC consensus. Concurrency is enabled by default for the refine, plan, and implement phases, and can be extended to additional phases via the `concurrent_phases` config.
@@ -498,6 +499,23 @@ tests, and its mandate is two-fold: **(1) comprehensive regression coverage** �
 **Outputs**:
 - Conflict resolution commits on the worktree branch
 - `.egg-state/agent-outputs/{identifier}-conflict_resolver-output.json` — Resolution decisions and rationale
+
+### `evidence_gatherer`
+
+**Category**: Utility
+
+**Purpose**: Read-only shared-evidence gatherer for the implement-phase review wave ([#3523](https://github.com/jwbron/egg/issues/3523) §5). Assembles a single **evidence pack** — the diff, changed files with enclosing context, caller/callee lists for changed symbols, and verified environment facts — that every same-model reviewer in the wave can share as a byte-identical prompt prefix, so cache reads replace redundant ramp-up. The pack carries evidence only, never conclusions: no hypotheses, no "areas of concern", no severity or priority ordering (`orchestrator/evidence_gatherer.py::assert_pack_carries_no_conclusions` fails loudly if a field ever smells like a verdict). Casts no verdict itself and maps to the coarse `system` contract role, like `overseer`, so it can neither ACK/NACK nor mutate the contract.
+
+Gated behind the `EGG_REVIEW_EVIDENCE_PREFIX` staged flag (`off` / `log` / `on`; unknown values degrade to `off`) — the reviewer prompt is byte-identical to legacy unless the flag is `on`. Only the five Implement-phase specialist lenses (`reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency`) share the prefix; the `tester` and any finding-verifier always stay cold-start so verification never inherits the framing that produced the claim it's checking.
+
+**File access**:
+- Allowed writes: `.egg-state/agent-outputs/` (the assembled pack only)
+- Blocked: All source, tests, docs, contracts, drafts, reviews, pipelines, oversight, `.github/`
+
+**GitHub access**: None. `evidence_gatherer` is deliberately absent from `gateway.agent_restrictions.AGENT_GH_RESTRICTIONS`, so the gateway's deny-by-default posture rejects every `gh` operation for it — stronger than the per-op block producers get.
+
+**Outputs**:
+- `.egg-state/agent-outputs/{identifier}-evidence_gatherer-output.json` — The evidence pack
 
 ## Interface Roles
 
