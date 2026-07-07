@@ -1,0 +1,480 @@
+[
+  {
+    "id": "241ad372-7883-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:21:15.059489+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "55c4bb9b-4c39-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:24:31.732994+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8d0538f3-ab9b-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=61307 util=n/a cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:25:37.683323+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1e84564b-11f8-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-invocation-noop-streak: event-loop [high]",
+    "body": "Event-pump for role=documenter has had 3 consecutive one-shot invocations on action=propose that exited cleanly WITHOUT any BRC-bus progress (dedupe key ee7f47a5386c12c8a625c6914bae512c113e451187ccb50f35c0c6f77ab6a881 re-derived unchanged each time). The arm is parked: no further pods spawn for this key until the unresolved contract-decision set changes (e.g. the gating cq-N is resolved) or the BRC state moves; a probe spawn is retried every 1800s as a backstop. Unresolved contract HITL decision(s) likely gating it: cq-1 \u2014 check get_status pending_contract_decisions and resolve via provide_input.",
+    "metadata": {
+      "anomaly": "agent-invocation-noop-streak",
+      "priority": "high",
+      "summary": "agent invocations completing with zero BRC progress (action=propose, streak=3)"
+    },
+    "timestamp": "2026-07-07T07:26:19.633476+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7621aa52-a9b0-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition: event-loop [high]",
+    "body": "Event-loop for pipeline=issue-3523 slice=slice-8 phase=implement has derived action=propose for role=documenter but the actionable event has been pending for 1801s without BRC-bus progress (budget=30m). No in-flight Job exists for this event.",
+    "metadata": {
+      "anomaly": "stuck-phase-transition",
+      "priority": "high",
+      "summary": "orchestrator convergence stall: documenter propose pending 1801s (budget 30m)"
+    },
+    "timestamp": "2026-07-07T07:47:27.434952+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2ff6e0c5-0f0b-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition [medium]",
+    "body": "slice-8 documenter is being re-spawned repeatedly while HITL cq-1 is unresolved; the implement phase cannot advance without an operator decision.\n\nDetail:\nThe documenter producer for slice-8 (task-8-1: write docs/reference/review-quality.md) is blocked on HITL decision cq-1 and has now been re-spawned 4 times with no state change. cq-1 reports a real integration defect: slice-1's content commit 1e6d257 (issue #3523 items 2 & 3 \u2014 the reviewer-prompt verification ladder + four method-angle procedures across all six shared/prompts/*-criteria.md) is orphaned from the branch (base 916dc34b4 is not a descendant of it; slices 2-7 accumulated but slice-1 did not). I cannot write an accurate current-state snapshot documenting pieces absent from the deliverable, and cannot proceed without knowing whether to (opt-1) re-apply slice-1's clean-superset edits within slice-8 [recommended; adds_task staged], (opt-2) re-integrate slice-1 at the pipeline level, or (opt-3) ship without items 2 & 3. The BRC producer-proposal loop does not appear to be paused by the HITL gate, so the phase is stuck re-spawning the documenter. Operator input on cq-1 is required to unblock.\n\nRecommended action:\nResolve HITL cq-1. opt-1 is recommended: it re-applies slice-1's orphaned criteria edits (byte-equivalent to commit 1e6d257, a pure-addition clean superset) within slice-8 so items 2 & 3 are actually present and review-quality.md can document them accurately. Choose opt-2 if the final merge strategy already integrates each slice branch independently (making slice-8-local recovery redundant), or opt-3 to deliberately descope the reviewer-prompt layer.",
+    "metadata": {},
+    "timestamp": "2026-07-07T07:59:14.809087+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "138a18fa-967e-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition [high]",
+    "body": "Sustained stall: slice-8 documenter has been re-spawned ~9 times with zero progress, all blocked on unresolved HITL cq-1. Operator decision required to unblock the implement phase.\n\nDetail:\nHITL cq-1 (raised ~30+ min ago) remains unresolved across ~9 one-shot documenter re-spawns. The BRC producer-proposal loop is not paused by the HITL gate, so the orchestrator keeps re-spawning the documenter, which correctly declines to act and exits \u2014 a tight no-progress loop. Branch state is frozen: HEAD 97498d171, none of the six shared/prompts/*-criteria.md contain the ladder/method-angles (0 hits), docs/reference/review-quality.md does not exist. Root cause (cq-1): slice-1's content commit 1e6d257 (issue #3523 items 2 & 3 \u2014 reviewer-prompt verification ladder + four method-angle procedures) is orphaned from the deliverable branch; only slices 2-7 accumulated. I have NOT unilaterally recovered it because doing so crosses task-8-1's docs-only file scope and touches a cross-slice integration question that is the operator's to decide (cq-1 opt-1's adds_task is the correctly-scoped recovery mechanism). This second alert escalates priority because the earlier medium alert (spawn 4) did not produce a resolution.\n\nRecommended action:\nResolve HITL cq-1 to unblock. Recommended: opt-1 (materializes a scoped documenter task to re-apply slice-1's clean-superset criteria edits, then I write review-quality.md against the restored files). Pick opt-2 if slice-1 should be recovered at the pipeline level, or opt-3 to descope items 2 & 3. If cq-1 cannot be resolved promptly, consider whether the BRC producer loop should be paused while the HITL is open to stop the re-spawn churn.",
+    "metadata": {},
+    "timestamp": "2026-07-07T10:30:16.160488+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f9cdc526-3ce8-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T18:51:18.912678+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "82c4b06f-60cc-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [high]",
+    "body": "documenter slice-8 container has no repo checkout \u2014 EGG_REPO_PATH is empty and git clone is refused. Task is unblocked (cq-1 resolved) but this pod cannot do the work.\n\nDetail:\nThe slice-8 documenter container (pod egg-sandbox-egg-agent-issue-3523-slice-8-documenter-ee7f47df6xk) launched without its working tree. EGG_REPO_PATH=/home/egg/repos/egg is an empty directory \u2014 no .git, no source files. `git` operations fail with \"not a git repository\" and `git clone` returns \"git clone is not supported in the container; repositories must be configured on the host before container launch.\" This is a host-side repo-provisioning failure, not something the agent can remediate in-sandbox. cq-1 was resolved by the operator (slice-1 recovery cherry-picked as a181d3f5 onto egg/issue-3523/slice-8), EGG_EVENT_ACTION=propose, so the documenter is ready to write docs/reference/review-quality.md against the restored criteria files \u2014 but cannot without a checkout. A signal_error(recoverable=true) has been emitted.\n\nRecommended action:\nRe-spawn the slice-8 documenter with a host-provisioned checkout of branch egg/issue-3523/slice-8 (must include commit a181d3f5, the recovered slice-1 criteria edits). If provisioning keeps failing for this pod, investigate the host repo-setup step for issue-3523/slice-8 containers. Once a proper checkout is present, the documenter can complete task-8-1 in one turn.",
+    "metadata": {},
+    "timestamp": "2026-07-07T18:53:07.584369+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "279ec08a-7057-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T18:54:12.024307+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b34e9cf1-72a8-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=87949 util=n/a cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T18:54:40.992612+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a0e4a96d-2a1e-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "documenter",
+    "message_type": "STATUS",
+    "subject": "Respawn nudge: worktree race resolved, proceed with task-8-1 propose",
+    "body": "Operator note: your 18:49 container lost its working tree to a phase-restart race (the restart deleted per-agent worktrees seconds after your spawn). The worktree registration has been cleaned up; a fresh spawn will re-fork from origin/egg/issue-3523/slice-8, which now contains both the recovered slice-1 content (a181d3f5f) and the slice-7 CI fix (8bb9b3b7b). cq-1 remains resolved as before: verify the six shared/prompts/*-criteria.md files contain the verification ladder and method-angle procedures, write docs/reference/review-quality.md documenting them as shipped, commit, and propose.",
+    "metadata": {},
+    "timestamp": "2026-07-07T19:08:30.620357+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f5407f75-59df-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T19:37:21.380501+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ac2b39cf-ddad-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T19:39:09.567256+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "61637aeb-a5d4-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T19:43:44.827517+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c5bede6b-9c2d-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T19:46:02.052300+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "78ba0284-2330-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T19:48:27.691195+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a6c743a8-2f47-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T19:51:06.539853+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7f910016-1f89-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T20:01:11.557393+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9f6bb762-18f4-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T21:02:47.092362+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2e095920-a6f8-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-invocation-noop-streak: event-loop [high]",
+    "body": "Event-pump for role=coder has had 3 consecutive one-shot invocations on action=propose that exited cleanly WITHOUT any BRC-bus progress (dedupe key de881069ce539ce33d42fb5d84955764905a1b81858a671fcc11afbd080f8587 re-derived unchanged each time). The arm is parked: no further pods spawn for this key until the unresolved contract-decision set changes (e.g. the gating cq-N is resolved) or the BRC state moves; a probe spawn is retried every 1800s as a backstop. No unresolved contract decision was visible at park time; check the slice's BRC transcript for what the agent is blocked on.",
+    "metadata": {
+      "anomaly": "agent-invocation-noop-streak",
+      "priority": "high",
+      "summary": "agent invocations completing with zero BRC progress (action=propose, streak=3)"
+    },
+    "timestamp": "2026-07-07T21:04:15.315480+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d8051f93-8b2a-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T21:04:56.329677+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2fe1d03f-321b-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T21:07:57.738240+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "84253ed0-19ff-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T21:10:09.865706+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3d0b9e2b-c309-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T21:13:03.053847+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f4e2dde3-92f4-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T21:15:24.072024+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0bd01773-0a4d-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=166152 util=n/a cache_hit=1.00 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T21:15:59.513729+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1c947358-9af8-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition: event-loop [high]",
+    "body": "Event-loop for pipeline=issue-3523 slice=slice-8 phase=implement has derived action=propose for role=coder but the actionable event has been pending for 1802s without BRC-bus progress (budget=30m). No in-flight Job exists for this event.",
+    "metadata": {
+      "anomaly": "stuck-phase-transition",
+      "priority": "high",
+      "summary": "orchestrator convergence stall: coder propose pending 1802s (budget 30m)"
+    },
+    "timestamp": "2026-07-07T21:39:08.668446+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b3d13351-5d70-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T21:41:18.901782+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "216feb56-c2dc-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-invocation-noop-streak: event-loop [high]",
+    "body": "Event-pump for role=coder has had 3 consecutive one-shot invocations on action=propose that exited cleanly WITHOUT any BRC-bus progress (dedupe key de881069ce539ce33d42fb5d84955764905a1b81858a671fcc11afbd080f8587 re-derived unchanged each time). The arm is parked: no further pods spawn for this key until the unresolved contract-decision set changes (e.g. the gating cq-N is resolved) or the BRC state moves; a probe spawn is retried every 1800s as a backstop. No unresolved contract decision was visible at park time; check the slice's BRC transcript for what the agent is blocked on.",
+    "metadata": {
+      "anomaly": "agent-invocation-noop-streak",
+      "priority": "high",
+      "summary": "agent invocations completing with zero BRC progress (action=propose, streak=3)"
+    },
+    "timestamp": "2026-07-07T21:42:41.044237+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "41ee1f35-86f2-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T21:43:21.467799+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5b14a1ef-6471-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition [high]",
+    "body": "implement phase wedged on slice-8: coder in a no-op propose re-spawn loop (~14h, no HITL/checkout cause remaining)\n\nDetail:\nThe implement phase cannot converge slice-8. Slices 1-7 progressed normally (clean propose/ACK/confirm cycles; the 06:56-07:06 NACKs were legitimate, precise review findings). Slice-8 has been stalled since ~07:26.\n\nTimeline of the slice-8 stall:\n- 07:26-10:30: slice-8 documenter blocked on HITL cq-1 (slice-1 content commit 1e6d257 orphaned from the branch). ~9 no-progress re-spawns.\n- 18:49: operator RESOLVED cq-1 (slice-1 recovery cherry-picked as a181d3f5, already pushed to egg/issue-3523/slice-8). Root-cause pipeline defect tracked separately as #3541.\n- 18:53: slice-8 documenter pod reported an empty EGG_REPO_PATH / no checkout (host-side provisioning failure).\n- 21:04 & 21:39: orchestrator auto-alerts \u2014 slice-8 CODER noop-streak (=3) and propose pending 1802s, no in-flight job.\n\nCurrent state (verified 21:37-21:43, live): all HITL decisions are resolved (decision-1/2/3, cq-1 = 0 pending). The slice-8 coder pod IS alive and doing real LLM work \u2014 context-measure heartbeats with cache_hit 0.92-0.99 \u2014 so this is NOT the earlier empty-checkout failure. Instead the coder repeatedly derives EGG_EVENT_ACTION=propose for slice-8, runs, and exits WITHOUT ever emitting a CONSENSUS_PROPOSE (only 'one-shot event handler action=propose' + 'in-tool-loop liveness' heartbeats, no proposal). It has cycled this way continuously through 21:43. Net: a tight no-op re-spawn loop, nothing human-gated is blocking it, and BRC consensus for slice-8 cannot close the coder edge.\n\nLikely mechanism: slice-8 is documenter-owned (task-8-1: docs/reference/review-quality.md). The coder appears to have no coder-owned task in slice-8, but \u2014 unlike slice-1, where it correctly emitted no_changes_needed \u2014 its slice-8 event arm is not closing the edge with a no-op proposal. So the orchestrator keeps re-deriving action=propose and re-spawning the (correctly idle) coder.\n\nRecommended action:\nOperator intervention required \u2014 the phase will not self-recover. 1) Inspect the slice-8 coder's derived event: if the coder has no task in slice-8, inject/allow a coder no_changes_needed proposal for slice-8 (as it did for slice-1) so the coder BRC edge closes; if the event-loop is mis-deriving action=propose for a task-less coder, correct that derivation. 2) Confirm the slice-8 documenter (task-8-1) actually landed docs/reference/review-quality.md against the recovered criteria files (a181d3f5) and closed its edge \u2014 earlier that pod hit an empty-checkout failure, so verify it was re-spawned with a host-provisioned checkout including a181d3f5. 3) Once both producer edges close, slice-8 consensus should converge and the implement phase can complete.",
+    "metadata": {},
+    "timestamp": "2026-07-07T21:44:12.749249+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "18b4a3cd-0c2c-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-invocation-noop-streak: event-loop [high]",
+    "body": "Event-pump for role=reviewer_code has had 3 consecutive one-shot invocations on action=ack that exited cleanly WITHOUT any BRC-bus progress (dedupe key 0638cfc88fe5e00fbb153ebdf509cd7f2f9905fa0921a18f57bf35f27fe1504f re-derived unchanged each time). The arm is parked: no further pods spawn for this key until the unresolved contract-decision set changes (e.g. the gating cq-N is resolved) or the BRC state moves; a probe spawn is retried every 1800s as a backstop. No unresolved contract decision was visible at park time; check the slice's BRC transcript for what the agent is blocked on.",
+    "metadata": {
+      "anomaly": "agent-invocation-noop-streak",
+      "priority": "high",
+      "summary": "agent invocations completing with zero BRC progress (action=ack, streak=3)"
+    },
+    "timestamp": "2026-07-07T21:44:26.593732+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e2aed675-07cd-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=108297 util=n/a cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T21:44:53.302452+00:00",
+    "phase": "implement"
+  }
+]
