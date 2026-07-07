@@ -466,12 +466,8 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
     # not fail the restart (the store's 6h TTL remains the backstop).
     if fresh_session:
         try:
-            try:
-                from session_state_store import get_session_state_store
-            except ImportError:
-                from ..session_state_store import (  # type: ignore[import-not-found]
-                    get_session_state_store,
-                )
+            from session_state_store import get_session_state_store
+
             evicted = get_session_state_store().delete(pipeline_id, slice_id, role.value)
             _pkg.logger.info(
                 "Evicted warm-resume session state for restarted agent",

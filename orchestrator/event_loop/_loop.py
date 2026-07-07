@@ -486,6 +486,12 @@ def _handle_role(self, role: str) -> EventDecision:
     # was created, so this is not a fresh spawn — record spawned=False and
     # emit no timing, so the slice-4 p50<60s budget (which reads `timing`)
     # never counts an adoption as a spawn→invoke latency sample.
+    #
+    # Note: any release_context consumed above is forfeited on this branch —
+    # it was popped before the spawn but the adopted, already-running pod
+    # never receives it. This is acceptable: the delta is a best-effort
+    # accelerator, and a still-blocked arm re-derives it on the next
+    # fingerprint move (with the retry-heartbeat backstop underneath).
     if spawn_result is None:
         return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
 
