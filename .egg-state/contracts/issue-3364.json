@@ -12,8 +12,8 @@
   "slices": [
     {
       "id": "slice-1",
-      "name": "PR B \u2014 Long-haul monitoring tooling: wait-status filter flags + slice.closed event",
-      "goal": "Additive / low risk. (1) Add --exclude-types (comma-separated event-type\nfilter) and --quiet to skills/sdlc/bin/wait-status, applied client-side at\nthe JSON print sites; keep pure-stdlib. (2) Add SLICE_CLOSED =\n\"slice.closed\" to the EventType StrEnum (orchestrator/events.py) and emit\nit at both SliceScheduler.record_complete and record_failure via an\ninjected emitter seam (mirror _hitl_escalator; invoke OUTSIDE the\nscheduler lock), carrying an outcome field that distinguishes success vs\nfailure and identifies the slice. Allowlist \"slice.closed\" in\n_STATUS_WAIT_EVENT_TYPES. Existing flags + default output unchanged.",
+      "name": "PR B follow-ups (tasks 1-1..1-4 landed; not re-derived) \u2014 wire production slice.closed emitter + production-chain integration test",
+      "goal": "Additive / low risk. PR B's four original tasks ALREADY LANDED and are NOT\nre-listed (re-deriving them would re-run completed work): TASK-1-1\n(bin/wait-status --exclude-types/--quiet, commit 4fcf1ed7a), TASK-1-2\n(slice.closed EventType + emit at SliceScheduler.record_complete/record_failure,\nc2a77847a), TASK-1-3 (_STATUS_WAIT_EVENT_TYPES allowlist, 4fcf1ed7a),\nTASK-1-4 (tests, 3593d497c). Two post-consensus review follow-ups remain and\nMUST be carried forward (not lost): TASK-1-5 wires the production\nslice_closed_emitter \u2014 currently default-None at\norchestrator/routes/pipelines/_run_implement.py:86 so slice.closed never\nfires in production (green-but-dead) \u2014 and TASK-1-6 adds a production-chain\nintegration test (real record_complete/record_failure -> emitter -> event\nbus -> _STATUS_WAIT_EVENT_TYPES allowlist), closing the reviewer_contract\nslice-1 NACK and proving AC-B5 end-to-end.",
       "status": "in_progress",
       "review_cycles": 0,
       "max_cycles": 3,
@@ -21,15 +21,15 @@
       "escalation_reason": null,
       "tasks": [
         {
-          "id": "task-1-1",
-          "description": "Add --exclude-types (comma-separated event-type filter that drops\nmatching JSON lines client-side) and --quiet to\nskills/sdlc/bin/wait-status. Wire both into the arg parser alongside\nthe existing --since/--inner-timeout/--max-iterations and apply the\nfiltering at the two JSON print sites: drop a line whose event type is\nin the exclude set; suppress non-essential lines under --quiet. Keep\nthe launcher pure-stdlib and self-contained (no new imports/deps).\nExisting flag behavior and the non-filtered default output stay\nbyte-for-byte unchanged.",
-          "status": "complete",
-          "commit": "4fcf1ed7abf4ecfc6e3fcab94e0f68ab61d5f3f4",
+          "id": "task-1-5",
+          "description": "Wire the production slice_closed_emitter at the real SliceScheduler\nconstruction site (orchestrator/routes/pipelines/_run_implement.py:86),\nwhich today calls SliceScheduler(contract, max_parallel_slices=...) with\nNO emitter (default None) \u2014 so the slice.closed emit path added in\nTASK-1-2 never fires in production (green-but-dead). Construct the\nproduction scheduler with a non-None emitter Callable that publishes the\nslice.closed event to the orchestrator event bus, so real\nrecord_complete/record_failure emissions reach /status/wait consumers.",
+          "status": "pending",
+          "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "- --exclude-types drops lines whose event type matches; --quiet\n  suppresses non-essential output per its documented behavior.\n- No new imports/dependencies; launcher stays pure-stdlib.\n- AC-B2: --since/--inner-timeout/--max-iterations and the default\n  (non-filtered) output are unchanged (regression-guarded).",
+          "acceptance_criteria": "- The production SliceScheduler at _run_implement.py:86 is constructed\n  with a non-None slice_closed_emitter that publishes to the event bus.\n- Real record_complete/record_failure now emit slice.closed in\n  production (no longer default-None / green-but-dead).",
           "files_affected": [
-            "skills/sdlc/bin/wait-status"
+            "orchestrator/routes/pipelines/_run_implement.py"
           ],
           "role": "coder",
           "review_cycles": 0,
@@ -42,61 +42,15 @@
           "jira_action_status": null
         },
         {
-          "id": "task-1-2",
-          "description": "Add SLICE_CLOSED = \"slice.closed\" to the EventType StrEnum\n(orchestrator/events.py) and emit it at BOTH\nSliceScheduler.record_complete (slice_scheduler.py:361) and\nrecord_failure (:371). Add an injected emitter Callable to\nSliceScheduler.__init__ mirroring the existing _hitl_escalator seam\n(default None, stored, invoked OUTSIDE the scheduler lock) to avoid\nre-entrancy/deadlock \u2014 do NOT emit inside the lock. The payload must\nidentify the slice (slice_id) and distinguish success vs failure (an\noutcome/status field), so a consumer needs no second lookup.",
-          "status": "complete",
-          "commit": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
+          "id": "task-1-6",
+          "description": "Add a production-chain integration test that drives the REAL emission\npath \u2014 record_complete/record_failure -> the wired emitter -> event bus\n-> _STATUS_WAIT_EVENT_TYPES allowlist \u2014 NOT a hand-published event.\nAssert exactly one allowlisted slice.closed(success) on a completion and\nexactly one allowlisted slice.closed(failure) on a failure, via the\nproduction wiring from TASK-1-5. Closes the reviewer_contract slice-1\nNACK and proves AC-B5 end-to-end. make lint + make test green.",
+          "status": "pending",
+          "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "- AC-B3: slice.closed EventType exists; exactly one slice.closed\n  emitted at record_complete and one at record_failure; payload\n  identifies the slice and distinguishes success vs failure.\n- Emitter is invoked outside the scheduler lock (no re-entrancy/\n  deadlock); absent emitter (None) is a no-op.",
+          "acceptance_criteria": "- AC-B5 (end-to-end): the test exercises production wiring (not a\n  hand-published event) and asserts one allowlisted slice.closed(success)\n  and one slice.closed(failure); suite green.",
           "files_affected": [
-            "orchestrator/events.py",
-            "orchestrator/slice_scheduler.py"
-          ],
-          "role": "coder",
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false,
-          "delegation_attempts": 0,
-          "gaps": [],
-          "jira_key": null,
-          "jira_action": null,
-          "jira_action_status": null
-        },
-        {
-          "id": "task-1-3",
-          "description": "Add \"slice.closed\" to _STATUS_WAIT_EVENT_TYPES\n(orchestrator/routes/pipelines/__init__.py:405) so it passes the\n/status/wait allowlist enforced at _routes_status.py:349 and reaches\nwait-status consumers.",
-          "status": "complete",
-          "commit": "4fcf1ed7abf4ecfc6e3fcab94e0f68ab61d5f3f4",
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "- AC-B4: \"slice.closed\" is in _STATUS_WAIT_EVENT_TYPES; a slice.closed\n  event is not filtered out by the /status/wait allowlist.",
-          "files_affected": [
-            "orchestrator/routes/pipelines/__init__.py"
-          ],
-          "role": "coder",
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false,
-          "delegation_attempts": 0,
-          "gaps": [],
-          "jira_key": null,
-          "jira_action": null,
-          "jira_action_status": null
-        },
-        {
-          "id": "task-1-4",
-          "description": "Tests for PR B: (a) --exclude-types drops a targeted event type and\n--quiet behaves per spec while the default (non-filtered) output is\nunchanged (regression guard for AC-B2); (b) a slice completion emits\nexactly one allowlisted slice.closed(success) and a slice failure\nemits exactly one allowlisted slice.closed(failure), each\ndistinguishable by outcome. make lint + make test green.",
-          "status": "complete",
-          "commit": "3593d497c311a30508c7205404df6abf7af07a03",
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "- AC-B5: both new flags (drop-a-type + quiet) and both emit sites\n  (completion + failure, each exactly one allowlisted slice.closed)\n  covered; suite green.",
-          "files_affected": [
-            "orchestrator/tests/test_slice_scheduler.py",
-            "orchestrator/tests/test_pipelines_status_wait_route.py",
-            "orchestrator/tests/test_events.py",
-            "orchestrator/tests/test_wait_status_flags.py"
+            "orchestrator/tests/test_slice_closed_production_emission.py"
           ],
           "role": "tester",
           "review_cycles": 0,
@@ -121,8 +75,8 @@
     },
     {
       "id": "slice-2",
-      "name": "PR C \u2014 Supervision hardening: rate-limit classification + windowed paced retry + deterministic-loop guard",
-      "goal": "Behavioral / medium-high risk (highest here \u2014 weight toward test\ncoverage). In orchestrator/supervision_policy.py and its JobSupervisor\nintegration (concurrent_executor.py): a NEW transient rate-limit\nclassification distinct from abnormal keyed off the all-producers\nagent-invocation-failure streak carrying bare throttling wording\n(429 / rate limit / overloaded) that auth_errors.py deliberately excludes\nfrom EX_AUTH_FATAL; a windowed paced retry across the rolling cap window\n(hours, not the 30s cap) using a restart_phase-equivalent that preserves\nlanded slices; and a deterministic-loop guard that escalates instead of\nlooping on an identical failure fingerprint at the same point. Per cq-1:\nno hard ceiling, but an OVERSEER_ALERT fires once cumulative wait crosses\na threshold. EX_AUTH_FATAL (incl. weekly caps) and abnormal unchanged.",
+      "name": "PR C \u2014 Supervision hardening (RE-SCOPED per HITL cq-2): EX_RATE_LIMITED exit-code mirror + windowed paced retry + deterministic-loop guard",
+      "goal": "Behavioral / medium-high risk (highest here \u2014 weight toward test coverage\non the exit-code plumbing seam). RE-SCOPED to honor binding HITL cq-2\n(human-resolved opt-3: pause + re-plan to reconcile the file set with the\n#3447 JobSupervisor relocation; opt-2's stay-in-3-files partial-AC-C1\ndeviation was explicitly NOT chosen). AC-C1 (\"classify as transient\nrate-limit, NOT abnormal, does NOT trip the fail-streak halt\") is\nunreachable within the original 3 files: the orchestrator only propagates\na per-agent EXIT CODE to the streak site (never the error TEXT), and #3447\nmoved the per-arm failure-recording layer (JobSupervisor) out of\nconcurrent_executor.py into orchestrator/event_loop/_supervisor.py (+\n_loop.py). The faithful mechanism (== cq-2 opt-1) is a distinct exit code\nEX_RATE_LIMITED mirroring EX_AUTH_FATAL end-to-end: auth_errors.py (define\nEX_RATE_LIMITED + is_transient_rate_limit_error for 429/rate-limit/\noverloaded) -> egg_agent/__main__.py (emit it, auth-fatal precedence) ->\nkubernetes_spawner/_models.py (JOB_OUTCOME_RATE_LIMITED outcome mapping) ->\nevent_loop/_loop.py + __init__.py (_observe_jobs branch -> record_rate_limited)\n-> event_loop/_supervisor.py (record_rate_limited: NO abnormal-streak\nincrement) -> supervision_policy.py (pacing/fingerprint/threshold constants)\n-> concurrent_executor.py (windowed-retry / loop-guard / threshold-alert /\nlanded-slice wiring at the on_exhausted / hitl_probe seam). cq-1: no hard\nceiling, OVERSEER_ALERT once cumulative wait crosses threshold. AC-C6\ninvariance is a NEW risk surface: EX_RATE_LIMITED must not perturb the\nEX_AUTH_FATAL(=77) exit-code path or the ordinary abnormal path. ~8 source\nfiles vs the original 3 \u2014 blast radius up; test the plumbing seam heavily.",
       "status": "in_progress",
       "review_cycles": 0,
       "max_cycles": 3,
@@ -131,14 +85,13 @@
       "tasks": [
         {
           "id": "task-2-1",
-          "description": "Add a transient rate-limit / cap-wall classification DISTINCT from\nabnormal. Detect the all-producers agent-invocation-failure streak\n(observable at the streak-exhaustion broadcast site,\nconcurrent_executor.py:988) whose underlying error carries the bare\nthrottling wording auth_errors.py deliberately excludes from\nEX_AUTH_FATAL (429 / \"rate limit\" / \"overloaded\", auth_errors.py\n~:24-28/:45-47), and classify it as transient rate-limit so it does\nNOT feed the agent-invocation-fail-streak halt\n(supervision_policy.py:25-26). Reuse/extend the auth_errors throttling\nvocabulary rather than duplicating regexes; do NOT widen\nEX_AUTH_FATAL.",
+          "description": "shared/egg_agent/auth_errors.py: add EX_RATE_LIMITED (a NEW process\nexit code, distinct from EX_AUTH_FATAL=77 and the reserved codes\n64/75/143 the module docstring names) and is_transient_rate_limit_error(text)\nmatching the throttling signatures (bare 429 / \"rate limit\" /\n\"overloaded\") that _AUTH_FATAL_PATTERNS deliberately EXCLUDES. Do NOT\nwiden EX_AUTH_FATAL / _AUTH_FATAL_PATTERNS. Keep the two classifiers\ndisjoint (a matched weekly/usage cap stays auth-fatal; a bare throttle\nis rate-limited).",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "- AC-C1: the throttling-streak signature classifies as transient\n  rate-limit, not abnormal, and does not trip the fail-streak halt.\n- AC-C6 (partial): EX_AUTH_FATAL matches (incl. weekly caps) and\n  non-throttling abnormal failures classify exactly as before.",
+          "acceptance_criteria": "- EX_RATE_LIMITED defined, distinct from 77/64/75/143;\n  is_transient_rate_limit_error matches 429/\"rate limit\"/\"overloaded\".\n- AC-C6: EX_AUTH_FATAL and _AUTH_FATAL_PATTERNS unchanged; is_auth_fatal_error\n  behavior byte-identical; the two classifiers do not overlap.",
           "files_affected": [
-            "orchestrator/supervision_policy.py",
             "shared/egg_agent/auth_errors.py"
           ],
           "role": "coder",
@@ -153,15 +106,14 @@
         },
         {
           "id": "task-2-2",
-          "description": "On the transient rate-limit classification, perform a windowed paced\nretry across the rolling cap window (hours-scale, NOT the 30s\nSUPERVISION_BACKOFF_CAP_SECONDS) without hammering the API: parse the\nreset time from the error to pace when present, else bounded backoff.\nPer resolved cq-1: NO hard wall-clock ceiling (retry until the cap\nlifts) BUT emit an OVERSEER_ALERT once the cumulative wait crosses a\nthreshold, so an attended operator is informed while auto-recovery\ncontinues. Keep this OVERSEER_ALERT trigger orthogonal to the\nloop-guard escalation (TASK-2-4).",
+          "description": "shared/egg_agent/__main__.py (~:142): emit EX_RATE_LIMITED when\nis_transient_rate_limit_error(result.error), as a distinct branch\nalongside the existing `if not result.success and\nis_auth_fatal_error(result.error): return EX_AUTH_FATAL`. auth-fatal\nMUST take precedence (check it first), so a matched weekly cap still\nreturns EX_AUTH_FATAL; the rate-limit branch fires only for the bare\nthrottling signatures.",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "- AC-C2: paced retry runs on the hours-scale cap window without\n  hammering (reset-time-paced when available, else bounded backoff).\n- AC-C5: bounding/escalation matches cq-1 \u2014 no hard ceiling AND an\n  OVERSEER_ALERT fires once the wait crosses the threshold.",
+          "acceptance_criteria": "- A throttled failure returns EX_RATE_LIMITED; an auth-fatal failure\n  (incl. weekly cap) still returns EX_AUTH_FATAL; success/other return\n  the prior code.\n- AC-C6: existing auth-fatal exit path unchanged.",
           "files_affected": [
-            "orchestrator/supervision_policy.py",
-            "orchestrator/concurrent_executor.py"
+            "shared/egg_agent/__main__.py"
           ],
           "role": "coder",
           "review_cycles": 0,
@@ -175,15 +127,14 @@
         },
         {
           "id": "task-2-3",
-          "description": "Make the paced retry use a restart_phase-equivalent that PRESERVES\nlanded slices \u2014 completed slice work must NOT be discarded on\nrecovery. Re-arm only the in-flight/failed frontier; reuse existing\nrestart_phase / slice-completion state rather than a cold restart.",
+          "description": "orchestrator/kubernetes_spawner/_models.py: add a JOB_OUTCOME_RATE_LIMITED\nmapping in outcome_for \u2014 an _is_rate_limited_exit check\n(container exit_code == EX_RATE_LIMITED) mirroring the existing\n_is_auth_fatal_exit -> FATAL detection (which reads exit_code ==\nEX_AUTH_FATAL). A non-matching exit code MUST still fall back to\nabnormal (today's behavior). Import EX_RATE_LIMITED from\negg_agent.auth_errors alongside the existing EX_AUTH_FATAL import.",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "- AC-C3: after a rate-limit paced restart, previously-completed slices\n  remain complete (not re-run / not discarded).",
+          "acceptance_criteria": "- outcome_for returns JOB_OUTCOME_RATE_LIMITED for an EX_RATE_LIMITED\n  exit; JOB_OUTCOME_FATAL for EX_AUTH_FATAL; abnormal otherwise.\n- AC-C6: the EX_AUTH_FATAL -> FATAL mapping and the abnormal fallback\n  are unchanged.",
           "files_affected": [
-            "orchestrator/supervision_policy.py",
-            "orchestrator/concurrent_executor.py"
+            "orchestrator/kubernetes_spawner/_models.py"
           ],
           "role": "coder",
           "review_cycles": 0,
@@ -197,12 +148,55 @@
         },
         {
           "id": "task-2-4",
-          "description": "Add a deterministic-loop guard: capture a failure fingerprint\n(signature + phase/slice progression). If a restart reproduces the\nIDENTICAL fingerprint at the SAME point (no state advance), STOP and\nescalate (HITL/halt) instead of looping; if the restart advances\nstate, continue the paced-retry policy. This escalation trigger is\northogonal to the cq-1 threshold OVERSEER_ALERT.",
+          "description": "orchestrator/event_loop/__init__.py + _loop.py: define the\nJOB_OUTCOME_RATE_LIMITED constant (export it alongside the existing\nJOB_OUTCOME_* constants) and add a _observe_jobs branch (mirroring the\nexisting `elif outcome == JOB_OUTCOME_FATAL` / `JOB_OUTCOME_ABNORMAL`\nbranches at _loop.py ~:94/:116) that routes a rate-limited outcome to a\nNEW supervisor.record_rate_limited(...) call. This is the per-arm\ninterception point that keeps the throttle signature OFF the abnormal\nstreak (record_abort is NOT called for this outcome).",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "- AC-C4: an identical-fingerprint-at-same-point reproduction escalates\n  and stops looping; a restart that advances state continues.",
+          "acceptance_criteria": "- JOB_OUTCOME_RATE_LIMITED constant exists and is observed;\n  _observe_jobs routes it to record_rate_limited and NOT to record_abort.\n- AC-C6: the SUCCESS/LEGITIMATE/FATAL/ABNORMAL observe branches are\n  unchanged.",
+          "files_affected": [
+            "orchestrator/event_loop/__init__.py",
+            "orchestrator/event_loop/_loop.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-5",
+          "description": "orchestrator/event_loop/_supervisor.py: add record_rate_limited(...)\nthat does NOT increment the per-key abnormal streak (mirror\nrecord_legitimate_outcome's \"streak untouched\" pattern at ~:100), so\nthe throttling signature never trips the per-key streak>=10 halt \u2014\nfully satisfying AC-C1. Capture/expose the failure fingerprint\n(signature + phase/slice progression) that the loop-guard (TASK-2-7)\nconsumes; do not itself halt or escalate.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- AC-C1: record_rate_limited leaves the abnormal streak untouched (the\n  fail-streak halt does not fire on repeated rate-limit outcomes).\n- The fingerprint needed by the loop-guard is captured/exposed.\n- AC-C6: record_abort / record_success / record_legitimate_outcome\n  streak behavior is unchanged.",
+          "files_affected": [
+            "orchestrator/event_loop/_supervisor.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-6",
+          "description": "orchestrator/supervision_policy.py: add the pacing + fingerprint +\nthreshold constants/helpers the executor wiring consumes \u2014 the windowed\nretry window (hours-scale, NOT the 30s SUPERVISION_BACKOFF_CAP_SECONDS),\na reset-time parse helper (pace from the error's reset time when\npresent, else bounded backoff), the loop-guard fingerprint model\n(signature + progression identity + equality), and the cumulative-wait\nthreshold that arms the cq-1 OVERSEER_ALERT. Leave\nSUPERVISION_BACKOFF_CAP_SECONDS and the existing abnormal backoff\nuntouched.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- AC-C2: windowed-retry window (hours) + reset-time-paced-else-backoff\n  helpers exist and are distinct from the 30s abnormal cap.\n- AC-C4/AC-C5: fingerprint-equality model + cumulative-wait threshold\n  constant present.\n- AC-C6: the existing 30s abnormal backoff/streak constants unchanged.",
           "files_affected": [
             "orchestrator/supervision_policy.py"
           ],
@@ -217,14 +211,38 @@
           "jira_action_status": null
         },
         {
-          "id": "task-2-5",
-          "description": "Tests for PR C: throttling-streak -> rate-limit classification\n(asserting NOT abnormal, does not trip the fail-streak halt);\npaced-retry pacing/window (hours-scale; reset-time-paced vs bounded\nbackoff; threshold OVERSEER_ALERT fires per cq-1); landed-slice\npreservation across a paced restart; loop-guard escalates on identical\nfingerprint and continues when state advances; regression: EX_AUTH_FATAL\n(incl. weekly cap) and ordinary abnormal halts fire unchanged. make\nlint + make test green.",
+          "id": "task-2-7",
+          "description": "orchestrator/concurrent_executor.py (only the wiring that stays here \u2014\nthe JobSupervisor on_exhausted / hitl_probe seam, ~:1023/:1311): on the\nall-producers rate-limited signature, run the WINDOWED PACED RETRY\n(cq-1: NO hard wall-clock ceiling; emit an OVERSEER_ALERT once the\ncumulative wait crosses the TASK-2-6 threshold), using a\nrestart_phase-equivalent that PRESERVES landed slices (re-arm only the\nin-flight/failed frontier \u2014 do not discard completed slice work), and\nthe DETERMINISTIC-LOOP GUARD (using the TASK-2-5 fingerprint: escalate/\nhalt on an identical fingerprint at the same point; continue when state\nadvances). Keep the threshold OVERSEER_ALERT orthogonal to the\nloop-guard escalation.",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "- AC-C7 + AC-C6: all above cases covered and green; existing\n  fatal/abnormal halts asserted unchanged.",
+          "acceptance_criteria": "- AC-C2/AC-C5: paced windowed retry with no hard ceiling + threshold\n  OVERSEER_ALERT.\n- AC-C3: landed slices preserved across the paced restart.\n- AC-C4: loop-guard escalates on identical fingerprint at same point,\n  continues when state advances.",
           "files_affected": [
+            "orchestrator/concurrent_executor.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-8",
+          "description": "Tests for PR C, weighted on the exit-code plumbing seam:\nis_transient_rate_limit_error classification (429/rate-limit/overloaded\nmatch; auth-fatal wording does NOT match); __main__ emits\nEX_RATE_LIMITED for a throttle and still EX_AUTH_FATAL for a weekly cap;\noutcome_for maps EX_RATE_LIMITED -> JOB_OUTCOME_RATE_LIMITED and a stray\ncode -> abnormal; _observe_jobs routes rate-limited -> record_rate_limited\n(NOT record_abort); record_rate_limited does NOT trip the streak halt;\npaced-retry pacing/window + threshold OVERSEER_ALERT (cq-1); landed-slice\npreservation across a paced restart; loop-guard escalates on identical\nfingerprint and continues when state advances. AC-C6 REGRESSION (new\nrisk surface): EX_AUTH_FATAL(=77) exit-code handling and the ordinary\nabnormal path are unchanged by the new EX_RATE_LIMITED path. make lint +\nmake test green.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- AC-C7: classification, exit-code emission, outcome mapping, observe\n  routing, no-streak-halt, pacing/window+threshold, landed-slice\n  preservation, and loop-guard (both directions) all covered and green.\n- AC-C6: explicit regression asserting EX_AUTH_FATAL + abnormal paths\n  unchanged.",
+          "files_affected": [
+            "shared/egg_agent/tests/test_auth_errors_rate_limit.py",
+            "orchestrator/tests/test_kubernetes_spawner_rate_limited.py",
+            "orchestrator/tests/test_event_loop_rate_limited.py",
             "orchestrator/tests/test_supervision_policy.py",
             "orchestrator/tests/test_concurrent_executor_rate_limit.py"
           ],
