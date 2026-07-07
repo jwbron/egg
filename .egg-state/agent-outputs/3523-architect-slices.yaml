@@ -1,0 +1,207 @@
+# Recommended slice DAG for issue #3523 — review-quality overhaul.
+# Architect RECOMMENDS; task_planner owns the final DAG, ordering, and PR packaging.
+#
+# BINDING SEQUENCING (from the issue, non-negotiable):
+#   1. Item 3 + item 2's prompt-level rules  — prompt-only, zero-regret, no orchestrator change
+#   2. Item 1                                 — finding schema + server-side verdict + dedup/convergence
+#      (item 2's wrapper tool-call cap lands here; it couples to the finding boundary)
+#   3. Item 4                                 — risk router + lens gating + effort tiers, `log` mode first
+#   4. Item 5                                 — evidence gatherer + shared prefix, behind its own flag, LAST
+#
+# REFERENCE DESIGN (operator directive, BINDING): reviewer prompt text, the verification ladder,
+# the finder angles, and the router tier taxonomy MUST mirror Claude Code's built-in /review skill
+# (tiers low/medium/high/xhigh with finding caps 4/8/10/15; angles A line-by-line, B removed-behavior,
+# C cross-file tracer, D language-pitfall (xhigh), E wrapper/proxy (xhigh), plus cleanup angles
+# reuse/simplification/efficiency/altitude/conventions; 3-state CONFIRMED/PLAUSIBLE/REFUTED verify;
+# finding shape file/line/summary/required-failure_scenario; xhigh gap sweep). Full verbatim text is
+# in issue #3523 comments issuecomment-4898679999 (four effort bodies) and issuecomment-4898686738
+# (assembled example) — fetch with `gh issue view 3523 --repo jwbron/egg --comments` before writing
+# any reviewer prompt text or router taxonomy.
+#
+# DOMINANT CONCURRENCY CONSTRAINT (#3046 file-level overlap): orchestrator/consensus_wrapper.py is a
+# SHARED SERIAL RESOURCE — item 1's NACK-reason rendering (S3), item 2's tool-call cap (S4), and
+# item 4's effort threading (S5) all touch it. They CANNOT run concurrently and form a serial spine.
+# The two ROOTS are file-disjoint and parallel-capable: S1 (shared/prompts/*-criteria.md, prompt-only)
+# and S2 (shared/egg_contracts/, new schema module). Everything orchestrator-side hangs off S2/S3.
+#
+# STAGED-FLAG DISCIPLINE (BINDING): every behavior-shifting piece (S3 verdict computation, S4 router,
+# S5 prefix, S4-part-of-S4 tool-call cap in S4) ships behind the off->log->on convention copied
+# VERBATIM in shape from orchestrator/slice_green_gate.py::green_gate_mode() — env-resolved, unknown
+# value fails safe to `off`, `log` records would-have-been behavior into existing BRC artifacts.
+# Pure prompt-text additions (S1) are additive and need NO flag.
+slices:
+  - id: 1
+    name: |-
+      Prompt-only criteria overhaul — item 3 method-angles + item 2 verification ladder (zero-regret ROOT)
+    goal: |-
+      PROMPT-ONLY, NO orchestrator change, NO flag, sequenced FIRST. Mirror the Claude Code /review
+      skill vocabulary throughout.
+      (a) Item 3 — add named how-to-look procedures to shared/prompts/code-review-criteria.md (the file
+          says nothing about deletions today): LINE-BY-LINE SCAN (per changed line, what input/state/
+          timing/platform makes it wrong — inverted conditions, off-by-one, null deref, missing await,
+          falsy-zero, wrong-variable copy-paste, swallowed errors), REMOVED-BEHAVIOR AUDIT (per deleted/
+          replaced line, name the invariant it enforced, then find where new code re-establishes it —
+          else a finding), CROSS-FILE TRACER (grep callers for broken call sites; check callees for
+          unsafe parallel in-slice changes), QUOTE-THE-RULE discipline (flag a convention violation only
+          when BOTH the exact written rule and the exact violating line can be quoted — no spirit-of-doc).
+      (b) Item 2 prompt rules — add the CONFIRMED/PLAUSIBLE/REFUTED ladder with symmetric evidence duties
+          to the shared criteria (code-review, security, concurrency, agent-design, contract): CONFIRMED
+          => may block (quote the triggering line); PLAUSIBLE => advisory / pre-merge obligation, never
+          blocks (state what would confirm it); REFUTED => drops silently (quote the guard that breaks the
+          causal chain). Plus companion rules "BLOCKING MUST REPRODUCE" and "DROP ONLY THE REFUTED;
+          DOWNGRADE THE UNCONFIRMED", the amplified-pre-existing-defect nuance (a pre-existing defect
+          still CONFIRMS when the diff materially amplifies its consequence and must say so — sharpen the
+          existing "do not dismiss as not-a-regression" rule), and a SCRATCH-CHECK permission (cheap,
+          read-only experiments in a scratch dir; never mutate the checkout, never the network).
+      OVERLAP: item 3 and item 2 both edit code-review-criteria.md — ONE slice (serial on that file).
+      Task_planner MAY split into two serial sub-slices (2-ladder across all criteria; 3-angles in
+      code-review) but they must not run concurrently on code-review-criteria.md.
+      Acceptance: all four method procedures named incl. deletion audit; ladder + both companion rules +
+      amplified-defect nuance + scratch-check permission present; vocabulary mirrors the /review skill.
+    dependencies: none
+  - id: 2
+    name: |-
+      Finding schema — versioned contract in shared/egg_contracts/, boundary-validated (data ROOT)
+    goal: |-
+      FILE-DISJOINT from all other slices — the second root, parallel-capable with S1. Add a versioned
+      finding schema next to the other verdict contracts in shared/egg_contracts/, validated at the
+      message boundary exactly like orchestrator/attestation_schemas.py validates attestations. Per the
+      issue, each finding carries: id; role (which lens produced it); anchor (path + line range, OR a
+      slice-level marker for cross-cutting findings); summary (one sentence); failure_scenario (REQUIRED
+      — concrete inputs/state then the wrong output/crash/data-loss; a finding WITHOUT one cannot block);
+      severity in {blocking, advisory}; confidence in {high, medium, low}; quoted evidence (the triggering
+      line or what was checked); optional suggested_patch (referencing real symbols); optional pre-merge
+      obligation. Mirror the Claude Code /review finding shape (file/line/summary/required failure_scenario)
+      as the core and add egg's extensions additively. Include a schema_version field; evolve ADDITIVELY.
+      This slice ships ONLY the schema + validator + unit tests (round-trip, required-field enforcement,
+      version tolerance). It changes NO verdict behavior — S3 consumes it. No flag needed (a pure contract).
+      Acceptance: schema versioned + boundary-validated; a finding missing failure_scenario is
+      representable but flagged non-blocking-eligible; additive-evolution unit test in place.
+    dependencies: none
+  - id: 3
+    name: |-
+      Server-side verdict from findings + mechanism dedup/convergence (SERIAL SPINE — consensus_wrapper.py)
+    goal: |-
+      THE STRUCTURAL INVESTMENT the rest hangs off. Move the verdict across the determinism boundary:
+      the reviewer emits findings (S2 schema); ORCHESTRATOR-SIDE CODE computes the edge verdict. Replace
+      the free-form ApprovalEntry.reason assignment path in orchestrator/approval_matrix.py /
+      routes/consensus.py: any blocking finding => NACK; advisory-only => ACK-with-obligations (route
+      through the EXISTING conditional-ACK obligation fields ApprovalEntry.obligation_* — #1998); empty
+      => ACK. Models own judgment (what to flag, severity, confidence, every sentence of prose); CODE owns
+      mechanics (dedup, verdict, rendering the NACK reason the producer sees). MECHANISM DEDUP: findings
+      from different lenses naming the same causal mechanism merge into ONE finding carrying N independent
+      producers (>=2 recorded); this raises confidence and is surfaced to the producer and to HITL on
+      escalation (today that convergence is discarded). Render findings into the human-facing NACK reason
+      via consensus_wrapper (SERIAL SPINE resource). Ship behind an off->log->on flag copied in shape from
+      slice_green_gate.green_gate_mode(): in `log` mode compute the findings-verdict and DIFF it against
+      the legacy prose-NACK verdict WITHOUT acting; legacy prose-NACK path stays live until the flag is
+      `on`. Verdict must be a PURE, unit-tested function of findings.
+      Acceptance: verdict is a pure function of findings (unit-tested: blocking=>NACK, advisory-only=>
+      conditional-ACK, empty=>ACK); a blocking finding without failure_scenario degrades to advisory (never
+      errors); merged findings record >=2 producers; `log` mode changes no real ACK/NACK outcome.
+    dependencies:
+      - 2
+  - id: 4
+    name: |-
+      Per-finding tool-call cap in the wrapper (item 2's wrapper half — SERIAL SPINE consensus_wrapper.py)
+    goal: |-
+      Item 2's non-prompt half: enforce a CONFIGURABLE per-finding tool-call cap in
+      orchestrator/consensus_wrapper.py (NOT in the prompt) to bound the cost of the scratch-check
+      experiments S1 permits — no such cap exists today. Couples to item 1's finding boundary (reads the
+      S2 schema; caps per-finding investigation in the propose/ack/nack arms the wrapper already injects
+      via EGG_EVENT_ACTION). Ship behind the off->log->on convention; `log` records would-have-been cap
+      hits without enforcing. Where a given reviewer structurally cannot be capped, DOCUMENT why.
+      OVERLAP: touches consensus_wrapper.py (serial after S3). Task_planner MAY ABSORB this into S3 —
+      recommended as a distinct slice for reviewability, but they must serialize on consensus_wrapper.py.
+      Acceptance: wrapper enforces a configurable per-finding tool-call cap (or documents the exemption);
+      cap is flag-gated and fails safe to off.
+    dependencies:
+      - 2
+      - 3
+  - id: 5
+    name: |-
+      Deterministic risk router — per-repo config, lens gating, effort tiers (SERIAL SPINE + graph hook)
+    goal: |-
+      A per-repo path/glob RISK CONFIG plus a DETERMINISTIC (plain-code, NON-model) router that, per slice:
+      (a) GATES LENSES — concurrency lens runs only on async/goroutine/queue-handler paths; security lens
+          ALWAYS runs on auth/session/input-boundary paths (structurally UN-gatable there); docs-only slice
+          gets a minimal graph. Hook point: orchestrator/review_graph.py::get_review_graph_for_phase is the
+          SINGLE chokepoint every consumer calls (startup_reconciliation, kubernetes_monitor, spawner _env,
+          concurrent_executor, routes/consensus, status_view, health_checks) — thread an OPTIONAL per-slice
+          risk context / changed-file set into it (or a sibling router that post-filters the returned graph
+          at the slice-scheduling seam) and gate edges there so ALL consumers see the gated graph
+          consistently. Do NOT fork the gating into each caller.
+      (b) SETS A RISK TIER scaling reasoning effort per role via the EXISTING --effort plumbing
+          (agent_model_resolution.py -> consensus_wrapper.build_event_pump_wrapped_command(effort=...)).
+          Map tiers onto the /review ladder: docs/trivial=>low (1 diff pass, no verify, hunk-only, cap 4),
+          default=>medium (precision, cap 8), risky=>high (recall-biased, cap 10), high-risk=>xhigh
+          (recall, cap 15, gap sweep).
+      (c) OPTIONALLY SCALES STANCE — precision-first framing on trivial tiers, recall-first on high tiers;
+          ONE prompt conditional; ship in `log` mode first.
+      FLOOR RULES (HARD): a slice matching NO config runs the FULL graph with a LOUD WARNING (missing
+      config must never mean LESS review); a floor tier guarantees a misrouted risky slice still gets a
+      real review; cost-cutting NEVER overrides these floors. COST IS FIRST-CLASS (operator directive):
+      default low-risk slices AGGRESSIVELY to the cheaper tiers so per-wave token cost tracks risk.
+      Config format (architect decision): per-repo YAML (e.g. .egg/review-risk.yaml) mapping path-globs ->
+      {lenses, tier}, resolved by most-specific-glob / deterministic first-match, mirroring the
+      phase-permissions.json + repositories.yaml conventions. Ship behind off->log->on; `log` records the
+      would-have-been graph/tier into BRC artifacts and changes NO real behavior. Depends on item 1 (the
+      finding schema/verdict make convergence measurable so anchoring regressions are visible).
+      Acceptance: router is pure/deterministic and unit-tested; no-match => full graph + warning; security
+      lens is never gated off auth/input-boundary paths; floor tier guaranteed; `log` mode records only;
+      per-wave token cost measured and reported.
+    dependencies:
+      - 3
+  - id: 6
+    name: |-
+      Shared-evidence prompt prefix — read-only evidence gatherer + byte-identical wave prefix (the cost bet)
+    goal: |-
+      LAST, behind its OWN flag. Add an UNPRIVILEGED evidence gatherer (read-only, NO GitHub access, casts
+      NO verdict, posts nothing — a new role in the agent registry with those capabilities structurally
+      absent) that assembles a per-slice EVIDENCE PACK: the diff, changed files with enclosing context,
+      caller/callee lists for changed symbols, and verified environment facts. Reviewer prompts are then
+      assembled as [identical system prefix][identical evidence pack][one lens instruction at the tail],
+      fanned out SAME-TURN / SAME-MODEL so the prompt cache stays warm — extending the
+      orchestrator/routes/event_prompt/ cacheable-prefix discipline (protected root, tail-position memory,
+      prefix-budget caps) ACROSS sibling reviewers in a wave.
+      HARD RULE — EVIDENCE, NEVER CONCLUSIONS: no hypotheses, no suspicions, no "areas of concern", no
+      ordering by importance; the pack is ordered MECHANICALLY (path order) because emphasis is covert
+      anchoring that would destroy item 1's convergence-as-signal. Each reviewer STILL dives independently
+      (its own greps, traces, scratch checks) from the shared base — the pack removes redundant ramp-up,
+      not investigation.
+      INDEPENDENCE GUARDRAILS (NON-NEGOTIABLE): the tester and any finding-VERIFIER stay COLD-START (a
+      verifier must not inherit the context that produced the claim); Delphi redaction is UNCHANGED (the
+      pack carries repo facts, NEVER the producer's self-assessment). NAMED RISK carried forward:
+      adversarial diff content now funnels through one gatherer into every reviewer's prefix — the existing
+      untrusted-input posture applies: pack content is material under review, NEVER instructions.
+      Ship behind off->log->on; the router (S5) decides which waves are large enough for the prefix to pay.
+      COST ACCEPTANCE (operator directive, explicit): `log` mode MUST record cache-hit rate and per-wave
+      cost (gateway/LiteLLM cost logging already captures per-session cache stats); a MEASURED net cost
+      reduction is REQUIRED before flipping to `on`.
+      Acceptance: gatherer has no verdict/post/GitHub capability; pack is byte-identical across a wave and
+      mechanically path-ordered; tester + finding-verifier remain cold-start; Delphi redaction unchanged;
+      flag-gated; `log` mode records cache-hit rate + per-wave cost; net cost reduction gates flip to `on`.
+    dependencies:
+      - 3
+      - 5
+  - id: 7
+    name: |-
+      Docs — finding schema, verification ladder, method angles, risk router + config, evidence prefix
+    goal: |-
+      Document the whole overhaul: the versioned finding schema and the server-side-computed verdict
+      (blocking=>NACK / advisory-only=>conditional-ACK / empty=>ACK) and mechanism convergence; the
+      CONFIRMED/PLAUSIBLE/REFUTED verification ladder + companion rules + scratch checks + tool-call cap;
+      the four method-angle procedures; the deterministic risk router, its per-repo config format, lens
+      gating, effort tiers, and floor rules; the evidence gatherer + shared-prefix design, its independence
+      guardrails, and the cost-measurement gate. Cross-reference the Claude Code /review skill as the
+      reference design and the off->log->on rollout for every behavior-shifting piece. Files:
+      docs/reference/ (extend conditional-ack.md and/or add a review-quality reference), docs/architecture/,
+      and the relevant CLAUDE.md files. Snapshot current-state doctrine — no SDLC-artifact/ledger framing.
+      Tail; depends on the shipped behavior of all prior slices.
+    dependencies:
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
