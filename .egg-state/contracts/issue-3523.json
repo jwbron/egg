@@ -308,7 +308,7 @@
         {
           "id": "task-5-1",
           "description": "Add `orchestrator/risk_router.py`: a pure, deterministic function mapping a slice's\nchanged-file set to (a) the set of review lenses that should run, (b) a risk tier driving\nreasoning effort, and (c) an optional stance (precision-first vs recall-first). Encode the\nHARD floor rules as pure logic: a slice matching no config entry returns the FULL lens set\nplus a loud-warning signal (missing config must never mean less review); a floor tier\nguarantees any risky-but-misrouted slice still gets a real review; the security lens is\nstructurally un-gatable on auth/session/input-boundary paths (cannot be dropped even if a\nconfig entry omits it). Add the per-repo risk config as `.egg/review-risk.yaml` (mapping\npath-globs -> {lenses, tier}, resolved by most-specific-glob / deterministic first-match,\nmirroring the phase-permissions.json + repositories.yaml conventions) with a documented\nschema and a loader; default low-risk slices (e.g. docs-only) to the cheapest tier /\nminimal graph so cost tracks risk. Map tiers onto the /review ladder\n(low/medium/high/xhigh, caps 4/8/10/15) \u2014 fetch the reference comments first. No wiring\ninto review_graph or the effort plumbing yet.",
-          "status": "pending",
+          "status": "complete",
           "commit": "3540a6886",
           "checkpoint_id": null,
           "notes": "",
@@ -1003,6 +1003,17 @@
       "old_value": null,
       "new_value": "3540a6886",
       "reason": "Linked commit 3540a68 to task-5-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T05:35:44.102312Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-5-1 as complete",
       "checkpoint_id": null
     }
   ],
