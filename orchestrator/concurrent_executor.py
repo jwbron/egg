@@ -1087,9 +1087,10 @@ class ConcurrentPhaseExecutor:
         current phase; when that heartbeat self-reports
         ``state=WAITING_ON_ROLE`` this returns ``(waiting_on,
         waited_on_live)``, where ``waited_on_live`` is True iff every role
-        named in ``metadata.waiting_on`` (comma-tolerant) emitted any bus
-        message within the health monitor's phase-aware staleness window
-        (120s default in refine/plan/pr, 600s in implement — see below).
+        named in ``metadata.waiting_on`` (comma-tolerant) emitted a bus
+        message IN THE CURRENT PHASE within the health monitor's phase-aware
+        staleness window (120s default in refine/plan/pr, 600s in implement —
+        see below).
 
         Latest-heartbeat semantics are sound despite server-side dedup
         (``routes/messages.py``): only *consecutive identical* states are
@@ -1141,10 +1142,31 @@ class ConcurrentPhaseExecutor:
                 else self.pipeline.config.orchestrator_heartbeat_timeout_seconds
             )
             cutoff = datetime.now(UTC) - timedelta(seconds=live_window_seconds)
+            # #3520 (review notes #2/#4): compute liveness from a dedicated
+            # window-bounded, phase-filtered read rather than re-scanning the
+            # broad latest-heartbeat fetch. ``since=cutoff`` anchors the read
+            # near the stream tip, so the waited-on role's liveness stays
+            # correct and cheap regardless of stream length — the unbounded
+            # ``limit`` fetch above starts at the stream HEAD and can miss the
+            # tip on a >30k-entry stream (note #2). The explicit ``>= cutoff``
+            # filter is kept for precise sub-millisecond bounding on top of the
+            # ``since`` stream-ID resolution. Phase-filtering (note #4) mirrors
+            # the latest-heartbeat filter so a producer that emitted only in
+            # the PRIOR phase, still inside the window, is not miscounted as
+            # live right after a phase boundary. Both trims only ever SHRINK
+            # the live set → fail-safe (toward the high-priority alert), never
+            # a false low-priority notice. The latest-heartbeat read above
+            # stays broad on purpose: server-side dedup can make the role's
+            # current WAITING_ON_ROLE self-report arbitrarily old, so it must
+            # be found outside any liveness window.
+            recent = get_message_store().get_messages(
+                self.pipeline.id, since=cutoff, limit=10000, slice_id=self._slice_id
+            )
             recent_senders = {
                 msg.from_role
-                for msg in messages
-                if (msg.timestamp if msg.timestamp.tzinfo else msg.timestamp.replace(tzinfo=UTC))
+                for msg in recent
+                if msg.phase == phase
+                and (msg.timestamp if msg.timestamp.tzinfo else msg.timestamp.replace(tzinfo=UTC))
                 >= cutoff
             }
             return (waiting_on, all(r in recent_senders for r in waited_roles))

@@ -2089,6 +2089,24 @@ class TestRoleWaitingStatusProbe:
         refine = self._executor_in_phase(PipelinePhase.REFINE)
         assert self._probe_with(refine, _messages("refine")) == ("refiner", False)
 
+    def test_waited_on_liveness_is_phase_filtered(self):
+        """#3520 (review note #4): liveness counts only current-phase traffic.
+
+        A waited-on producer whose sole in-window message landed in the PRIOR
+        phase must not read as "live" — otherwise, right after a phase
+        boundary, a role that went quiet in the new phase would be mistaken
+        for a working upstream and downgrade the alert.
+        """
+        executor = self._executor()  # implement phase
+        messages = [
+            self._heartbeat(
+                "simplifier", "WAITING_ON_ROLE", "implement", waiting_on="refiner", age_seconds=60
+            ),
+            # refiner's only recent message is from the prior (plan) phase.
+            self._heartbeat("refiner", "WORKING", "plan", age_seconds=30),
+        ]
+        assert self._probe_with(executor, messages) == ("refiner", False)
+
     def test_latest_heartbeat_wins_over_older_waiting_report(self):
         """A role that moved on from WAITING_ON_ROLE (state changes always
         land on the bus — only consecutive identical states dedup) reports
