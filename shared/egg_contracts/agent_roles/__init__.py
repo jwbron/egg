@@ -26,7 +26,7 @@ from typing import Any
 
 from egg_restrictions.matchers import match_pattern
 
-from .roles import Role
+from ..roles import Role
 
 
 class AgentCategory(StrEnum):
@@ -1481,7 +1481,7 @@ def detect_write_overlaps(
     Returns:
         List of (role1, role2, overlapping_patterns) tuples.
     """
-    from .dependency_graph import build_dependency_graph
+    from ..dependency_graph import build_dependency_graph
 
     graph = build_dependency_graph(roles)
     waves = graph.compute_waves()
