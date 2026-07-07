@@ -534,34 +534,40 @@
         {
           "id": "opt-1",
           "label": "Operator/orchestrator marks task-1-5 (coder) and task-1-6 (tester) complete out-of-band, linking commit c2a77847a \u2014 bypassing the buggy positional completer \u2014 so slice-1 can proceed to consensus.",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "Re-index slice-1's tasks to dense low ids (rename task-1-5 -> task-1-1, task-1-6 -> task-1-2) so positional resolution (tasks[0], tasks[1]) matches, then agents complete them normally.",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-3",
           "label": "Fix the contract completer to resolve tasks by id rather than positional numeric-suffix, redeploy the orchestrator, then re-run completion (deeper fix; unblocks any future re-scoped-task pipeline).",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-4",
           "label": "Reconcile the read/write contract desync (sync the live re-scoped contract [task-1-5, task-1-6] to the on-disk .egg-state copy) so both paths agree, then re-run completion.",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-5",
           "label": "Other (explain in reply)",
-          "description": null
+          "description": null,
+          "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
-      "debounce_until": null
+      "resolved": true,
+      "resolution": "Operator/orchestrator marks task-1-5 (coder) and task-1-6 (tester) complete out-of-band, linking commit c2a77847a \u2014 bypassing the buggy positional completer \u2014 so slice-1 can proceed to consensus.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-07T03:30:29.915985Z",
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
