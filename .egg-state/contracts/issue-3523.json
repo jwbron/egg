@@ -9,7 +9,579 @@
   "pipeline_id": "issue-3523",
   "current_phase": "plan",
   "acceptance_criteria": [],
-  "slices": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Reviewer method-angle procedures & verification ladder",
+      "goal": "Add named search procedures (line-by-line scan, removed-behavior audit, cross-file tracer,\nquote-the-rule discipline) and a three-state verification ladder\n(CONFIRMED / PLAUSIBLE / REFUTED) to egg's shared reviewer criteria, so reviewers are told\nhow to investigate and how to justify a finding, not just what to care about. This slice is\nprompt-text only and changes no runtime behavior.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `shared/prompts/code-review-criteria.md` and\n`shared/prompts/code-review-holistic-criteria.md`, add (a) the four named method-angle\nprocedures from item 3 \u2014 line-by-line scan (per changed line, what\ninput/state/timing/platform makes it wrong: inverted conditions, off-by-one, null\nderef, missing await, falsy-zero, wrong-variable copy-paste, swallowed errors),\nremoved-behavior audit (per deleted or replaced line, name the invariant it enforced\nand find where the new code re-establishes it, else a finding), cross-file tracer (grep\ncallers for broken call sites; check callees for unsafe in-slice parallel changes), and\nquote-the-rule discipline (flag a convention violation only when BOTH the exact written\nrule and the exact violating line can be quoted); and (b) the CONFIRMED/PLAUSIBLE/\nREFUTED verification ladder with symmetric evidence duties, the two companion rules\n(\"blocking must reproduce\", \"drop only the refuted; downgrade the unconfirmed\"), the\namplified-pre-existing-defect nuance (a pre-existing defect still CONFIRMS when the diff\nmaterially amplifies its consequence and must say so), and a read-only scratch-check\npermission. Mirror the Claude Code /review skill's finder angles (A-E) and finding\nshape \u2014 FETCH the verbatim reference first via\n`gh issue view 3523 --repo jwbron/egg --comments` (comments issuecomment-4898679999 and\nissuecomment-4898686738). Do not invent a bespoke vocabulary.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Both files name all four method-angle procedures (including the deletion audit) and\nstate the three ladder verdicts with their evidence duties, the two companion rules, and\nthe amplified-defect nuance; the wording maps onto the /review skill's angles and verify\nstates. No orchestrator code changed.",
+          "files_affected": [
+            "shared/prompts/code-review-criteria.md",
+            "shared/prompts/code-review-holistic-criteria.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add the CONFIRMED/PLAUSIBLE/REFUTED verification ladder, its symmetric evidence duties,\nthe \"blocking must reproduce\" / \"drop only the refuted; downgrade the unconfirmed\"\ncompanion rules, and the read-only scratch-check permission to the remaining specialist\ncriteria so every lens shares the same verify discipline:\n`shared/prompts/security-review-criteria.md`,\n`shared/prompts/concurrency-review-criteria.md`,\n`shared/prompts/agent-design-criteria.md`, and\n`shared/prompts/contract-review-criteria.md`. Keep each lens's domain content; append\nthe shared ladder section consistently, mirroring the /review skill vocabulary.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Each of the four specialist criteria files contains the three-state ladder and both\ncompanion rules, phrased consistently with S1's code-review criteria.",
+          "files_affected": [
+            "shared/prompts/security-review-criteria.md",
+            "shared/prompts/concurrency-review-criteria.md",
+            "shared/prompts/agent-design-criteria.md",
+            "shared/prompts/contract-review-criteria.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add a ratchet test that reads each reviewer criteria file and asserts the required named\nsections are present: the four method-angle procedure names in the code-review criteria,\nand the three ladder verdict names plus both companion-rule phrases in every criteria\nfile that carries the ladder. Grep/substring assertions over the file contents; no\nruntime orchestration needed.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test fails if any required procedure name, ladder verdict, or companion rule is removed\nfrom its criteria file; passes on the S1 content. Runs under `make test`.",
+          "files_affected": [
+            "orchestrator/tests/test_review_criteria_ratchet.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "Versioned structured-finding schema",
+      "goal": "Introduce a versioned schema for a single review finding \u2014 anchor, one-sentence summary, a\nrequired concrete failure scenario, severity, confidence, quoted evidence, and optional\nsuggested patch and pre-merge obligation \u2014 validated at the message boundary like the\nexisting attestation contracts. This slice only adds and validates the schema; nothing\nconsumes it yet, so review behavior is unchanged. File-disjoint from every other slice.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add `shared/egg_contracts/review_findings.py` defining a versioned Finding schema with\nfields from the issue: `id`, `role` (producing lens), anchor (path + line range, or a\nslice-level marker for cross-cutting findings), `summary` (one sentence),\n`failure_scenario` (REQUIRED \u2014 concrete inputs/state then the wrong output, crash, or\ndata loss), `severity` in {blocking, advisory}, `confidence` in {high, medium, low},\nquoted `evidence`, optional `suggested_patch` (references real symbols), and optional\n`pre_merge_obligation`. Mirror the /review finding shape (file/line/summary/required\nfailure_scenario) as the core and add egg's extensions additively. Include a\n`schema_version` field and evolve additively. Provide a boundary validator (mirroring\n`orchestrator/attestation_schemas.py`) that validates a findings payload at the wire\nboundary and enforces that a `blocking` finding without a `failure_scenario` is NOT a\nvalid blocking finding (it is representable but flagged non-blocking-eligible, never\nerroring). Register/export via `shared/egg_contracts/__init__.py`. Do not wire it into\nthe verdict path yet.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The schema and validator exist and are importable; a blocking finding missing a\nfailure_scenario is representable but flagged non-blocking-eligible (never a valid\nblocking finding, never an error); the schema carries a version field; unknown extra\nfields are tolerated additively. No verdict or consensus code references it yet.",
+          "files_affected": [
+            "shared/egg_contracts/review_findings.py",
+            "shared/egg_contracts/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-2",
+          "description": "Unit-test the finding schema and its boundary validator: a valid blocking finding\nround-trips; a blocking finding with no failure_scenario is flagged\nnon-blocking-eligible (never valid-blocking, never erroring); severity and confidence\nenums reject junk; the schema_version field is present and stable; serialization\nround-trips; additive unknown fields do not break validation.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests cover the required-failure_scenario rule, enum validation, versioning, additive\ntolerance, and round-trip; all pass under `make test`.",
+          "files_affected": [
+            "shared/egg_contracts/tests/test_review_findings.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "Server-side computed verdict from findings & convergence",
+      "goal": "Move the review verdict across the determinism boundary: reviewers emit structured findings\nand orchestrator code computes each edge's verdict \u2014 any blocking finding means a NACK,\nadvisory-only means an approval with obligations, and no findings means a clean approval.\nFindings from different lenses that name the same underlying cause merge into a single\nfinding recording every lens that raised it, so convergence becomes a visible signal instead\nof being discarded. Ships behind a staged flag defaulting to off, with the existing\nfree-form path unchanged until it is switched on.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Implement server-side verdict computation as a pure function of a reviewer's findings\npayload (S2 schema): any blocking finding => NACK; advisory-only => ACK routed through\nthe existing conditional-ACK obligation fields on\n`orchestrator/approval_matrix.py::ApprovalEntry` (obligation_*); empty => ACK. Implement\nmechanism-level dedup that merges findings naming the same causal mechanism into one\nfinding carrying the list of N producing lenses (>=2 recorded, raising confidence), and\nrender the producer-facing NACK reason (today the free-form `ApprovalEntry.reason`) from\nthe computed findings via `orchestrator/consensus_wrapper.py` (the shared serial-spine\nresource). Gate the whole path behind a new `EGG_REVIEW_FINDINGS_MODE` flag resolved\nexactly like `slice_green_gate.green_gate_mode()` (`off` default, unknown => `off`, `log`\nrecords the computed-vs-legacy verdict into the BRC artifacts without acting, `on` uses\nthe computed verdict). Keep the legacy prose-NACK path intact for `off`/`log`. Put the\npure computation + dedup in a focused helper (e.g.\n`orchestrator/review_findings_verdict.py`).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Verdict is a pure, unit-testable function of findings with the three documented outcomes;\nmerged findings record >=2 producers; the NACK reason is rendered from findings; with the\nflag off or log, real ACK/NACK outcomes are byte-identical to the legacy path; an unknown\nflag value resolves to off.",
+          "files_affected": [
+            "orchestrator/review_findings_verdict.py",
+            "orchestrator/approval_matrix.py",
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-2",
+          "description": "Unit-test the computed verdict: blocking=>NACK, advisory-only=>conditional-ACK,\nempty=>ACK; a blocking finding lacking a failure_scenario degrades to advisory and does\nNOT produce a NACK; mechanism dedup attaches >=2 producers to a merged finding; log mode\nrecords computed-vs-legacy without changing the acted verdict (explicit parity test\nversus the legacy path); a flag typo resolves to off.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All listed cases are covered and pass under `make test`, including an explicit log-mode\nparity assertion and a flag-typo-fails-to-off assertion.",
+          "files_affected": [
+            "orchestrator/tests/test_review_findings_verdict.py",
+            "orchestrator/tests/test_approval_matrix.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-2"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-4",
+      "name": "Per-finding tool-call cap in the consensus wrapper",
+      "goal": "Bound the cost of a reviewer's empirical scratch-checks with a configurable per-finding\ntool-call cap enforced in the consensus wrapper rather than in the prompt. This is the\nnon-prompt half of item 2 and reads the finding schema, so it lands right after the verdict\nslice on the shared wrapper file. It ships behind the same staged flag and, in record-only\nmode, notes would-have-been cap hits without enforcing them.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Enforce a configurable per-finding tool-call cap in `orchestrator/consensus_wrapper.py`\n(not in the prompt), bounding the cost of the scratch-check experiments S1 permits.\nConfigurable via env with a safe default; ride the `EGG_REVIEW_FINDINGS_MODE` staged\nflag (`log` records would-be cap hits without enforcing; `on` enforces; unknown => off).\nWhere a given reviewer structurally cannot be capped in the wrapper, document why in a\ncode comment. Serialises after S3 on consensus_wrapper.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The wrapper enforces a configurable per-finding tool-call cap with a documented default;\nthe cap is flag-gated and fails safe to off; reviewers that cannot be capped are\ndocumented in-code.",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-2",
+          "description": "Unit-test the per-finding tool-call cap at its boundary: the cap triggers at the\nconfigured limit; log mode records would-be cap hits without enforcing; a flag typo\nresolves to off; the default is applied when unset.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Cap-boundary, log-record-only, flag-typo-fails-to-off, and default cases pass under\n`make test`.",
+          "files_affected": [
+            "orchestrator/tests/test_consensus_wrapper.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-3"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-5",
+      "name": "Deterministic risk router core (pure module)",
+      "goal": "Add a per-repo, path- and glob-based risk configuration plus a deterministic (plain-code, no\nmodel) router that, given the files a slice touches, decides which review lenses apply, what\nrisk tier the slice sits in, and an optional review stance. This slice delivers the config\nformat and the pure router with full unit tests; it is not yet wired into the live review\ngraph, so no review behavior changes.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Add `orchestrator/risk_router.py`: a pure, deterministic function mapping a slice's\nchanged-file set to (a) the set of review lenses that should run, (b) a risk tier driving\nreasoning effort, and (c) an optional stance (precision-first vs recall-first). Encode the\nHARD floor rules as pure logic: a slice matching no config entry returns the FULL lens set\nplus a loud-warning signal (missing config must never mean less review); a floor tier\nguarantees any risky-but-misrouted slice still gets a real review; the security lens is\nstructurally un-gatable on auth/session/input-boundary paths (cannot be dropped even if a\nconfig entry omits it). Add the per-repo risk config as `.egg/review-risk.yaml` (mapping\npath-globs -> {lenses, tier}, resolved by most-specific-glob / deterministic first-match,\nmirroring the phase-permissions.json + repositories.yaml conventions) with a documented\nschema and a loader; default low-risk slices (e.g. docs-only) to the cheapest tier /\nminimal graph so cost tracks risk. Map tiers onto the /review ladder\n(low/medium/high/xhigh, caps 4/8/10/15) \u2014 fetch the reference comments first. No wiring\ninto review_graph or the effort plumbing yet.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The router is pure and deterministic; no-match returns the full lens set + a warning\nsignal; the security lens is never gated off auth/session/input-boundary paths; a floor\ntier is always guaranteed; docs-only slices route to the minimal/cheapest tier; the config\nschema is loadable. Nothing in review_graph or the wrapper references it.",
+          "files_affected": [
+            "orchestrator/risk_router.py",
+            ".egg/review-risk.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-2",
+          "description": "Unit-test the router exhaustively: lens gating per path class (concurrency lens only on\nasync/queue-handler paths; security lens always on auth/session/input-boundary paths;\ndocs-only => minimal graph); no-match => full graph + warning; floor tier always present;\nlow-risk => cheapest tier (cost default); determinism (same input => same output); and\nthat the security lens cannot be gated off a protected path even by a config entry that\nomits it.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All routing rules and both floor guarantees are covered; the security-un-gatable invariant\nhas an explicit test; all pass under `make test`.",
+          "files_affected": [
+            "orchestrator/tests/test_risk_router.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-4"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-6",
+      "name": "Risk router wiring: lens gating, effort tiers, stance",
+      "goal": "Put the risk router in front of the live review graph: use its decision to select which\nlenses review each slice, to scale each reviewer's reasoning effort via the existing effort\nplumbing, and to optionally set a precision-first or recall-first stance. The floor rules stay\nhard \u2014 a slice with no matching config gets the full graph and a loud warning, and the\nsecurity lens is never gated off sensitive paths. This changes review behavior, so it ships\nbehind a staged flag that starts in a record-only mode and records the would-have-been graph,\ntier, and per-wave cost before anything is enforced.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Wire the S5 router into the SINGLE review-graph resolution chokepoint in\n`orchestrator/review_graph.py` (thread an optional per-slice changed-file set / risk\ncontext into it, or post-filter the returned graph at the slice-scheduling seam, so ALL\nconsumers see the gated graph consistently \u2014 do NOT fork the gating into each caller), and\ninto the reasoning-effort plumbing (`orchestrator/agent_model_resolution.py`, which feeds\n`consensus_wrapper.build_event_pump_wrapped_command(effort=...)`). Gate behind a new\n`EGG_RISK_ROUTER` flag resolved like `green_gate_mode()` (`off` default, unknown => off);\nin `log` mode record the would-be lens graph, risk tier, and per-wave token cost into the\nBRC artifacts while running the unchanged full graph; in `on` mode apply the router's\ngating and effort. Preserve the HARD floors at the wiring layer: no-match => full graph +\nloud warning; security lens un-gatable on auth/session/input-boundary paths.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "With the flag off or log, the live review graph and efforts are unchanged and log mode\nonly records; with it on, lenses/effort follow the router; no-match always yields the full\ngraph + a logged warning; the security lens is never dropped on a protected path.",
+          "files_affected": [
+            "orchestrator/review_graph.py",
+            "orchestrator/agent_model_resolution.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-2",
+          "description": "Add the optional review-stance conditional (precision-first on trivial tiers,\nrecall-first on high tiers) as ONE code-side conditional in the reviewer-criteria assembly\n(`orchestrator/routes/pipelines/_criteria.py`), selecting between the two stance framings\n(defined in code, not in the shared criteria files, to keep S1 independent) by the\nrouter's tier. Ship it log-first: apply the stance only in `on` mode under\n`EGG_RISK_ROUTER`. A single conditional; do not fork the prompt bodies.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "A single code-side stance conditional selects precision- vs recall-first framing by router\ntier, active only when EGG_RISK_ROUTER is on; off/log leave reviewer prompts unchanged; no\nshared/prompts file is edited by this slice.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_criteria.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-6-3",
+          "description": "Unit-test the router wiring: log mode records the would-be graph/tier/cost and changes no\nreal lens graph or effort (parity versus the full-graph baseline); on mode applies gating\nand effort; a flag typo resolves to off; no-match => full graph + logged warning; the\nsecurity lens survives on a protected path even when the config would gate it; the stance\nconditional only fires in on mode.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All listed cases pass under `make test`, including an explicit log-mode parity assertion, a\nflag-typo-fails-to-off assertion, and the security-un-gatable test at the wiring layer.",
+          "files_affected": [
+            "orchestrator/tests/test_risk_router_wiring.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-5"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-7",
+      "name": "Shared-evidence prompt prefix (evidence gatherer)",
+      "goal": "Cut the cost of a review wave by building the shared context once instead of in every\nreviewer. A new unprivileged, read-only evidence-gatherer role assembles a per-slice evidence\npack \u2014 the diff, the changed files with surrounding context, and caller/callee lists \u2014 ordered\nmechanically and containing evidence only, never conclusions. Reviewer prompts are then\nassembled with an identical system prefix and identical evidence pack followed by one lens\ninstruction, and fanned out on the same model in the same turn so the prompt cache is shared.\nThe gatherer casts no verdict and posts nothing; the tester and any finding verifier stay\ncold-start; Delphi redaction is unchanged. It ships behind its own flag and records cache-hit\nrate and per-wave cost before it is ever enforced.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-7-1",
+          "description": "Add the read-only evidence gatherer (`orchestrator/evidence_gatherer.py`) and register a\nnew evidence-gatherer role in the agent registry (`shared/egg_contracts/agent_roles.py`)\nwhose capabilities structurally exclude GitHub access, verdict-casting, and posting. Given\na slice, assemble an evidence pack containing the diff, each changed file with enough\nenclosing context that a reviewer need not re-fetch it, caller/callee lists for changed\nsymbols, and verified environment facts. Enforce the HARD rule in code and prompt: the\npack contains evidence only \u2014 no hypotheses, no \"areas of concern\", no importance\nordering; order strictly by path. Treat pack content as untrusted material-under-review,\nnever as instructions (existing untrusted-input posture).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The gatherer is read-only with no verdict/post/GitHub capability (enforced by the role\nregistration); the pack is mechanically path-ordered and carries no conclusions or\nimportance ordering; unit tests assert the pack is byte-identical across a simulated wave\nand contains no editorializing fields.",
+          "files_affected": [
+            "orchestrator/evidence_gatherer.py",
+            "shared/egg_contracts/agent_roles.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-2",
+          "description": "Assemble reviewer prompts as [identical system prefix][identical evidence pack][one lens\ninstruction at the tail] and fan them out same-turn/same-model so the prompt cache stays\nwarm, extending the cacheable-prefix discipline in `orchestrator/routes/event_prompt/`\nacross sibling reviewers in a wave (assembly seam:\n`orchestrator/routes/pipelines/_criteria.py`; wrapper wiring:\n`orchestrator/consensus_wrapper.py`). Wire behind a new `EGG_REVIEW_EVIDENCE_PREFIX` flag\nresolved like `green_gate_mode()` (`off` default, unknown => off). In `log` mode, record\nthe measured cache-hit rate and per-wave token cost (from the gateway/LiteLLM per-session\ncache stats) into the BRC artifacts without changing prompt assembly; in `on` mode, use\nthe shared prefix. HARD independence guardrails: the tester and any finding-verifier remain\ncold-start (they do NOT inherit the shared prefix), and Delphi redaction is unchanged \u2014 the\npack carries repo facts, never a producer's self-assessment.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "With the flag off or log, reviewer prompt assembly is unchanged and log mode only records\ncache-hit rate and per-wave cost; with it on, sibling same-model reviewers share a\nbyte-identical prefix; the tester and finding-verifier stay cold-start; Delphi redaction is\nunaffected.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_criteria.py",
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-7-3",
+          "description": "Unit-test the evidence prefix: the pack is byte-identical across a simulated wave and\nmechanically path-ordered; the gatherer exposes no verdict/post/GitHub surface; log mode\nrecords cache-hit rate and per-wave cost and changes no prompt assembly (parity versus\ncold-start); a flag typo resolves to off; the tester and any finding-verifier remain\ncold-start (do not receive the shared prefix); Delphi redaction output is unchanged.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All listed cases pass under `make test`, including the byte-identical-prefix assertion, the\nlog-mode parity + cost-recording assertion, the cold-start-tester/verifier assertion, and\nthe flag-typo-fails-to-off assertion.",
+          "files_affected": [
+            "orchestrator/tests/test_evidence_gatherer.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-6"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-8",
+      "name": "Documentation of the review-quality overhaul",
+      "goal": "Document the whole overhaul so an operator and future maintainer can understand and roll it\nout: the finding schema and server-side-computed verdict, mechanism convergence, the\nverification ladder and method-angle procedures, the tool-call cap, the risk router and its\nconfig, and the evidence-prefix design with its independence guardrails and cost gate.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-8-1",
+          "description": "Add `docs/reference/review-quality.md` documenting: the versioned finding schema and the\nserver-side computed verdict (blocking=>NACK / advisory-only=>conditional-ACK / empty=>ACK)\nand mechanism convergence; the CONFIRMED/PLAUSIBLE/REFUTED verification ladder + companion\nrules + scratch checks + per-finding tool-call cap; the four method-angle procedures; the\ndeterministic risk router, its `.egg/review-risk.yaml` config format, lens gating, effort\ntiers, and HARD floor rules; and the evidence gatherer + shared-prefix design, its\nindependence guardrails (cold-start tester/verifier, unchanged Delphi redaction), the\nuntrusted-input posture, and the cost-measurement gate. Cross-reference the Claude Code\n/review skill as the reference design and note the `off->log->on` rollout (including that\nthe evidence-prefix flip to `on` requires a measured net per-wave cost reduction), and link\nit from `docs/reference/conditional-ack.md` (advisory-only findings route through the\nexisting conditional-ACK obligation path). Snapshot current-state doctrine.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The new reference documents every shipped piece (schema, verdict, convergence, ladder,\nmethod angles, tool-call cap, router + config + floors, evidence prefix + guardrails + cost\ngate) and the off->log->on rollout; conditional-ack.md links to it.",
+          "files_affected": [
+            "docs/reference/review-quality.md",
+            "docs/reference/conditional-ack.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-7"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "decision-1",
@@ -36,6 +608,32 @@
       "resolved_at": "2026-07-07T00:08:45.513945Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "The refiner attests the refine phase deliberately raises no operator decisions (#3462):\n\n> Issue #3523 is a complete, prescriptive operator directive: the five changes, their per-field finding schema, the off\u2192log\u2192on rollout, the sequencing, the floor/independence guardrails, and the out-of-scope boundary are all fixed by the issue text and the two overseer-relayed operator directives (mirror the Claude Code /review skill; treat cost as first-class). The remaining open choices (exact slice cut-points, schema field encodings, router config format, evidence-gatherer packaging) are implementation-level and belong to the architect in the plan phase, not to operator HITL. If the plan phase surfaces a genuine scope fork (e.g. the shared-prefix fork point proving too shallow), it will be raised as a plan-phase decision then.\n\nConfirm to proceed to the phase gate, or choose \u201cRe-run phase to register decisions\u201d to send the phase back so its agents register the decisions as first-class contract entries (cq-N). Any free-text reply is treated as a re-run directive and forwarded to the agents.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Confirm \u2014 no open decisions this phase",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Re-run phase to register decisions",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Confirm \u2014 no open decisions this phase\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-07T00:08:01.074780Z",
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
@@ -56,7 +654,14 @@
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
-  "pr": null,
+  "pr": {
+    "title": "Overhaul review machinery: findings, verify ladder, risk router",
+    "description": "Implements issue #3523 \u2014 five changes to egg's multi-agent review machinery, shipped as a\nforest DAG (one independent prompt-only root plus a serial orchestrator spine) mirroring\nClaude Code's built-in /review skill:\n\n1. Reviewer method-angle search procedures + 3-state verification ladder\n   (CONFIRMED/PLAUSIBLE/REFUTED) added to the shared reviewer criteria (prompt-only).\n2. A versioned structured-finding schema in shared/egg_contracts/, boundary-validated.\n3. Server-side computed edge verdict from findings (blocking=>NACK, advisory-only=>\n   conditional-ACK, empty=>ACK) with mechanism-level dedup/convergence, plus a per-finding\n   tool-call cap, behind a staged off->log->on flag.\n4. A deterministic per-repo risk router that gates review lenses and scales reasoning effort\n   per slice, with hard floor rules, behind a staged off->log->on flag.\n5. A read-only shared-evidence prompt prefix (evidence gatherer) that warms the prompt cache\n   across sibling reviewers, behind its own flag, with cache-hit rate and per-wave cost\n   recorded in log mode.\n\nEvery behavior-shifting piece rides the off->log->on convention and fails safe to off. Cost\nis a first-class success criterion: the router defaults low-risk slices to cheaper tiers, and\nthe evidence prefix gates its flip to `on` on a measured net cost reduction. Out of scope:\neval/benchmark harness, human-feedback learning loop.",
+    "test_plan": "- Automated: ratchet test over the reviewer criteria files (S1); pure-function unit tests for\n  the finding schema (S2), verdict computation + convergence dedup (S3), and the risk router\n  (S5); log-mode-parity and flag-typo-fails-to-off tests for each behavior-shifting slice\n  (S3, S4, S6, S7); byte-identical-prefix and cold-start-tester/verifier tests (S7).\n- Manual: with each flag in `log` mode, confirm the recorded would-have-been behavior in the\n  BRC artifacts (computed-vs-legacy verdict, would-be graph/tier, cache-hit rate and per-wave\n  cost) matches expectations before flipping to `on`.",
+    "manual_steps": "Pre-merge: none \u2014 all new behavior defaults to `off` and is inert until an operator opts in.\nPost-merge: staged rollout per feature, each independently. For each of\nEGG_REVIEW_FINDINGS_MODE, EGG_RISK_ROUTER, EGG_REVIEW_EVIDENCE_PREFIX: set to `log`, observe\nthe recorded would-have-been behavior in the BRC artifacts across several waves, then flip to\n`on`. The evidence-prefix flip to `on` additionally requires a measured net per-wave cost\nreduction in log mode.",
+    "context_pr_number": null,
+    "deferred_actions": []
+  },
   "feedback": null,
   "phase_configs": null,
   "agent_executions": []
