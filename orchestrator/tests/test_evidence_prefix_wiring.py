@@ -13,7 +13,9 @@ Covers the task-7-2 acceptance:
 from __future__ import annotations
 
 import consensus_wrapper
+import evidence_gatherer
 import pytest
+import routes.pipelines as _pkg
 from consensus_wrapper import (
     aggregate_wave_cache_stats,
     evidence_prefix_log_record,
@@ -196,3 +198,99 @@ class TestEvidencePrefixLogRecord:
 def test_wrapper_reexports_flag_resolver():
     """consensus_wrapper imports the S7 flag resolver (no second switch)."""
     assert consensus_wrapper.evidence_prefix_mode() in {"off", "log", "on"}
+
+
+# ---------------------------------------------------------------------------
+# LIVE prompt path — _build_review_prompt (the reviewer's blocking concern)
+# ---------------------------------------------------------------------------
+
+
+class TestLiveReviewPromptWiring:
+    """The seam is actually wired into the live reviewer-prompt assembler.
+
+    Guards the #3523 S7 acceptance at RUNTIME, not just at the seam function:
+    under `on` the live prompt carries the shared prefix; under off/log it is
+    byte-identical to legacy; the tester/finding-verifier never reach this path.
+    """
+
+    @pytest.fixture
+    def stub_pack(self, monkeypatch):
+        """Stub the read-only git listing + gather so no real git is needed."""
+        pack = build_pack(diff="D", files=[], symbols=[], environment={"python_version": "3.14.0"})
+        monkeypatch.setattr(
+            _pkg, "_list_changed_files_for_review", lambda repo_path, base_ref: ["x.py"]
+        )
+        monkeypatch.setattr(
+            evidence_gatherer, "gather_evidence", lambda changed, repo, base_ref=None: pack
+        )
+        return pack
+
+    def _build(self, reviewer_type="code"):
+        return _pkg._build_review_prompt(
+            phase="implement",
+            pipeline_id="issue-3523",
+            pipeline_mode="concurrent",
+            reviewer_type=reviewer_type,
+            repo_path="/tmp",
+            base_branch="main",
+            concurrent=True,
+        )
+
+    def test_off_and_log_byte_identical_to_legacy(self, monkeypatch, stub_pack):
+        monkeypatch.setenv("EGG_REVIEW_EVIDENCE_PREFIX", "off")
+        off = self._build()
+        monkeypatch.setenv("EGG_REVIEW_EVIDENCE_PREFIX", "log")
+        log = self._build()
+        assert off == log
+        # neither carries the shared prefix
+        assert _SHARED_EVIDENCE_SYSTEM_PREFIX not in off
+
+    def test_on_prepends_byte_identical_prefix(self, monkeypatch, stub_pack):
+        monkeypatch.setenv("EGG_REVIEW_EVIDENCE_PREFIX", "off")
+        off = self._build()
+        monkeypatch.setenv("EGG_REVIEW_EVIDENCE_PREFIX", "on")
+        on = self._build()
+        prefix = build_shared_evidence_prefix(stub_pack)
+        assert on.startswith(prefix)
+        assert on.endswith(off)  # legacy body preserved verbatim at the tail
+        assert _SHARED_EVIDENCE_SYSTEM_PREFIX in on
+
+    def test_on_prefix_shared_across_sibling_lenses(self, monkeypatch, stub_pack):
+        """Two different live reviewer prompts share the identical leading span."""
+        monkeypatch.setenv("EGG_REVIEW_EVIDENCE_PREFIX", "on")
+        code = self._build(reviewer_type="code")
+        security = self._build(reviewer_type="security")
+        prefix = build_shared_evidence_prefix(stub_pack)
+        assert code.startswith(prefix)
+        assert security.startswith(prefix)
+        assert code[: len(prefix)] == security[: len(prefix)]
+
+    def test_log_mode_emits_record(self, monkeypatch, stub_pack):
+        """log mode records the would-be prefix into the BRC log stream."""
+        captured = {}
+
+        class _Logger:
+            def info(self, msg, **kw):
+                captured["msg"] = msg
+                captured["kw"] = kw
+
+        monkeypatch.setattr(_pkg, "logger", _Logger())
+        monkeypatch.setenv("EGG_REVIEW_EVIDENCE_PREFIX", "log")
+        self._build(reviewer_type="code")
+        assert captured["kw"]["kind"] == "evidence_prefix"
+        assert captured["kw"]["mode"] == "log"
+        assert captured["kw"]["wave_roles"] == ["reviewer_code"]
+        assert captured["kw"]["shared_prefix_bytes"] > 0
+
+    def test_maybe_apply_off_is_noop_without_git(self, monkeypatch):
+        """off mode returns the prompt unchanged without touching git."""
+        monkeypatch.setenv("EGG_REVIEW_EVIDENCE_PREFIX", "off")
+
+        def _boom(*a, **k):  # pragma: no cover - must not be called
+            raise AssertionError("off mode must not gather evidence")
+
+        monkeypatch.setattr(_pkg, "_list_changed_files_for_review", _boom)
+        out = _pkg._maybe_apply_evidence_prefix(
+            "BODY", reviewer_type="code", repo_path="/tmp", base_ref="origin/main"
+        )
+        assert out == "BODY"
