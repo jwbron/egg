@@ -868,3 +868,71 @@ class TestJiraPipelineConcurrentStatus:
         assert result is not None
         assert "consensus" in result
         assert result["consensus"]["is_complete"] is True
+
+
+class TestConsensusBlockVerdictVisibility:
+    """The status payload surfaces recorded verdicts + confirm blockers (#3548).
+
+    ``_consensus_block`` used to drop the approval matrix entirely, so a
+    landed ACK was indistinguishable from a lost one (the reviewer shows
+    ``reviewer_phase: REVIEWING`` + ``confirmed: false`` either way) and the
+    zero-proposal confirm blocker — the guard that rejects EVERY confirm
+    while some producer has no proposal — was unnamed.
+    """
+
+    def test_consensus_block_surfaces_edges_versions_and_blockers(self):
+        pipeline = _make_concurrent_pipeline(pipeline_id="issue-3548")
+        tracker = MagicMock()
+        tracker.get_state.return_value = {
+            "is_complete": False,
+            "blocking_agents": ["coder", "tester", "documenter", "reviewer_code"],
+            "has_unresolved_nacks": False,
+            "unresolved_nacks": [],
+            "agents": {
+                "coder": {"producer_phase": "WORKING", "confirmed": False},
+                "tester": {"producer_phase": "WORKING", "confirmed": False},
+                "documenter": {"producer_phase": "PROPOSED", "confirmed": False},
+                "reviewer_code": {"reviewer_phase": "REVIEWING", "confirmed": False},
+            },
+            "approval_matrix": {
+                "entries": {
+                    "reviewer_code->documenter": {
+                        "reviewer_role": "reviewer_code",
+                        "producer_role": "documenter",
+                        "state": "acked",
+                        "version": 1,
+                        "reason": "looks good",
+                    }
+                },
+                "proposal_versions": {"documenter": 1, "coder": 0, "tester": 0},
+                "revision_counts": {},
+            },
+            "protocol": "brc",
+        }
+
+        with (
+            patch("concurrent_executor.is_concurrent_execution", return_value=True),
+            patch("message_store.get_message_store") as mock_get_store,
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=tracker),
+        ):
+            mock_store = MagicMock()
+            mock_store.get_status.return_value = {"total": 0, "by_type": {}}
+            mock_get_store.return_value = mock_store
+
+            result = _get_concurrent_status(pipeline)
+
+        consensus = result["consensus"]
+        assert consensus["proposal_versions"] == {"documenter": 1, "coder": 0, "tester": 0}
+        assert consensus["review_edges"] == [
+            {
+                "reviewer": "reviewer_code",
+                "producer": "documenter",
+                "state": "acked",
+                "version": 1,
+            }
+        ]
+        # The single most load-bearing fact for a stalled round: which
+        # producers block every confirm by never having proposed.
+        assert consensus["zero_proposal_producers"] == ["coder", "tester"]
+        # The bulky raw matrix stays dropped.
+        assert "approval_matrix" not in consensus

@@ -55,6 +55,13 @@ def record_success(self, dedupe_key: str, *, action: str = "", role: str = "") -
         dedupe_key,
         streak,
     )
+    if streak >= SUPERVISION_NOOP_STREAK_PARK:
+        # Record the arm labels for the parked key. ``_last_action`` is
+        # otherwise written only by ``record_abort``, so a key that parked
+        # without ever aborting would surface as an anonymous ``/`` row in
+        # ``noop_park_report()`` (#3548).
+        if action or role:
+            self._last_action[dedupe_key] = (action, role)
     if streak >= SUPERVISION_NOOP_STREAK_PARK and not self._alerted_noop.get(dedupe_key, False):
         self._alerted_noop[dedupe_key] = True
         fingerprint = self._probe_hitl_fingerprint()
@@ -369,6 +376,61 @@ def reset_exhausted(self) -> list[str]:
     if cleared:
         logger.info(
             "JobSupervisor: operator reset cleared %d exhausted key(s) — fresh spawn budgets: %s",
+            len(cleared),
+            ", ".join(cleared),
+        )
+    return cleared
+
+
+def noop_park_report(self) -> list[dict[str, Any]]:
+    """Describe every no-op-parked key for operator surfacing (#3548).
+
+    Mirror of :meth:`exhausted_report` for the successful-no-op park
+    (#3425): one entry per key whose clean-completion streak reached
+    ``SUPERVISION_NOOP_STREAK_PARK`` — the arm it belongs to and the no-op
+    streak length. This is what the all-arms-parked HITL escalation embeds
+    so the operator can see WHICH arms keep running to no effect without
+    grepping pod logs. Sorted by (role, action) for stable rendering.
+    """
+    report = []
+    for key, streak in self._noop_streaks.items():
+        if streak < SUPERVISION_NOOP_STREAK_PARK:
+            continue
+        action, role = self._last_action.get(key, ("", ""))
+        report.append(
+            {
+                "dedupe_key": key,
+                "role": role,
+                "action": action,
+                "noop_streak": streak,
+            }
+        )
+    report.sort(key=lambda e: (e["role"], e["action"], e["dedupe_key"]))
+    return report
+
+
+def reset_noop_parks(self) -> list[str]:
+    """Forget ALL supervision state for every no-op-parked key (#3548).
+
+    The in-band recovery primitive behind the all-arms-parked HITL's
+    "Retry arms" resolution — the park twin of :meth:`reset_exhausted`.
+    A park does self-release (fingerprint movement / retry heartbeat),
+    but each release grants only a single probe spawn that re-parks on
+    the next no-op; an operator who has fixed the underlying wedge wants
+    the streaks gone so the arms run freely again. Full ``retire`` for
+    the same latch reasons as :meth:`reset_exhausted`.
+
+    Returns the cleared keys (sorted) so callers can report them.
+    """
+    cleared = sorted(
+        key for key, streak in self._noop_streaks.items() if streak >= SUPERVISION_NOOP_STREAK_PARK
+    )
+    for key in cleared:
+        self.retire(key)
+    if cleared:
+        logger.info(
+            "JobSupervisor: operator reset cleared %d no-op-parked key(s) — "
+            "fresh spawn budgets: %s",
             len(cleared),
             ", ".join(cleared),
         )

@@ -94,6 +94,13 @@ ARMS_EXHAUSTED_RESTART_OPTION = "Restart phase"
 # "Abort phase" implied an action the resolution does not take (#3496 review).
 ARMS_EXHAUSTED_ABORT_OPTION = "Abort (manual — recorded only)"
 
+# #3548: all-arms-parked HITL escalation — the no-op-park sibling of the
+# #3496 exhausted wedge. Same single-sourcing pattern; the restart/abort
+# option labels are shared with the exhausted decision so operators see one
+# vocabulary.
+ARMS_PARKED_HITL_CONTEXT = "event_arms_parked"
+ARMS_PARKED_RETRY_OPTION = "Retry arms (release no-op parks)"
+
 # Warm-resume session-store substrate (#3278). The agent's Claude session store
 # lives at ``$CLAUDE_CONFIG_DIR`` (default ``~/.claude`` = ``/home/egg/.claude``);
 # we pin it explicitly so the wrapper's pull/push and the agent agree on the path
@@ -558,6 +565,8 @@ class ConcurrentPhaseExecutor:
             active_roles_notifier=self._publish_active_roles,
             arms_exhausted_notifier=self._handle_arms_exhausted,
             arms_exhausted_cleared_notifier=self._withdraw_arms_exhausted_hitl,
+            arms_parked_notifier=self._handle_arms_parked,
+            arms_parked_cleared_notifier=self._withdraw_arms_parked_hitl,
         )
         self._event_loop = loop
         loop.start()
@@ -1254,6 +1263,166 @@ class ConcurrentPhaseExecutor:
         except Exception as exc:  # noqa: BLE001 — withdrawal must not wedge the loop
             logger.warning(
                 "Failed to auto-withdraw arms-exhausted HITL after wedge cleared",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+                error=str(exc),
+            )
+
+    def _handle_arms_parked(
+        self,
+        *,
+        report: list[dict[str, Any]],
+        exhausted_report: list[dict[str, Any]],
+        blocked_arms: list[tuple[str, str]],
+    ) -> None:
+        """Escalate the all-arms-parked stall to the operator (#3548).
+
+        Wired as the event loop's ``arms_parked_notifier`` — the no-op-park
+        sibling of :meth:`_handle_arms_exhausted`. Every arm the slice needs
+        in order to advance is blocked on a no-op-parked (or exhausted)
+        dedupe key with nothing in flight. A park does self-release, but
+        only for one probe spawn per fingerprint change or 30-minute
+        heartbeat; the #3548 incident sat silent for the full window with
+        ``pending_decisions`` empty. Same two surfaces and the same
+        dedup/best-effort posture as the exhausted escalation:
+
+        * an ``OVERSEER_ALERT`` broadcast (message-bus listeners), and
+        * a **persisted** HITL decision whose "Retry arms" resolution
+          releases the parks on the live loop(s) in-band
+          (``routes/decisions/_handlers.py``).
+        """
+        detail_lines = [
+            (
+                f"- {entry['role']}/{entry['action']}: "
+                f"{entry['noop_streak']} consecutive no-op completions (parked)"
+            )
+            for entry in report
+        ] + [
+            (
+                f"- {entry['role']}/{entry['action']}: streak={entry['streak']}, "
+                f"recent terminations: {entry['exit_history_text']} (exhausted)"
+            )
+            for entry in exhausted_report
+        ]
+        arms = ", ".join(f"{role}/{action}" for role, action in blocked_arms)
+        slice_label = self._slice_id or "pipeline"
+        detail = (
+            f"Event loop for pipeline={self.pipeline.id} slice={slice_label} "
+            f"phase={self.pipeline.current_phase.value} cannot advance: every "
+            f"derivable spawn arm ({arms}) is blocked on a no-op-parked (or "
+            f"exhausted) dedupe key and no one-shot Job is in flight. Each "
+            f"parked arm's agent keeps completing cleanly with zero BRC "
+            f"progress, so respawning it unchanged cannot converge the round "
+            f"— it is typically blocked on missing upstream state (e.g. a "
+            f"producer that never proposed) or an unresolved operator "
+            f"decision. Blocked arms:\n" + "\n".join(detail_lines)
+        )
+        store = None
+        try:
+            from routes import get_state_store_for_pipeline
+
+            store, disk_pipeline = get_state_store_for_pipeline(self.pipeline.id)
+            already_pending = any(
+                d.context == ARMS_PARKED_HITL_CONTEXT for d in disk_pipeline.get_pending_decisions()
+            )
+        except Exception as exc:  # noqa: BLE001 — escalation must not wedge the loop
+            logger.warning(
+                "Failed to read pending decisions for arms-parked dedup; escalating anyway",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+                error=str(exc),
+            )
+            already_pending = False
+
+        if already_pending:
+            logger.info(
+                "Arms-parked HITL already pending; not re-alerting or stacking another",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+            )
+            return
+
+        self._emit_supervision_alert(
+            anomaly="event-arms-parked",
+            priority="high",
+            summary=f"all spawn arms no-op-parked for slice {slice_label} — round stalled",
+            detail=detail,
+        )
+
+        if store is None:
+            return
+        try:
+            from routes.pipelines import _persist_hitl_decision
+
+            question = (
+                f"{detail}\n\n"
+                f"How to proceed?\n"
+                f"- '{ARMS_PARKED_RETRY_OPTION}': release the no-op parks so the "
+                f"blocked arms respawn immediately (in-band; nothing in flight "
+                f"is torn down). If the agents keep no-oping the arms will "
+                f"re-park and this decision will re-fire.\n"
+                f"- '{ARMS_EXHAUSTED_RESTART_OPTION}': tear down and re-run the "
+                f"current phase (work pushed to the shared branch is preserved).\n"
+                f"- '{ARMS_EXHAUSTED_ABORT_OPTION}': recorded only — use cancel_task "
+                f"to stop the pipeline."
+            )
+            decision = _persist_hitl_decision(
+                self.pipeline.id,
+                self.pipeline,
+                store,
+                question=question,
+                options=[
+                    ARMS_PARKED_RETRY_OPTION,
+                    ARMS_EXHAUSTED_RESTART_OPTION,
+                    ARMS_EXHAUSTED_ABORT_OPTION,
+                ],
+                phase=self.pipeline.current_phase,
+                context=ARMS_PARKED_HITL_CONTEXT,
+            )
+            if decision is not None:
+                logger.warning(
+                    "Arms-parked HITL decision created",
+                    pipeline_id=self.pipeline.id,
+                    slice_id=self._slice_id,
+                    decision_id=decision.id,
+                    blocked_arms=arms,
+                )
+        except Exception as exc:  # noqa: BLE001 — escalation must not wedge the loop
+            logger.warning(
+                "Failed to persist arms-parked HITL decision",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+                error=str(exc),
+            )
+
+    def _withdraw_arms_parked_hitl(self) -> None:
+        """Auto-withdraw a stale arms-parked HITL once the stall clears (#3548).
+
+        Symmetric to :meth:`_handle_arms_parked` and modeled on
+        :meth:`_withdraw_arms_exhausted_hitl`, including the pipeline-wide
+        guard: the decision is deduped across slices, so it must not be
+        withdrawn while another slice's loop is still inside an escalated
+        parked episode.
+        """
+        try:
+            from event_loop import get_live_event_loops
+            from routes import get_state_store_for_pipeline
+            from routes.pipelines import _withdraw_arms_parked_decisions
+
+            if any(loop.arms_parked_escalated for loop in get_live_event_loops(self.pipeline.id)):
+                return
+            store, _ = get_state_store_for_pipeline(self.pipeline.id)
+            withdrawn = _withdraw_arms_parked_decisions(self.pipeline.id, store)
+            if withdrawn:
+                logger.info(
+                    "Auto-withdrew stale arms-parked HITL after the stall cleared",
+                    pipeline_id=self.pipeline.id,
+                    slice_id=self._slice_id,
+                    withdrawn=withdrawn,
+                )
+        except Exception as exc:  # noqa: BLE001 — withdrawal must not wedge the loop
+            logger.warning(
+                "Failed to auto-withdraw arms-parked HITL after stall cleared",
                 pipeline_id=self.pipeline.id,
                 slice_id=self._slice_id,
                 error=str(exc),

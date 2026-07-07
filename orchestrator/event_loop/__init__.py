@@ -341,9 +341,11 @@ class EventDecision:
     (a deduped repeat is False). ``agent_free`` is True for confirm/complete.
     ``timing`` is a structured mapping for the slice-4 latency budget on a
     fresh spawn, ``None`` otherwise. ``blocked`` (#3496) names why a
-    spawn-action decision did not spawn when the block is terminal —
-    currently only ``"exhausted"`` — so the all-arms-exhausted detection can
-    distinguish it from the benign not-spawned shapes (dedupe, backoff, park).
+    spawn-action decision did not spawn when the block is operator-relevant:
+    ``"exhausted"`` (terminal retry-budget exhaustion) or ``"parked"``
+    (#3548 — a no-op-park that only the retry heartbeat will release), so
+    the all-arms wedge detections can distinguish them from the benign
+    not-spawned shapes (dedupe, backoff).
     """
 
     role: str
@@ -502,6 +504,8 @@ class JobSupervisor:
     _format_exit_history = _supervisor._format_exit_history
     exhausted_report = _supervisor.exhausted_report
     reset_exhausted = _supervisor.reset_exhausted
+    noop_park_report = _supervisor.noop_park_report
+    reset_noop_parks = _supervisor.reset_noop_parks
     noop_parked = _supervisor.noop_parked
     _probe_hitl_fingerprint = _supervisor._probe_hitl_fingerprint
     _probe_brc_fingerprint = _supervisor._probe_brc_fingerprint
@@ -550,6 +554,8 @@ class OrchestratorEventLoop:
         active_roles_notifier: Callable[[set[str]], Any] | None = None,
         arms_exhausted_notifier: Callable[..., Any] | None = None,
         arms_exhausted_cleared_notifier: Callable[[], Any] | None = None,
+        arms_parked_notifier: Callable[..., Any] | None = None,
+        arms_parked_cleared_notifier: Callable[[], Any] | None = None,
     ) -> None:
         self.tracker = tracker
         self.spawner = spawner
@@ -617,6 +623,14 @@ class OrchestratorEventLoop:
         # cleared when the condition no longer holds (an arm spawned, a new
         # key derived, or an operator reset cleared the exhausted set).
         self._arms_exhausted_alerted = False
+        # #3548: the no-op-park siblings of the two fields above — fired
+        # (once per wedge episode) when every derivable spawn arm is blocked
+        # on a no-op-parked (or exhausted) key with nothing in flight, and on
+        # the wedged→clear transition respectively. ``None`` (unit tests /
+        # pod mode) leaves detection dormant except for the WARN log.
+        self._arms_parked_notifier = arms_parked_notifier
+        self._arms_parked_cleared_notifier = arms_parked_cleared_notifier
+        self._arms_parked_alerted = False
 
     reconcile = _loop.reconcile
     live_dedupe_keys = _loop.live_dedupe_keys
@@ -627,6 +641,11 @@ class OrchestratorEventLoop:
     arms_exhausted_escalated = property(_loop.arms_exhausted_escalated)
     _notify_arms_exhausted_cleared = _loop._notify_arms_exhausted_cleared
     reset_exhausted_arms = _loop.reset_exhausted_arms
+    _check_arms_parked = _loop._check_arms_parked
+    arms_parked_escalated = property(_loop.arms_parked_escalated)
+    _notify_arms_parked_cleared = _loop._notify_arms_parked_cleared
+    reset_parked_arms = _loop.reset_parked_arms
+    invalidate_role_arms = _loop.invalidate_role_arms
     _publish_active_roles = _loop._publish_active_roles
     _handle_role = _loop._handle_role
     _reap_superseded_siblings = _loop._reap_superseded_siblings

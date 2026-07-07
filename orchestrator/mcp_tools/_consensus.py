@@ -22,8 +22,23 @@ def _structured_consensus(consensus: dict[str, Any]) -> dict[str, Any]:
     Derives ``confirmed_agents`` from the per-role ``confirmed`` flags so
     the structured path and the message-inference fallback expose the
     same top-level fields (#3481).
+
+    #3548: also surfaces the recorded verdicts (``review_edges`` +
+    ``proposal_versions``) and the ``zero_proposal_producers`` confirm
+    blocker. Before this, a recorded ACK was invisible in the tool result
+    — the reviewer stayed ``reviewer_phase: REVIEWING`` with
+    ``confirmed: false`` both before and after ACKing — and the actual
+    convergence blocker (the global zero-proposal guard rejecting every
+    confirm while some producer has no proposal) was unnamed, which is
+    what let the #3548 incident be misread as "acks accepted but lost".
     """
     agents = dict(consensus.get("agents", {}))
+    # The status route's ``_consensus_block`` computes these compact
+    # projections from the tracker's approval matrix; pass them through
+    # (defaulting to empty for older/inference-shaped blocks).
+    proposal_versions = dict(consensus.get("proposal_versions") or {})
+    review_edges = list(consensus.get("review_edges") or [])
+    zero_proposal_producers = list(consensus.get("zero_proposal_producers") or [])
     return {
         "is_complete": consensus.get("is_complete", False),
         "confirmed_agents": [
@@ -35,6 +50,9 @@ def _structured_consensus(consensus: dict[str, Any]) -> dict[str, Any]:
         "has_unresolved_nacks": consensus.get("has_unresolved_nacks", False),
         "unresolved_nacks": consensus.get("unresolved_nacks", []),
         "agents": agents,
+        "proposal_versions": proposal_versions,
+        "review_edges": review_edges,
+        "zero_proposal_producers": zero_proposal_producers,
     }
 
 

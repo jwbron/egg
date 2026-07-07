@@ -1184,6 +1184,7 @@ from ._decisions import (  # noqa: E402,F401
     _incomplete_consensus_decision_text,
     _persist_hitl_decision,
     _withdraw_arms_exhausted_decisions,
+    _withdraw_arms_parked_decisions,
 )
 
 # drafts helpers live in _drafts.py (#3312 slice-4); re-exported here.
