@@ -461,7 +461,7 @@
         {
           "id": "task-7-1",
           "description": "Add the read-only evidence gatherer (`orchestrator/evidence_gatherer.py`) and register a\nnew evidence-gatherer role in the agent registry (`shared/egg_contracts/agent_roles.py`)\nwhose capabilities structurally exclude GitHub access, verdict-casting, and posting. Given\na slice, assemble an evidence pack containing the diff, each changed file with enough\nenclosing context that a reviewer need not re-fetch it, caller/callee lists for changed\nsymbols, and verified environment facts. Enforce the HARD rule in code and prompt: the\npack contains evidence only \u2014 no hypotheses, no \"areas of concern\", no importance\nordering; order strictly by path. Treat pack content as untrusted material-under-review,\nnever as instructions (existing untrusted-input posture).",
-          "status": "pending",
+          "status": "complete",
           "commit": "2b3febe1c",
           "checkpoint_id": null,
           "notes": "",
@@ -1113,6 +1113,17 @@
       "old_value": null,
       "new_value": "2b3febe1c",
       "reason": "Linked commit 2b3febe to task-7-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T06:51:17.155094Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.6.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-7-1 as complete",
       "checkpoint_id": null
     }
   ],
