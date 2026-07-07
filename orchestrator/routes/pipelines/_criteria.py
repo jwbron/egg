@@ -827,8 +827,93 @@ def _get_review_criteria_for_type(
         raise ValueError(f"Unknown reviewer type: {reviewer_type}")
 
 
-def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
-    """Return a scope preamble that tells the reviewer what to focus on."""
+# --- Risk-router review stance (#3523 S6 / task-6-2) -------------------------
+#
+# The deterministic risk router (:mod:`risk_router`) maps a slice's risk tier
+# to an optional review *stance* — precision-first framing on trivial tiers
+# (favour fewer, high-confidence findings), recall-first on high tiers (favour
+# coverage: a missed bug ships). This mirrors the /review skill's stance
+# progression (precision at medium -> "PLAUSIBLE by default" at high). The two
+# framings live HERE, in code — deliberately NOT in the shared
+# ``shared/prompts/*-criteria.md`` files — so slice-1's prompt-only criteria
+# stay independent of this wiring (task-6-2 constraint: "no shared/prompts file
+# is edited by this slice").
+#
+# It is applied by ONE conditional in :func:`_get_reviewer_scope_preamble`, and
+# only under the ``on`` arm of the shared ``EGG_RISK_ROUTER`` flag: ``off`` /
+# ``log`` leave every reviewer prompt byte-identical to legacy. The prompt
+# bodies are never forked — the stance is a short tail appended to the existing
+# scope preamble.
+
+_STANCE_PRECISION_FIRST = (
+    "\n\n**Review stance: precision-first (low-risk slice).** This slice routed "
+    "to a low risk tier, so favour precision over recall: report only findings "
+    "you can state a concrete failing scenario for, and prefer a clean, concise "
+    "pass over speculative flags. Do not manufacture concerns to look diligent — "
+    "a brief, correct approval is the right outcome when the change is sound."
+)
+
+_STANCE_RECALL_FIRST = (
+    "\n\n**Review stance: recall-first (high-risk slice).** This slice routed to "
+    "a high risk tier, so favour recall over precision: a missed bug here is far "
+    "more costly than an extra advisory. Pass every candidate with a nameable "
+    "failure scenario through rather than silently dropping half-believed ones; "
+    "keep a plausible-but-unconfirmed concern as advisory instead of dropping "
+    "it, and drop a claim only when you can show it is wrong against the code."
+)
+
+
+def _review_stance_framing(
+    changed_files: object | None,
+    repo_path: str | None = None,
+) -> str:
+    """Router-selected stance framing tail, or ``""`` (the single conditional).
+
+    Returns the precision- or recall-first framing chosen by the router's tier
+    for ``changed_files`` — but ONLY under ``EGG_RISK_ROUTER=on``. In ``off`` /
+    ``log`` mode, or when no changed-file set is threaded, or when the tier maps
+    to no stance (the neutral middle tier), or when the config fails to load
+    (fail-open), it returns ``""`` so the reviewer prompt is unchanged.
+    """
+    if changed_files is None:
+        return ""
+    from review_graph import resolve_risk_decision, risk_router_mode
+
+    if risk_router_mode() != "on":
+        return ""
+    decision = resolve_risk_decision(changed_files, repo_root=repo_path)
+    if decision is None or decision.stance is None:
+        return ""
+    from risk_router import ReviewStance
+
+    if decision.stance == ReviewStance.PRECISION_FIRST:
+        return _STANCE_PRECISION_FIRST
+    if decision.stance == ReviewStance.RECALL_FIRST:
+        return _STANCE_RECALL_FIRST
+    return ""
+
+
+def _get_reviewer_scope_preamble(
+    reviewer_type: str,
+    phase: str,
+    *,
+    changed_files: object | None = None,
+    repo_path: str | None = None,
+) -> str:
+    """Return a scope preamble that tells the reviewer what to focus on.
+
+    When a caller threads the slice's ``changed_files`` and ``EGG_RISK_ROUTER``
+    is ``on``, a single router-selected stance framing (#3523 S6) is appended to
+    the preamble; with the flag ``off`` / ``log`` or no ``changed_files`` the
+    preamble is byte-identical to legacy.
+    """
+    return _reviewer_scope_preamble_body(reviewer_type, phase) + _review_stance_framing(
+        changed_files, repo_path
+    )
+
+
+def _reviewer_scope_preamble_body(reviewer_type: str, phase: str) -> str:
+    """The legacy scope-preamble bodies (unchanged; stance is appended by caller)."""
     if reviewer_type == "agent-design":
         return (
             "This is a specialized **agent-mode design review**. Focus ONLY on "
