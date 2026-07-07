@@ -233,6 +233,16 @@ from .resilience import (
     retry_with_backoff,
     should_checkpoint_now,
 )
+from .review_findings import (
+    FINDINGS_SCHEMA_VERSION,
+    Finding,
+    FindingAnchor,
+    FindingConfidence,
+    FindingSeverity,
+    FindingsPayload,
+    non_blocking_eligible_warnings,
+    validate_findings_payload,
+)
 from .roles import (
     FIELD_OWNERSHIP,
     Role,
@@ -368,6 +378,15 @@ __all__ = [
     "should_process_feedback",
     "start_feedback_debounce",
     "update_feedback_with_countdown",
+    # Review Findings (#3523 slice-2)
+    "FINDINGS_SCHEMA_VERSION",
+    "Finding",
+    "FindingAnchor",
+    "FindingConfidence",
+    "FindingSeverity",
+    "FindingsPayload",
+    "non_blocking_eligible_warnings",
+    "validate_findings_payload",
     # Resilience
     "CheckpointState",
     "RateLimitHandler",
