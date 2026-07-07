@@ -746,6 +746,37 @@ OVERSEER_PATTERNS = AgentFilePattern(
 )
 
 
+# Evidence gatherer agent pattern
+# Read-only shared-evidence gatherer (#3523): writes only its evidence-pack
+# handoff under agent-outputs. Mirrors the role's file_access in
+# egg_contracts.agent_roles — contracts, reviews, source, tests, and docs
+# all stay read-only.
+
+EVIDENCE_GATHERER_PATTERNS = AgentFilePattern(
+    role=AgentRole.EVIDENCE_GATHERER,
+    description="evidence-pack handoff only, no source/test/doc/config access",
+    allowed_patterns=[
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=[
+        "src/",
+        "lib/",
+        "shared/",
+        "gateway/",
+        "sandbox/",
+        "action/",
+        "orchestrator/",
+        "docs/",
+        "tests/",
+        "test/",
+        ".egg-state/contracts/",
+        ".egg-state/drafts/",
+        ".egg-state/reviews/",
+        ".github/",
+    ],
+)
+
+
 # Autofixer agent pattern
 # The autofixer applies automated lint/type-check/formatting fixes to source
 # and config files.  It cannot modify docs or contracts.
@@ -898,6 +929,7 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REVIEWER_SECURITY: REVIEWER_SECURITY_PATTERNS,
     AgentRole.REVIEWER_CONCURRENCY: REVIEWER_CONCURRENCY_PATTERNS,
     AgentRole.OVERSEER: OVERSEER_PATTERNS,
+    AgentRole.EVIDENCE_GATHERER: EVIDENCE_GATHERER_PATTERNS,
     AgentRole.AUTOFIXER: AUTOFIXER_PATTERNS,
     AgentRole.CONFLICT_RESOLVER: CONFLICT_RESOLVER_PATTERNS,
 }
@@ -1004,6 +1036,7 @@ def build_agent_patterns(
         AgentRole.REVIEWER_SECURITY: REVIEWER_SECURITY_PATTERNS,
         AgentRole.REVIEWER_CONCURRENCY: REVIEWER_CONCURRENCY_PATTERNS,
         AgentRole.OVERSEER: OVERSEER_PATTERNS,
+        AgentRole.EVIDENCE_GATHERER: EVIDENCE_GATHERER_PATTERNS,
         AgentRole.AUTOFIXER: autofixer,
         AgentRole.CONFLICT_RESOLVER: conflict_resolver,
     }

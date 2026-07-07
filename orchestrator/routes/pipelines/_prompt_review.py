@@ -407,6 +407,110 @@ def _render_contract_tasks(
     return "\n".join(lines) if len(lines) > 1 else None
 
 
+def _list_changed_files_for_review(repo_path: str, base_ref: str) -> list[str]:
+    """Read-only: the reviewer's changed-file set (``base...HEAD``), or ``[]``.
+
+    Uses the SAME three-dot range the reviewer is told to review so the pack's
+    file set matches the diff under review. Any git failure degrades to ``[]``
+    (the caller then skips the shared prefix) — never raises.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except Exception:
+        return []
+    if result.returncode != 0:
+        return []
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def _maybe_apply_evidence_prefix(
+    prompt: str,
+    *,
+    reviewer_type: str,
+    repo_path: str | None,
+    base_ref: str,
+) -> str:
+    """Wire the shared-evidence prefix (#3523 S7 / task-7-2) into the LIVE prompt.
+
+    This is the integration the seam functions in ``_criteria`` /
+    ``consensus_wrapper`` exist for. Behaviour by ``EGG_REVIEW_EVIDENCE_PREFIX``:
+
+    - ``off`` -> ``prompt`` returned unchanged (byte-identical to legacy).
+    - ``log`` -> ``prompt`` unchanged; emit a structured record of the would-be
+      shared prefix (mode, wave role, prefix byte length) into the BRC log
+      stream, mirroring the S6 risk-router log-mode precedent
+      (``review_graph.get_review_graph_for_phase``). This is the "measure
+      before enabling" step the issue makes an explicit acceptance criterion.
+    - ``on``  -> prepend the byte-identical ``[system prefix][evidence pack]``
+      at the very front so sibling same-model reviewers share one cacheable
+      prefix; the per-lens instruction stays at the tail.
+
+    Only specialist lenses that share the prefix build a pack; the tester and
+    finding-verifier stay cold-start (``shares_evidence_prefix`` == False).
+    Deterministic: the same repo state yields a byte-identical pack, hence an
+    identical prefix across the wave. Fail-open: any gathering error leaves the
+    prompt unchanged so prompt assembly is never blocked.
+    """
+    from evidence_gatherer import (
+        evidence_prefix_mode,
+        gather_evidence,
+        shares_evidence_prefix,
+    )
+
+    mode = evidence_prefix_mode()
+    if mode == "off":
+        return prompt
+    # Reconstruct the full AgentRole name the sharing/cold-start guard keys on
+    # ("code" -> "reviewer_code", "code-holistic" -> "reviewer_code_holistic").
+    reviewer_role = "reviewer_" + reviewer_type.replace("-", "_")
+    if not shares_evidence_prefix(reviewer_role):
+        return prompt
+    if not repo_path:
+        return prompt
+
+    changed_files = _pkg._list_changed_files_for_review(repo_path, base_ref)
+    if not changed_files:
+        return prompt
+    try:
+        pack = gather_evidence(changed_files, repo_path, base_ref=base_ref)
+    except Exception:
+        # Fail-open: a gathering failure must never block the review wave.
+        return prompt
+
+    from routes.pipelines._criteria import build_shared_evidence_prefix
+
+    prefix = build_shared_evidence_prefix(pack)
+    if not prefix:
+        return prompt
+
+    if mode == "log":
+        from consensus_wrapper import evidence_prefix_log_record
+
+        record = evidence_prefix_log_record(
+            wave_roles=[reviewer_role],
+            shared_prefix_bytes=len(prefix.encode("utf-8")),
+            mode="log",
+        )
+        _pkg.logger.info(
+            "evidence_prefix log-mode: would prepend shared evidence pack (#3523 S7)",
+            changed_file_count=len(changed_files),
+            **record,
+        )
+        return prompt
+
+    # on: prepend the byte-identical prefix at the very front of the prompt.
+    return prefix + "\n\n" + prompt
+
+
 def _build_review_prompt(
     phase: str,
     pipeline_id: str,
@@ -762,4 +866,19 @@ def _build_review_prompt(
     lines.append("- You CANNOT modify source files (src/, lib/, docs/, tests/)")
     lines.append("")
 
-    return "\n".join(lines)
+    prompt = "\n".join(lines)
+
+    # Shared-evidence prompt prefix (#3523 S7 / task-7-2): under
+    # EGG_REVIEW_EVIDENCE_PREFIX, sibling same-model reviewers in a wave share a
+    # byte-identical [system prefix][evidence pack] so the prompt cache stays
+    # warm. off/log leave `prompt` byte-identical to legacy (log only records the
+    # would-be behaviour); on prepends the shared prefix. Applied LAST so the
+    # prefix is the literal leading bytes of the reviewer prompt (the cacheable
+    # span). The tester/finding-verifier are producers here, not `reviewer_*`
+    # types, so they never reach this path — cold-start preserved.
+    return _pkg._maybe_apply_evidence_prefix(
+        prompt,
+        reviewer_type=reviewer_type,
+        repo_path=repo_path,
+        base_ref=_base_ref,
+    )

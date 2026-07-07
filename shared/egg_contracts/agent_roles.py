@@ -104,6 +104,12 @@ class AgentRole(StrEnum):
     # Utility roles (cross-cutting support)
     AUTOFIXER = "autofixer"
     CONFLICT_RESOLVER = "conflict_resolver"
+    # Read-only shared-evidence gatherer (#3523 §5). Assembles the evidence
+    # pack a review wave shares as a byte-identical prompt prefix. Casts no
+    # verdict, posts nothing, has no GitHub access, writes only its handoff
+    # dir — those capabilities are structurally excluded below (file_access +
+    # a SYSTEM contract role + deny-by-default gh restrictions).
+    EVIDENCE_GATHERER = "evidence_gatherer"
     # Interface roles (external system interaction)
     OVERSEER = "overseer"
 
@@ -1027,6 +1033,57 @@ CONFLICT_RESOLVER_ROLE = AgentRoleDefinition(
 )
 
 
+# Read-only evidence gatherer (#3523 §5, S7 / task-7-1). Assembles the shared
+# evidence pack (diff + changed files + caller/callee context + verified env
+# facts) that every same-model reviewer in a wave consumes as a byte-identical
+# prompt prefix. Its capabilities are the whole point: it is *unprivileged*.
+#   * No verdict-casting: it is NOT a reviewer role (absent from
+#     ``_PHASE_REVIEWERS``) and maps to the coarse ``Role.SYSTEM`` (an
+#     observer, not a contract author) — so it can neither ACK/NACK nor mutate
+#     the contract.
+#   * No posting / no GitHub access: it is deliberately left OUT of
+#     ``gateway.agent_restrictions.AGENT_GH_RESTRICTIONS`` so the gateway's
+#     deny-by-default posture rejects EVERY ``gh`` operation for it (stronger
+#     than the per-op block every producer gets).
+#   * Read-only checkout: ``file_access`` permits writes ONLY to the
+#     agent-outputs handoff dir and blocks source/tests/docs/contracts/reviews/
+#     drafts/.github — it can read everything, write essentially nothing.
+EVIDENCE_GATHERER_ROLE = AgentRoleDefinition(
+    role=AgentRole.EVIDENCE_GATHERER,
+    description="Read-only gatherer that assembles the shared review-wave evidence pack",
+    category=AgentCategory.UTILITY,
+    responsibilities=[
+        "Assemble a slice's evidence pack: diff, changed files with enclosing "
+        "context, caller/callee lists for changed symbols, verified env facts",
+        "Order the pack strictly by path — collect evidence, never analyze it",
+        "Cast no verdict, post nothing, touch no network — read-only",
+    ],
+    dependencies=[],  # Runs on-demand ahead of a review wave; no fixed deps
+    file_access=FileAccessPattern(
+        allowed_read=[],  # Can read all files (read-only by design)
+        allowed_write=[
+            # Handoff output only — the assembled pack. Nothing else.
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=[
+            "src/",
+            "lib/",
+            "docs/",
+            "tests/",
+            "test/",
+            ".egg-state/contracts/",
+            ".egg-state/drafts/",
+            ".egg-state/reviews/",
+            ".egg-state/pipelines/",
+            ".egg-state/oversight/",
+            ".github/",
+        ],
+    ),
+    produces_outputs=["evidence_pack"],
+    requires_inputs=[],
+)
+
+
 # Registry of all agent roles
 AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     # Execution roles
@@ -1053,6 +1110,7 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     # Utility roles
     AgentRole.AUTOFIXER: AUTOFIXER_ROLE,
     AgentRole.CONFLICT_RESOLVER: CONFLICT_RESOLVER_ROLE,
+    AgentRole.EVIDENCE_GATHERER: EVIDENCE_GATHERER_ROLE,
     # Interface roles
     AgentRole.OVERSEER: OVERSEER_ROLE,
 }
@@ -1126,6 +1184,9 @@ AGENT_ROLE_TO_CONTRACT_ROLE: dict[AgentRole, Role] = {
     # Utility: apply code fixes, share implementer privileges
     AgentRole.AUTOFIXER: Role.IMPLEMENTER,
     AgentRole.CONFLICT_RESOLVER: Role.IMPLEMENTER,
+    # Read-only evidence gatherer: an observer like the overseer, never a
+    # contract author — SYSTEM structurally denies it verdict/contract writes.
+    AgentRole.EVIDENCE_GATHERER: Role.SYSTEM,
     # Interface: observers, not contract authors
     AgentRole.OVERSEER: Role.SYSTEM,
 }

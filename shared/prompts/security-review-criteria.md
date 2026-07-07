@@ -229,6 +229,41 @@ Verification recipe:
    `/etc/shadow` / `~/.ssh/id_rsa` / `<other-repo>/.git/config` is the
    bug.
 
+## Verification Ladder — CONFIRMED / PLAUSIBLE / REFUTED
+
+This lens shares the verification discipline defined in
+[`code-review-criteria.md`](./code-review-criteria.md). Before a candidate
+becomes a finding, assign it exactly one verdict; the evidence duties are
+**symmetric** — quote the line that justifies the call whether you keep the
+candidate or drop it.
+
+- **CONFIRMED** — you can name the concrete inputs/state that trigger the
+  bug and the resulting exploit, disclosure, or bypass. Quote the triggering
+  line (e.g. the anchored regex, the unvalidated path, the swallowed error).
+- **PLAUSIBLE** — the mechanism is real but the trigger is uncertain (a
+  caller, config, or deployment you cannot see). State what evidence would
+  confirm it. **PLAUSIBLE by default** — do not refute a candidate merely for
+  being speculative.
+- **REFUTED** — factually wrong (the code does not say that) or guarded
+  elsewhere (a prior validator already rejects the input). Quote the line
+  that proves it.
+
+Two companion rules:
+
+1. **Blocking must reproduce.** A finding may be `blocking` only if it is
+   CONFIRMED with a stated failure scenario — concrete inputs/state → the
+   exploit or bypass. A candidate you cannot reproduce cannot block; carry it
+   as advisory or drop it.
+2. **Drop only the refuted; downgrade the unconfirmed.** Discard REFUTED
+   candidates; downgrade PLAUSIBLE ones to advisory (non-blocking) so the
+   signal survives without burning a producer revision round.
+
+**Scratch checks (read-only).** You may run read-only commands to confirm a
+candidate before flagging it — Grep the validator's call sites,
+`git ls-files | grep <path>` a referenced target, Read the allowlist
+definition, trace the source→sink reach. Do **not** mutate the working tree,
+push, or run destructive commands.
+
 ## How to Review
 
 1. Read the full diff once at the security lens.
