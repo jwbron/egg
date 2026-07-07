@@ -540,7 +540,7 @@
       "id": "slice-8",
       "name": "Documentation of the review-quality overhaul",
       "goal": "Document the whole overhaul so an operator and future maintainer can understand and roll it\nout: the finding schema and server-side-computed verdict, mechanism convergence, the\nverification ladder and method-angle procedures, the tool-call cap, the risk router and its\nconfig, and the evidence-prefix design with its independence guardrails and cost gate.",
-      "status": "pending",
+      "status": "in_progress",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -573,8 +573,8 @@
         "slice-7"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3523/slice-7",
+      "integration_base_sha": "97498d171cf85c15492fb00ea13befbbec38a7f5",
       "commit": null,
       "pr_number": null,
       "pr_url": null,
@@ -1179,6 +1179,17 @@
       "old_value": "18aed1f36",
       "new_value": "1613eee15",
       "reason": "Linked commit 1613eee to task-7-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T07:16:54.653429Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.6.tasks.2.status",
+      "old_value": "complete",
+      "new_value": "complete",
+      "reason": "Marked task-7-3 as complete",
       "checkpoint_id": null
     }
   ],
