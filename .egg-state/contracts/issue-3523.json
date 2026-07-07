@@ -10,7 +10,34 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.\n\nDecision ledger: explicitly none \u2014 refiner attested: Issue #3523 is a complete, prescriptive operator directive: the five changes, their per-field finding schema, the off\u2192log\u2192on rollout, the sequencing, the floor/independence guardrails, and the out-of-scope boundary are all fixed by the issue text and the two overseer-relayed operator directives (mirror the Claude Code /review skill; treat cost as first-class). The remaining open choices (exact slice cut-points, schema field encodings, router config format, evidence-gatherer packaging) are implementation-level and belong to the architect in the plan phase, not to operator HITL. If the plan phase surfaces a genuine scope fork (e.g. the shared-prefix fork point proving too shallow), it will be raised as a plan-phase decision then. Operator confirmed the attestation.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Operator reviewed the full draft analysis (3523-analysis.md at cda1336b) in the host session, verified the seams table, the reference-design mapping to the Claude Code /review skill, the cost-as-first-class acceptance criteria, and checked for unregistered decision-shaped content (none found; the four deferred choices are implementation-level and assigned to the plan phase). Attestation was confirmed via decision-1.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-07T00:08:45.513945Z",
+      "debounce_until": null,
+      "redirect_seed": null
+    }
+  ],
   "workflow_owner": null,
   "audit_log": [],
   "refine_review_cycles": 0,
