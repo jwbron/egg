@@ -549,7 +549,7 @@
         {
           "id": "task-8-1",
           "description": "Add `docs/reference/review-quality.md` documenting: the versioned finding schema and the\nserver-side computed verdict (blocking=>NACK / advisory-only=>conditional-ACK / empty=>ACK)\nand mechanism convergence; the CONFIRMED/PLAUSIBLE/REFUTED verification ladder + companion\nrules + scratch checks + per-finding tool-call cap; the four method-angle procedures; the\ndeterministic risk router, its `.egg/review-risk.yaml` config format, lens gating, effort\ntiers, and HARD floor rules; and the evidence gatherer + shared-prefix design, its\nindependence guardrails (cold-start tester/verifier, unchanged Delphi redaction), the\nuntrusted-input posture, and the cost-measurement gate. Cross-reference the Claude Code\n/review skill as the reference design and note the `off->log->on` rollout (including that\nthe evidence-prefix flip to `on` requires a measured net per-wave cost reduction), and link\nit from `docs/reference/conditional-ack.md` (advisory-only findings route through the\nexisting conditional-ACK obligation path). Snapshot current-state doctrine.",
-          "status": "pending",
+          "status": "complete",
           "commit": "d4df6c734",
           "checkpoint_id": null,
           "notes": "",
@@ -1309,6 +1309,17 @@
       "old_value": null,
       "new_value": "d4df6c734",
       "reason": "Linked commit d4df6c7 to task-8-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T21:06:46.974474Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.7.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-8-1 as complete",
       "checkpoint_id": null
     }
   ],
