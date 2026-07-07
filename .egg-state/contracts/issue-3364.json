@@ -23,8 +23,8 @@
         {
           "id": "task-1-5",
           "description": "Wire the production slice_closed_emitter at the real SliceScheduler\nconstruction site (orchestrator/routes/pipelines/_run_implement.py:86),\nwhich today calls SliceScheduler(contract, max_parallel_slices=...) with\nNO emitter (default None) \u2014 so the slice.closed emit path added in\nTASK-1-2 never fires in production (green-but-dead). Construct the\nproduction scheduler with a non-None emitter Callable that publishes the\nslice.closed event to the orchestrator event bus, so real\nrecord_complete/record_failure emissions reach /status/wait consumers.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- The production SliceScheduler at _run_implement.py:86 is constructed\n  with a non-None slice_closed_emitter that publishes to the event bus.\n- Real record_complete/record_failure now emit slice.closed in\n  production (no longer default-None / green-but-dead).",
@@ -44,8 +44,8 @@
         {
           "id": "task-1-6",
           "description": "Add a production-chain integration test that drives the REAL emission\npath \u2014 record_complete/record_failure -> the wired emitter -> event bus\n-> _STATUS_WAIT_EVENT_TYPES allowlist \u2014 NOT a hand-published event.\nAssert exactly one allowlisted slice.closed(success) on a completion and\nexactly one allowlisted slice.closed(failure) on a failure, via the\nproduction wiring from TASK-1-5. Closes the reviewer_contract slice-1\nNACK and proves AC-B5 end-to-end. make lint + make test green.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- AC-B5 (end-to-end): the test exercises production wiring (not a\n  hand-published event) and asserts one allowlisted slice.closed(success)\n  and one slice.closed(failure); suite green.",
@@ -815,6 +815,46 @@
       },
       "reason": "Created HITL decision: BLOCKED (slice-1, coder): cannot mark task-1-5 com...",
       "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T04:56:04.792615+00:00",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
+      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)"
+    },
+    {
+      "timestamp": "2026-07-07T04:56:04.792615+00:00",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)"
+    },
+    {
+      "timestamp": "2026-07-07T04:56:04.792615+00:00",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
+      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)"
+    },
+    {
+      "timestamp": "2026-07-07T04:56:04.792615+00:00",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)"
     }
   ],
   "refine_review_cycles": 0,
