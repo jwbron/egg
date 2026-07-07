@@ -1118,6 +1118,7 @@ class TestAgentRole:
         assert AgentRole.REVIEWER_SECURITY in roles
         assert AgentRole.REVIEWER_CONCURRENCY in roles
         assert AgentRole.OVERSEER in roles
+        assert AgentRole.EVIDENCE_GATHERER in roles
         assert AgentRole.AUTOFIXER in roles
         assert AgentRole.CONFLICT_RESOLVER in roles
         # Registry-size pin. Count grew from the original 18 → 19 with
@@ -1125,10 +1126,11 @@ class TestAgentRole:
         # ORCHESTRATOR was removed (#2925: the orchestrator is the control
         # plane, not an agent role) → 20 with SIMPLIFIER (human-focused
         # draft companions) → 21 with FIRST_PRINCIPLES_REVIEWER (adversarial
-        # premise/direction reviewer in the refine phase). Bump this and add
-        # the matching `assert AgentRole.X in roles` above whenever a new role
-        # lands.
-        assert len(roles) == 21
+        # premise/direction reviewer in the refine phase) → 22 with
+        # EVIDENCE_GATHERER (read-only shared-evidence gatherer, #3523).
+        # Bump this and add the matching `assert AgentRole.X in roles`
+        # above whenever a new role lands.
+        assert len(roles) == 22
 
 
 class TestBackwardCompatibility:

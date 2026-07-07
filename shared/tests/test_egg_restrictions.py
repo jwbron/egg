@@ -17,6 +17,7 @@ from egg_restrictions.patterns import (
     CODER_PATTERNS,
     CONFLICT_RESOLVER_PATTERNS,
     DOCUMENTER_PATTERNS,
+    EVIDENCE_GATHERER_PATTERNS,
     OVERSEER_PATTERNS,
     REFINER_PATTERNS,
     REVIEWER_AGENT_DESIGN_PATTERNS,
@@ -83,7 +84,9 @@ class TestAgentPatterns:
         # routes), dropping the count back to 19. SIMPLIFIER (human-focused
         # draft companions) brings it to 20. FIRST_PRINCIPLES_REVIEWER
         # (adversarial premise/direction reviewer, refine phase) brings it to 21.
-        assert len(AGENT_PATTERNS) == 21
+        # EVIDENCE_GATHERER (read-only shared-evidence gatherer, #3523)
+        # brings it to 22.
+        assert len(AGENT_PATTERNS) == 22
 
     def test_registry_keys_match_role_constants(self):
         expected_roles = {
@@ -111,6 +114,8 @@ class TestAgentPatterns:
             AgentRole.AUTOFIXER,
             AgentRole.CONFLICT_RESOLVER,
             AgentRole.OVERSEER,
+            # Read-only shared-evidence gatherer (#3523).
+            AgentRole.EVIDENCE_GATHERER,
         }
         assert set(AGENT_PATTERNS.keys()) == expected_roles
 
@@ -131,6 +136,7 @@ class TestAgentPatterns:
         assert AGENT_PATTERNS[AgentRole.REVIEWER_SECURITY] is REVIEWER_SECURITY_PATTERNS
         assert AGENT_PATTERNS[AgentRole.REVIEWER_CONCURRENCY] is REVIEWER_CONCURRENCY_PATTERNS
         assert AGENT_PATTERNS[AgentRole.OVERSEER] is OVERSEER_PATTERNS
+        assert AGENT_PATTERNS[AgentRole.EVIDENCE_GATHERER] is EVIDENCE_GATHERER_PATTERNS
         assert AGENT_PATTERNS[AgentRole.AUTOFIXER] is AUTOFIXER_PATTERNS
         assert AGENT_PATTERNS[AgentRole.CONFLICT_RESOLVER] is CONFLICT_RESOLVER_PATTERNS
 

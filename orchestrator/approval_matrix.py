@@ -8,9 +8,12 @@ for consensus evaluation.
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from review_graph import ReviewGraph
+
+if TYPE_CHECKING:
+    from review_findings_verdict import ComputedVerdict
 
 
 class ApprovalState(StrEnum):
@@ -251,6 +254,57 @@ class ApprovalMatrix:
         self._revision_counts[key] = self._revision_counts.get(key, 0) + 1
 
         return entry
+
+    def record_findings_verdict(
+        self,
+        reviewer: str,
+        producer: str,
+        version: int,
+        computed: ComputedVerdict,
+        *,
+        reason: str = "",
+        artifact_refs: list[str] | None = None,
+        commit_sha: str = "",
+    ) -> ApprovalEntry:
+        """Apply a findings-computed edge verdict to the matrix (#3523 S3).
+
+        The mechanics half of the S3 determinism-boundary split:
+        ``review_findings_verdict.compute_verdict`` decides the outcome from a
+        reviewer's structured findings, and this records it through the SAME
+        ``record_ack`` / ``record_nack`` primitives the legacy prose path uses
+        — so a blocking finding NACKs, and an advisory-only verdict ACKs with
+        the advisory ``pre_merge_obligation`` texts routed through the existing
+        conditional-ACK ``pre_merge_condition`` (``obligation_*``) fields.
+
+        ``reason`` is the producer-facing NACK reason rendered from the
+        findings by ``consensus_wrapper.render_findings_nack_reason``; passing
+        it in (rather than importing the renderer here) keeps rendering on the
+        consensus-wrapper serial spine. It is only consulted for a NACK.
+
+        This method is the ACTING path: a caller invokes it only in the ``on``
+        mode of ``EGG_REVIEW_FINDINGS_MODE``. In ``off`` / ``log`` mode the
+        legacy ``record_ack`` / ``record_nack`` calls remain authoritative and
+        this method is never reached, so real ACK/NACK outcomes stay
+        byte-identical to the legacy path.
+        """
+        from review_findings_verdict import VERDICT_NACK
+
+        if computed.verdict == VERDICT_NACK:
+            return self.record_nack(
+                reviewer,
+                producer,
+                version,
+                reason=reason,
+                artifact_refs=artifact_refs,
+            )
+        return self.record_ack(
+            reviewer,
+            producer,
+            version,
+            artifact_refs=artifact_refs,
+            commit_sha=commit_sha,
+            pre_merge_condition=computed.obligation_text,
+        )
 
     def is_context_change_nack(
         self,

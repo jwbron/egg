@@ -1,0 +1,1523 @@
+[
+  {
+    "id": "4b92cb0f-aec5-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T05:45:03.224079+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1ff82419-87d2-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T05:45:03.838017+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fb897799-a55e-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T05:45:10.030212+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b9ed005c-f0c1-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T05:45:10.714474+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e3006273-73fd-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from documenter",
+    "body": "Documenter has no assigned task in slice-6. The contract assigns documenter only task-1-1 and task-1-2 (slice-1, both complete) and task-8-1 (slice-8, pending). Slice-6 touches no documentation files owned by the documenter role, so there are no changes for this producer to make in this slice.",
+    "metadata": {
+      "payload": {
+        "summary": "Documenter has no assigned task in slice-6. The contract assigns documenter only task-1-1 and task-1-2 (slice-1, both complete) and task-8-1 (slice-8, pending). Slice-6 touches no documentation files owned by the documenter role, so there are no changes for this producer to make in this slice.",
+        "attestation": {},
+        "artifacts": [],
+        "risk_considered": "",
+        "commit_sha": "",
+        "files_changed": [],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": true,
+        "no_changes_reason": "Documenter's only pending task is task-8-1 in slice-8; no documenter-owned work exists in slice-6."
+      },
+      "version": 1,
+      "commit_sha": "",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T05:45:35.515799+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f4a8ee88-2756-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=55315 util=0.06 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T05:45:51.778382+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e59e5dbd-86b5-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T05:47:18.535224+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "568574d4-996c-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T05:49:37.811642+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a794aa01-971a-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T05:52:03.006432+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4084fb27-2234-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T05:54:04.638398+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a7d4993c-4db9-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T05:56:05.386515+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6f8af09a-a70d-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:06:10.305050+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6d755642-0585-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:10:35.760795+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "943869bd-5a1b-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:12:40.419714+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6887641f-b001-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from coder",
+    "body": "Slice-6 wires the slice-5 risk router into the live review machinery behind a new EGG_RISK_ROUTER staged flag (off default / log / on, resolved like green_gate_mode()). task-6-1 (review_graph.py): risk_router_mode() resolver, resolve_risk_decision() fail-open config load+route, apply_risk_router() gating that narrows ONLY gate-able implement lenses (tester + advisory edges never dropped; reviewer_security un-gatable on forced-security paths), an optional per-slice changed_files seam on the single chokepoint get_review_graph_for_phase() so all consumers see the gated graph without forking gating into callers, plus risk_route_log_record()+structured log for log-mode. task-6-1 (agent_model_resolution.py): resolve_review_effort() maps the tier's /review-ladder effort onto spawns behind the same flag, threaded via an optional changed_files seam on resolve_agent_model() over the extracted _resolve_agent_model_base. task-6-2 (_criteria.py): ONE code-side stance conditional selecting precision- vs recall-first framing by router tier, active only in on mode, framings in code (not shared/prompts). Off/log are byte-identical to legacy; HARD floors re-asserted at the wiring layer (missing config => full graph fail-open; security lens never dropped on protected paths).",
+    "metadata": {
+      "payload": {
+        "summary": "Slice-6 wires the slice-5 risk router into the live review machinery behind a new EGG_RISK_ROUTER staged flag (off default / log / on, resolved like green_gate_mode()). task-6-1 (review_graph.py): risk_router_mode() resolver, resolve_risk_decision() fail-open config load+route, apply_risk_router() gating that narrows ONLY gate-able implement lenses (tester + advisory edges never dropped; reviewer_security un-gatable on forced-security paths), an optional per-slice changed_files seam on the single chokepoint get_review_graph_for_phase() so all consumers see the gated graph without forking gating into callers, plus risk_route_log_record()+structured log for log-mode. task-6-1 (agent_model_resolution.py): resolve_review_effort() maps the tier's /review-ladder effort onto spawns behind the same flag, threaded via an optional changed_files seam on resolve_agent_model() over the extracted _resolve_agent_model_base. task-6-2 (_criteria.py): ONE code-side stance conditional selecting precision- vs recall-first framing by router tier, active only in on mode, framings in code (not shared/prompts). Off/log are byte-identical to legacy; HARD floors re-asserted at the wiring layer (missing config => full graph fail-open; security lens never dropped on protected paths).",
+        "attestation": {
+          "commit_shas": [
+            "07ea5b919"
+          ],
+          "files_changed": [
+            "orchestrator/review_graph.py",
+            "orchestrator/agent_model_resolution.py",
+            "orchestrator/routes/pipelines/_criteria.py"
+          ],
+          "tasks_completed": [
+            "task-6-1",
+            "task-6-2"
+          ],
+          "lint": "clean (ruff check + format on all 3 files)",
+          "tests": "283 direct-consumer + 178 targeted tests pass; 61 full-impacted failures confirmed pre-existing environmental via baseline re-run"
+        },
+        "artifacts": [
+          "orchestrator/review_graph.py",
+          "orchestrator/agent_model_resolution.py",
+          "orchestrator/routes/pipelines/_criteria.py",
+          "07ea5b919"
+        ],
+        "risk_considered": "Behavior-shifting pieces are gated behind EGG_RISK_ROUTER (default off, unknown=>off), so off/log leave the live review graph, per-role effort, and reviewer prompts byte-identical to legacy \u2014 verified by 283 direct-consumer tests + 178 targeted tests passing and default changed_files=None short-circuiting all gating. Signature changes are backward-compatible (new params keyword-only/optional). from __future__ import annotations added to review_graph.py for TYPE_CHECKING forward refs \u2014 dataclass semantics unaffected. The 61 failures in the full impacted run are pre-existing sandbox-environmental (git/gateway/k8s worktree/state-store tests): confirmed baseline-identical by stashing the change and re-running the visible failing files (33 failed identically without my change). Floors: fail-open on bad/missing config (never narrows review); security lens re-asserted un-gatable on protected paths at the wiring layer.",
+        "commit_sha": "07ea5b919",
+        "files_changed": [
+          "orchestrator/review_graph.py",
+          "orchestrator/agent_model_resolution.py",
+          "orchestrator/routes/pipelines/_criteria.py"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-6-1",
+          "task-6-2"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "07ea5b919",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:15:05.927218+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "87f5b05e-592a-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:15:07.701305+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1d442a25-4283-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:15:10.441822+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "62fe8176-4b73-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:15:10.482934+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8ad7314d-57cd-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:15:11.808281+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "df10a7e2-12b8-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:15:13.196374+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d7ea1054-bbf3-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:15:14.860365+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2538e720-ec30-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:15:15.825507+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "153e61a9-699e-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:15:19.312894+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "cec991c4-8ed3-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:15:22.599512+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5d21cd2d-76df-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:15:22.716058+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "24abf8bc-8d87-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:15:23.643264+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "76a617b7-dde6-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:15:24.066945+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4a0aa3a8-285c-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:15:24.875957+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "99dd05b9-4a01-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=268139 util=0.27 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:16:04.839947+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4b751dd2-bce3-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_concurrency for coder",
+    "body": "Concurrency/shared-state lens: clean. Risk-router gating is pure \u2014 apply_risk_router() returns a fresh ReviewGraph (frozen ReviewEdge, copied edge list, recomputed role sets) and never mutates the shared _PHASE_GRAPHS[phase] instance; the .edges property hands back a copy. All non-'on' arms (off, fail-open decision=None, log) return the shared graph verbatim, byte-identical to legacy. No new concurrency surface introduced: no threads/locks/async, no module-level mutable state (stance strings, env-var names, frozensets are immutable constants), and resolve_agent_model layers the effort override via dataclasses.replace (new instance). Config is loaded fresh per call so there is no shared cache to race on; concurrent reviewers in a wave each do an independent read-only load of .egg/review-risk.yaml (redundant I/O only, no data race). The in-place remove_edge on the cached graph in the non-egg path is pre-existing and untouched by this slice. No blocking concurrency finding \u2014 no reproducible race/data-loss scenario.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/review_graph.py",
+          "orchestrator/agent_model_resolution.py",
+          "orchestrator/routes/pipelines/_criteria.py"
+        ],
+        "reason": "Concurrency/shared-state lens: clean. Risk-router gating is pure \u2014 apply_risk_router() returns a fresh ReviewGraph (frozen ReviewEdge, copied edge list, recomputed role sets) and never mutates the shared _PHASE_GRAPHS[phase] instance; the .edges property hands back a copy. All non-'on' arms (off, fail-open decision=None, log) return the shared graph verbatim, byte-identical to legacy. No new concurrency surface introduced: no threads/locks/async, no module-level mutable state (stance strings, env-var names, frozensets are immutable constants), and resolve_agent_model layers the effort override via dataclasses.replace (new instance). Config is loaded fresh per call so there is no shared cache to race on; concurrent reviewers in a wave each do an independent read-only load of .egg/review-risk.yaml (redundant I/O only, no data race). The in-place remove_edge on the cached graph in the non-egg path is pre-existing and untouched by this slice. No blocking concurrency finding \u2014 no reproducible race/data-loss scenario.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:16:37.686759+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a8cc9038-de12-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=73471 util=0.07 cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:16:43.814331+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "65a8a093-e9c4-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_security for coder",
+    "body": "Security lens ACK (slice-6 risk-router wiring, v1 @ 07ea5b919). No blocking or advisory security findings. Verified empirically: (1) the security-lens floor is re-asserted at the wiring layer \u2014 apply_risk_router keeps reviewer_security whenever decision.forced_security is set, even if omitted from decision.lenses; (2) fail-open holds \u2014 a bad/missing .egg/review-risk.yaml makes resolve_risk_decision return None, yielding the FULL review graph + legacy effort in every mode including `on`; (3) off/log are byte-identical to legacy and changed_files=None (default) leaves all existing callers untouched; (4) every slice-5 symbol the wiring imports (REVIEWER_SECURITY, FULL_IMPLEMENT_LENSES, ReviewStance, RiskRouteDecision, resolve/load/route_slice) resolves, so `on` mode cannot NameError-crash get_review_graph_for_phase. No injection/eval/network/subprocess surface is added; stance framings are static strings. Residual design note (non-blocking, slice-5's property already through consensus): the in-repo, producer-editable review-risk.yaml cannot narrow security on protected paths (globs are code-owned/un-gatable) nor reduce below full review on no-match.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/review_graph.py",
+          "orchestrator/agent_model_resolution.py",
+          "orchestrator/routes/pipelines/_criteria.py"
+        ],
+        "reason": "Security lens ACK (slice-6 risk-router wiring, v1 @ 07ea5b919). No blocking or advisory security findings. Verified empirically: (1) the security-lens floor is re-asserted at the wiring layer \u2014 apply_risk_router keeps reviewer_security whenever decision.forced_security is set, even if omitted from decision.lenses; (2) fail-open holds \u2014 a bad/missing .egg/review-risk.yaml makes resolve_risk_decision return None, yielding the FULL review graph + legacy effort in every mode including `on`; (3) off/log are byte-identical to legacy and changed_files=None (default) leaves all existing callers untouched; (4) every slice-5 symbol the wiring imports (REVIEWER_SECURITY, FULL_IMPLEMENT_LENSES, ReviewStance, RiskRouteDecision, resolve/load/route_slice) resolves, so `on` mode cannot NameError-crash get_review_graph_for_phase. No injection/eval/network/subprocess surface is added; stance framings are static strings. Residual design note (non-blocking, slice-5's property already through consensus): the in-repo, producer-editable review-risk.yaml cannot narrow security on protected paths (globs are code-owned/un-gatable) nor reduce below full review on no-match.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:17:20.796414+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d8e6cee9-f7ac-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:17:24.899546+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "808d4bd0-aedf-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=84235 util=0.08 cache_hit=0.96 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:17:31.664766+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "16ad6dc7-9003-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:17:55.992742+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3a53bedf-0f1a-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:18:03.646765+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "cc8cf015-0f5f-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:18:17.925304+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a9cb082a-da29-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for coder",
+    "body": "Conditional ACK of coder slice-6 (v1). task-6-1/task-6-2 are correctly and completely implemented within their files_affected: single graph chokepoint, EGG_RISK_ROUTER resolves exactly like green_gate_mode (unknown->off), HARD floors re-asserted at the wiring layer (config-load failure falls open to full graph + warning; reviewer_security re-added on forced_security paths), off/changed_files=None verified byte-identical to legacy, and on-mode gating verified working when threaded (docs slice -> {reviewer_code, tester}). task-6-2 is one code-side stance conditional with framings in code and no shared/prompts file edited. One gap, recorded as a pre-merge obligation rather than a NACK because the coder cannot resolve it within their file boundary and the flag defaults off: the new changed_files seams are not threaded at any live call site (concurrent_executor / _prompt_review), and no slice in the plan wires them, leaving on/log inert in the live pipeline. This is a plan-scope gap; flipping the flag past off requires a follow-up call-site-wiring change.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/review_graph.py",
+          "orchestrator/agent_model_resolution.py",
+          "orchestrator/routes/pipelines/_criteria.py"
+        ],
+        "reason": "Conditional ACK of coder slice-6 (v1). task-6-1/task-6-2 are correctly and completely implemented within their files_affected: single graph chokepoint, EGG_RISK_ROUTER resolves exactly like green_gate_mode (unknown->off), HARD floors re-asserted at the wiring layer (config-load failure falls open to full graph + warning; reviewer_security re-added on forced_security paths), off/changed_files=None verified byte-identical to legacy, and on-mode gating verified working when threaded (docs slice -> {reviewer_code, tester}). task-6-2 is one code-side stance conditional with framings in code and no shared/prompts file edited. One gap, recorded as a pre-merge obligation rather than a NACK because the coder cannot resolve it within their file boundary and the flag defaults off: the new changed_files seams are not threaded at any live call site (concurrent_executor / _prompt_review), and no slice in the plan wires them, leaving on/log inert in the live pipeline. This is a plan-scope gap; flipping the flag past off requires a follow-up call-site-wiring change.",
+        "ack_version": 1,
+        "attestation": {
+          "tasks_verified": [
+            "task-6-1",
+            "task-6-2"
+          ],
+          "verification": {
+            "single_chokepoint": true,
+            "flag_parity_with_green_gate_mode": true,
+            "off_and_none_byte_identical_verified": true,
+            "hard_floors_reasserted_at_wiring_layer": true,
+            "security_ungatable_on_forced_paths": true,
+            "on_mode_gating_verified_when_threaded": "docs slice -> {reviewer_code, tester}",
+            "stance_single_conditional_no_shared_prompts_edited": true
+          },
+          "gap": "seams unthreaded at all live call sites (concurrent_executor._get_review_graph, _resolve_agent_model_decision effort @673/819, _prompt_review._get_reviewer_scope_preamble); no task in slices 1-8 wires them, so on/log mode is inert in the live pipeline. Plan-scope gap, not fixable within task-6-1/6-2 files_affected."
+        },
+        "pre_merge_condition": "Risk-router seams added in slice-6 (get_review_graph_for_phase(changed_files=...), resolve_agent_model(changed_files=...), _get_reviewer_scope_preamble(changed_files=...)) are NOT threaded at any live call site: concurrent_executor._get_review_graph, concurrent_executor._resolve_agent_model_decision (effort, lines ~673/819), and _prompt_review._get_reviewer_scope_preamble all call without changed_files. No slice in the plan (1-8) edits those files, so EGG_RISK_ROUTER=on/log is inert in the live pipeline (contradicts task-6-1 AC 'with it on, lenses/effort follow the router'). Safe to merge because the flag defaults off (byte-identical to legacy). BEFORE flipping EGG_RISK_ROUTER past 'off', a follow-up change must thread the slice's changed-file set into those three call sites (the slice_id is already available at the executor seam). Recommend the operator add a call-site-wiring task/slice."
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:19:11.779625+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "32626895-8b48-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=90767 util=0.09 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:19:32.526832+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "da17a911-f766-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code_holistic for coder",
+    "body": "ACK (holistic). The diff is correct and safe within task-6-1/6-2 scope. Verified empirically on 07ea5b919: (1) off-mode + no changed_files leaves the review graph and reviewer preamble byte-identical to legacy; (2) on-mode fed a docs-only set correctly gates 6 reviewers down to {reviewer_code, tester} \u2014 the mechanism works; (3) apply_risk_router returns a fresh ReviewGraph so the cached _PHASE_GRAPHS singleton is never mutated; (4) fail-open on None/bad config in every mode; forced_security re-asserted at the wiring layer; (5) no import cycle (lazy, one-directional review_graph<-agent_model_resolution / risk_router); `from __future__ import annotations` makes the TYPE_CHECKING risk_router refs runtime-safe. off/log parity and the on-mode gating both hold.\n\nADVISORY (see pre-merge condition): the changed_files seam is fed by no caller. concurrent_executor._get_review_graph (L303) and _resolve_agent_model (L876) call the seams with changed_files defaulting to None, and no task's files_affected in the plan includes concurrent_executor.py. Consequence: under EGG_RISK_ROUTER=on OR log the live pipeline gets zero gating/effort/stance and \u2014 critically \u2014 zero log-mode recording, so the issue-level acceptance criterion \"measure per-wave cost in log mode before enabling\" is unreachable. This is a plan-completeness gap the coder cannot fix within task-6-1/6-2's file scope, so it is advisory (not a blocking NACK), but it must be tracked as a follow-up before the router can deliver any value.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/review_graph.py",
+          "orchestrator/agent_model_resolution.py",
+          "orchestrator/routes/pipelines/_criteria.py"
+        ],
+        "reason": "ACK (holistic). The diff is correct and safe within task-6-1/6-2 scope. Verified empirically on 07ea5b919: (1) off-mode + no changed_files leaves the review graph and reviewer preamble byte-identical to legacy; (2) on-mode fed a docs-only set correctly gates 6 reviewers down to {reviewer_code, tester} \u2014 the mechanism works; (3) apply_risk_router returns a fresh ReviewGraph so the cached _PHASE_GRAPHS singleton is never mutated; (4) fail-open on None/bad config in every mode; forced_security re-asserted at the wiring layer; (5) no import cycle (lazy, one-directional review_graph<-agent_model_resolution / risk_router); `from __future__ import annotations` makes the TYPE_CHECKING risk_router refs runtime-safe. off/log parity and the on-mode gating both hold.\n\nADVISORY (see pre-merge condition): the changed_files seam is fed by no caller. concurrent_executor._get_review_graph (L303) and _resolve_agent_model (L876) call the seams with changed_files defaulting to None, and no task's files_affected in the plan includes concurrent_executor.py. Consequence: under EGG_RISK_ROUTER=on OR log the live pipeline gets zero gating/effort/stance and \u2014 critically \u2014 zero log-mode recording, so the issue-level acceptance criterion \"measure per-wave cost in log mode before enabling\" is unreachable. This is a plan-completeness gap the coder cannot fix within task-6-1/6-2's file scope, so it is advisory (not a blocking NACK), but it must be tracked as a follow-up before the router can deliver any value.",
+        "ack_version": 1,
+        "pre_merge_condition": "Add a follow-up task (outside slice-6's file scope) that threads the per-slice changed-file set into the slice-scheduling seam \u2014 concurrent_executor._get_review_graph -> get_review_graph_for_phase(changed_files=...) and _resolve_agent_model -> resolve_agent_model(changed_files=...) \u2014 so EGG_RISK_ROUTER=log actually records and =on actually gates. Until then the router is inert dead-code behind the flag and the issue's log-mode cost-measurement acceptance criterion cannot run."
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:19:54.510124+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e608785b-bc6b-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=104173 util=0.10 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:20:05.020346+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "53ee8770-e66c-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for coder",
+    "body": "ACK (code-correctness lens). Slice-6 risk-router wiring is correct within its declared file scope. Verified: (1) risk_router_mode() matches green_gate_mode() exactly \u2014 .strip().lower(), same enabled/log value sets, unknown=>off; (2) fail-open is sound \u2014 resolve_risk_decision() returns None on config load failure and both the graph seam and effort seam fall back to the full graph / base effort in every mode (off/log/on), so a bad/missing .egg/review-risk.yaml never narrows review; (3) the security lens is re-asserted un-gatable at the wiring layer (apply_risk_router re-adds REVIEWER_SECURITY when decision.forced_security), defense-in-depth over the pure core; (4) no mutation of the shared _PHASE_GRAPHS singleton \u2014 on-mode returns a fresh ReviewGraph(kept); off/log return the original unchanged, so byte-identical legacy behavior; (5) correct API use against risk_router (route_slice/load_risk_config/default_config_path/FULL_IMPLEMENT_LENSES/REVIEWER_SECURITY/ReviewStance/decision fields) and ReviewGraph/ReviewEdge; (6) no circular import at module load \u2014 review_graph->risk_router and agent_model_resolution->review_graph imports are lazy (function-level); (7) `from __future__ import annotations` added to review_graph.py keeps the TYPE_CHECKING RiskConfig/RiskRouteDecision forward refs safe and does not affect the dataclasses; (8) generator input materialized via list() before dual use; py_compile clean on all three files.\n\nAdvisory (non-blocking, no failure scenario against this diff): the router is inert in the live pipeline \u2014 no caller within slice-6's declared files_affected threads changed_files into any of the three seams (get_review_graph_for_phase, resolve_agent_model, _get_reviewer_scope_preamble); the only changed_files= in the tree is an unrelated logger.info kwarg. This matches the plan (caller files are out-of-scope; the task explicitly says \"do NOT fork the gating into each caller\") and the off-default staged-flag design, and task-6-3 exercises on-mode by calling the seams directly. Plan-sequencing note for contract review, not a code defect \u2014 hence unconditional ACK.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/review_graph.py",
+          "orchestrator/agent_model_resolution.py",
+          "orchestrator/routes/pipelines/_criteria.py"
+        ],
+        "reason": "ACK (code-correctness lens). Slice-6 risk-router wiring is correct within its declared file scope. Verified: (1) risk_router_mode() matches green_gate_mode() exactly \u2014 .strip().lower(), same enabled/log value sets, unknown=>off; (2) fail-open is sound \u2014 resolve_risk_decision() returns None on config load failure and both the graph seam and effort seam fall back to the full graph / base effort in every mode (off/log/on), so a bad/missing .egg/review-risk.yaml never narrows review; (3) the security lens is re-asserted un-gatable at the wiring layer (apply_risk_router re-adds REVIEWER_SECURITY when decision.forced_security), defense-in-depth over the pure core; (4) no mutation of the shared _PHASE_GRAPHS singleton \u2014 on-mode returns a fresh ReviewGraph(kept); off/log return the original unchanged, so byte-identical legacy behavior; (5) correct API use against risk_router (route_slice/load_risk_config/default_config_path/FULL_IMPLEMENT_LENSES/REVIEWER_SECURITY/ReviewStance/decision fields) and ReviewGraph/ReviewEdge; (6) no circular import at module load \u2014 review_graph->risk_router and agent_model_resolution->review_graph imports are lazy (function-level); (7) `from __future__ import annotations` added to review_graph.py keeps the TYPE_CHECKING RiskConfig/RiskRouteDecision forward refs safe and does not affect the dataclasses; (8) generator input materialized via list() before dual use; py_compile clean on all three files.\n\nAdvisory (non-blocking, no failure scenario against this diff): the router is inert in the live pipeline \u2014 no caller within slice-6's declared files_affected threads changed_files into any of the three seams (get_review_graph_for_phase, resolve_agent_model, _get_reviewer_scope_preamble); the only changed_files= in the tree is an unrelated logger.info kwarg. This matches the plan (caller files are out-of-scope; the task explicitly says \"do NOT fork the gating into each caller\") and the off-default staged-flag design, and task-6-3 exercises on-mode by calling the seams directly. Plan-sequencing note for contract review, not a code defect \u2014 hence unconditional ACK.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:20:10.721136+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ec03ae17-b8d7-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:20:11.174813+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f3aa392f-d6f3-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:20:16.801081+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4717a3bd-d6ae-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=150801 util=0.15 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:20:20.091609+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ed399377-96c1-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:22:21.350476+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b5de703d-57a4-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from tester",
+    "body": "task-6-3: unit-test the risk-router wiring in orchestrator/tests/test_risk_router_wiring.py (48 tests, all green). Covers every task-6-3 acceptance case: explicit log-mode parity (live implement graph AND review effort byte-identical to the full-graph baseline while the would-be gating/effort is recorded), on-mode lens gating (docs => {reviewer_code, tester}) + effort override (router tier's /review-ladder effort), flag-typo-resolves-to-off for the mode resolver and every seam, no-match => full graph + logged warning, and the security-un-gatable invariant at the WIRING layer (an isolated apply_risk_router re-assertion where the decision lens set omits reviewer_security but forced_security re-adds it, plus an end-to-end protected-path route). Also pins the stance conditional to fire only under EGG_RISK_ROUTER=on (precision/recall/neutral by tier; empty under off/log/typo/no-files) and fail-open-on-missing-config for the graph, effort, and stance seams.",
+    "metadata": {
+      "payload": {
+        "summary": "task-6-3: unit-test the risk-router wiring in orchestrator/tests/test_risk_router_wiring.py (48 tests, all green). Covers every task-6-3 acceptance case: explicit log-mode parity (live implement graph AND review effort byte-identical to the full-graph baseline while the would-be gating/effort is recorded), on-mode lens gating (docs => {reviewer_code, tester}) + effort override (router tier's /review-ladder effort), flag-typo-resolves-to-off for the mode resolver and every seam, no-match => full graph + logged warning, and the security-un-gatable invariant at the WIRING layer (an isolated apply_risk_router re-assertion where the decision lens set omits reviewer_security but forced_security re-adds it, plus an end-to-end protected-path route). Also pins the stance conditional to fire only under EGG_RISK_ROUTER=on (precision/recall/neutral by tier; empty under off/log/typo/no-files) and fail-open-on-missing-config for the graph, effort, and stance seams.",
+        "attestation": {
+          "tests_run": 48,
+          "checks_passed": [
+            "lint",
+            "test",
+            "security"
+          ],
+          "test_file": "orchestrator/tests/test_risk_router_wiring.py",
+          "security_scan": "bandit -ll: no issues identified"
+        },
+        "artifacts": [
+          "orchestrator/tests/test_risk_router_wiring.py"
+        ],
+        "risk_considered": "",
+        "commit_sha": "dc5145e474b7b7dc805d3b0283f2701704a0834f",
+        "files_changed": [
+          "orchestrator/tests/test_risk_router_wiring.py"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-6-3"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "dc5145e474b7b7dc805d3b0283f2701704a0834f",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:22.195262+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9d5534ac-9fae-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "documenter",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:22.233294+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "50c1a893-eff5-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by documenter",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:26.138649+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "66fe75f2-0adc-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:27.339722+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7002749c-c8ea-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:27.809500+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "456adc60-ebfb-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:28.455441+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5f623f8b-b8bf-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:29.529012+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "06cf7793-338e-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:29.933519+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "39eaf77b-1dc3-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:30.636421+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "cf887e33-8539-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:35.890227+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ab0e20e4-0a95-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:35.910412+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "798d68ec-70be-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:36.369741+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ccfa068d-7e17-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:36.500453+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7b9284f4-3045-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:37.352947+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bfae2140-dc58-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:23:39.716116+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "08e30b17-25c6-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_concurrency for tester",
+    "body": "Concurrency/shared-state lens on the slice-6 wiring tests: clean. Test isolation is sound \u2014 every test pins EGG_RISK_ROUTER + EGG_REVIEW_RISK_CONFIG via monkeypatch (auto-reverted) and the single logger swap uses monkeypatch.setattr (auto-reverted), so no env/module-state leaks across tests and no order-dependent flakiness. No test mutates shared module state: the on-mode gating tests exercise apply_risk_router, which returns a fresh ReviewGraph, and none pass repo=, so the in-place remove_edge path on the cached _PHASE_GRAPHS['implement'] is never triggered; _baseline_implement_edges() is read-only. Assertions are consistent with the implementation I ACKed at 07ea5b919 (docs->LOW gates to {reviewer_code, tester} dropping the 4 critical lenses; forced_security re-assertion; fail-open None; typo->off; log-mode parity for graph/effort/stance). The wiring is synchronous with no threading/async surface, so there is nothing a concurrency lens must additionally demand. No blocking finding \u2014 no reproducible race or state-leak scenario.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_risk_router_wiring.py"
+        ],
+        "reason": "Concurrency/shared-state lens on the slice-6 wiring tests: clean. Test isolation is sound \u2014 every test pins EGG_RISK_ROUTER + EGG_REVIEW_RISK_CONFIG via monkeypatch (auto-reverted) and the single logger swap uses monkeypatch.setattr (auto-reverted), so no env/module-state leaks across tests and no order-dependent flakiness. No test mutates shared module state: the on-mode gating tests exercise apply_risk_router, which returns a fresh ReviewGraph, and none pass repo=, so the in-place remove_edge path on the cached _PHASE_GRAPHS['implement'] is never triggered; _baseline_implement_edges() is read-only. Assertions are consistent with the implementation I ACKed at 07ea5b919 (docs->LOW gates to {reviewer_code, tester} dropping the 4 critical lenses; forced_security re-assertion; fail-open None; typo->off; log-mode parity for graph/effort/stance). The wiring is synchronous with no threading/async surface, so there is nothing a concurrency lens must additionally demand. No blocking finding \u2014 no reproducible race or state-leak scenario.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:24:13.541143+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "28ccc6b5-4726-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_concurrency",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:24:18.399981+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8c6aa59c-6fc3-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=88873 util=0.09 cache_hit=0.97 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:24:18.550632+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d4f21519-17d3-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for tester",
+    "body": "ACK of tester slice-6 (v1). task-6-3 fully satisfied: ran orchestrator/tests/test_risk_router_wiring.py -> 48 passed in 1.11s. All AC-mandated cases present and green: explicit log-mode parity (graph AND effort remain full-baseline while the would-be gating/effort is recorded), flag-typo-resolves-to-off (graph mode + effort seams), and the security-un-gatable-at-the-wiring-layer test in both forms (unit apply_risk_router re-assertion with a decision whose lenses omit security but forced_security=True, and end-to-end through get_review_graph_for_phase on an auth path). On-mode gating/effort, no-match=>full graph + logged warning, fail-open on missing config, and the stance-only-in-on-mode conditional are all covered. Behavioral assertions verified against the live code (no-match->HIGH misroute floor + warning; DOCS->low/UNMATCHED->high effort; medium tier->neutral stance). API deps confirmed present (get_default_implement_graph, EGG_REVIEW_RISK_CONFIG override). The inert-call-site gap recorded on the coder edge is out of task-6-3 scope (the tester correctly unit-tests the seam functions) and already carried as a pre-merge obligation.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_risk_router_wiring.py"
+        ],
+        "reason": "ACK of tester slice-6 (v1). task-6-3 fully satisfied: ran orchestrator/tests/test_risk_router_wiring.py -> 48 passed in 1.11s. All AC-mandated cases present and green: explicit log-mode parity (graph AND effort remain full-baseline while the would-be gating/effort is recorded), flag-typo-resolves-to-off (graph mode + effort seams), and the security-un-gatable-at-the-wiring-layer test in both forms (unit apply_risk_router re-assertion with a decision whose lenses omit security but forced_security=True, and end-to-end through get_review_graph_for_phase on an auth path). On-mode gating/effort, no-match=>full graph + logged warning, fail-open on missing config, and the stance-only-in-on-mode conditional are all covered. Behavioral assertions verified against the live code (no-match->HIGH misroute floor + warning; DOCS->low/UNMATCHED->high effort; medium tier->neutral stance). API deps confirmed present (get_default_implement_graph, EGG_REVIEW_RISK_CONFIG override). The inert-call-site gap recorded on the coder edge is out of task-6-3 scope (the tester correctly unit-tests the seam functions) and already carried as a pre-merge obligation.",
+        "ack_version": 1,
+        "attestation": {
+          "tasks_verified": [
+            "task-6-3"
+          ],
+          "verification": {
+            "suite_run": "48 passed in 1.11s (.venv/bin/pytest)",
+            "log_mode_parity_graph_and_effort": true,
+            "flag_typo_to_off_graph_and_effort": true,
+            "security_ungatable_wiring_layer_explicit_and_e2e": true,
+            "on_mode_gating_and_effort_applied": true,
+            "no_match_full_graph_plus_warning": true,
+            "stance_only_in_on_mode": true,
+            "api_deps_exist": "get_default_implement_graph + EGG_REVIEW_RISK_CONFIG override confirmed",
+            "assertions_match_code": "no-match->HIGH misroute floor; forced_security re-adds security when lenses omit it; DOCS->low / UNMATCHED->high effort; medium tier->neutral stance"
+          }
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:24:45.067762+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e1a8616f-dadc-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_contract",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:24:45.288465+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bba79914-3086-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=110340 util=0.11 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:25:02.531216+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "304aa336-3d81-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_security for tester",
+    "body": "Security lens ACK (slice-6 tester unit tests, v1 @ dc5145e4). No blocking or advisory security findings. The test file introduces no security attack surface (tmp_path scratch, static/safe YAML, monkeypatch env pinning; no network/subprocess/eval). Critically for the security lens, it genuinely locks down the review-narrowing safety invariants with non-vacuous, passing tests \u2014 I ran the full file locally: 48/48 pass. The 9 security-relevant tests are real: (a) test_apply_risk_router_reasserts_security_on_forced_path proves reviewer_security survives when decision.lenses omits it but forced_security is set, with test_apply_risk_router_gates_security_when_not_forced as the control that the assertion isn't vacuous; (b) test_security_survives_gating_on_protected_path_end_to_end drives the live get_review_graph_for_phase seam so an auth path keeps security even though its config rule lists only reviewer_code; (c) no-match and missing-config tests confirm fail-open (full graph / base effort / no stance) across all three seams. Test config assumptions verified against the code: EGG_REVIEW_RISK_CONFIG is honored by default_config_path, get_default_implement_graph exists, and the code-owned **/*auth* protected glob matches the AUTH fixture. The suite faithfully regression-guards the security floor.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_risk_router_wiring.py"
+        ],
+        "reason": "Security lens ACK (slice-6 tester unit tests, v1 @ dc5145e4). No blocking or advisory security findings. The test file introduces no security attack surface (tmp_path scratch, static/safe YAML, monkeypatch env pinning; no network/subprocess/eval). Critically for the security lens, it genuinely locks down the review-narrowing safety invariants with non-vacuous, passing tests \u2014 I ran the full file locally: 48/48 pass. The 9 security-relevant tests are real: (a) test_apply_risk_router_reasserts_security_on_forced_path proves reviewer_security survives when decision.lenses omits it but forced_security is set, with test_apply_risk_router_gates_security_when_not_forced as the control that the assertion isn't vacuous; (b) test_security_survives_gating_on_protected_path_end_to_end drives the live get_review_graph_for_phase seam so an auth path keeps security even though its config rule lists only reviewer_code; (c) no-match and missing-config tests confirm fail-open (full graph / base effort / no stance) across all three seams. Test config assumptions verified against the code: EGG_REVIEW_RISK_CONFIG is honored by default_config_path, get_default_implement_graph exists, and the code-owned **/*auth* protected glob matches the AUTH fixture. The suite faithfully regression-guards the security floor.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:25:03.765361+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7a6034d3-a74b-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_security",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:25:06.270385+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "78aaa6b5-d14f-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=105477 util=0.11 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:25:14.772395+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "05af0847-cf3f-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code_holistic for tester",
+    "body": "ACK (holistic). Ran the suite on dc5145e47: 48 passed in 0.87s. Verified the test's API assumptions independently \u2014 EGG_REVIEW_RISK_CONFIG is honored by default_config_path (so the synthetic per-test config is actually loaded, not the repo's real .egg/review-risk.yaml); REVIEWER_* constants and get_default_implement_graph exist; tester is NOT in FULL_IMPLEMENT_LENSES (correctly un-gate-able, matching the {reviewer_code, tester} gating assertion).\n\nCoverage maps cleanly to task-6-3's acceptance criteria: flag-typo/whitespace/unset => off; off & log leave graph, effort, and reviewer preamble byte-identical to the full-graph baseline (genuine parity regression guards); on-mode narrows lenses and overrides effort; no-match => full graph + logged warning (both the decision object and the live seam); security lens un-gatable at the wiring layer via a unit re-assertion (forced_security re-adds it even when the decision's lens set omits it), a control (dropped when not forced), and end-to-end through an auth path; fail-open on missing config for every seam; log-record shape; and stance conditional firing only under EGG_RISK_ROUTER=on. Assertions test real behavior, not tautologies.\n\nTwo non-blocking advisories (nice-to-haves, not defects, no obligation): (1) no explicit test that on-mode gating leaves the cached _PHASE_GRAPHS singleton uncorrupted for a subsequent baseline caller \u2014 covered implicitly since apply_risk_router returns a fresh graph and later baseline calls pass, but an explicit assertion would harden against a future mutation regression; (2) test_log_mode_graph_parity_vs_full_baseline asserts graph parity but does not capture that the graph seam actually emitted the structured log record (the record shape is tested in isolation, and the effort seam's log line is asserted). The tests correctly exercise the seams that exist; the separate inert-seam gap (no live caller threads changed_files) remains tracked as a pre-merge obligation on the coder edge and is not the tester's to cover.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_risk_router_wiring.py"
+        ],
+        "reason": "ACK (holistic). Ran the suite on dc5145e47: 48 passed in 0.87s. Verified the test's API assumptions independently \u2014 EGG_REVIEW_RISK_CONFIG is honored by default_config_path (so the synthetic per-test config is actually loaded, not the repo's real .egg/review-risk.yaml); REVIEWER_* constants and get_default_implement_graph exist; tester is NOT in FULL_IMPLEMENT_LENSES (correctly un-gate-able, matching the {reviewer_code, tester} gating assertion).\n\nCoverage maps cleanly to task-6-3's acceptance criteria: flag-typo/whitespace/unset => off; off & log leave graph, effort, and reviewer preamble byte-identical to the full-graph baseline (genuine parity regression guards); on-mode narrows lenses and overrides effort; no-match => full graph + logged warning (both the decision object and the live seam); security lens un-gatable at the wiring layer via a unit re-assertion (forced_security re-adds it even when the decision's lens set omits it), a control (dropped when not forced), and end-to-end through an auth path; fail-open on missing config for every seam; log-record shape; and stance conditional firing only under EGG_RISK_ROUTER=on. Assertions test real behavior, not tautologies.\n\nTwo non-blocking advisories (nice-to-haves, not defects, no obligation): (1) no explicit test that on-mode gating leaves the cached _PHASE_GRAPHS singleton uncorrupted for a subsequent baseline caller \u2014 covered implicitly since apply_risk_router returns a fresh graph and later baseline calls pass, but an explicit assertion would harden against a future mutation regression; (2) test_log_mode_graph_parity_vs_full_baseline asserts graph parity but does not capture that the graph seam actually emitted the structured log record (the record shape is tested in isolation, and the effort seam's log line is asserted). The tests correctly exercise the seams that exist; the separate inert-seam gap (no live caller threads changed_files) remains tracked as a pre-merge obligation on the coder edge and is not the tester's to cover.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:25:22.429192+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "60071776-635b-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code_holistic",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:25:26.783770+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "acfcde6c-1e79-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=125245 util=0.13 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:25:31.818530+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d68d5287-e152-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:25:36.193578+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8846430d-b166-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-6)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:25:37.130740+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "210dbcfb-a3b1-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from tester for coder",
+    "body": "ACK. Reviewed coder slice-6 risk-router wiring @07ea5b919 by execution. My task-6-3 wiring tests pass 48/48; related suites 210 passed/1 skipped; ruff clean on all 3 edited files. Verified: EGG_RISK_ROUTER resolves off/log/on like green_gate_mode with typo=>off; off leaves graph+effort+prompts byte-identical even with changed_files threaded; log returns full graph unchanged (parity) while recording the structured would-be gating record (dropped_lens_count/tier/effort/stance) and keeping base effort; on narrows only gate-able implement lenses with tester always kept (cold-start) and refine/plan never gated; HARD floors re-asserted at the wiring layer (config load failure fails OPEN to full graph + legacy effort; security lens un-gatable and forced-on for auth/session paths => XHIGH); effort override and stance framing fire only under on with a threaded changed_files set. No blocking findings. Non-blocking, not filed (no failure scenario, by-design per task_description): no production caller threads changed_files yet, so the feature is inert behind the off-default flag \u2014 this is the intended seam/wiring-layer scope for slice-6.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/review_graph.py",
+          "orchestrator/agent_model_resolution.py",
+          "orchestrator/routes/pipelines/_criteria.py"
+        ],
+        "reason": "ACK. Reviewed coder slice-6 risk-router wiring @07ea5b919 by execution. My task-6-3 wiring tests pass 48/48; related suites 210 passed/1 skipped; ruff clean on all 3 edited files. Verified: EGG_RISK_ROUTER resolves off/log/on like green_gate_mode with typo=>off; off leaves graph+effort+prompts byte-identical even with changed_files threaded; log returns full graph unchanged (parity) while recording the structured would-be gating record (dropped_lens_count/tier/effort/stance) and keeping base effort; on narrows only gate-able implement lenses with tester always kept (cold-start) and refine/plan never gated; HARD floors re-asserted at the wiring layer (config load failure fails OPEN to full graph + legacy effort; security lens un-gatable and forced-on for auth/session paths => XHIGH); effort override and stance framing fire only under on with a threaded changed_files set. No blocking findings. Non-blocking, not filed (no failure scenario, by-design per task_description): no production caller threads changed_files yet, so the feature is inert behind the off-default flag \u2014 this is the intended seam/wiring-layer scope for slice-6.",
+        "ack_version": 1,
+        "attestation": {
+          "tests_run": 258,
+          "checks_passed": [
+            "test_risk_router_wiring (48)",
+            "ruff",
+            "regression: risk_router/agent_model_resolution/lens_reviewer_prompts (210)"
+          ],
+          "tasks_verified": [
+            "task-6-1",
+            "task-6-2"
+          ]
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:26:18.632469+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8b531ee6-0ad1-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "coder",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:26:18.633203+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "649e8bf0-6bea-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by coder",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:26:23.508831+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5075648e-cbd2-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=93392 util=0.09 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:26:36.376243+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d98ea5ba-7e30-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for tester",
+    "body": "ACK (code-correctness lens). Reviewed orchestrator/tests/test_risk_router_wiring.py (48 tests, task-6-3) and executed it in the project venv \u2014 48 passed. Verified assertions correct against the real code, not merely green:\n\n(1) Imports resolve (get_default_implement_graph, _criteria _STANCE_*/_review_stance_framing/_get_reviewer_scope_preamble/_reviewer_scope_preamble_body, resolve_review_effort/resolve_agent_model, risk_router exports); ReviewEdge is @dataclass(frozen=True) so set(graph.edges) is valid.\n(2) Gating matches the real implement graph (5 critical lenses + tester as reviewers; documenter is producer-only): DOCS->{reviewer_code} narrows to {reviewer_code, tester}, four critical lenses dropped, dropped_lens_count==4 with the correct set.\n(3) Forced-security: AUTH (**/*auth*) protected => route_slice re-adds reviewer_security + floors tier to HIGH (recall). Direct apply_risk_router re-assertion (lenses omit security, forced_security=True => survives) AND end-to-end seam both correct, with a proper negative control.\n(4) Effort: DOCS->'low', UNMATCHED->'high'; resolve_agent_model uses dataclasses.replace leaving claude_code_alias/upstream/upstream_model intact (verified those are the actual fields); off-mode keeps base.\n(5) caplog effort log resolves: agent_model_resolution logger is getLogger(__name__)=='agent_model_resolution' (propagating), code logs 'would pin review effort=%s'.\n(6) Fail-open, phase-scoping (refine/plan never narrowed), typo=>off, changed_files=None baseline, stance-only-in-on all correctly exercised. Tests drive seams directly with changed_files=..., the correct unit scope for slice-6 (consistent with my coder ACK: live caller-threading is a separate concern, not claimed here).\n\nAssertions mutation-sensitive (exact reviewer sets/effort strings/counts), clean monkeypatch isolation. Non-blocking nit (no failure scenario): the graph seam's log-mode info emission isn't directly asserted \u2014 only risk_route_log_record's shape and the effort-seam log line are. No blocking finding => ACK.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_risk_router_wiring.py"
+        ],
+        "reason": "ACK (code-correctness lens). Reviewed orchestrator/tests/test_risk_router_wiring.py (48 tests, task-6-3) and executed it in the project venv \u2014 48 passed. Verified assertions correct against the real code, not merely green:\n\n(1) Imports resolve (get_default_implement_graph, _criteria _STANCE_*/_review_stance_framing/_get_reviewer_scope_preamble/_reviewer_scope_preamble_body, resolve_review_effort/resolve_agent_model, risk_router exports); ReviewEdge is @dataclass(frozen=True) so set(graph.edges) is valid.\n(2) Gating matches the real implement graph (5 critical lenses + tester as reviewers; documenter is producer-only): DOCS->{reviewer_code} narrows to {reviewer_code, tester}, four critical lenses dropped, dropped_lens_count==4 with the correct set.\n(3) Forced-security: AUTH (**/*auth*) protected => route_slice re-adds reviewer_security + floors tier to HIGH (recall). Direct apply_risk_router re-assertion (lenses omit security, forced_security=True => survives) AND end-to-end seam both correct, with a proper negative control.\n(4) Effort: DOCS->'low', UNMATCHED->'high'; resolve_agent_model uses dataclasses.replace leaving claude_code_alias/upstream/upstream_model intact (verified those are the actual fields); off-mode keeps base.\n(5) caplog effort log resolves: agent_model_resolution logger is getLogger(__name__)=='agent_model_resolution' (propagating), code logs 'would pin review effort=%s'.\n(6) Fail-open, phase-scoping (refine/plan never narrowed), typo=>off, changed_files=None baseline, stance-only-in-on all correctly exercised. Tests drive seams directly with changed_files=..., the correct unit scope for slice-6 (consistent with my coder ACK: live caller-threading is a separate concern, not claimed here).\n\nAssertions mutation-sensitive (exact reviewer sets/effort strings/counts), clean monkeypatch isolation. Non-blocking nit (no failure scenario): the graph seam's log-mode info emission isn't directly asserted \u2014 only risk_route_log_record's shape and the effort-seam log line are. No blocking finding => ACK.",
+        "ack_version": 1,
+        "attestation": {
+          "files_reviewed": [
+            "orchestrator/tests/test_risk_router_wiring.py"
+          ],
+          "tests_reviewed": 48,
+          "tests_executed": true,
+          "test_run_result": "48 passed",
+          "issues_found": 0
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:27:02.074790+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "74d3321f-6dbe-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "tester",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:27:02.076806+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "03ce608f-d167-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by tester",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:27:05.288795+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "04d24a54-cbf8-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:27:05.291236+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "de4478b9-6660-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code_holistic",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:27:05.291927+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "df7c0ddd-f6a3-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_contract",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:27:05.292569+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e143cc46-1349-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_security",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:27:05.293385+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4fc936bc-f77d-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_concurrency",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-6"
+    },
+    "timestamp": "2026-07-07T06:27:05.294318+00:00",
+    "phase": "implement"
+  }
+]

@@ -36,6 +36,7 @@ except ImportError:
 
 
 from health_checks.context import PipelineHealthContext
+from health_checks.tier1._consensus_messages import pipeline_level_confirmed_roles
 from health_checks.types import (
     HealthAction,
     HealthResult,
@@ -255,9 +256,10 @@ class IncompleteConsensusStallCheck:
 
             store = get_message_store()
             messages = store.get_messages(pipeline_id, limit=10000)
-            confirmed_roles = {
-                m.from_role for m in messages if m.message_type == "CONSENSUS_CONFIRMED"
-            }
+            # Slice-tagged confirmations belong to per-slice consensus
+            # rounds and must not count toward pipeline-level consensus
+            # (#3542).
+            confirmed_roles = pipeline_level_confirmed_roles(messages)
             blocking = sorted(expected_roles - confirmed_roles)
             return blocking
         except Exception:

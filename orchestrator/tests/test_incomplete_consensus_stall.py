@@ -291,10 +291,12 @@ class TestIncompleteConsensusStallCheck:
         mock_pc = MagicMock()
         mock_pc.get_peer_consensus_tracker.return_value = None
 
-        # Message store shows documenter hasn't confirmed
+        # Message store shows documenter hasn't confirmed (coder's
+        # confirmation is pipeline-level: no slice_id tag; #3542)
         mock_msg = MagicMock()
         mock_msg.message_type = "CONSENSUS_CONFIRMED"
         mock_msg.from_role = "coder"
+        mock_msg.metadata = {}
 
         mock_store = MagicMock()
         mock_store.get_messages.return_value = [mock_msg]

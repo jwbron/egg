@@ -127,6 +127,51 @@ sense (no crash, no security violation) and unsafe in the wide sense
   `reviewer_code` has called out the `__checkout__`-shaped bug,
   acknowledge and move on rather than re-flagging.
 
+## Finder Method — four angles (at cross-module scope)
+
+The base file's four finder angles (mirroring the Claude Code `/review`
+skill's angles A–E) apply here too, but you run them at the **cross-module**
+altitude rather than line-by-line:
+
+- **Angle A — line-by-line scan.** You do *not* run this exhaustively —
+  that is `reviewer_code`'s job. Apply it only to the specific lines that
+  carry a synthetic key, a documented claim, or a silent-fallback branch you
+  are already tracing.
+- **Angle B — removed-behavior audit.** Primary tool. For every invariant the
+  diff deletes or narrows, confirm the new code re-establishes it *somewhere
+  in the changeset*, not just in the file that removed it.
+- **Angle C — cross-file tracer.** Your signature angle. Trace producer →
+  consumer for every synthetic key, documented behavior, and user-facing
+  emission; a dead-end across that trace is the class this lens exists to
+  catch.
+- **Angle D — quote-the-rule discipline.** For doc ↔ code drift, quote BOTH
+  the exact documented claim and the exact code line that contradicts it.
+  No "spirit of the doc" inferences.
+
+## Verification Ladder — CONFIRMED / PLAUSIBLE / REFUTED
+
+Before a candidate becomes a finding, assign it exactly one verdict; the
+evidence duties are symmetric (quote the line whether you keep or drop it).
+
+- **CONFIRMED** — you can name the concrete inputs/state that trigger the
+  cross-module failure and the resulting wrong output, dropped value, or
+  no-op. Quote the producer line and the consumer line that dead-end.
+- **PLAUSIBLE** — the asymmetry is real but the trigger is uncertain (a config
+  or caller you cannot see). State what would confirm it. PLAUSIBLE by
+  default — do not refute for being speculative.
+- **REFUTED** — the consumer *does* recognise the value, or the doc claim *is*
+  implemented. Quote the line that proves it.
+
+Companion rules: **blocking must reproduce** (a `blocking` finding is CONFIRMED
+with a concrete end-to-end failure scenario — the user does X, the path
+dead-ends, the feature no-ops); and **drop only the refuted; downgrade the
+unconfirmed** (discard REFUTED, carry PLAUSIBLE as advisory rather than burning
+a producer revision round). A **pre-existing** cross-module dead-end still
+CONFIRMS when the diff materially amplifies it — e.g. newly routes the primary
+use case through the broken path — and you must say so. **Scratch checks** are
+read-only: Grep the consumer, `git show` the deleted guard, run the documented
+snippet through the validator — never mutate or push.
+
 ## Verdict shape
 
 Your NACK should name:

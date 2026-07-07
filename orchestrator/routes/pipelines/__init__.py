@@ -1305,6 +1305,8 @@ from ._prompt_review import (  # noqa: E402,F401
     _build_role_context,
     _build_role_restrictions_section,
     _extract_plan_overview,
+    _list_changed_files_for_review,
+    _maybe_apply_evidence_prefix,
     _render_contract_tasks,
     _summarize_issue,
 )
