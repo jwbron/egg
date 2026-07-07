@@ -506,7 +506,7 @@
           "id": "task-7-3",
           "description": "Unit-test the evidence prefix: the pack is byte-identical across a simulated wave and\nmechanically path-ordered; the gatherer exposes no verdict/post/GitHub surface; log mode\nrecords cache-hit rate and per-wave cost and changes no prompt assembly (parity versus\ncold-start); a flag typo resolves to off; the tester and any finding-verifier remain\ncold-start (do not receive the shared prefix); Delphi redaction output is unchanged.",
           "status": "complete",
-          "commit": "18aed1f36",
+          "commit": "1613eee15",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "All listed cases pass under `make test`, including the byte-identical-prefix assertion, the\nlog-mode parity + cost-recording assertion, the cold-start-tester/verifier assertion, and\nthe flag-typo-fails-to-off assertion.",
@@ -1168,6 +1168,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-7-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T07:10:53.215162Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.6.tasks.2.commit",
+      "old_value": "18aed1f36",
+      "new_value": "1613eee15",
+      "reason": "Linked commit 1613eee to task-7-3",
       "checkpoint_id": null
     }
   ],
