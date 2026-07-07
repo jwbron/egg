@@ -585,6 +585,57 @@ class TestPipelineConfig:
         assert DEFAULT_MAX_PARALLEL_SLICES == 4
 
 
+class TestOverseerMaxTurns:
+    """Validation bounds for the PipelineConfig.overseer_max_turns field.
+
+    Ported from the deleted orchestrator/tests/test_overseer_max_turns.py
+    (issue #3513): the surrounding respawn-machinery tests in that module
+    were retired with #2270 slice-5, but these bounds are the only coverage
+    of the live overseer_max_turns contract (models/_config.py), consumed by
+    routes/pipelines when building the overseer agent command.
+    """
+
+    def test_default_value_is_2000(self):
+        """Default overseer_max_turns is 2000."""
+        config = PipelineConfig()
+        assert config.overseer_max_turns == 2000
+
+    def test_custom_value_accepted(self):
+        """Custom overseer_max_turns within bounds is accepted."""
+        config = PipelineConfig(overseer_max_turns=5000)
+        assert config.overseer_max_turns == 5000
+
+    def test_minimum_bound_100(self):
+        """overseer_max_turns=100 is the minimum allowed value."""
+        config = PipelineConfig(overseer_max_turns=100)
+        assert config.overseer_max_turns == 100
+
+    def test_maximum_bound_10000(self):
+        """overseer_max_turns=10000 is the maximum allowed value."""
+        config = PipelineConfig(overseer_max_turns=10000)
+        assert config.overseer_max_turns == 10000
+
+    def test_rejects_below_minimum(self):
+        """Values below 100 are rejected by validation."""
+        with pytest.raises(ValueError):
+            PipelineConfig(overseer_max_turns=99)
+
+    def test_rejects_above_maximum(self):
+        """Values above 10000 are rejected by validation."""
+        with pytest.raises(ValueError):
+            PipelineConfig(overseer_max_turns=10001)
+
+    def test_rejects_zero(self):
+        """Zero is below the minimum and rejected."""
+        with pytest.raises(ValueError):
+            PipelineConfig(overseer_max_turns=0)
+
+    def test_rejects_negative(self):
+        """Negative values are rejected."""
+        with pytest.raises(ValueError):
+            PipelineConfig(overseer_max_turns=-1)
+
+
 class TestResolveConsensusTimeoutMinutes:
     """Tests for resolve_consensus_timeout_minutes (issue #2263).
 
