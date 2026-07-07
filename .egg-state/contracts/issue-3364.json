@@ -498,6 +498,32 @@
       "resolved_at": "2026-07-06T23:47:47.549782Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "[Phase gate: plan] The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.\n\nDecision ledger: 1 decision(s) registered this phase (decision-2), 1 resolved.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Auto-approved per operator instruction after conformance check: PR C re-scoped to the EX_RATE_LIMITED exit-code mirror per binding cq-2 (correct 8-file set, #3447 anchors); PR B tasks 1-1..1-4 landed with the two post-consensus follow-ups (production emitter wiring at _run_implement.py:86, production-chain integration test) carried as explicit tasks; PR D gated scope unchanged; cq-1 threshold-alert resolution adopted. Note: the gate's plain-terms context is the stale pre-rescope human render (simplifier did not re-render after task_planner v3); the canonical yaml-tasks block is correct and authoritative.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-07T00:18:44.007640Z",
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
