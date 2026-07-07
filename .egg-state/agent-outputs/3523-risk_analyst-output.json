@@ -1,0 +1,198 @@
+{
+  "issue": 3523,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk assessment — review-quality overhaul (structured findings + server-side verdict, verification ladder, method-angles, risk router, shared-evidence prefix)",
+  "grounding_sha": "eed1d4c1b",
+  "grounded_against": "live worktree at HEAD eed1d4c1b (plan(architect) commit) on 2026-07-07; every file:line anchor below re-verified against this tree. Reconciled against the architect's 7-slice DAG (3523-architect-output.json + 3523-architect-slices.yaml). task_planner has NOT yet proposed at assessment time (BRC state: task_planner producer_phase WORKING).",
+  "summary": "The issue is a complete, prescriptive operator directive with strong guardrails already written into it (failure_scenario-required-to-block, no-match-runs-full-graph, security-lens-un-gatable, cold-start verifier, evidence-never-conclusions, measured-cost-gates-the-flip). The architect's 7-slice DAG honors the binding sequencing and staged-flag discipline, and its R1-R6 cover the headline risks. Residual risk is NOT in the parts the issue guards loudly — it is in three under-appreciated PLUMBING-REUSE assumptions and two ACCEPTANCE-COMPLETENESS gaps: (A1) item 4 claims to reuse the '--effort plumbing', but --effort is pinned ONLY for fable-routed agents today; claude/opus agents get effort=None and inherit Claude Code's build default, so a tier->effort map is a NEW behavior change to the dominant model class, not a reuse; (A2) get_review_graph_for_phase is the gating chokepoint but is called from RECOVERY/HEALTH paths (startup_reconciliation, incomplete_consensus_stall, kubernetes_monitor) that have no slice context — a gated graph that is not deterministically reproducible there will make the stall-detector compute a different expected-reviewer set than what actually spawned; (A3) item 1 moves the verdict server-side, but ApprovalEntry.reason is the exact string the producer reads through the open-NACK barrier (event_prompt _render_nacks_section) — if findings route but the NACK-rendering + legacy-prose path are not kept in lockstep during 'log' mode, the producer's NACK barrier goes blank. Plus (A4) the 'measured net cost reduction gates the flip' acceptance criterion has no threshold/baseline/attribution owner, and (A5) the per-finding tool-call cap is not cleanly enforceable in the wrapper because findings are discovered mid-investigation. Proceed with these folded into the plan.",
+  "overall_risk_level": "MEDIUM",
+  "overall_risk": "MEDIUM",
+  "recommendation": "PROCEED_WITH_MITIGATIONS",
+  "verdict": "PROCEED_WITH_MITIGATIONS",
+  "scope_note": "Assesses the operator-ratified scope in the issue #3523 body + the two operator directives (mirror Claude Code /review skill; cost is first-class), decomposed by the architect into 7 slices. Out of scope per the issue and honored here: eval/benchmark harness, human-feedback learning loops.",
+  "plan_reconciliation": "Reconciled against 3523-architect-output.json (7 slices, 2 file-disjoint roots S1/S2, serial spine S3->S4->S5 on consensus_wrapper.py, S6 depends S3/S5, S7 tail) and the binding invariants list. The architect's own R1-R6 are sound; this assessment ADDS the plumbing-reuse and acceptance-completeness risks the architect's list under-weights, and reconciles them to specific slices. Reviewer obligation (risk_analyst also reviews in plan): when task_planner proposes the final DAG/task breakdown, NACK if A1 (effort-pin is treated as free reuse), A2 (gated graph not reproducible in recovery/health callers), or A3 (NACK-rendering path not updated in lockstep with the verdict move) are unaddressed.",
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Item 4 '--effort plumbing reuse' is a NEW behavior change for claude/opus agents: --effort is pinned ONLY for fable-routed agents today; every other model gets effort=None and inherits Claude Code's build default",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "CERTAIN",
+      "impact": "The issue and the architect both say item 4 'scales reasoning effort per role via the EXISTING --effort plumbing (agent_model_resolution.py -> consensus_wrapper.build_event_pump_wrapped_command(effort=...))'. But agent_model_resolution.py:66-82 pins effort ONLY on the exact `fable`/`fable[1m]` aliases (FABLE_EFFORT='high'); the module comment is explicit: 'Every other model gets effort=None and keeps inheriting Claude Code's per-model default, so opus agents are byte-identical to today.' consensus_wrapper.py:665-668 only appends `--effort` when effort is not None. So threading a router-computed tier->effort onto the DOMINANT claude/opus reviewers is not reuse of a live path — it NEWLY pins effort where none was pinned, changing today's byte-identical-to-default behavior for exactly the agents item 4 targets. A naive 'just pass the tier's effort' silently overrides the installed Claude Code build's per-model default for opus reviewers.",
+      "description": "Two coupled sub-risks: (a) egg's `--effort` string vocabulary and Claude Code's /review low/medium/high/xhigh ladder are NOT proven to be the same token set — the plan must define the exact mapping and confirm the sandbox's Claude Code build accepts those --effort values; (b) turning on per-tier effort for opus is a real cost/behavior shift that itself belongs behind item 4's off->log->on flag (in 'log' mode, record the would-have-been effort without passing it), which the architect's flag list already implies but the effort sub-part must explicitly inherit.",
+      "affected_files": [
+        "orchestrator/agent_model_resolution.py:66-83 (FABLE_EFFORT pinned only on fable aliases; effort=None for everything else)",
+        "orchestrator/agent_model_resolution.py:420 (effort=FABLE_EFFORT if model in _FABLE_ALIASES else None)",
+        "orchestrator/consensus_wrapper.py:642,665-668 (build_event_pump_wrapped_command(effort=...); --effort appended only when effort is not None)"
+      ],
+      "mitigations": [
+        "Plan must state that item 4's tier->effort mapping ADDS an effort pin for claude/opus reviewers (not reuse) and ships behind the router's off->log->on flag; in 'log' mode record the would-have-been effort, do not pass --effort.",
+        "Define the exact tier->--effort token mapping and add a unit test asserting each risk tier resolves to a --effort value the sandbox Claude Code build accepts (docs/trivial=>low, default=>medium, risky=>high, high-risk=>xhigh).",
+        "Add a regression test that a slice with NO router match leaves effort=None for opus (byte-identical-to-today baseline preserved when routing is off/unmatched)."
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "R2",
+      "title": "get_review_graph_for_phase is the gating chokepoint but is called from RECOVERY/HEALTH paths with no slice context — a gated graph not deterministically reproducible there makes the stall-detector compute a different expected-reviewer set than actually spawned",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "LIKELY",
+      "impact": "Item 4 gates edges by threading slice/changed-file context into get_review_graph_for_phase (review_graph.py:398, signature `(phase, repo=None)` today). It is the single chokepoint — good — but THREE of its callers are recovery/health paths that today call it with only (phase, repo) and have NO per-slice context: startup_reconciliation.py:310 (restart-time container reconciliation), health_checks/tier1/incomplete_consensus_stall.py:251 (the stall tripwire that decides which reviewers are still-expected), and kubernetes_monitor.py:933. If the SCHEDULER spawns a gated (reduced) graph for a slice but these callers recompute the FULL graph (because they lack the slice context, or recompute it from a config file that may have changed since spawn), the stall-detector's expected-reviewer set diverges from the actually-spawned set: it either false-alarms 'incomplete consensus / missing reviewer' on a legitimately-gated slice, or masks a real missing reviewer. Startup reconciliation could try to re-spawn reviewers that were deliberately gated out.",
+      "description": "The gated graph must be a deterministic function of PERSISTED per-slice risk context (the resolved tier/lens set stored on the slice at schedule time), reproducible byte-for-byte at every recovery/health call site — NOT recomputed by re-reading .egg/review-risk.yaml (which can drift) or defaulted to the full graph in the callers that lack slice context. The architect's chokepoint note is correct but stops at 'thread an optional per-slice context'; the sharp edge is the recovery/health callers, which must read the same persisted resolution the scheduler used.",
+      "affected_files": [
+        "orchestrator/review_graph.py:398 (get_review_graph_for_phase(phase, repo=None) — the single chokepoint to extend)",
+        "orchestrator/startup_reconciliation.py:310 (restart-time reconcile — no slice context today)",
+        "orchestrator/health_checks/tier1/incomplete_consensus_stall.py:251 (stall tripwire — expected-reviewer set)",
+        "orchestrator/kubernetes_monitor.py:933",
+        "orchestrator/concurrent_executor.py:303 (scheduler-side — the resolution that must be persisted)",
+        "orchestrator/routes/consensus.py:139 (consensus check — must see the gated graph consistently)"
+      ],
+      "mitigations": [
+        "Persist the router's resolved per-slice graph/tier (the gated edge set) on the slice/pipeline state at schedule time; recovery/health callers READ that persisted resolution rather than re-deriving from the config file.",
+        "Add a unit/integration test: a docs-only slice scheduled with a minimal graph must have incomplete_consensus_stall compute the SAME reduced expected-reviewer set (no false stall), and startup_reconciliation must not re-spawn gated-out reviewers.",
+        "In 'log' mode the router records the would-have-been graph but the ACTUAL graph stays full, so recovery/health parity is trivially preserved until the flag is 'on' — flip to 'on' only after the persisted-resolution read path is wired into all recovery callers."
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "R3",
+      "title": "Item 1 moves the verdict server-side, but ApprovalEntry.reason is the exact string the producer reads through the open-NACK barrier — findings must render INTO reason (and the legacy prose path must stay populated) in 'log' mode or the producer's NACK barrier goes blank",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "LIKELY",
+      "impact": "ApprovalEntry.reason (approval_matrix.py:36) is today's free-form NACK string. It is not internal bookkeeping — it is surfaced to the producer as the open-NACK barrier the producer must clear before re-proposing: routes/signals/_consensus_verdicts.py renders it and routes/event_prompt/_render_nacks.py (_render_nacks_section) puts it into the producer's next-event prompt. Item 1 moves verdict computation server-side and has 'CODE own rendering the NACK reason the producer sees' (architect slice S3). The risk: if S3 routes findings through the new schema but the render-into-reason step or the legacy-prose fallback is not landed in the SAME slice, then in 'log' mode (verdict computed but NOT acted, legacy prose-NACK still authoritative) the producer could receive an empty or malformed NACK barrier — burning exactly the revision round the whole feature exists to save. The binding invariant 'legacy prose-NACK path stays live until the flag is on' must extend to the RENDERING path, not just the verdict decision.",
+      "description": "Two coupled requirements the plan must make explicit: (1) the findings->reason renderer (code owns mechanics) lands atomically with the verdict move so reason is always non-empty when a NACK is emitted; (2) during 'log' mode the producer keeps seeing the legacy prose reason (the reviewer still emits usable prose), and the computed-from-findings reason is recorded to BRC artifacts for the diff, NOT swapped into the barrier. A blocking finding whose failure_scenario is missing degrades to advisory (architect invariant) — the renderer must handle the degraded/empty-findings case without producing a blank barrier.",
+      "affected_files": [
+        "orchestrator/approval_matrix.py:36 (ApprovalEntry.reason — the producer-facing NACK string), :39-59 (obligation_* conditional-ACK fields item 1 reuses)",
+        "orchestrator/routes/signals/_consensus_verdicts.py (handle_consensus_nack_signal — reason intake/render)",
+        "orchestrator/routes/event_prompt/_render_nacks.py (_render_nacks_section — the open-NACK barrier the producer reads)",
+        "orchestrator/consensus_wrapper.py (renders the NACK reason into the one-shot event — the serial-spine resource S3 edits)"
+      ],
+      "mitigations": [
+        "Land the findings->reason renderer atomically with the server-side verdict in S3; unit-test that every emitted NACK has a non-empty reason, including the degraded case (blocking finding missing failure_scenario -> advisory, empty blocking set -> ACK, never a blank NACK).",
+        "In 'log' mode keep the legacy prose reason authoritative in the producer barrier and record the computed-from-findings verdict+reason to BRC artifacts for the diff only; assert 'log' mode changes no real ACK/NACK outcome AND no producer-visible barrier text.",
+        "Add a test that _render_nacks_section produces the same producer-visible barrier under 'log' mode as pre-feature (no regression to the barrier the producer must clear)."
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "R4",
+      "title": "'Measured net cost reduction gates the flip to on' (item 5, operator directive) has no defined threshold, baseline, or per-wave attribution owner — an unfalsifiable acceptance criterion never legitimately flips (or flips on vibes)",
+      "category": "acceptance-completeness",
+      "severity": "MEDIUM-HIGH",
+      "likelihood": "LIKELY",
+      "impact": "The operator elevated cost to a first-class success criterion and made 'a MEASURED net cost reduction is REQUIRED before flipping to on' an explicit acceptance criterion for item 5 (and per-wave token cost a reported metric for item 4). But 'measured net cost reduction' is currently unquantified: no threshold (>0%? >10%? net of the gatherer agent's own token cost?), no baseline definition (same slice pre/post? a rolling average?), and no wiring that attributes the gateway/LiteLLM per-session cache stats to a WAVE (the cache stats are per-session; a wave is N sibling reviewer sessions + 1 gatherer). Without these, 'log mode records cache-hit rate + per-wave cost' produces numbers no one can turn into a go/no-go, so the flag either never flips or flips on an eyeballed number — defeating the operator's cost-as-first-class intent. The gatherer is itself a NEW per-wave cost (an extra agent per slice); the net calculation must SUBTRACT it, or a 'cache hit rate' that ignores the gatherer's own uncached spend overstates savings.",
+      "description": "This is an acceptance-criteria completeness gap, not a code bug. The plan (task_planner) should pin: (a) the cost baseline (recommend: same wave's would-have-been cost = sum of N cold-start reviewer input tokens at standard price, computed in 'log' mode from the actual pack size), (b) the net formula = (baseline) - (shared-prefix cached reads + gatherer's full cost + tail lens tokens), (c) a concrete flip threshold, and (d) the per-wave attribution mechanism (group the N+1 sessions by slice+revision-round). The issue says the gateway/LiteLLM cost logging already captures per-session cache stats — the missing piece is the per-wave rollup.",
+      "affected_files": [
+        "config/litellm/ (per-session cache/cost logger for non-Claude routes — the raw stats source)",
+        "orchestrator/routes/event_prompt/ (prefix assembly — where pack size / cached-prefix byte count is known)",
+        "the new item-5 'log' mode artifact writer (records cache-hit rate + per-wave cost into BRC artifacts)"
+      ],
+      "mitigations": [
+        "task_planner pins a concrete flip threshold, a baseline definition, the net-of-gatherer formula, and a per-wave (slice + revision-round) attribution key as explicit item-5 acceptance criteria — not afterthoughts.",
+        "'log' mode records the gatherer's OWN token cost alongside the wave's cached-read savings so the net number subtracts the new agent's cost.",
+        "Ship a tiny report that emits the per-wave net number in the shape the flip decision needs, so the go/no-go is mechanical, not eyeballed."
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "R5",
+      "title": "Per-finding tool-call cap (item 2's wrapper half, S4) is not cleanly enforceable in the wrapper because findings are DISCOVERED mid-investigation — the cap degrades to a per-event scratch-check budget",
+      "category": "design-feasibility",
+      "severity": "MEDIUM",
+      "likelihood": "LIKELY",
+      "impact": "The issue asks for a 'per-finding tool-call cap' enforced 'in the wrapper, not the prompt, where feasible' to bound scratch-check cost. consensus_wrapper.py runs the entire one-shot reviewer as a SINGLE process/turn-loop (EGG_EVENT_ACTION in propose|ack|nack; :543). The wrapper sees tool calls, but it does NOT know finding boundaries: a reviewer discovers findings DURING investigation, so at the time a scratch-check tool call happens the wrapper cannot attribute it to finding N (findings do not exist yet). A literal 'per-finding' cap is therefore not enforceable pre-hoc in the wrapper; the enforceable primitive is a per-EVENT total scratch-check/tool-call budget (or a cap applied post-hoc during finding emission). If the plan carries 'per-finding cap in the wrapper' verbatim it will either be unimplementable as stated or silently reinterpreted, and the acceptance check ('wrapper enforces a configurable per-finding tool-call cap') will be gamed.",
+      "description": "The issue itself hedges with 'where feasible' and S4's acceptance allows 'or documents the exemption' — so this is a scoping-honesty risk, not a blocker. The plan should state the enforceable shape explicitly: a per-event tool-call/scratch-check budget in the wrapper (flag-gated, fail-safe off), with 'per-finding' framing living in the PROMPT (S1) as guidance, and document that a true per-finding cap is not wrapper-enforceable because findings post-date the tool calls.",
+      "affected_files": [
+        "orchestrator/consensus_wrapper.py:543-561 (one-shot EGG_EVENT_ACTION arm — the single-process turn loop where a cap would live)",
+        "shared/prompts/*-criteria.md (S1 — where the per-finding scratch-check discipline is prompt-guidance)"
+      ],
+      "mitigations": [
+        "Reframe S4 as a per-EVENT tool-call/scratch-check budget enforced in the wrapper (flag-gated, fail-safe off); keep 'per-finding' as prompt-level discipline in S1, and DOCUMENT (per S4's exemption clause) that a true per-finding cap is not wrapper-enforceable because findings are discovered after the tool calls.",
+        "Make the budget configurable per risk tier (ties to item 4: low-tier gets a tighter scratch-check budget), and record would-have-been cap hits in 'log' mode without enforcing.",
+        "Unit-test the budget counter and its fail-safe-to-off behavior on an unknown flag value."
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "R6",
+      "title": "Shared-prefix byte-identity (item 5) collides with egg's existing per-agent prompt machinery (tail-position memory, per-producer delta, role banner) and with Delphi redaction — any per-agent element leaking above the fork voids the cache AND risks self-assessment leakage",
+      "category": "correctness",
+      "severity": "MEDIUM",
+      "likelihood": "POSSIBLE",
+      "impact": "Item 5 requires `[identical system prefix][identical evidence pack][one lens instruction at tail]` byte-identical across a wave. But event_prompt today assembles per-agent variation that is NOT lens-agnostic: role banner (_render_event_section), per-producer git-log delta (_render_delta), and tail-position durable memory (_render_memory) — plus the whole point of Delphi redaction is that the producer's self-assessment must NOT reach reviewers. Two failure modes: (a) any per-agent byte (a role name, a memory excerpt, a timestamp) that lands ABOVE the fork voids the exact-prefix cache match, silently reverting to full cold-start cost — the cache win is lost invisibly (architect R4 covers this at the mechanism level); (b) sharper: if the 'shared' prefix is assembled from the existing per-agent path without carefully EXCLUDING memory/self-assessment, the pack could carry a producer's self-assessment into every lens, breaking the binding Delphi-unchanged invariant and the convergence-as-signal that item 1 depends on.",
+      "description": "The independence guardrail ('the pack carries repo facts, NEVER the producer's self-assessment; Delphi redaction unchanged') is the load-bearing correctness control, and it is in direct tension with reusing the existing prefix-assembly code that DOES inject per-producer/per-agent context. The plan must assemble the wave prefix from a fresh lens-agnostic path (diff + files + caller/callee + verified env facts, path-ordered) that structurally cannot include memory, self-assessment, or per-agent banners — not by lightly editing the existing per-agent composer.",
+      "affected_files": [
+        "orchestrator/routes/event_prompt/_compose.py (compose_event_prompt — the per-agent assembler NOT to be reused wholesale for the shared prefix)",
+        "orchestrator/routes/event_prompt/_render_memory.py (tail-position memory — must stay OUT of the shared prefix)",
+        "orchestrator/routes/event_prompt/_render_delta.py, _render_event.py (per-producer delta + role banner — per-agent, must stay below/after the fork or excluded)"
+      ],
+      "mitigations": [
+        "Assemble the wave prefix via a NEW lens-agnostic gatherer output path that structurally excludes memory/self-assessment/per-agent banners; do not reuse the per-agent composer for the shared bytes.",
+        "In 'log' mode, MEASURE the actual cache-hit rate (R4) — a hit rate near zero is the observable signal that a per-agent byte leaked above the fork; gate the flip on a real measured hit rate.",
+        "Add a test asserting the wave prefix for two different lenses on the same slice is byte-identical AND contains no producer self-assessment (Delphi invariant preserved)."
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "R7",
+      "title": "The evidence gatherer's 'no GitHub/verdict/post capability' must be STRUCTURALLY absent at the gateway/policy layer, not merely unused — a new registry role that inherits default push/post capability turns the untrusted-input funnel into an actual privilege",
+      "category": "security",
+      "severity": "MEDIUM",
+      "likelihood": "POSSIBLE",
+      "impact": "Item 5's named risk is that adversarial diff content now funnels through ONE gatherer into every reviewer's prefix. The mitigation depends on the gatherer being truly unprivileged: 'a new role in the agent registry with those capabilities structurally absent, not merely unused' (architect decision). If the gatherer is added as a registry role but inherits the default producer/reviewer capability set (push via gateway, post/verdict via BRC signals), then a prompt-injected gatherer (fed untrusted diff text it is told to collect) could act — the exact privilege escalation the 'unprivileged' framing exists to prevent. egg's role capabilities are enforced at the gateway role layer (shared/egg_restrictions/patterns.py) and phase layer, not by prompt convention; the new role must be added to those DENY surfaces, and its absence of a verdict path must be structural (no BRC propose/ack/nack edge in the review graph for the gatherer).",
+      "description": "This sharpens the architect's R5 (untrusted-input concentration) from 'the pack is data-not-instructions' to the concrete registration requirement: the gatherer role needs explicit gateway/phase restriction entries denying push/PR/post, and it must have NO edge in review_graph.py (casts no verdict), so the capabilities are absent by construction. The untrusted-input posture (pack is material, never instructions) is necessary but not sufficient if the role can act.",
+      "affected_files": [
+        "shared/egg_restrictions/patterns.py (role-layer capability gates — the gatherer must be denied push/post here)",
+        "orchestrator/review_graph.py (the gatherer must have NO reviewer/producer edge — casts no verdict by construction)",
+        "the agent registry / role tables where the new evidence_gatherer role is added"
+      ],
+      "mitigations": [
+        "Register the gatherer with push/PR/post/verdict capabilities DENIED at the gateway role layer and with NO edge in the review graph — structurally absent, testable via check_file_restriction-style assertions that the role cannot write/push.",
+        "Add a test that the gatherer role has no BRC verdict path (cannot propose/ack/nack) and cannot open a PR or post a comment.",
+        "Keep the existing untrusted-input posture (pack content is material under review, never instructions) as defense-in-depth ON TOP of the structural capability denial."
+      ],
+      "requires_human_review": false
+    },
+    {
+      "id": "R8",
+      "title": "The serial spine may over-serialize S5: consensus_wrapper.build_event_pump_wrapped_command already takes effort=, so item 4's effort work edits agent_model_resolution.py + review_graph.py, not necessarily consensus_wrapper.py — an unnecessary S3->S4->S5 file-lock could serialize independent work",
+      "category": "efficiency",
+      "severity": "LOW",
+      "likelihood": "POSSIBLE",
+      "impact": "The architect declares S3/S4/S5 a serial spine because all three touch consensus_wrapper.py (#3046 file-level overlap). That is CERTAIN for S3 (NACK-reason rendering) and S4 (per-event tool-call cap). But S5's effort work may NOT need to edit consensus_wrapper.py: build_event_pump_wrapped_command already accepts effort= (:642) and appends --effort when non-None (:665-668) — item 4 supplies the tier->effort mapping in agent_model_resolution.py and the lens gating in review_graph.py, both file-disjoint from consensus_wrapper.py. If S5's only consensus_wrapper.py touch is the already-existing effort param (zero edit), the S4->S5 serialization is unnecessary and the router graph/effort work could run parallel to S3/S4, shortening the critical path. This is a plan-accuracy/efficiency observation, not a correctness risk — over-serializing is SAFE, just slower.",
+      "description": "task_planner owns the final DAG. Worth verifying at plan time whether S5 actually edits consensus_wrapper.py or merely passes the pre-existing effort param; if the latter, S5 (router) can be scheduled parallel to the S3/S4 wrapper work, gated only by S3's schema/verdict dependency (which item 5, per the issue, needs for convergence measurability — a data dependency, not a file-lock).",
+      "affected_files": [
+        "orchestrator/consensus_wrapper.py:642,665-668 (effort= param already exists — S5 may not need to edit this file)",
+        "orchestrator/agent_model_resolution.py (tier->effort mapping — S5's real edit site)",
+        "orchestrator/review_graph.py:398 (lens gating — S5's other real edit site, file-disjoint from consensus_wrapper.py)"
+      ],
+      "mitigations": [
+        "task_planner verifies whether S5 edits consensus_wrapper.py or only passes the existing effort param; if the latter, relax the S4->S5 file-lock and keep only the S3-schema data dependency, allowing the router to develop in parallel.",
+        "If any S5 wrapper edit does materialize, keep the serial ordering — over-serialization is the safe default under #3046."
+      ],
+      "requires_human_review": false
+    }
+  ],
+  "areas_requiring_human_review": [
+    "None rise to operator HITL at plan time. The issue is a complete, prescriptive directive; R1-R8 are implementation-level and resolvable by the architect/task_planner within the issue's fixed scope. The ONE operator fork the issue itself names (item 5's shared-prefix fork point proving too shallow) is explicitly deferred by the issue to be raised at implement time IF the raw-evidence pack proves insufficient — not pre-emptively. R4's cost-flip threshold is a value the operator will ultimately judge (operator judges quality/cost directly in this deployment), but the PLAN can and should pin a concrete default threshold; only escalate to HITL if task_planner cannot choose one."
+  ],
+  "rollback_plan": "Every behavior-shifting piece rides off->log->on copied in shape from slice_green_gate.green_gate_mode() (unknown value fails safe to 'off'), so any regression is contained by flipping the relevant flag back to 'off' — no code revert needed for S3/S4/S5/S6. S1 (prompt-only) and S2 (new schema module, changes no verdict) are additive and independently revertible. The legacy prose-NACK path (R3) stays live until item 1's flag is 'on', so the producer barrier is never worse than today while flags are off/log. The router's no-match=>full-graph floor (R2) means a misconfigured .egg/review-risk.yaml degrades to MORE review, not less. Hard merge gate: the existing BRC/consensus test suite stays green with all new flags 'off' (byte-identical-to-today baseline, including opus effort=None per R1).",
+  "implementation_recommendations": [
+    "Treat item 4's effort scaling as a NEW effort pin for claude/opus (R1), not reuse: define the exact tier->--effort mapping, ship behind the router flag, and keep effort=None on no-match to preserve the byte-identical-to-today opus baseline.",
+    "Persist the router's resolved per-slice graph/tier and have recovery/health callers READ it (R2), so incomplete_consensus_stall and startup_reconciliation compute the same expected-reviewer set the scheduler spawned.",
+    "Land the findings->NACK-reason renderer atomically with the server-side verdict (R3) and prove 'log' mode leaves the producer's open-NACK barrier byte-identical to today.",
+    "Pin item 5's cost-flip threshold, baseline, net-of-gatherer formula, and per-wave attribution key as explicit acceptance criteria (R4) so the go/no-go is mechanical.",
+    "Reframe the per-finding cap as a per-event scratch-check budget in the wrapper (R5) and document the exemption; keep per-finding framing in the prompt.",
+    "Assemble the wave prefix from a fresh lens-agnostic gatherer path that structurally excludes memory/self-assessment (R6), and register the gatherer with push/post/verdict DENIED at the gateway role layer + no review-graph edge (R7).",
+    "Verify whether S5 actually edits consensus_wrapper.py; if not, relax the S4->S5 file-lock to a data dependency (R8)."
+  ],
+  "performance_assessment": "Net INTENT is cost reduction (item 5 caching, item 4 tier-scaling low-risk slices down). New costs to watch: (1) the evidence gatherer is an extra agent per slice — its own token cost must be subtracted in the net-cost calc (R4); (2) item 4's effort pin can RAISE opus cost on high tiers (R1) — this is intended (recall-first on risky slices) but must be measured, not assumed cheap; (3) the router is pure/deterministic plain code (negligible). Per-wave token cost is an explicit reported metric for items 4 and 5 in 'log' mode; do not flip item 5 to 'on' without a measured net reduction that nets out the gatherer.",
+  "security_assessment": "Two load-bearing controls. (1) R7: the evidence gatherer's unprivileged posture must be STRUCTURAL (push/post/verdict denied at the gateway role layer + no review-graph edge), not merely unused, or the single-funnel untrusted-input concentration (issue's named risk) becomes an actual privilege under prompt injection. (2) The pack is material-under-review, never instructions (existing untrusted-input posture) — necessary defense-in-depth on top of (1). The security lens being structurally un-gatable on auth/session/input-boundary paths (architect invariant, review_graph gating) is the floor that prevents the router from cost-cutting away the security review. No new secret-handling surface.",
+  "compatibility_assessment": "Back-compat is well-protected by the off->log->on discipline and the additive schema. The sharp edges are behavioral-continuity, not data-migration: R1 (opus effort must stay None when routing off/unmatched, preserving byte-identical-to-today), R2 (gated graph must be reproducible in recovery/health callers or the stall-detector diverges), R3 (producer NACK barrier must stay populated through the verdict move). The finding schema (S2) is versioned + additively-evolved like attestation_schemas.py, so an old verdict payload without findings remains representable. N/A for cross-model migration.",
+  "overall_assessment": "PROCEED_WITH_MITIGATIONS (overall MEDIUM). The issue is prescriptive and heavily guard-railed, and the architect's 7-slice DAG honors the binding sequencing, staged-flag discipline, and floor rules; its R1-R6 cover the headline mechanism risks. The residual risk this assessment adds is concentrated in PLUMBING-REUSE assumptions the issue's 'reuse the existing X' phrasing under-weights — (R1) --effort is pinned only for fable today so item 4 is a new opus behavior, (R2) the gating chokepoint is called from recovery/health paths that must reproduce the gated graph, (R3) ApprovalEntry.reason IS the producer's NACK barrier so the render path must move in lockstep — and in ACCEPTANCE-COMPLETENESS gaps: (R4) the cost-flip gate has no threshold/baseline/attribution, (R5) the per-finding cap is not wrapper-enforceable as literally stated. R6/R7 sharpen the item-5 anchoring/untrusted-input guardrails into concrete structural requirements. R8 is a low-severity efficiency note that S5 may be over-serialized. None rise to operator HITL. Reviewer follow-up: NACK the task_planner plan if R1, R2, or R3 are unaddressed; ACK-with-notes otherwise."
+}
+</content>
+</invoke>
