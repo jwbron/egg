@@ -95,6 +95,22 @@ def _script(monkeypatch, mapping):
     monkeypatch.setattr(event_loop, "_derive_next_action", _fake_derive, raising=True)
 
 
+class _SuccessView:
+    """Job-status view that reports every live key as a clean no-op success.
+
+    Drives the production ``_observe_jobs`` → ``record_success`` path so a
+    key climbs the #3425 no-op streak and parks *through the real code path*,
+    rather than being hand-parked via ``record_success`` + a manual
+    ``_live_keys`` mutation (which never pops ``_key_meta`` the way a real
+    clean completion does).
+    """
+
+    def outcome_for(self, dedupe_key: str) -> str:
+        import event_loop
+
+        return event_loop.JOB_OUTCOME_SUCCESS
+
+
 def _make_loop(
     spawner,
     *,
@@ -104,6 +120,7 @@ def _make_loop(
     parked_notifier=None,
     parked_cleared_notifier=None,
     exhausted_notifier=None,
+    job_status_view=None,
     pipeline_id="issue-3548",
     slice_id="slice-8",
 ):
@@ -118,6 +135,7 @@ def _make_loop(
         clock=clock or _ManualClock(),
         roles=roles or ["coder"],
         job_supervisor=supervisor,
+        job_status_view=job_status_view,
         arms_exhausted_notifier=exhausted_notifier,
         arms_parked_notifier=parked_notifier,
         arms_parked_cleared_notifier=parked_cleared_notifier,
@@ -412,25 +430,56 @@ class TestInvalidateRoleArms:
         assert spawner.calls[-1]["dedupe_key"] == key
 
     def test_invalidation_clears_supervisor_latches(self, monkeypatch):
+        # Reach the no-op-parked state through the PRODUCTION code path
+        # (#3548 review): a real clean completion is observed by
+        # ``_observe_jobs``, which records the success AND pops the key from
+        # both ``_live_keys`` and ``_key_meta``. A parked key is therefore
+        # absent from ``_key_meta`` — so ``invalidate_role_arms`` cannot find
+        # it via ``_key_meta`` alone and must union in the supervisor's own
+        # park report. Driving via a ``JOB_OUTCOME_SUCCESS`` status view (not
+        # ``_park`` + a manual ``_live_keys.discard``) guarantees the fixture
+        # reproduces exactly the state production produces.
         import event_loop
+        import supervision_policy
 
         clock = _ManualClock()
         supervisor = event_loop.JobSupervisor(clock=clock)
         spawner = _RecordingSpawner()
-        loop = _make_loop(spawner, supervisor=supervisor, clock=clock, roles=["reviewer_code"])
+        loop = _make_loop(
+            spawner,
+            supervisor=supervisor,
+            clock=clock,
+            roles=["reviewer_code"],
+            job_status_view=_SuccessView(),
+        )
         _script(monkeypatch, {"reviewer_code": ("ack", _ACK_PAYLOAD, "scripted")})
         key = _key_for(loop, "reviewer_code", "ack", _ACK_PAYLOAD)
 
-        loop.poll_once(loop._roles)
-        loop._live_keys.discard(key)
-        _park(supervisor, key, "ack", "reviewer_code")
-        assert loop.poll_once(loop._roles)[0].blocked == "parked"
+        # Poll until the arm parks: each poll observes the prior spawn as a
+        # clean no-op success (streak++) then re-spawns the identical key,
+        # until the streak hits SUPERVISION_NOOP_STREAK_PARK and the spawn is
+        # blocked "parked".
+        for _ in range(supervision_policy.SUPERVISION_NOOP_STREAK_PARK + 2):
+            decision = loop.poll_once(loop._roles)[0]
+            if decision.blocked == "parked":
+                break
+        assert decision.blocked == "parked"
 
-        loop.invalidate_role_arms("reviewer_code")
+        # Production state that the _key_meta-only scan misses: the parked key
+        # has been popped from both structures by _observe_jobs.
+        assert supervisor.noop_parked(key)
+        assert key not in loop._key_meta
+        assert key not in loop._live_keys
+
+        invalidated = loop.invalidate_role_arms("reviewer_code")
+        assert invalidated == [key]
         assert not supervisor.noop_parked(key)
 
+        # The next poll re-derives the key as fresh and actually respawns.
+        spawns_before = len(spawner.calls)
         loop.poll_once(loop._roles)
-        assert len(spawner.calls) == 2
+        assert len(spawner.calls) == spawns_before + 1
+        assert spawner.calls[-1]["dedupe_key"] == key
 
     def test_other_roles_untouched(self, monkeypatch):
         import event_loop

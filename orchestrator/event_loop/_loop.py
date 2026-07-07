@@ -497,10 +497,25 @@ def invalidate_role_arms(self, role: str) -> list[str]:
     delegated to event loop" claim true. Same lock-free cross-thread
     reasoning as :meth:`reset_exhausted_arms` (atomic dict/set ops under
     the GIL, snapshot before iterating). Returns the invalidated keys.
+
+    Key discovery must NOT rely on ``_key_meta`` alone (#3548 review): a
+    no-op-parked key has already been popped from ``_key_meta`` (and
+    ``_live_keys``) by ``_observe_jobs`` on the clean completion that
+    parked it, and the park early-return in :meth:`_handle_role` never
+    re-adds it. That is precisely the incident shape — every spawn arm
+    no-op-parked — so a ``_key_meta``-only scan would find nothing and the
+    park latch would survive, re-parking the re-derived key on the next
+    poll and making ``restart_agent`` a silent no-op. So union the
+    ``_key_meta`` keys with the supervisor's own parked/exhausted keys for
+    the role (from :meth:`noop_park_report` / :meth:`exhausted_report`,
+    which carry the role via ``_last_action``), mirroring how
+    :meth:`reset_parked_arms` / :meth:`reset_exhausted_arms` reach into the
+    supervisor's ``_noop_streaks`` / ``_exhausted`` directly.
     """
-    invalidated = sorted(
-        key for key, (_action, key_role) in list(self._key_meta.items()) if key_role == role
-    )
+    keys = {key for key, (_action, key_role) in list(self._key_meta.items()) if key_role == role}
+    keys.update(e["dedupe_key"] for e in self.supervisor.noop_park_report() if e["role"] == role)
+    keys.update(e["dedupe_key"] for e in self.supervisor.exhausted_report() if e["role"] == role)
+    invalidated = sorted(keys)
     for key in invalidated:
         self._live_keys.discard(key)
         self._key_meta.pop(key, None)
