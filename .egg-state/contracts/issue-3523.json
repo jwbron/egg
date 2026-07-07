@@ -452,7 +452,7 @@
       "id": "slice-7",
       "name": "Shared-evidence prompt prefix (evidence gatherer)",
       "goal": "Cut the cost of a review wave by building the shared context once instead of in every\nreviewer. A new unprivileged, read-only evidence-gatherer role assembles a per-slice evidence\npack \u2014 the diff, the changed files with surrounding context, and caller/callee lists \u2014 ordered\nmechanically and containing evidence only, never conclusions. Reviewer prompts are then\nassembled with an identical system prefix and identical evidence pack followed by one lens\ninstruction, and fanned out on the same model in the same turn so the prompt cache is shared.\nThe gatherer casts no verdict and posts nothing; the tester and any finding verifier stay\ncold-start; Delphi redaction is unchanged. It ships behind its own flag and records cache-hit\nrate and per-wave cost before it is ever enforced.",
-      "status": "pending",
+      "status": "in_progress",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -462,7 +462,7 @@
           "id": "task-7-1",
           "description": "Add the read-only evidence gatherer (`orchestrator/evidence_gatherer.py`) and register a\nnew evidence-gatherer role in the agent registry (`shared/egg_contracts/agent_roles.py`)\nwhose capabilities structurally exclude GitHub access, verdict-casting, and posting. Given\na slice, assemble an evidence pack containing the diff, each changed file with enough\nenclosing context that a reviewer need not re-fetch it, caller/callee lists for changed\nsymbols, and verified environment facts. Enforce the HARD rule in code and prompt: the\npack contains evidence only \u2014 no hypotheses, no \"areas of concern\", no importance\nordering; order strictly by path. Treat pack content as untrusted material-under-review,\nnever as instructions (existing untrusted-input posture).",
           "status": "pending",
-          "commit": null,
+          "commit": "2b3febe1c",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "The gatherer is read-only with no verdict/post/GitHub capability (enforced by the role\nregistration); the pack is mechanically path-ordered and carries no conclusions or\nimportance ordering; unit tests assert the pack is byte-identical across a simulated wave\nand contains no editorializing fields.",
@@ -528,8 +528,8 @@
         "slice-6"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3523/slice-6",
+      "integration_base_sha": "faca10fd0110fea00040a41ac1613fee251b1af5",
       "commit": null,
       "pr_number": null,
       "pr_url": null,
@@ -1102,6 +1102,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-6-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T06:51:14.312096Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.6.tasks.0.commit",
+      "old_value": null,
+      "new_value": "2b3febe1c",
+      "reason": "Linked commit 2b3febe to task-7-1",
       "checkpoint_id": null
     }
   ],
