@@ -28,10 +28,20 @@ History
   is now the only path — there is no in-pod loop and no rollback flag.
 """
 
+import os
 import shlex
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from egg_contracts.agent_roles import REVIEWER_CHECKOUT_ROLE_VALUES
+
+# ``review_findings_mode`` is the S3 staged-flag resolver
+# (``EGG_REVIEW_FINDINGS_MODE`` off/log/on, unknown => off). S4's
+# per-finding tool-call cap RIDES that same flag rather than adding a
+# second switch, so the whole #3523 item-2 machinery flips together. The
+# import is a plain top-level module import (no cycle: review_findings_verdict
+# depends only on egg_contracts, never on consensus_wrapper).
+from review_findings_verdict import review_findings_mode
 
 if TYPE_CHECKING:
     from egg_contracts.review_findings import FindingAnchor
@@ -58,6 +68,216 @@ EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT = 30
 # Single-sourced here and imported by ``event_loop`` for its
 # orchestrator-side convergence-stall OVERSEER_ALERT emission.
 EVENT_PUMP_IDLE_BUDGET_ANOMALY = "stuck-phase-transition"
+
+
+# ---------------------------------------------------------------------------
+# Per-finding tool-call cap (#3523 S4 — item 2's non-prompt half)
+# ---------------------------------------------------------------------------
+#
+# The #3523 verification ladder (S1) invites reviewers to run cheap,
+# read-only *scratch-check* experiments in a scratch dir — actually run the
+# disputed command, read a pinned dependency's real source instead of
+# trusting memory — to CONFIRM or REFUTE a finding before it blocks. Those
+# experiments sharpen findings, but left unbounded they multiply per-wave
+# cost across 5+ reviewers x N findings. This module owns a configurable
+# **per-finding tool-call cap** that bounds them, in the wrapper rather than
+# in the prompt (issue item 2: "enforce in the wrapper, not the prompt,
+# where feasible") — so the cap NUMBER and its enforce/record mode are owned
+# by orchestrator code, not baked into prose a reviewer could reinterpret.
+#
+# The cap RIDES the S3 ``EGG_REVIEW_FINDINGS_MODE`` staged flag
+# (``review_findings_mode()``): ``off`` => inert (spawn command byte-
+# identical to the legacy path), ``log`` => record would-be cap hits without
+# enforcing, ``on`` => enforce. A flag typo resolves to ``off`` via the
+# shared resolver, so a misconfiguration can never silently strangle review.
+
+# Env the operator sets (in the orchestrator process, where the spawn
+# command is built — same place ``green_gate_mode()`` /
+# ``review_findings_mode()`` read theirs) to tune the cap.
+REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR = "EGG_REVIEW_FINDING_TOOL_CALL_CAP"
+
+# Marker env the wrapper exports ALONGSIDE the cap so the reviewer's
+# scratch-check runtime knows whether the cap is advisory (``log``) or
+# enforced (``on``). Never exported in ``off`` mode — the export block is
+# omitted wholesale, keeping the spawn command byte-identical to legacy.
+REVIEW_FINDING_TOOL_CALL_CAP_MODE_ENV_VAR = "EGG_REVIEW_FINDING_TOOL_CALL_CAP_MODE"
+
+# Safe default: 8 scratch-check tool calls per finding. Mirrors the /review
+# skill's medium-effort finding cap (#3523 reference design) — enough to run
+# a disputed command and read a source file or two, not enough to fund an
+# open-ended investigation. An unset / non-integer / non-positive value
+# resolves to this default: a typo must never degrade to "0 tool calls
+# allowed" (which would forbid every scratch check) nor to a negative
+# sentinel.
+_DEFAULT_FINDING_TOOL_CALL_CAP = 8
+
+# Reviewer roles the wrapper structurally CANNOT cap per-finding, with the
+# reason each is exempt (task-4-1 requires documenting these in-code):
+#   * ``tester`` — its verdict comes from EXECUTING the proposal end to end
+#     (``make test`` / ``make lint`` against the merged worktree, #3216),
+#     an unbounded, legitimate tool budget a per-finding scratch-check cap
+#     would wrongly strangle mid-suite. It also deliberately stays
+#     cold-start (#3523 S7 independence guardrail), so it never shares the
+#     specialist lenses' scratch-check budget in the first place.
+# Producers on the ``propose`` arm are outside the cap by construction: the
+# cap governs the reviewer ack/nack arms only (a producer implements, it
+# does not run per-finding scratch checks), so the exported bash block is
+# gated on the reviewer arms rather than enumerating every producer role
+# here.
+_TOOL_CALL_CAP_EXEMPT_ROLES = frozenset({"tester"})
+
+
+def review_finding_tool_call_cap() -> int:
+    """Resolve the per-finding scratch-check tool-call cap from env.
+
+    Fail-safe: an unset, non-integer, or non-positive value resolves to
+    :data:`_DEFAULT_FINDING_TOOL_CALL_CAP`. A typo must never degrade to
+    "0 tool calls allowed" (which would forbid every scratch check) nor to
+    a negative sentinel — the cap only ever tightens a *positive* budget.
+    """
+    raw = os.environ.get(REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR, "")
+    try:
+        value = int(raw)
+    except ValueError:
+        # ``raw`` is always a ``str`` (``os.environ.get(..., "")``), so
+        # ``int()`` can only raise ``ValueError`` here.
+        return _DEFAULT_FINDING_TOOL_CALL_CAP
+    return value if value > 0 else _DEFAULT_FINDING_TOOL_CALL_CAP
+
+
+@dataclass(frozen=True)
+class ToolCallCapDecision:
+    """The per-finding tool-call cap outcome for one finding's scratch checks.
+
+    Pure data computed by :func:`evaluate_finding_tool_call_cap`. The three
+    booleans are mutually consistent with the staged flag and never all set:
+
+    * ``off``  => ``cap_hit`` is always ``False`` (the cap is inert).
+    * ``log``  => a hit sets ``recorded`` (record the would-be cap hit; do
+      NOT enforce — the reviewer keeps going).
+    * ``on``   => a hit sets ``enforced`` (the cap bites: no further
+      scratch checks for this finding).
+
+    ``exempt`` roles (see :data:`_TOOL_CALL_CAP_EXEMPT_ROLES`) never hit the
+    cap regardless of mode.
+    """
+
+    cap: int
+    tool_calls: int
+    mode: str
+    exempt: bool
+    cap_hit: bool
+    enforced: bool
+    recorded: bool
+
+
+def evaluate_finding_tool_call_cap(
+    tool_calls: int,
+    *,
+    role: str | None = None,
+    cap: int | None = None,
+    mode: str | None = None,
+) -> ToolCallCapDecision:
+    """Decide whether a finding's scratch-check budget is spent (pure).
+
+    ``tool_calls`` is the count of read-only scratch-check tool calls spent
+    on ONE finding so far. The cap *triggers at the configured limit*: the
+    finding may spend up to ``cap`` calls, and the decision reports
+    ``cap_hit`` once ``tool_calls`` reaches ``cap`` (``>=``) — the budget is
+    exhausted and the next scratch check is the one over the line.
+
+    Everything derives from the staged flag (``mode``) and the resolved
+    ``cap``, so this is the single source of truth for the cap semantics the
+    wrapper exports and the tester pins at its boundary. ``off`` mode (and
+    the exempt roles) make the cap inert; ``log`` records a would-be hit
+    without enforcing; ``on`` enforces. ``role``/``cap``/``mode`` default to
+    the live env resolution but are injectable for unit tests.
+    """
+    resolved_mode = mode if mode is not None else review_findings_mode()
+    resolved_cap = cap if cap is not None else review_finding_tool_call_cap()
+    exempt = role in _TOOL_CALL_CAP_EXEMPT_ROLES
+    cap_hit = (not exempt) and resolved_mode != "off" and tool_calls >= resolved_cap
+    return ToolCallCapDecision(
+        cap=resolved_cap,
+        tool_calls=tool_calls,
+        mode=resolved_mode,
+        exempt=exempt,
+        cap_hit=cap_hit,
+        enforced=cap_hit and resolved_mode == "on",
+        recorded=cap_hit and resolved_mode == "log",
+    )
+
+
+def tool_call_cap_log_record(
+    decision: ToolCallCapDecision,
+    *,
+    role: str | None = None,
+    finding_id: str | None = None,
+) -> dict[str, object]:
+    """A JSON-serializable record of a cap outcome for ``log`` mode (pure).
+
+    Mirrors ``review_findings_verdict.verdict_log_record``: in ``log`` mode
+    the caller writes this into the BRC artifacts so an operator can see how
+    often the cap WOULD have bitten (``cap_hit``/``recorded``) before
+    flipping the flag to ``on``.
+    """
+    return {
+        "kind": "tool_call_cap",
+        "mode": decision.mode,
+        "role": role,
+        "finding_id": finding_id,
+        "cap": decision.cap,
+        "tool_calls": decision.tool_calls,
+        "cap_hit": decision.cap_hit,
+        "enforced": decision.enforced,
+        "recorded": decision.recorded,
+        "exempt": decision.exempt,
+    }
+
+
+def _render_tool_call_cap_env_block(mode: str, cap: int) -> str:
+    """Render the wrapper bash that exports the per-finding cap for reviewers.
+
+    Returns ``""`` in ``off`` mode so the spawn command is byte-identical to
+    the legacy path (the staged-flag "off => no behavior change" contract).
+    In ``log`` / ``on`` mode returns a bash block that — for the reviewer
+    ``ack``/``nack`` arms only, skipping the exempt roles — exports the
+    wrapper-owned cap value + mode into the agent environment so the cap
+    NUMBER and its enforce/record mode are owned here, not in prompt prose.
+    The producer ``propose`` arm is outside the cap (it does not run
+    per-finding scratch checks), so the block is gated on ``ack``/``nack``.
+
+    The block is inserted into ``invoke_agent_for_event`` (which has
+    ``$action`` and ``$EGG_AGENT_ROLE`` in scope) immediately before the
+    agent invocation, so the exports are live for the agent process.
+    """
+    if mode == "off":
+        return ""
+    exempt = " ".join(sorted(_TOOL_CALL_CAP_EXEMPT_ROLES))
+    cap_var = REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR
+    mode_var = REVIEW_FINDING_TOOL_CALL_CAP_MODE_ENV_VAR
+    # NB: this is a build-time-generated bash snippet returned as a plain
+    # string and substituted into the template as a ``.format()`` VALUE, so
+    # its braces are LITERAL bash (str.format does not re-scan substituted
+    # values). Doubled ``{{``/``}}`` below are the f-string escape for a
+    # single literal brace in the emitted bash.
+    return f"""    # Per-finding tool-call cap (#3523 S4, item 2 wrapper half): export the
+    # wrapper-owned scratch-check budget for the reviewer ack/nack arms so the
+    # cap NUMBER + enforce/record mode live here, not in prompt prose. Skipped
+    # for the propose arm (producers do not scratch-check per finding) and for
+    # the exempt roles (tester runs the whole suite; see consensus_wrapper.py).
+    if [ "$action" = "ack" ] || [ "$action" = "nack" ]; then
+        case " {exempt} " in
+            *" ${{EGG_AGENT_ROLE:-}} "*)
+                cw_log "tool-call cap: role=${{EGG_AGENT_ROLE:-?}} exempt; per-finding scratch cap N/A." ;;
+            *)
+                export {cap_var}="{cap}"
+                export {mode_var}="{mode}"
+                cw_log "tool-call cap: per-finding scratch-check cap={cap} mode={mode} role=${{EGG_AGENT_ROLE:-?}}." ;;
+        esac
+    fi
+"""
+
 
 # One-shot event wrapper bash template (#3164). Composed by
 # ``build_consensus_wrapped_command``. The orchestrator owns the BRC
@@ -266,7 +486,7 @@ invoke_agent_for_event() {{
     if [ -n "${{EGG_SESSION_STATE_FILE:-}}" ]; then
         timeout 60 egg-orch session-state pull 2>&1 | sed 's/^/[session-state] /' >&2 || true
     fi
-    {agent_command_prefix} "$prompt"
+{tool_call_cap_block}    {agent_command_prefix} "$prompt"
     local _agent_rc=$?
     if [ -n "${{EGG_SESSION_STATE_FILE:-}}" ]; then
         timeout 60 egg-orch session-state push 2>&1 | sed 's/^/[session-state] /' >&2 || true
@@ -673,9 +893,18 @@ def build_event_pump_wrapped_command(
         agent_prefix_parts.extend(["--effort", effort])
     agent_command_prefix = " ".join(shlex.quote(p) for p in agent_prefix_parts)
 
+    # Per-finding tool-call cap (#3523 S4): resolve the staged flag + cap
+    # here (build time, in the orchestrator process) and render the export
+    # block. ``off`` mode yields an empty block, so the spawn command stays
+    # byte-identical to the pre-S4 legacy path.
+    tool_call_cap_block = _render_tool_call_cap_env_block(
+        review_findings_mode(), review_finding_tool_call_cap()
+    )
+
     script = _EVENT_PUMP_WRAPPER_TEMPLATE.format(
         agent_command_prefix=agent_command_prefix,
         checkout_roles=EVENT_PUMP_CHECKOUT_ROLES,
+        tool_call_cap_block=tool_call_cap_block,
     )
     # The triple-quoted template opens with a newline (so the source reads
     # cleanly); strip it so ``#!/bin/bash`` lands on line 1.
