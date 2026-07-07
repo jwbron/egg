@@ -234,7 +234,7 @@
       "id": "slice-4",
       "name": "Per-finding tool-call cap in the consensus wrapper",
       "goal": "Bound the cost of a reviewer's empirical scratch-checks with a configurable per-finding\ntool-call cap enforced in the consensus wrapper rather than in the prompt. This is the\nnon-prompt half of item 2 and reads the finding schema, so it lands right after the verdict\nslice on the shared wrapper file. It ships behind the same staged flag and, in record-only\nmode, notes would-have-been cap hits without enforcing them.",
-      "status": "pending",
+      "status": "in_progress",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -244,9 +244,9 @@
           "id": "task-4-1",
           "description": "Enforce a configurable per-finding tool-call cap in `orchestrator/consensus_wrapper.py`\n(not in the prompt), bounding the cost of the scratch-check experiments S1 permits.\nConfigurable via env with a safe default; ride the `EGG_REVIEW_FINDINGS_MODE` staged\nflag (`log` records would-be cap hits without enforcing; `on` enforces; unknown => off).\nWhere a given reviewer structurally cannot be capped in the wrapper, document why in a\ncode comment. Serialises after S3 on consensus_wrapper.py.",
           "status": "pending",
-          "commit": null,
+          "commit": "b2052ac33",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Implemented per-finding tool-call cap in orchestrator/consensus_wrapper.py (commit b2052ac33). Rides the S3 EGG_REVIEW_FINDINGS_MODE staged flag via review_findings_mode(). New surface: REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR (EGG_REVIEW_FINDING_TOOL_CALL_CAP), _DEFAULT_FINDING_TOOL_CALL_CAP=8, review_finding_tool_call_cap() (fail-safe: invalid/non-positive => default), evaluate_finding_tool_call_cap() (pure decision fn \u2014 cap triggers at limit via >=, off/exempt inert, log records, on enforces), ToolCallCapDecision dataclass, tool_call_cap_log_record(), _render_tool_call_cap_env_block() (off => \"\" => byte-identical spawn command; log/on => bash exporting cap+mode for reviewer ack/nack arms only). Exempt roles documented in-code: tester (runs whole suite / cold-start S7); propose arm out of scope. Verified: ruff check+format clean, off-mode byte-identical, bash -n valid, boundary semantics correct. test_consensus_wrapper.py: 49 pass; 6 pre-existing failures are container git-init policy blocks unrelated to this change.",
           "acceptance_criteria": "The wrapper enforces a configurable per-finding tool-call cap with a documented default;\nthe cap is flag-gated and fails safe to off; reviewers that cannot be capped are\ndocumented in-code.",
           "files_affected": [
             "orchestrator/consensus_wrapper.py"
@@ -287,8 +287,8 @@
         "slice-3"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3523/slice-3",
+      "integration_base_sha": "3b9e53a055a84b1877e902ccedff1b39684a3225",
       "commit": null,
       "pr_number": null,
       "pr_url": null,
@@ -915,6 +915,28 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-3-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T05:17:10.696267Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.notes",
+      "old_value": "",
+      "new_value": "Implemented per-finding tool-call cap in orchestrator/consensus_wrapper.py (commit b2052ac33). Rides the S3 EGG_REVIEW_FINDINGS_MODE staged flag via review_findings_mode(). New surface: REVIEW_FINDING_TOOL_CALL_CAP_ENV_VAR (EGG_REVIEW_FINDING_TOOL_CALL_CAP), _DEFAULT_FINDING_TOOL_CALL_CAP=8, review_finding_tool_call_cap() (fail-safe: invalid/non-positive => default), evaluate_finding_tool_call_cap() (pure decision fn \u2014 cap triggers at limit via >=, off/exempt inert, log records, on enforces), ToolCallCapDecision dataclass, tool_call_cap_log_record(), _render_tool_call_cap_env_block() (off => \"\" => byte-identical spawn command; log/on => bash exporting cap+mode for reviewer ack/nack arms only). Exempt roles documented in-code: tester (runs whole suite / cold-start S7); propose arm out of scope. Verified: ruff check+format clean, off-mode byte-identical, bash -n valid, boundary semantics correct. test_consensus_wrapper.py: 49 pass; 6 pre-existing failures are container git-init policy blocks unrelated to this change.",
+      "reason": "Updated notes for task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T05:17:10.730605Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": null,
+      "new_value": "b2052ac33",
+      "reason": "Linked commit b2052ac to task-4-1",
       "checkpoint_id": null
     }
   ],
