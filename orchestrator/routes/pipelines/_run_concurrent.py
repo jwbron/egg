@@ -238,6 +238,23 @@ def _run_concurrent_phase(
         )
         agent_prompts[role] = prompt
 
+    # Live phase resolver (#3528): the spawn fn below closure-captures
+    # ``phase_str``, and the event-loop wiring holding it can outlive this
+    # phase (stale driver threads; dual-role agents whose one-shot event
+    # spawns straddle a transition). Every gateway session minted through
+    # stale wiring then carries the old phase and the gateway's commit gate
+    # denies the agent for the rest of the pipeline, deadlocking consensus.
+    # Handing the spawner a live read of ``pipeline.current_phase`` makes
+    # every spawn resolve the phase at spawn time; the captured value stays
+    # only as the fallback when the read fails.
+    _phase_resolver = None
+    if store is not None:
+
+        def _live_pipeline_phase() -> str:
+            return store.load_pipeline(pipeline_id).current_phase.value
+
+        _phase_resolver = _live_pipeline_phase
+
     # Create spawn function and executor.
     spawn_fn = spawner.create_concurrent_spawn_fn(
         pipeline_id=pipeline_id,
@@ -265,6 +282,7 @@ def _run_concurrent_phase(
         spawn_max_retries=pipeline.config.spawn_max_retries,
         spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
         slice_id=slice_id,
+        phase_resolver=_phase_resolver,
     )
 
     max_concurrent = getattr(pipeline.config, "max_concurrent_agents", 6)
