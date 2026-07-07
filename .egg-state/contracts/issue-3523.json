@@ -70,7 +70,7 @@
           "id": "task-1-3",
           "description": "Add a ratchet test that reads each reviewer criteria file and asserts the required named\nsections are present: the four method-angle procedure names in the code-review criteria,\nand the three ladder verdict names plus both companion-rule phrases in every criteria\nfile that carries the ladder. Grep/substring assertions over the file contents; no\nruntime orchestration needed.",
           "status": "pending",
-          "commit": null,
+          "commit": "622d1635592b7bc82137182a9498040468c36e96",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Test fails if any required procedure name, ladder verdict, or companion rule is removed\nfrom its criteria file; passes on the S1 content. Runs under `make test`.",
@@ -728,6 +728,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T04:27:43.765218Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "622d1635592b7bc82137182a9498040468c36e96",
+      "reason": "Linked commit 622d163 to task-1-3",
       "checkpoint_id": null
     }
   ],
