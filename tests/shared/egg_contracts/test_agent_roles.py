@@ -93,10 +93,11 @@ class TestAgentRole:
         "overseer",
         "autofixer",
         "conflict_resolver",
+        "evidence_gatherer",
     }
 
     def test_all_expected_roles_exist(self):
-        """All 21 expected roles should be present in the enum."""
+        """All 22 expected roles should be present in the enum."""
         actual = {r.value for r in AgentRole}
         assert self.EXPECTED_ROLES == actual, (
             f"Missing roles: {self.EXPECTED_ROLES - actual}, "
@@ -104,8 +105,8 @@ class TestAgentRole:
         )
 
     def test_role_count(self):
-        """Should have exactly 21 canonical roles."""
-        assert len(AgentRole) == 21
+        """Should have exactly 22 canonical roles."""
+        assert len(AgentRole) == 22
 
     def test_execution_roles(self):
         assert AgentRole.CODER == "coder"
@@ -328,7 +329,7 @@ class TestAgentRolesRegistry:
 
     def test_utility_roles_category(self):
         """Utility roles should have UTILITY category."""
-        for role_name in ["autofixer", "conflict_resolver"]:
+        for role_name in ["autofixer", "conflict_resolver", "evidence_gatherer"]:
             role = AgentRole(role_name)
             defn = AGENT_ROLES[role]
             assert defn.category == AgentCategory.UTILITY, (
@@ -359,6 +360,46 @@ class TestAgentRolesRegistry:
         assert defn.role == AgentRole.CONFLICT_RESOLVER
         assert defn.category == AgentCategory.UTILITY
         assert len(defn.responsibilities) > 0
+
+    def test_evidence_gatherer_definition(self):
+        """EVIDENCE_GATHERER (#3523 S7) should be a valid UTILITY role."""
+        defn = AGENT_ROLES[AgentRole.EVIDENCE_GATHERER]
+        assert defn.role == AgentRole.EVIDENCE_GATHERER
+        assert defn.category == AgentCategory.UTILITY
+        assert len(defn.responsibilities) > 0
+        assert "evidence_pack" in defn.produces_outputs
+
+    def test_evidence_gatherer_is_read_only(self):
+        """EVIDENCE_GATHERER can read everything but write essentially nothing.
+
+        Its only write target is the agent-outputs handoff dir; source, tests,
+        docs, contracts, reviews, and drafts are all blocked — structurally
+        read-only, no verdict/post surface.
+        """
+        defn = AGENT_ROLES[AgentRole.EVIDENCE_GATHERER]
+        fa = defn.file_access
+        # Reads everything (empty allowed_read == all readable).
+        assert fa.can_read("orchestrator/review_graph.py") is True
+        # Writes only the handoff dir.
+        assert fa.can_write(".egg-state/agent-outputs/evidence-pack.md") is True
+        # Cannot write source, tests, docs, contracts, reviews (verdicts), drafts.
+        for blocked in (
+            "src/main.py",
+            "orchestrator/review_graph.py",
+            "tests/test_x.py",
+            "docs/x.md",
+            ".egg-state/contracts/c.json",
+            ".egg-state/reviews/r.md",
+            ".egg-state/drafts/d.md",
+        ):
+            assert fa.can_write(blocked) is False, f"must not write {blocked}"
+
+    def test_evidence_gatherer_contract_role_is_system(self):
+        """EVIDENCE_GATHERER maps to SYSTEM — an observer, never a contract author."""
+        from egg_contracts.agent_roles import get_contract_role
+        from egg_contracts.roles import Role
+
+        assert get_contract_role(AgentRole.EVIDENCE_GATHERER) == Role.SYSTEM
 
 
 # ---------------------------------------------------------------------------
