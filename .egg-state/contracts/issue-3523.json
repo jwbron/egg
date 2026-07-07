@@ -111,7 +111,7 @@
         {
           "id": "task-2-1",
           "description": "Add `shared/egg_contracts/review_findings.py` defining a versioned Finding schema with\nfields from the issue: `id`, `role` (producing lens), anchor (path + line range, or a\nslice-level marker for cross-cutting findings), `summary` (one sentence),\n`failure_scenario` (REQUIRED \u2014 concrete inputs/state then the wrong output, crash, or\ndata loss), `severity` in {blocking, advisory}, `confidence` in {high, medium, low},\nquoted `evidence`, optional `suggested_patch` (references real symbols), and optional\n`pre_merge_obligation`. Mirror the /review finding shape (file/line/summary/required\nfailure_scenario) as the core and add egg's extensions additively. Include a\n`schema_version` field and evolve additively. Provide a boundary validator (mirroring\n`orchestrator/attestation_schemas.py`) that validates a findings payload at the wire\nboundary and enforces that a `blocking` finding without a `failure_scenario` is NOT a\nvalid blocking finding (it is representable but flagged non-blocking-eligible, never\nerroring). Register/export via `shared/egg_contracts/__init__.py`. Do not wire it into\nthe verdict path yet.",
-          "status": "pending",
+          "status": "complete",
           "commit": "60f44e5b1237d448fe8674ffde11968f40279366",
           "checkpoint_id": null,
           "notes": "",
@@ -794,6 +794,17 @@
       "old_value": "60f44e5b1237d448fe8674ffde11968f40279366",
       "new_value": "60f44e5b1237d448fe8674ffde11968f40279366",
       "reason": "Linked commit 60f44e5 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T04:38:44.872478Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-1 as complete",
       "checkpoint_id": null
     }
   ],
