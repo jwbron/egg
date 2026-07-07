@@ -30,3 +30,37 @@ Flag these **clear** anti-patterns:
 - Security issues unrelated to agent design — the base review bot covers this
 - Correctness/logic errors — the base review bot covers this
 - Borderline cases where the design choice is reasonable
+
+## Verification Ladder — CONFIRMED / PLAUSIBLE / REFUTED
+
+This lens shares the verification discipline defined in
+[`code-review-criteria.md`](./code-review-criteria.md). Before an anti-pattern
+becomes a finding, assign it exactly one verdict; the evidence duties are
+**symmetric** — quote the line that justifies the call whether you keep the
+finding or drop it.
+
+- **CONFIRMED** — you can name the concrete design cost (the agent is starved
+  of context, a post-processing script re-parses agent output, a hardcoded
+  model ID is baked in) and quote the prompt/code line that causes it.
+- **PLAUSIBLE** — the anti-pattern shape is present but its harm is uncertain
+  (the pre-fetched context may be small enough to orient rather than
+  constrain). State what would confirm it. **PLAUSIBLE by default** — do not
+  refute a candidate merely for being borderline; apply the charitable
+  interpretation from the review philosophy above, then downgrade rather than
+  drop.
+- **REFUTED** — the design is actually within guidelines (the metadata is
+  lightweight, the model ID uses a short alias). Quote the line that proves it.
+
+Two companion rules:
+
+1. **Blocking must reproduce.** A finding may be `blocking` only if it is
+   CONFIRMED with a concrete cost. A borderline design choice you cannot
+   pin to a real harm cannot block; carry it as advisory.
+2. **Drop only the refuted; downgrade the unconfirmed.** Discard REFUTED
+   candidates; downgrade PLAUSIBLE ones to advisory (non-blocking) so the
+   signal survives without burning a producer revision round.
+
+**Scratch checks (read-only).** You may run read-only commands to confirm a
+candidate — Grep for the model-ID literal, Read the prompt-assembly site,
+measure the pre-fetched payload size. Do **not** mutate the working tree,
+push, or run destructive commands.
