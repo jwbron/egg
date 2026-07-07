@@ -2043,6 +2043,52 @@ class TestRoleWaitingStatusProbe:
         ]
         assert self._probe_with(executor, messages) == ("refiner, planner", False)
 
+    def _executor_in_phase(self, phase):
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        config = PipelineConfig()
+        config.__dict__["concurrent_execution"] = True
+        pipeline = Pipeline(
+            id="issue-999",
+            repo="test/repo",
+            issue_number=999,
+            status=PipelineStatus.RUNNING,
+            current_phase=phase,
+            config=config,
+        )
+        return ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+    def test_live_window_is_phase_aware(self):
+        """#3520: the liveness window mirrors the health monitor's phase-aware
+        heartbeat timeout — 600s in implement, 120s in refine/plan — rather
+        than a flat 600s, so the low-priority park notice never calls a
+        producer "live" that the monitor would already have flagged stale.
+
+        A waited-on producer whose newest bus message is 300s old sits INSIDE
+        the 600s implement window (→ live, low-priority notice) but OUTSIDE the
+        120s refine window (→ not live, high-priority wedge). A flat 600s
+        constant would wrongly report ``live`` in refine — the very phase this
+        alert most affects.
+        """
+
+        def _messages(phase_value):
+            return [
+                self._heartbeat(
+                    "simplifier",
+                    "WAITING_ON_ROLE",
+                    phase_value,
+                    waiting_on="refiner",
+                    age_seconds=3600,
+                ),
+                self._heartbeat("refiner", "WORKING", phase_value, age_seconds=300),
+            ]
+
+        implement = self._executor_in_phase(PipelinePhase.IMPLEMENT)
+        assert self._probe_with(implement, _messages("implement")) == ("refiner", True)
+
+        refine = self._executor_in_phase(PipelinePhase.REFINE)
+        assert self._probe_with(refine, _messages("refine")) == ("refiner", False)
+
     def test_latest_heartbeat_wins_over_older_waiting_report(self):
         """A role that moved on from WAITING_ON_ROLE (state changes always
         land on the bus — only consecutive identical states dedup) reports

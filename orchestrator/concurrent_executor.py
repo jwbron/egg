@@ -1088,7 +1088,8 @@ class ConcurrentPhaseExecutor:
         ``state=WAITING_ON_ROLE`` this returns ``(waiting_on,
         waited_on_live)``, where ``waited_on_live`` is True iff every role
         named in ``metadata.waiting_on`` (comma-tolerant) emitted any bus
-        message within ``SUPERVISION_WAITING_ROLE_LIVE_SECONDS``.
+        message within the health monitor's phase-aware staleness window
+        (120s default in refine/plan/pr, 600s in implement — see below).
 
         Latest-heartbeat semantics are sound despite server-side dedup
         (``routes/messages.py``): only *consecutive identical* states are
@@ -1104,8 +1105,6 @@ class ConcurrentPhaseExecutor:
         the alert MORE alarming, never quieter.
         """
         try:
-            from supervision_policy import SUPERVISION_WAITING_ROLE_LIVE_SECONDS
-
             messages = get_message_store().get_messages(
                 self.pipeline.id, limit=10000, slice_id=self._slice_id
             )
@@ -1124,7 +1123,24 @@ class ConcurrentPhaseExecutor:
             waited_roles = [r.strip() for r in waiting_on.split(",") if r.strip()]
             if not waited_roles:
                 return None
-            cutoff = datetime.now(UTC) - timedelta(seconds=SUPERVISION_WAITING_ROLE_LIVE_SECONDS)
+            # #3520: mirror the health monitor's phase-aware staleness
+            # threshold (``health_monitor._get_heartbeat_threshold``): the
+            # implement phase tolerates the longer implement heartbeat timeout
+            # (default 600s), every other phase the shorter default (120s).
+            # Reading the SAME ``PipelineConfig`` fields the monitor reads
+            # keeps the two in lockstep under operator overrides — so a
+            # producer this probe calls "live" is exactly one the monitor
+            # would not yet have flagged stale, and the low-priority park
+            # notice can never contradict a fresh ``heartbeat_timeout`` alert
+            # about the same producer. A flat 600s would have called a
+            # producer "live" for 5x the monitor's 120s window in refine/plan
+            # — the very phases this PR targets.
+            live_window_seconds = (
+                self.pipeline.config.orchestrator_implement_heartbeat_timeout_seconds
+                if phase == "implement"
+                else self.pipeline.config.orchestrator_heartbeat_timeout_seconds
+            )
+            cutoff = datetime.now(UTC) - timedelta(seconds=live_window_seconds)
             recent_senders = {
                 msg.from_role
                 for msg in messages

@@ -44,13 +44,14 @@ SUPERVISION_NOOP_STREAK_PARK = 3
 # instead of deadlocking the arm.
 SUPERVISION_NOOP_PARK_RETRY_SECONDS = 1800
 
-# A parked role whose latest HEARTBEAT self-reports ``WAITING_ON_ROLE`` is
-# normal BRC choreography (a consumer waiting for its upstream producer's
-# first proposal), PROVIDED the waited-on role is live — so the park alert is
-# downgraded to low priority in that shape (#3520). "Live" means the waited-on
-# role emitted any bus message within this window: under the orchestrator-owned
-# event loop a working producer's pod emits WORKING heartbeats (dedup-exempt,
-# see routes/messages.py) plus progress/consensus traffic, so a healthy
-# producer is visible well inside it. Matches the health monitor's default
-# non-implement heartbeat timeout (600s).
-SUPERVISION_WAITING_ROLE_LIVE_SECONDS = 600
+# NOTE (#3520): the "waited-on role is live" window that downgrades the no-op
+# park alert to low priority is NOT a constant here. It is read per-probe from
+# the pipeline's own heartbeat-timeout config so it stays in lockstep with the
+# health monitor's phase-aware staleness threshold — 120s in refine/plan/pr,
+# 600s in implement (``orchestrator_heartbeat_timeout_seconds`` /
+# ``orchestrator_implement_heartbeat_timeout_seconds``, mirrored by
+# ``health_monitor._get_heartbeat_threshold`` and
+# ``ConcurrentPhaseExecutor._role_waiting_status``). A flat constant here
+# previously hard-coded 600s for every phase, which called a producer "live"
+# for 5x the monitor's 120s window in the refine/plan phases this alert most
+# affects; keeping the value config-derived avoids that contradiction.
