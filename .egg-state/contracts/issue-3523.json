@@ -198,7 +198,7 @@
         {
           "id": "task-3-2",
           "description": "Unit-test the computed verdict: blocking=>NACK, advisory-only=>conditional-ACK,\nempty=>ACK; a blocking finding lacking a failure_scenario degrades to advisory and does\nNOT produce a NACK; mechanism dedup attaches >=2 producers to a merged finding; log mode\nrecords computed-vs-legacy without changing the acted verdict (explicit parity test\nversus the legacy path); a flag typo resolves to off.",
-          "status": "pending",
+          "status": "complete",
           "commit": "e866f1d6553fd8abbf9bf04acdc362fe908bea68",
           "checkpoint_id": null,
           "notes": "",
@@ -904,6 +904,17 @@
       "old_value": null,
       "new_value": "e866f1d6553fd8abbf9bf04acdc362fe908bea68",
       "reason": "Linked commit e866f1d to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T05:01:47.065809Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-2 as complete",
       "checkpoint_id": null
     }
   ],
