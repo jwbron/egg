@@ -136,7 +136,7 @@
           "status": "pending",
           "commit": "6bc6c1304818cade977426a38b49dba29bd30cb7",
           "checkpoint_id": null,
-          "notes": "",
+          "notes": "Added shared/egg_contracts/tests/test_review_findings.py (25 tests, all passing). Covers S2 acceptance: valid blocking round-trip; blocking-without-failure_scenario flagged non-blocking-eligible (never valid-blocking, never error, incl. whitespace-only); severity/confidence enum junk rejected at boundary; schema_version present/stable/default; Finding/FindingAnchor/FindingsPayload round-trips; additive unknown fields non-breaking via from_dict + retained via extra=\"allow\" constructor model_dump. Ran via `.venv/bin/pytest` with PYTHONPATH=shared (working-tree module); `make test` venv-sync is blocked by sandbox network (UnknownIssuer on pypi), not a test defect. Note surfaced for reviewers: coder docstring claims extra data \"round-trips\", but from_dict/to_dict enumerate fixed keys so extras arriving via the dict path are dropped (tolerated, not retained) \u2014 test asserts the acceptance's non-breakage guarantee, not preservation-through-from_dict.",
           "acceptance_criteria": "Tests cover the required-failure_scenario rule, enum validation, versioning, additive\ntolerance, and round-trip; all pass under `make test`.",
           "files_affected": [
             "shared/egg_contracts/tests/test_review_findings.py"
@@ -814,6 +814,28 @@
       "action": "update",
       "field_path": "phases.1.tasks.1.commit",
       "old_value": null,
+      "new_value": "6bc6c1304818cade977426a38b49dba29bd30cb7",
+      "reason": "Linked commit 6bc6c13 to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T04:42:25.076632Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.notes",
+      "old_value": "",
+      "new_value": "Added shared/egg_contracts/tests/test_review_findings.py (25 tests, all passing). Covers S2 acceptance: valid blocking round-trip; blocking-without-failure_scenario flagged non-blocking-eligible (never valid-blocking, never error, incl. whitespace-only); severity/confidence enum junk rejected at boundary; schema_version present/stable/default; Finding/FindingAnchor/FindingsPayload round-trips; additive unknown fields non-breaking via from_dict + retained via extra=\"allow\" constructor model_dump. Ran via `.venv/bin/pytest` with PYTHONPATH=shared (working-tree module); `make test` venv-sync is blocked by sandbox network (UnknownIssuer on pypi), not a test defect. Note surfaced for reviewers: coder docstring claims extra data \"round-trips\", but from_dict/to_dict enumerate fixed keys so extras arriving via the dict path are dropped (tolerated, not retained) \u2014 test asserts the acceptance's non-breakage guarantee, not preservation-through-from_dict.",
+      "reason": "Updated notes for task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T04:43:10.373783Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": "6bc6c1304818cade977426a38b49dba29bd30cb7",
       "new_value": "6bc6c1304818cade977426a38b49dba29bd30cb7",
       "reason": "Linked commit 6bc6c13 to task-2-2",
       "checkpoint_id": null
