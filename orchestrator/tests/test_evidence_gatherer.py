@@ -51,8 +51,6 @@ from routes.pipelines._criteria import (
     build_shared_evidence_prefix,
 )
 
-from gateway.agent_restrictions import check_agent_gh_operation
-
 # ---------------------------------------------------------------------------
 # Staged flag
 # ---------------------------------------------------------------------------
@@ -331,8 +329,21 @@ class TestNoVerdictPostOrGitHubSurface:
         ],
     )
     def test_every_gh_operation_denied_by_default(self, gh_command):
-        """Absent from AGENT_GH_RESTRICTIONS => deny-by-default rejects EVERY gh op."""
-        allowed, _reason = check_agent_gh_operation("evidence_gatherer", gh_command)
+        """Absent from AGENT_GH_RESTRICTIONS => deny-by-default rejects EVERY gh op.
+
+        The definitive gh-deny-by-default coverage lives in its correctly-scoped
+        home, gateway/tests/test_agent_restrictions_gh.py (gateway/ is on the test
+        PYTHONPATH there). This orchestrator-side mirror imports the gateway module
+        function-locally so it (a) never breaks module collection and (b) runs +
+        passes under the canonical ``make test`` runner (PYTHONPATH=shared:gateway:
+        orchestrator); in a bare isolated ``pytest`` run where gateway/ is off the
+        path it skips cleanly rather than erroring — a top-level import here would
+        abort collection of the entire file (the S7 F-code-1 / SEC-T1 regression).
+        """
+        agent_restrictions = pytest.importorskip("agent_restrictions")
+        allowed, _reason = agent_restrictions.check_agent_gh_operation(
+            "evidence_gatherer", gh_command
+        )
         assert allowed is False
 
     def test_file_access_writes_only_handoff_dir(self):
