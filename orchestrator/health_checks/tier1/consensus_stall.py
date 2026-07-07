@@ -167,6 +167,13 @@ class ConsensusStallCheck:
             # which shares the same review graph) makes this fallback
             # report "consensus complete" for the rest of the pipeline's
             # life, and the aggressive stall recovery kills the phase.
+            # NOTE: the primary defense against earlier-phase confirmations
+            # lingering is the transition-time clear
+            # (`_clear_concurrent_state()` wipes the message bus and bare
+            # tracker on every phase transition); this phase filter is the
+            # belt-and-suspenders backstop for when that clear is skipped
+            # or a best-effort Redis clear fails, not the load-bearing
+            # happy-path defense.
             confirmed_roles = pipeline_level_confirmed_roles(messages, phase=phase_value)
             return expected_roles.issubset(confirmed_roles)
         except Exception:
