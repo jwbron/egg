@@ -365,7 +365,7 @@
       "id": "slice-6",
       "name": "Risk router wiring: lens gating, effort tiers, stance",
       "goal": "Put the risk router in front of the live review graph: use its decision to select which\nlenses review each slice, to scale each reviewer's reasoning effort via the existing effort\nplumbing, and to optionally set a precision-first or recall-first stance. The floor rules stay\nhard \u2014 a slice with no matching config gets the full graph and a loud warning, and the\nsecurity lens is never gated off sensitive paths. This changes review behavior, so it ships\nbehind a staged flag that starts in a record-only mode and records the would-have-been graph,\ntier, and per-wave cost before anything is enforced.",
-      "status": "pending",
+      "status": "in_progress",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -375,7 +375,7 @@
           "id": "task-6-1",
           "description": "Wire the S5 router into the SINGLE review-graph resolution chokepoint in\n`orchestrator/review_graph.py` (thread an optional per-slice changed-file set / risk\ncontext into it, or post-filter the returned graph at the slice-scheduling seam, so ALL\nconsumers see the gated graph consistently \u2014 do NOT fork the gating into each caller), and\ninto the reasoning-effort plumbing (`orchestrator/agent_model_resolution.py`, which feeds\n`consensus_wrapper.build_event_pump_wrapped_command(effort=...)`). Gate behind a new\n`EGG_RISK_ROUTER` flag resolved like `green_gate_mode()` (`off` default, unknown => off);\nin `log` mode record the would-be lens graph, risk tier, and per-wave token cost into the\nBRC artifacts while running the unchanged full graph; in `on` mode apply the router's\ngating and effort. Preserve the HARD floors at the wiring layer: no-match => full graph +\nloud warning; security lens un-gatable on auth/session/input-boundary paths.",
           "status": "pending",
-          "commit": null,
+          "commit": "07ea5b919",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "With the flag off or log, the live review graph and efforts are unchanged and log mode\nonly records; with it on, lenses/effort follow the router; no-match always yields the full\ngraph + a logged warning; the security lens is never dropped on a protected path.",
@@ -440,8 +440,8 @@
         "slice-5"
       ],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3523/slice-5",
+      "integration_base_sha": "d04b6e2c58caf5d60a8ccaba71ad20293bf64a58",
       "commit": null,
       "pr_number": null,
       "pr_url": null,
@@ -1036,6 +1036,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-5-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T06:13:40.380370Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": null,
+      "new_value": "07ea5b919",
+      "reason": "Linked commit 07ea5b9 to task-6-1",
       "checkpoint_id": null
     }
   ],
