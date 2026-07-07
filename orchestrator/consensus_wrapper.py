@@ -29,8 +29,13 @@ History
 """
 
 import shlex
+from typing import TYPE_CHECKING
 
 from egg_contracts.agent_roles import REVIEWER_CHECKOUT_ROLE_VALUES
+
+if TYPE_CHECKING:
+    from egg_contracts.review_findings import FindingAnchor
+    from review_findings_verdict import ComputedVerdict
 
 # Space-separated role values for which ``sync_to_proposals`` performs a
 # working-tree merge (#3216, WS1 of #3209). Rendered into the wrapper
@@ -680,6 +685,73 @@ def build_event_pump_wrapped_command(
     # wait loop and no ownership flag to branch on.
     script = script.rstrip("\n") + "\n\n" + _ONE_SHOT_EVENT_HANDLER
     return ["bash", "-c", script]
+
+
+def _render_finding_anchor(anchor: FindingAnchor) -> str:
+    """Render a finding anchor as a compact ``path:line`` locator.
+
+    Empty string for a slice-level / unanchored finding — the caller omits the
+    ``where:`` line entirely rather than printing a bare colon.
+    """
+    if anchor.slice_level or not anchor.path:
+        return ""
+    if anchor.line_start and anchor.line_end and anchor.line_end != anchor.line_start:
+        return f"{anchor.path}:{anchor.line_start}-{anchor.line_end}"
+    if anchor.line_start:
+        return f"{anchor.path}:{anchor.line_start}"
+    return anchor.path
+
+
+def render_findings_nack_reason(computed: ComputedVerdict) -> str:
+    """Render the producer-facing NACK reason from a computed verdict (#3523 S3).
+
+    This is the "rendering" half of the S3 determinism-boundary split
+    (``orchestrator/review_findings_verdict.py`` owns dedup + the ACK/NACK
+    outcome; this owns turning the resulting findings into the prose the
+    producer sees in ``ApprovalEntry.reason``). It lives here — the shared
+    consensus-wrapper serial spine — so the S3/S4 edits to this file serialise
+    cleanly.
+
+    Only the blocking findings drive the reason (they are what the producer
+    must fix); the merged convergence signal (``converged_roles``) is surfaced
+    inline so a finding corroborated by multiple lenses reads as higher-signal,
+    and any advisory obligations are appended as a non-blocking footer. Returns
+    a stable, deterministic string suitable for a unit-test golden.
+    """
+    blocking = computed.blocking_findings
+    count = len(blocking)
+    plural = "s" if count != 1 else ""
+    lines: list[str] = [
+        f"{count} blocking finding{plural} must be addressed before this proposal can be ACKed:"
+    ]
+
+    for index, finding in enumerate(blocking, start=1):
+        header = f"{index}. [{finding.role}]"
+        if len(finding.converged_roles) >= 2:
+            header += (
+                f" (converged across {len(finding.converged_roles)} lenses: "
+                + ", ".join(finding.converged_roles)
+                + ")"
+            )
+        header += f" {finding.summary}"
+        lines.append(header)
+
+        location = _render_finding_anchor(finding.anchor)
+        if location:
+            lines.append(f"   where: {location}")
+        if finding.failure_scenario.strip():
+            lines.append(f"   failure scenario: {finding.failure_scenario.strip()}")
+        if finding.evidence.strip():
+            lines.append(f"   evidence: {finding.evidence.strip()}")
+        if finding.suggested_patch and finding.suggested_patch.strip():
+            lines.append(f"   suggested fix: {finding.suggested_patch.strip()}")
+
+    if computed.obligations:
+        lines.append("")
+        lines.append("Advisory (non-blocking) pre-merge obligations noted:")
+        lines.extend(f"- {obligation}" for obligation in computed.obligations)
+
+    return "\n".join(lines)
 
 
 def build_consensus_wrapped_command(
