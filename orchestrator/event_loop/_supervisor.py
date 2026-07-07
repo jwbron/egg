@@ -70,7 +70,13 @@ def record_success(self, dedupe_key: str, *, action: str = "", role: str = "") -
             action,
             role,
         )
-        self._emit_noop_alert(dedupe_key, streak, action, role, fingerprint)
+        # #3520: with no gating contract decision visible, the role's own
+        # WAITING_ON_ROLE self-report decides the alert's severity — a
+        # dependent role no-oping while its live upstream producer works
+        # toward its first proposal is choreography, not a wedge. A visible
+        # cq-N keeps the original wedge hypothesis, so the probe is skipped.
+        waiting = None if fingerprint else self._probe_waiting_on(role)
+        self._emit_noop_alert(dedupe_key, streak, action, role, fingerprint, waiting)
 
 
 def retire(self, dedupe_key: str) -> None:
@@ -499,6 +505,31 @@ def _probe_hitl_fingerprint(self) -> frozenset[str] | None:
     return frozenset(result)
 
 
+def _probe_waiting_on(self, role: str) -> tuple[str, bool] | None:
+    """Snapshot ``role``'s latest WAITING_ON_ROLE self-report (best-effort, #3520).
+
+    Returns ``(waiting_on, waited_on_live)`` when the role's most recent
+    HEARTBEAT in the current phase self-reports ``WAITING_ON_ROLE``:
+    ``waiting_on`` names the waited-on role(s) as self-reported and
+    ``waited_on_live`` is True iff every waited-on role shows recent bus
+    activity. ``None`` means "no such self-report or unknown" (no probe
+    wired, probe failed, or the latest heartbeat is some other state) —
+    the caller then keeps the wedge-shaped high-priority alert.
+    """
+    if self._waiting_probe is None:
+        return None
+    try:
+        return self._waiting_probe(role)
+    except Exception as exc:  # noqa: BLE001 — probing is best-effort
+        logger.warning(
+            "JobSupervisor: waiting-on probe failed for role=%s — "
+            "treating self-report as unknown: %s",
+            role,
+            exc,
+        )
+        return None
+
+
 def _probe_brc_fingerprint(self) -> str | None:
     """Snapshot the consensus-state fingerprint (best-effort, #3465).
 
@@ -582,6 +613,7 @@ def _emit_noop_alert(
     action: str,
     role: str,
     fingerprint: frozenset[str] | None,
+    waiting: tuple[str, bool] | None = None,
 ) -> None:
     """Emit a named, once-per-key alert for a successful-no-op park (#3425).
 
@@ -590,8 +622,63 @@ def _emit_noop_alert(
     respawn cannot resolve (typically an unresolved operator HITL
     ``cq-N``), so the message points the operator at the pending decision
     rather than at agent health.
+
+    #3520 severity split: ``waiting`` is the parked role's latest
+    WAITING_ON_ROLE self-report, probed by the caller only when no gating
+    contract decision was visible. A role waiting on a LIVE upstream
+    producer's first proposal is normal BRC choreography (the park still
+    saves the pod spawns; the arm un-parks on BRC movement), so that shape
+    emits a low-priority ``agent-parked-waiting-on-role`` notice — a
+    routine [high] would train operators to skim past the alert feed
+    (#3364). High priority is kept for the genuine wedges: a visible
+    gating ``cq-N``, a WAITING_ON_ROLE report whose waited-on role shows
+    no recent bus activity (a real stall — the parked role's own
+    escalation threshold can no longer fire once its pod stops spawning),
+    or a streak with no self-report at all (silent wedge).
     """
     if self._overseer_alert is None:
+        return
+    if not fingerprint and waiting is not None:
+        waited_on, waited_on_live = waiting
+        if waited_on_live:
+            self._overseer_alert(
+                anomaly="agent-parked-waiting-on-role",
+                priority="low",
+                summary=(f"agent parked waiting on {waited_on} (action={action}, streak={streak})"),
+                detail=(
+                    f"Event-pump for role={role} has had {streak} consecutive "
+                    f"one-shot invocations on action={action} with zero BRC "
+                    f"progress and is parked (dedupe key {dedupe_key}). Its "
+                    f"latest HEARTBEAT self-reports WAITING_ON_ROLE on "
+                    f"{waited_on}, which is live on the bus — this is normal "
+                    f"dependency choreography, not a wedge. The arm un-parks "
+                    f"as soon as the BRC state moves (e.g. {waited_on} "
+                    f"proposes); a probe spawn is retried every "
+                    f"{SUPERVISION_NOOP_PARK_RETRY_SECONDS}s as a backstop. "
+                    f"No operator action needed."
+                ),
+            )
+            return
+        self._overseer_alert(
+            anomaly="agent-invocation-noop-streak",
+            priority="high",
+            summary=(
+                f"agent parked waiting on {waited_on}, which shows no recent "
+                f"bus activity (action={action}, streak={streak})"
+            ),
+            detail=(
+                f"Event-pump for role={role} has had {streak} consecutive "
+                f"one-shot invocations on action={action} with zero BRC "
+                f"progress and is parked (dedupe key {dedupe_key}). Its "
+                f"latest HEARTBEAT self-reports WAITING_ON_ROLE on "
+                f"{waited_on}, but {waited_on} has emitted nothing on the "
+                f"bus recently — the waited-on producer looks stalled, and "
+                f"the parked role's own escalation threshold cannot fire "
+                f"while its pod no longer spawns. Check the {waited_on} "
+                f"arm's health (pod status, failure streaks) and the "
+                f"slice's BRC transcript."
+            ),
+        )
         return
     if fingerprint:
         gating = (

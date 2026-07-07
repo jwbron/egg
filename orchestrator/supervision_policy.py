@@ -43,3 +43,14 @@ SUPERVISION_NOOP_STREAK_PARK = 3
 # through the contract-decision fingerprint; it bounds the burn to ~2 pods/h
 # instead of deadlocking the arm.
 SUPERVISION_NOOP_PARK_RETRY_SECONDS = 1800
+
+# A parked role whose latest HEARTBEAT self-reports ``WAITING_ON_ROLE`` is
+# normal BRC choreography (a consumer waiting for its upstream producer's
+# first proposal), PROVIDED the waited-on role is live — so the park alert is
+# downgraded to low priority in that shape (#3520). "Live" means the waited-on
+# role emitted any bus message within this window: under the orchestrator-owned
+# event loop a working producer's pod emits WORKING heartbeats (dedup-exempt,
+# see routes/messages.py) plus progress/consensus traffic, so a healthy
+# producer is visible well inside it. Matches the health monitor's default
+# non-implement heartbeat timeout (600s).
+SUPERVISION_WAITING_ROLE_LIVE_SECONDS = 600

@@ -1960,3 +1960,148 @@ class TestUnresolvedContractDecisionProbe:
 
             executor._start_event_loop([AgentRole.CODER], tracker=MagicMock())
         assert captured.get("hitl_probe") == executor._unresolved_contract_decision_ids
+
+
+class TestRoleWaitingStatusProbe:
+    """#3520: the JobSupervisor ``waiting_probe`` the executor wires in.
+
+    Decides the no-op park alert's severity: a parked role whose latest
+    HEARTBEAT self-reports WAITING_ON_ROLE on a live upstream role is normal
+    BRC choreography and must not fire at [high]. ``None`` (no self-report /
+    unknown) keeps the wedge-shaped high-priority alert, so failure semantics
+    can only make the alert more alarming, never quieter.
+    """
+
+    def _executor(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        return ConcurrentPhaseExecutor(_make_pipeline(), spawn_fn=MagicMock())
+
+    def _probe_with(self, executor, messages):
+        mock_store = MagicMock()
+        mock_store.get_messages.return_value = messages
+        with patch("concurrent_executor.get_message_store", return_value=mock_store):
+            return executor._role_waiting_status("simplifier")
+
+    @staticmethod
+    def _heartbeat(role, state, phase, *, waiting_on=None, age_seconds=0):
+        from datetime import UTC, datetime, timedelta
+
+        from message_store import Message, MessageType
+
+        metadata = {"state": state}
+        if waiting_on:
+            metadata["waiting_on"] = waiting_on
+        return Message(
+            pipeline_id="issue-999",
+            from_role=role,
+            to_role="all",
+            message_type=MessageType.HEARTBEAT,
+            subject=f"heartbeat: {state}",
+            metadata=metadata,
+            timestamp=datetime.now(UTC) - timedelta(seconds=age_seconds),
+            phase=phase,
+        )
+
+    def test_waiting_on_live_role(self):
+        """WAITING_ON_ROLE + recent bus traffic from the waited-on role.
+
+        The self-report itself is OLD (server-side dedup suppresses repeats
+        of an unchanged state, so the newest WAITING_ON_ROLE entry can long
+        predate the park) — only the waited-on role's liveness is
+        recency-gated.
+        """
+        executor = self._executor()
+        phase = executor.pipeline.current_phase.value
+        messages = [
+            self._heartbeat(
+                "simplifier", "WAITING_ON_ROLE", phase, waiting_on="refiner", age_seconds=3600
+            ),
+            self._heartbeat("refiner", "WORKING", phase, age_seconds=30),
+        ]
+        assert self._probe_with(executor, messages) == ("refiner", True)
+
+    def test_waited_on_role_not_live(self):
+        """No recent bus activity from the waited-on role → live=False."""
+        executor = self._executor()
+        phase = executor.pipeline.current_phase.value
+        messages = [
+            self._heartbeat("refiner", "WORKING", phase, age_seconds=7200),
+            self._heartbeat(
+                "simplifier", "WAITING_ON_ROLE", phase, waiting_on="refiner", age_seconds=3600
+            ),
+        ]
+        assert self._probe_with(executor, messages) == ("refiner", False)
+
+    def test_comma_separated_waiting_on_requires_all_live(self):
+        executor = self._executor()
+        phase = executor.pipeline.current_phase.value
+        messages = [
+            self._heartbeat("simplifier", "WAITING_ON_ROLE", phase, waiting_on="refiner, planner"),
+            self._heartbeat("refiner", "WORKING", phase, age_seconds=30),
+            self._heartbeat("planner", "WORKING", phase, age_seconds=7200),  # dead
+        ]
+        assert self._probe_with(executor, messages) == ("refiner, planner", False)
+
+    def test_latest_heartbeat_wins_over_older_waiting_report(self):
+        """A role that moved on from WAITING_ON_ROLE (state changes always
+        land on the bus — only consecutive identical states dedup) reports
+        its CURRENT state, so an older waiting entry must not match."""
+        executor = self._executor()
+        phase = executor.pipeline.current_phase.value
+        messages = [
+            self._heartbeat(
+                "simplifier", "WAITING_ON_ROLE", phase, waiting_on="refiner", age_seconds=600
+            ),
+            self._heartbeat("simplifier", "WORKING", phase, age_seconds=60),
+        ]
+        assert self._probe_with(executor, messages) is None
+
+    def test_previous_phase_heartbeat_is_ignored(self):
+        """The pipeline stream persists across phases; a refine-phase
+        WAITING_ON_ROLE report is not evidence about the current phase."""
+        executor = self._executor()
+        messages = [
+            self._heartbeat(
+                "simplifier", "WAITING_ON_ROLE", "refine", waiting_on="refiner", age_seconds=60
+            ),
+        ]
+        assert self._probe_with(executor, messages) is None
+
+    def test_no_heartbeats_is_none(self):
+        executor = self._executor()
+        assert self._probe_with(executor, []) is None
+
+    def test_missing_waiting_on_metadata_is_none(self):
+        executor = self._executor()
+        phase = executor.pipeline.current_phase.value
+        messages = [self._heartbeat("simplifier", "WAITING_ON_ROLE", phase)]
+        assert self._probe_with(executor, messages) is None
+
+    def test_read_failure_is_none(self):
+        executor = self._executor()
+        mock_store = MagicMock()
+        mock_store.get_messages.side_effect = OSError("bus down")
+        with patch("concurrent_executor.get_message_store", return_value=mock_store):
+            assert executor._role_waiting_status("simplifier") is None
+
+    def test_wired_as_the_supervisor_waiting_probe(self):
+        """_start_event_loop hands the probe to the JobSupervisor (#3520)."""
+        import event_loop as event_loop_mod
+
+        executor = self._executor()
+        captured: dict = {}
+        real_supervisor = event_loop_mod.JobSupervisor
+
+        def _capturing_supervisor(**kwargs):
+            captured.update(kwargs)
+            return real_supervisor(**kwargs)
+
+        with (
+            patch.object(event_loop_mod, "JobSupervisor", _capturing_supervisor),
+            patch.object(event_loop_mod.OrchestratorEventLoop, "start", lambda self: None),
+        ):
+            from egg_orchestrator.types import AgentRole
+
+            executor._start_event_loop([AgentRole.CODER], tracker=MagicMock())
+        assert captured.get("waiting_probe") == executor._role_waiting_status

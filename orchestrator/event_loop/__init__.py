@@ -390,6 +390,7 @@ class JobSupervisor:
         on_exhausted: Callable[..., Any] | None = None,
         hitl_probe: Callable[[], Iterable[str] | None] | None = None,
         brc_probe: Callable[[], str | None] | None = None,
+        waiting_probe: Callable[[str], tuple[str, bool] | None] | None = None,
     ) -> None:
         self.clock = clock
         self._overseer_alert = overseer_alert
@@ -410,6 +411,17 @@ class JobSupervisor:
         # dedupe key, so without this probe the only wake path is the retry
         # heartbeat. ``None`` means "unknown", same semantics as ``hitl_probe``.
         self._brc_probe = brc_probe
+        # #3520: best-effort probe consulted at the no-op park transition to
+        # pick the alert's severity. Called with the parking role's name; when
+        # that role's latest HEARTBEAT self-reports ``WAITING_ON_ROLE`` it
+        # returns ``(waiting_on, waited_on_live)`` — the self-reported
+        # waited-on role(s) and whether they show recent bus activity.
+        # Waiting on a LIVE upstream producer's first proposal is normal BRC
+        # choreography in every phase with a consumer role, so that shape
+        # emits a low-priority notice instead of the high-priority wedge
+        # alert. ``None`` means "no such self-report or unknown" — the alert
+        # then keeps its wedge-shaped high priority.
+        self._waiting_probe = waiting_probe
         # #3064 slice-4: fired once when a dedupe key crosses into the
         # exhausted set (the ``_exhausted`` transition). The orchestrator
         # wires this to tear down the role's reused gateway session — an
@@ -505,6 +517,7 @@ class JobSupervisor:
     noop_parked = _supervisor.noop_parked
     _probe_hitl_fingerprint = _supervisor._probe_hitl_fingerprint
     _probe_brc_fingerprint = _supervisor._probe_brc_fingerprint
+    _probe_waiting_on = _supervisor._probe_waiting_on
     reconcile = _supervisor.reconcile
 
     # ------------------------------------------------------------------

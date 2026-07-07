@@ -11,7 +11,7 @@ import sys
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -540,6 +540,11 @@ class ConcurrentPhaseExecutor:
             # parked while racing its upstream producer). ``getattr`` keeps
             # test doubles without the method on the heartbeat-only path.
             brc_probe=getattr(tracker, "consensus_state_fingerprint", None),
+            # #3520: at the park transition the parked role's latest
+            # WAITING_ON_ROLE heartbeat decides the alert's severity —
+            # waiting on a live upstream producer is choreography, not a
+            # wedge, so it must not fire at [high].
+            waiting_probe=self._role_waiting_status,
         )
 
         # #3064 slice-5: convergence-stall notifier re-uses the same
@@ -1069,6 +1074,69 @@ class ConcurrentPhaseExecutor:
             logger.warning(
                 "Failed to probe contract decisions for no-op park fingerprint",
                 pipeline_id=self.pipeline.id,
+                exc_info=True,
+            )
+            return None
+
+    def _role_waiting_status(self, role: str) -> tuple[str, bool] | None:
+        """Return ``role``'s latest WAITING_ON_ROLE self-report status (#3520).
+
+        Wired as the :class:`JobSupervisor`'s ``waiting_probe``, consulted
+        once at the no-op park transition to pick the park alert's severity.
+        Reads the message bus for ``role``'s most recent HEARTBEAT in the
+        current phase; when that heartbeat self-reports
+        ``state=WAITING_ON_ROLE`` this returns ``(waiting_on,
+        waited_on_live)``, where ``waited_on_live`` is True iff every role
+        named in ``metadata.waiting_on`` (comma-tolerant) emitted any bus
+        message within ``SUPERVISION_WAITING_ROLE_LIVE_SECONDS``.
+
+        Latest-heartbeat semantics are sound despite server-side dedup
+        (``routes/messages.py``): only *consecutive identical* states are
+        deduped, so the newest HEARTBEAT on the bus is always the role's
+        current self-reported state. The phase filter keeps a previous
+        phase's WAITING_ON_ROLE report (same pipeline stream) from being
+        mistaken for current evidence.
+
+        Returns ``None`` (unknown / no self-report) when the latest
+        heartbeat is any other state, the role has no heartbeat this phase,
+        or the read fails — the supervisor then falls back to the
+        wedge-shaped high-priority alert, so a probe failure can only make
+        the alert MORE alarming, never quieter.
+        """
+        try:
+            from supervision_policy import SUPERVISION_WAITING_ROLE_LIVE_SECONDS
+
+            messages = get_message_store().get_messages(
+                self.pipeline.id, limit=10000, slice_id=self._slice_id
+            )
+            phase = self.pipeline.current_phase.value
+            latest = None
+            for msg in messages:
+                if (
+                    msg.message_type == MessageType.HEARTBEAT
+                    and msg.from_role == role
+                    and msg.phase == phase
+                ):
+                    latest = msg
+            if latest is None or latest.metadata.get("state") != "WAITING_ON_ROLE":
+                return None
+            waiting_on = str(latest.metadata.get("waiting_on") or "")
+            waited_roles = [r.strip() for r in waiting_on.split(",") if r.strip()]
+            if not waited_roles:
+                return None
+            cutoff = datetime.now(UTC) - timedelta(seconds=SUPERVISION_WAITING_ROLE_LIVE_SECONDS)
+            recent_senders = {
+                msg.from_role
+                for msg in messages
+                if (msg.timestamp if msg.timestamp.tzinfo else msg.timestamp.replace(tzinfo=UTC))
+                >= cutoff
+            }
+            return (waiting_on, all(r in recent_senders for r in waited_roles))
+        except Exception:  # noqa: BLE001 — probing is best-effort
+            logger.warning(
+                "Failed to probe WAITING_ON_ROLE heartbeat for no-op park alert",
+                pipeline_id=self.pipeline.id,
+                role=role,
                 exc_info=True,
             )
             return None
