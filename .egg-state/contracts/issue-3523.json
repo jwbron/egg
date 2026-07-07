@@ -331,7 +331,7 @@
           "id": "task-5-2",
           "description": "Unit-test the router exhaustively: lens gating per path class (concurrency lens only on\nasync/queue-handler paths; security lens always on auth/session/input-boundary paths;\ndocs-only => minimal graph); no-match => full graph + warning; floor tier always present;\nlow-risk => cheapest tier (cost default); determinism (same input => same output); and\nthat the security lens cannot be gated off a protected path even by a config entry that\nomits it.",
           "status": "pending",
-          "commit": null,
+          "commit": "b3d8670d997f097b4d49f6b6747440e3a5652c13",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "All routing rules and both floor guarantees are covered; the security-un-gatable invariant\nhas an explicit test; all pass under `make test`.",
@@ -1014,6 +1014,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-5-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T05:41:18.407111Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.commit",
+      "old_value": null,
+      "new_value": "b3d8670d997f097b4d49f6b6747440e3a5652c13",
+      "reason": "Linked commit b3d8670 to task-5-2",
       "checkpoint_id": null
     }
   ],
