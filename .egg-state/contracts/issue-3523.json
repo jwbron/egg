@@ -264,7 +264,7 @@
         {
           "id": "task-4-2",
           "description": "Unit-test the per-finding tool-call cap at its boundary: the cap triggers at the\nconfigured limit; log mode records would-be cap hits without enforcing; a flag typo\nresolves to off; the default is applied when unset.",
-          "status": "pending",
+          "status": "complete",
           "commit": "3665b3239d21c6a091f9971e35d630756da15ea6",
           "checkpoint_id": null,
           "notes": "Added 63 unit tests to orchestrator/tests/test_consensus_wrapper.py covering the S4 per-finding tool-call cap. Four acceptance cases pinned: (1) cap-boundary \u2014 evaluate_finding_tool_call_cap triggers at the configured limit (>=) with an explicit off-by-one guard; (2) log-record-only \u2014 log sets recorded not enforced, on sets enforced not recorded, mutually exclusive; (3) flag-typo-fails-to-off \u2014 EGG_REVIEW_FINDINGS_MODE typo => off/inert at both the pure-fn and build_event_pump_wrapped_command spawn-command layers; (4) default-when-unset \u2014 review_finding_tool_call_cap falls to safe default 8 on unset/non-integer/non-positive, and the decision fn applies the default when cap=None. Also: exempt roles (tester never hit), the JSON-serializable log record, off=>empty render (byte-identical legacy spawn), and reviewer-arm gating of the cap export block. All 63 pass; ruff clean. Commit 3665b3239.",
@@ -981,6 +981,17 @@
       "old_value": null,
       "new_value": "3665b3239d21c6a091f9971e35d630756da15ea6",
       "reason": "Linked commit 3665b32 to task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T05:23:14.675444Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-2 as complete",
       "checkpoint_id": null
     }
   ],
