@@ -294,8 +294,16 @@ class TestNoVerdictPostOrGitHubSurface:
         """The public module surface is read-only assembly — no verdict/post/write."""
         # Token-equality (not substring) so 'pack' is not mistaken for 'ack'.
         banned = {
-            "verdict", "ack", "nack", "post", "comment", "review",
-            "approve", "merge", "push", "gh",
+            "verdict",
+            "ack",
+            "nack",
+            "post",
+            "comment",
+            "review",
+            "approve",
+            "merge",
+            "push",
+            "gh",
         }
         offenders = [
             name
@@ -455,9 +463,7 @@ class TestDelphiRedactionUnaffected:
     def test_no_producer_attribution_field(self):
         smell = ("author", "producer", "agent", "self", "assessment", "opinion", "claim")
         offenders = [
-            f.name
-            for f in fields(EvidencePack)
-            if any(s in f.name.lower() for s in smell)
+            f.name for f in fields(EvidencePack) if any(s in f.name.lower() for s in smell)
         ]
         assert offenders == []
 
