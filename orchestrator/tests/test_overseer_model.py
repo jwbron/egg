@@ -43,7 +43,7 @@ from pathlib import Path
 import pytest
 
 # ---------------------------------------------------------------------------
-# Path setup (mirrors test_agent_model_resolution.py / test_overseer_spawn.py)
+# Path setup (mirrors test_agent_model_resolution.py)
 # ---------------------------------------------------------------------------
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
