@@ -215,7 +215,7 @@ Representative tools (see the [Orchestrator CLI](docs/reference/orchestrator-cli
 - **Monitoring:** `get_status`, `get_phase`, `get_pipeline_snapshot`, `get_consensus_status`, `check_health`
 - **HITL & coordination:** `provide_input`, `answer_feedback`, `send_message`
 - **Phase & agent control:** `advance_phase`, `start_phase`, `complete_phase`, `restart_agent`, `restart_phase`, `populate_contract`, `update_pipeline_config`
-- **Debugging:** `list_containers`, `get_container_logs`, `get_service_logs`, `validate_config`
+- **Debugging:** `list_containers`, `get_container_logs`, `get_agent_transcript`, `get_service_logs`, `validate_config`
 - **Deployment:** `get_deployment_context`, `validate_deployment_manifests`, `validate_network_isolation`, `prune_stale_worktrees`, `rebuild_and_rollout`
 
 Host-side CLIs in `bin/` (`egg-sdlc`, `egg-status`, `egg-pipeline-watch`, `egg-onboarding-docs`) wrap the same APIs for monitoring and visualization.

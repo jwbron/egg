@@ -172,13 +172,26 @@ load-bearing evidence in that case.
 ### Short-lived crashed pod logs are reaped quickly
 
 `/agent-diagnose` depends on `get_container_logs` to surface the log tail.
-If the Pod exited fast and Kubernetes garbage-collected it before you ran
-the skill, the call returns `logs_unavailable` / `pods "<pod>" not found`.
+[#3547](https://github.com/jwbron/egg/issues/3547) closed most of this gap:
+`remove_agent_job` now snapshots the pod's log tail into a Redis-backed
+agent-log store just before Job deletion, and `get_container_logs` falls
+back to that capture when the live Pod is already gone — the result carries
+`"source": "persisted"` plus `captured_at` / `exit_code`. The hard
+`logs_unavailable` / `pods "<pod>" not found` case is now limited to
+captures that themselves expired (24h TTL) or were never written (the
+capture raced the Pod's own teardown, or the Job carried no pipeline
+label).
 
-The skill detects this case and surfaces it in the Top finding — it does
-**not** silently return "no classifier match" when logs are simply gone.
-You will still get the Job spec, Events, and env keys; the classifier
+The skill detects a genuine miss and surfaces it in the Top finding — it
+does **not** silently return "no classifier match" when logs are simply
+gone. You will still get the Job spec, Events, and env keys; the classifier
 runs against the reduced evidence.
+
+`get_agent_transcript` is a second, independent source of evidence: it
+reads the agent's Claude Code session transcript from the session-state
+store (pushed on every event-pod exit, ~6h TTL), so it can survive even
+when the agent-log capture itself is missing — but only if the agent got
+far enough to push a transcript at least once.
 
 **Concurrent BRC phases**: For pipelines running in concurrent execution
 mode, the orchestrator now captures a frozen exit snapshot
@@ -219,8 +232,11 @@ Two other caveats worth knowing during triage:
   the distinction matters.
 
 The broader [#1805](https://github.com/jwbron/egg/issues/1805) follow-up
-(persistent log aggregation for all agent types) remains open; the
-`agent_exits` snapshot only covers concurrent BRC phases.
+(persistent log aggregation for all agent types) is now largely covered by
+the agent-log store described above, which applies pipeline-wide rather
+than only to concurrent BRC phases; `agent_exits` remains the
+richer-but-narrower source specifically for concurrent phases (per-role
+`terminated_at`, always available regardless of the agent-log store's TTL).
 
 ### Cluster Event retention
 

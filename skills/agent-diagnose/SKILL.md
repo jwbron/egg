@@ -115,9 +115,12 @@ signatures, not full transcripts, and the rate limit is tight.
 report.** No raw Bearer JWTs, no `*_TOKEN` / `*_SECRET` / `*_KEY` /
 `GITHUB_TOKEN` / `GH_TOKEN` / `ANTHROPIC_API_KEY` / `CLAUDE_API_KEY` values.
 
-If the Pod is gone (short-lived crashed pod, logs already reaped), record
-`logs_unavailable` and note the log-persistence follow-up (#1805). This is
-one of the two bounded-evidence caveats — call it out in the Top finding
+If the Pod is gone (short-lived crashed pod, logs already reaped),
+`get_container_logs` falls back to the post-reap capture in the agent-log
+store (#3547) and the result carries `"source": "persisted"` — treat that
+the same as a live log tail. Only record `logs_unavailable` if the fallback
+also misses (capture expired past its 24h TTL, or was never written). This
+is one of the two bounded-evidence caveats — call it out in the Top finding
 when it is the cause of a partial report.
 
 *Primitive call budget: 1.*
@@ -197,7 +200,7 @@ lands.
 |-----------------------------------|---------------|-----------|
 | `403.*from gateway` / `HTTP 403.*gateway` | Role/auth boundary mismatch (#1766 family) | Verify the agent role matches the allowed fine/coarse role set for the requested endpoint; check `sandbox/egg_restrictions/`. |
 | `404.*container[_ ]id` / `404 on container ID` | Pod-UID vs Job-UID asymmetry (#1760 / #1764 family) | The caller is passing a Pod UID where a Job UID is expected (or vice versa). Use `_resolve_job_name()` on the lookup path. |
-| `log[s]? unavailable.*pod not found` / `pods "<pod>" not found` | Short-lived crashed pod, logs reaped (#1805 pending) | Partial report; request a re-run after enabling log persistence, or catch the pod while it is still Running. |
+| `log[s]? unavailable.*pod not found` / `pods "<pod>" not found` | Short-lived crashed pod, logs reaped and the persisted capture also missed (#3547) | Partial report; cross-check `get_agent_transcript` for the session-state transcript, or catch the pod while it is still Running. |
 | `connection refused.*gateway.egg-system` | Gateway Service unreachable | Check the gateway Pod is `Running` and the `egg-gateway` Service has endpoints. |
 | `connection refused.*orchestrator.egg-system` | Orchestrator Service unreachable from agent | Check NetworkPolicy egress from `egg-agents` — should allow egress to `egg-system/gateway` only, not direct to orchestrator. |
 | `Unauthorized.*lifecycle.secret` / `401.*EGG_LIFECYCLE_SECRET` | #1769 regression (missing or misrouted lifecycle secret) | Confirm the Secret is mounted on the agent Pod and the env var name matches the orchestrator's expectation. |
