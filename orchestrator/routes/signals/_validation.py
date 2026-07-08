@@ -374,18 +374,23 @@ _DECISION_ATTESTING_ROLES = frozenset({"refiner", "task_planner", "architect", "
 _DECISION_CITATION_SPECS = frozenset({"analysis-draft", "plan-draft"})
 
 
-def _extract_attested_decision_fields(payload: dict[str, Any]) -> tuple[Any, Any]:
+def _extract_attested_decision_fields(payload: dict[str, Any]) -> tuple[Any, Any, Any]:
     """Pull the raw decision-ledger fields off a proposal payload.
 
-    Returns ``(decisions_registered, no_decisions_rationale)`` exactly as
-    supplied (unvalidated — shape validation is
+    Returns ``(decisions_registered, no_decisions_rationale,
+    candidates_considered)`` exactly as supplied (unvalidated; shape
+    validation is
     :func:`egg_contracts.decisions.decision_attestation_errors`'s job).
-    A missing or non-dict ``attestation`` yields ``(None, None)``.
+    A missing or non-dict ``attestation`` yields ``(None, None, None)``.
     """
     attestation = payload.get("attestation")
     if not isinstance(attestation, dict):
-        return None, None
-    return attestation.get("decisions_registered"), attestation.get("no_decisions_rationale")
+        return None, None, None
+    return (
+        attestation.get("decisions_registered"),
+        attestation.get("no_decisions_rationale"),
+        attestation.get("candidates_considered"),
+    )
 
 
 def _validate_decision_attestation_shape(
@@ -412,14 +417,31 @@ def _validate_decision_attestation_shape(
     if phase not in _DECISION_ATTESTING_PHASES or agent_role not in _DECISION_ATTESTING_ROLES:
         return
 
-    registered, rationale = _extract_attested_decision_fields(payload)
+    registered, rationale, candidates = _extract_attested_decision_fields(payload)
 
     try:
         from egg_contracts.decisions import decision_attestation_errors
     except ImportError:
         return
 
-    errors = decision_attestation_errors(registered, rationale)
+    errors = decision_attestation_errors(registered, rationale, candidates)
+    if not errors and phase == "plan" and isinstance(candidates, list):
+        # Plan is the pipeline's last decision surface (#3526): a plan
+        # producer cannot defer a candidate to itself. Anything still
+        # potentially operator-grade at plan time must be registered.
+        deferred = [
+            c.get("question")
+            for c in candidates
+            if isinstance(c, dict) and c.get("disposition") == "deferred_to_plan"
+        ]
+        if deferred:
+            errors = [
+                "a plan-phase attestation cannot disposition candidates as "
+                "'deferred_to_plan': plan is the last decision surface; "
+                "register each as a cq-N via `egg-contract add-decision` or "
+                "disposition it 'not_operator_grade' with a concrete why. "
+                f"Offending candidate(s): {', '.join(repr(q) for q in deferred)}."
+            ]
     if errors:
         raise ValueError(
             f"{agent_role} proposal rejected: decision-ledger attestation "
@@ -428,9 +450,12 @@ def _validate_decision_attestation_shape(
             f"(#3390). Include "
             f'`attestation={{"decisions_registered": ["cq-1", ...]}}` listing '
             f"every decision you registered this phase, or "
-            f'`attestation={{"no_decisions_rationale": "<why none>"}}` when '
-            f"the phase deliberately raises none. Register decisions first "
-            f"via `egg-contract add-decision` / "
+            f'`attestation={{"no_decisions_rationale": "<why none>", '
+            f'"candidates_considered": [{{"question": ..., "disposition": '
+            f'"not_operator_grade"|"deferred_to_plan", "why": ...}}, ...]}}` '
+            f"when the phase deliberately raises none (#3526: the empty "
+            f"ledger must enumerate the candidates it considered). Register "
+            f"decisions first via `egg-contract add-decision` / "
             f"`mcp__sdlc__register_open_question`, then re-propose."
         )
 
@@ -479,7 +504,7 @@ def _validate_decision_attestation(
     if phase not in _DECISION_ATTESTING_PHASES or agent_role not in _DECISION_ATTESTING_ROLES:
         return
 
-    registered, _rationale = _extract_attested_decision_fields(payload)
+    registered, _rationale, _candidates = _extract_attested_decision_fields(payload)
 
     attested_ids = list(registered or [])
     if not attested_ids:
@@ -558,7 +583,7 @@ def _validate_decision_citations(
     if phase not in _DECISION_ATTESTING_PHASES or agent_role not in _DECISION_ATTESTING_ROLES:
         return
 
-    registered, _rationale = _extract_attested_decision_fields(payload)
+    registered, _rationale, _candidates = _extract_attested_decision_fields(payload)
     if not isinstance(registered, list) or not registered:
         return
 

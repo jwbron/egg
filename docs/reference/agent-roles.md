@@ -40,7 +40,7 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `reviewer_concurrency` | Review | Implement | Yes (with `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`) | coder, tester |
 | `autofixer` | Utility | Any | Yes | — |
 | `conflict_resolver` | Utility | Any | Yes | — |
-| `evidence_gatherer` | Utility | Implement (ahead of the review wave) | No | — |
+| `evidence_gatherer` | Utility | Any (runs ahead of a review wave) | Yes | — |
 | `overseer` | Interface | Per-phase (spawned/torn down at phase boundaries) | — | — (pipeline health monitoring) |
 
 All agents within a phase run concurrently via BRC consensus. Concurrency is enabled by default for the refine, plan, and implement phases, and can be extended to additional phases via the `concurrent_phases` config.
@@ -504,18 +504,16 @@ tests, and its mandate is two-fold: **(1) comprehensive regression coverage** �
 
 **Category**: Utility
 
-**Purpose**: Read-only shared-evidence gatherer for the implement-phase review wave ([#3523](https://github.com/jwbron/egg/issues/3523) §5). Assembles a single **evidence pack** — the diff, changed files with enclosing context, caller/callee lists for changed symbols, and verified environment facts — that every same-model reviewer in the wave can share as a byte-identical prompt prefix, so cache reads replace redundant ramp-up. The pack carries evidence only, never conclusions: no hypotheses, no "areas of concern", no severity or priority ordering (`orchestrator/evidence_gatherer.py::assert_pack_carries_no_conclusions` fails loudly if a field ever smells like a verdict). Casts no verdict itself and maps to the coarse `system` contract role, like `overseer`, so it can neither ACK/NACK nor mutate the contract.
-
-Gated behind the `EGG_REVIEW_EVIDENCE_PREFIX` staged flag (`off` / `log` / `on`; unknown values degrade to `off`) — the reviewer prompt is byte-identical to legacy unless the flag is `on`. Only the five Implement-phase specialist lenses (`reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency`) share the prefix; the `tester` and any finding-verifier always stay cold-start so verification never inherits the framing that produced the claim it's checking.
+**Purpose**: Read-only gatherer that assembles a single shared **evidence pack** (diff, changed files with enclosing context, caller/callee lists for changed symbols, verified environment facts) for a slice's review wave, so same-model reviewer lenses share a byte-identical prompt prefix instead of each cold-starting on the same diff. Collects evidence only — never analysis: `assert_pack_carries_no_conclusions()` structurally rejects any pack field that smells like a conclusion, and `render_pack()` orders strictly by path so no lens is anchored by gatherer framing. See [Review Quality Reference §5](review-quality.md#5-the-shared-evidence-prompt-prefix-the-cost-bet) for the staged `EGG_REVIEW_EVIDENCE_PREFIX` rollout (`off`/`log`/`on`) and how the rendered pack is threaded into reviewer prompts via `build_shared_evidence_prefix()`.
 
 **File access**:
-- Allowed writes: `.egg-state/agent-outputs/` (the assembled pack only)
-- Blocked: All source, tests, docs, contracts, drafts, reviews, `.github/` (the explicit `blocked_patterns`). Everything else outside `.egg-state/agent-outputs/` — including `.egg-state/pipelines/` and `.egg-state/oversight/` — is denied by default, since `allowed_patterns` is limited to the pack handoff.
+- Allowed writes: `.egg-state/agent-outputs/`
+- Blocked: `src/`, `lib/`, `shared/`, `gateway/`, `sandbox/`, `action/`, `orchestrator/`, `docs/`, `tests/`, `test/`, `.egg-state/contracts/`, `.egg-state/drafts/`, `.egg-state/reviews/`, `.github/` — no source, test, doc, or config access; casts no verdict, posts nothing, touches no network
 
 **GitHub access**: None. `evidence_gatherer` is deliberately absent from `gateway.agent_restrictions.AGENT_GH_RESTRICTIONS`, so the gateway's deny-by-default posture rejects every `gh` operation for it — stronger than the per-op block producers get.
 
 **Outputs**:
-- `.egg-state/agent-outputs/{identifier}-evidence_gatherer-output.json` — The evidence pack
+- `.egg-state/agent-outputs/{identifier}-evidence_gatherer-output.json` — the assembled evidence pack
 
 ## Interface Roles
 
@@ -759,3 +757,4 @@ This is set automatically by the sandbox entrypoint using the `EGG_AGENT_ROLE` e
 - [Concurrent Execution Guide](../guides/concurrent-execution.md) — BRC consensus protocol
 - [Agent Development Guide](../guides/agent-development.md) — How to add new agent roles
 - [Architecture Overview](../architecture/README.md) — Role-based access control
+- [Review Quality Reference](review-quality.md) — Structured findings, risk-routed review graph, and the `evidence_gatherer` shared-evidence prefix
