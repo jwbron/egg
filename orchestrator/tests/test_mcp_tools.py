@@ -316,6 +316,66 @@ class TestGetContainerLogsPersistedFallback:
 
         assert "error" in result
 
+    def test_explicit_container_miss_no_role_does_not_serve_unrelated(self, handler):
+        """An explicit container_id that misses must not return newest-overall (#3566).
+
+        With no agent_role to re-narrow, guessing the newest capture would hand
+        the operator a *different* job's logs than the one they named. The index
+        endpoint must not even be consulted; the original fetch error surfaces.
+        """
+        from urllib.error import HTTPError
+
+        index_calls: list[str] = []
+
+        def _sequence(endpoint, **kwargs):
+            if endpoint.endswith("/logs?tail=100"):
+                raise HTTPError(endpoint, 404, "not found", None, None)
+            if "/agent-logs/" in endpoint:
+                return {"data": {}}  # exact-match miss for the requested id
+            if endpoint.endswith("/agent-logs"):
+                index_calls.append(endpoint)
+                # A sibling capture exists; it must NOT be substituted.
+                return {"data": {"records": [dict(self._RECORD)]}}
+            return {"data": {}}
+
+        with patch.object(handler, "_make_request", side_effect=_sequence):
+            result = handler.handle_tool_call(
+                "get_container_logs",
+                {"task_id": "issue-42", "container_id": "pod-uid-does-not-match"},
+            )
+
+        assert index_calls == []  # newest-overall lookup never attempted
+        assert result.get("logs") != "captured stdout"
+        assert "error" in result
+
+    def test_explicit_container_miss_with_role_falls_through_to_role_capture(self, handler):
+        """A role IS a legitimate re-narrowing: container_id miss + role serves
+        the newest capture for that role (#3566)."""
+        from urllib.error import HTTPError
+
+        def _sequence(endpoint, **kwargs):
+            if endpoint.endswith("/logs?tail=100"):
+                raise HTTPError(endpoint, 404, "not found", None, None)
+            if endpoint.endswith("/agent-logs/pod-uid-does-not-match"):
+                return {"data": {}}  # exact-match miss
+            if endpoint.endswith("/agent-logs"):
+                return {"data": {"records": [dict(self._RECORD, logs=None, log_bytes=15)]}}
+            return {"data": dict(self._RECORD)}  # full body for the role's job
+
+        with patch.object(handler, "_make_request", side_effect=_sequence):
+            result = handler.handle_tool_call(
+                "get_container_logs",
+                {
+                    "task_id": "issue-42",
+                    "container_id": "pod-uid-does-not-match",
+                    "agent_role": "coder",
+                },
+            )
+
+        assert result["source"] == "persisted"
+        assert result["logs"] == "captured stdout"
+        assert result["agent_role"] == "coder"
+
 
 class TestGetAgentTranscript:
     """Operator read path for session-state transcripts (#3547)."""

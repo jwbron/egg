@@ -334,6 +334,64 @@ class TestConsoleFormatLines:
         assert "spawn failed" in out
         assert "routine poll" in out
 
+    def test_pipeline_id_prefers_trailing_kwarg_over_message_body(self):
+        """The authoritative id is the LAST token; a body id must not win (#3566).
+
+        A logged URL/command in the message body can carry a ``pipeline_id=``
+        token, but the record's own id is the structured kwarg appended at the
+        end. A leftmost match would surface the wrong record (false positive)
+        and hide the right one (false negative).
+        """
+        # Record belongs to issue-3523 but its message body mentions other-1.
+        raw = (
+            "2026-07-07 21:30:00 [INFO    ] orchestrator: "
+            "GET /api/v1/pipelines?pipeline_id=other-1 pipeline_id=issue-3523"
+        )
+        # Filtering for the real (trailing) id keeps it...
+        assert "GET /api/v1/pipelines" in filter_log_lines(raw, pipeline_id="issue-3523")
+        # ...and filtering for the body-embedded id does not.
+        assert filter_log_lines(raw, pipeline_id="other-1") == ""
+
+    def test_colorized_console_lines_parity(self):
+        """A colorized (``use_colors=True``) capture still filters correctly (#3566).
+
+        Production pods are non-TTY (colors off), but ANSI escapes wrapping the
+        level bracket / inline kwargs must not defeat head detection or the id
+        lookbehind if a colorized source is ever filtered.
+        """
+        from egg_logging.formatters import ConsoleFormatter
+
+        formatter = ConsoleFormatter(service="orchestrator", use_colors=True)
+
+        def _emit(level: int, message: str, **kwargs: object) -> str:
+            record = logging.LogRecord(
+                name="orchestrator.executor",
+                level=level,
+                pathname=__file__,
+                lineno=1,
+                msg=message,
+                args=(),
+                exc_info=None,
+            )
+            for key, value in kwargs.items():
+                setattr(record, key, value)
+            return formatter.format(record)
+
+        raw = "\n".join(
+            [
+                _emit(logging.WARNING, "spawn failed", pipeline_id="issue-3523"),
+                _emit(logging.INFO, "routine poll", pipeline_id="issue-3523"),
+                _emit(logging.ERROR, "boom", pipeline_id="other-1"),
+            ]
+        )
+        # Sanity: the fixture really carries ANSI escapes.
+        assert "\x1b[" in raw
+
+        out = filter_log_lines(raw, pipeline_id="issue-3523", min_level="WARNING")
+        assert "spawn failed" in out
+        assert "routine poll" not in out
+        assert "boom" not in out
+
 
 class TestTracebackGrouping:
     """Multi-line tracebacks stay attached to their record (#3547)."""

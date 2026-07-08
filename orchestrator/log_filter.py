@@ -46,13 +46,28 @@ _SEVERITY_RANK: dict[str, int] = {
 
 # Head of a ConsoleFormatter record: ``YYYY-MM-DD HH:MM:SS [LEVEL``. The level
 # group feeds the min_level filter; padding inside the brackets is optional so
-# both the padded (``[INFO    ]``) and unpadded forms match.
+# both the padded (``[INFO    ]``) and unpadded forms match. Head/field matching
+# runs on an ANSI-stripped copy (see ``_strip_ansi``), so the bare form here also
+# covers the colorized ``[\x1b[32mINFO    \x1b[0m]`` the formatter emits on a TTY.
 _CONSOLE_HEAD_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \[([A-Za-z]+)\s*\]")
 
 # Inline ``pipeline_id=...`` / ``task_id=...`` pair as ConsoleFormatter renders
 # it. Ids are slugs (``issue-3523``), never quoted, so a bare token capture is
 # exact; the lookbehind stops ``sub_task_id=`` from matching as ``task_id=``.
 _CONSOLE_ID_RE = re.compile(r"(?<![\w.-])(?:pipeline_id|task_id)=([\w][\w./-]*)")
+
+# ANSI SGR escape (``\x1b[..m``). The ConsoleFormatter wraps the level, inline
+# kwargs, and source location in these when ``use_colors=True``. Production k8s
+# pods are non-TTY so colors are off, but stripping them before head detection /
+# field extraction keeps the filter working if a colorized capture is ever fed
+# in — otherwise the anchored head regex misses every colorized line and the
+# ``m`` closing each escape defeats the id lookbehind (#3566 review).
+_ANSI_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI SGR escapes so head/field regexes see the plain record text."""
+    return _ANSI_SGR_RE.sub("", text)
 
 
 def severity_rank(name: str | None) -> int | None:
@@ -108,8 +123,13 @@ def _extract_pipeline_id(obj: dict | None, head: str) -> str:
                 if value:
                     return str(value)
         return ""
-    match = _CONSOLE_ID_RE.search(head)
-    return match.group(1) if match else ""
+    # Structured kwargs are appended at the END of a console line, so the
+    # record's own id is the LAST ``pipeline_id=``/``task_id=`` token. A
+    # leftmost match (``re.search``) could otherwise pick up an id embedded in
+    # the message body — e.g. a logged URL/command containing ``?pipeline_id=``
+    # — and silently surface or hide the wrong records (#3566 review).
+    matches = _CONSOLE_ID_RE.findall(_strip_ansi(head))
+    return matches[-1] if matches else ""
 
 
 def _extract_severity(obj: dict | None, head: str) -> str | None:
@@ -117,7 +137,7 @@ def _extract_severity(obj: dict | None, head: str) -> str | None:
     if obj is not None:
         severity = obj.get("severity")
         return severity if isinstance(severity, str) else None
-    match = _CONSOLE_HEAD_RE.match(head)
+    match = _CONSOLE_HEAD_RE.match(_strip_ansi(head))
     return match.group(1) if match else None
 
 
@@ -132,7 +152,7 @@ def _group_records(lines: list[str]) -> list[list[str]]:
     """
     records: list[list[str]] = []
     for line in lines:
-        stripped = line.strip()
+        stripped = _strip_ansi(line.strip())
         is_head = bool(stripped) and (
             stripped[0] == "{" or _CONSOLE_HEAD_RE.match(stripped) is not None
         )

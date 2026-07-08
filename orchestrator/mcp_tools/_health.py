@@ -187,6 +187,15 @@ def _persisted_agent_logs_fallback(
             record = record_result.get("data") or {}
         except Exception:
             record = {}
+    if not record and container_id and not agent_role:
+        # An explicit container_id that missed the exact lookup must not be
+        # silently substituted with an unrelated capture. Only a role filter is
+        # a legitimate re-narrowing (below); without one, treat it as a miss
+        # rather than returning "newest capture overall" labelled as a different
+        # job — that would hand the operator job-B when they asked for job-A
+        # (#3566 review). Newest-overall stays reserved for the no-container_id
+        # auto-select path.
+        return None
     if not record:
         try:
             index_result = self._make_request(f"/api/v1/pipelines/{task_id}/agent-logs")
