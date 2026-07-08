@@ -192,6 +192,12 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             pipeline_id, decision, dispatch_resolution
         )
 
+        # Arms-parked HITL (#3548): the no-op-park sibling — "Retry arms"
+        # releases the no-op parks on the live event loop(s) in-band.
+        executed_action = executed_action or _pkg._maybe_dispatch_arms_parked_resolution(
+            pipeline_id, decision, dispatch_resolution
+        )
+
         # Executable adds_task option (#3428): an option registered with a
         # structured contract mutation ("add a task/slice") materializes it
         # on resolve instead of recording an inert choice.

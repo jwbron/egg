@@ -60,27 +60,50 @@ def _get_or_create_session(
         try:
             if self.gateway.heartbeat_session_by_container(job_name):
                 # Reuse returns a stub WITHOUT re-registering, so the gateway
-                # session keeps its original phase/branch/upstream. This is
-                # safe only because reuse is confined to one role within one
-                # slice+phase (the propose→ack→confirm arc): those fields are
-                # stable across that arc. Reuse MUST NOT cross a phase
-                # boundary — phase end tears the session down (see
-                # ``cleanup_pipeline`` / ``_teardown_session``), so the next
-                # phase re-registers fresh rather than inheriting stale
-                # gateway policy.
-                logger.info(
-                    "Reusing live cached session",
+                # session keeps its original branch/upstream. Those fields are
+                # stable for one role within one slice, but sessions DO
+                # survive phase transitions: ``cleanup_pipeline`` (the only
+                # teardown besides arm exhaustion) runs in the driver
+                # thread's finally block, which every phase advance skips by
+                # bumping ``run_epoch``. A session registered in refine and
+                # reused in plan therefore kept its stale gateway-side phase,
+                # and the commit gate denied the agent for the rest of the
+                # pipeline (#3528). Sync the phase before handing out the
+                # stub; if the sync fails, fall through and re-register
+                # rather than reusing a session the gateway will deny.
+                phase_synced = True
+                if phase:
+                    try:
+                        phase_synced = self.gateway.update_session_phase(cached_token, phase)
+                    except Exception:
+                        phase_synced = False
+                if phase_synced:
+                    logger.info(
+                        "Reusing live cached session",
+                        job_name=job_name,
+                        role=agent_role.value,
+                        phase=phase,
+                    )
+                    return SessionInfo(
+                        session_token=cached_token,
+                        container_id=job_name,
+                        container_ip=None,
+                        mode=mode,
+                        created_at=datetime.now(),
+                        expires_at=datetime.now() + timedelta(hours=24),
+                    )
+                logger.warning(
+                    "Cached session is live but phase sync failed, re-registering",
                     job_name=job_name,
                     role=agent_role.value,
+                    phase=phase,
                 )
-                return SessionInfo(
-                    session_token=cached_token,
-                    container_id=job_name,
-                    container_ip=None,
-                    mode=mode,
-                    created_at=datetime.now(),
-                    expires_at=datetime.now() + timedelta(hours=24),
-                )
+                # Drop the stale-phase session so a by-container lookup can't
+                # resurface it alongside the fresh registration. Best-effort.
+                try:
+                    self.gateway.delete_session(cached_token)
+                except Exception:
+                    pass
         except Exception:
             logger.info(
                 "Session heartbeat failed, will re-register",
@@ -141,10 +164,13 @@ def _teardown_session(
     across a role's successive one-shot event spawns (see
     :meth:`_get_or_create_session`), so the per-event Job stop/remove paths
     deliberately do NOT delete it. This method is the explicit teardown for
-    that long-lived session — called at phase end (via
-    :meth:`cleanup_pipeline`) or on streak exhaustion, when the role will
-    spawn no further events. It deletes the gateway session keyed by the
-    stable base ``container_id`` and evicts the in-memory cache entry so the
+    that long-lived session, called at pipeline end (via
+    :meth:`cleanup_pipeline`, which phase advances skip by bumping
+    ``run_epoch``) or on streak exhaustion, when the role will
+    spawn no further events. Because a session can therefore survive a
+    phase transition, the reuse path above syncs its phase (#3528).
+    It deletes the gateway session keyed by the stable base
+    ``container_id`` and evicts the in-memory cache entry so the
     cache stays bounded by roster size rather than growing per event.
 
     Best-effort: a gateway error is logged and swallowed (teardown must
@@ -176,3 +202,56 @@ def _teardown_session(
         )
     finally:
         self._session_token_cache.pop((pipeline_id, agent_role.value, slice_id, session_id), None)
+
+
+def sync_session_phases(self, pipeline_id: str, phase: str) -> int:
+    """Sync every cached gateway session of *pipeline_id* to *phase* (#3528).
+
+    Gateway sessions survive phase transitions (see
+    :meth:`_teardown_session`), and the gateway's commit gate keys off the
+    phase each session was registered with, so a session minted in refine
+    denies every commit once the pipeline is in plan. The phase-advance
+    paths call this right after the transition persists so any session
+    still in use (a lingering one-shot pod mid-event, or the next reuse
+    before its own per-spawn sync) carries the current phase.
+
+    Defense-in-depth alongside the per-spawn resolution in
+    ``create_concurrent_spawn_fn`` and the reuse-path sync in
+    :meth:`_get_or_create_session`. Best-effort: gateway errors are logged
+    and swallowed; a failed sync must never block the phase advance
+    (the per-spawn paths self-correct on the next spawn).
+
+    Returns:
+        Number of sessions successfully updated.
+    """
+    updated = 0
+    for cache_key, token in list(self._session_token_cache.items()):
+        cached_pipeline_id, role_value = cache_key[0], cache_key[1]
+        if cached_pipeline_id != pipeline_id:
+            continue
+        try:
+            if self.gateway.update_session_phase(token, phase):
+                updated += 1
+            else:
+                logger.warning(
+                    "Session phase sync at phase advance failed",
+                    pipeline_id=pipeline_id,
+                    role=role_value,
+                    phase=phase,
+                )
+        except Exception as e:  # noqa: BLE001 - best-effort sweep
+            logger.warning(
+                "Session phase sync at phase advance errored",
+                pipeline_id=pipeline_id,
+                role=role_value,
+                phase=phase,
+                error=str(e),
+            )
+    if updated:
+        logger.info(
+            "Synced gateway session phases at phase advance",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            sessions_updated=updated,
+        )
+    return updated

@@ -4,6 +4,8 @@ A **conditional ACK** is a reviewer verdict variant introduced in [#1998](https:
 
 It is not a soft NACK. If the agents can address the concern themselves — by editing code, adding a test, or re-running a step — NACK with the reason. Conditional ACK is reserved for actions the sandbox cannot perform (e.g. a `git mv` blocked by the gateway, a cross-repo config flip, a manual datastore migration).
 
+Under the structured-findings model ([Review Quality](review-quality.md), issue #3523), advisory-only findings route through this conditional-ACK obligation path automatically: a finding with no blocking-eligible peer produces an ACK, and any `pre_merge_obligation` text it carries becomes a pre-merge condition on the edge. See [Review Quality §1](review-quality.md#1-structured-findings-and-the-server-side-computed-verdict) for how the verdict is computed.
+
 ## When to use it
 
 Use conditional ACK when **all** of these are true:
@@ -126,4 +128,4 @@ Resolution does not retroactively un-persist a `contract.pr.deferred_actions` en
 - PR body renderer: [`orchestrator/pr_obligations.py`](../../orchestrator/pr_obligations.py) — `render_obligations_section`, `render_obligations_section_from_normalized`, `normalize_deferred_actions`. Shared by the single-PR path (`_build_pre_merge_obligations_section` in `routes/pipelines.py`) and the slice-DAG context-PR path (the obligations section is rendered into the `egg/<id>/work → main` context PR body opened at the plan→implement boundary, [#2777](https://github.com/jwbron/egg/issues/2777); the legacy terminal-slice "umbrella PR" treatment was removed).
 - Contract: [`shared/egg_contracts/models.py`](../../shared/egg_contracts/models.py) — `PRMetadata.deferred_actions`, `DeferredAction`.
 - CLI: [`sandbox/egg_lib/orch_cli/`](../../sandbox/egg_lib/orch_cli/) — `cmd_consensus_ack`, `cmd_consensus_status` (in `_consensus.py`), `cmd_brc_resolve_obligation` (in `_brc.py`; `egg-orch brc resolve-obligation`, #2908).
-- Related: [Concurrent Execution: Reviewer verdict variants](../guides/concurrent-execution.md#reviewer-verdict-variants), [HITL Decisions](../hitl-decisions.md), [Orchestrator CLI](orchestrator-cli.md), [Reviewer Sync](../../shared/prompts/REVIEWER-SYNC.md).
+- Related: [Review Quality](review-quality.md) (structured findings; advisory-only findings route through this path), [Concurrent Execution: Reviewer verdict variants](../guides/concurrent-execution.md#reviewer-verdict-variants), [HITL Decisions](../hitl-decisions.md), [Orchestrator CLI](orchestrator-cli.md), [Reviewer Sync](../../shared/prompts/REVIEWER-SYNC.md).

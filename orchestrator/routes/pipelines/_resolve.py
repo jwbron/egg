@@ -142,13 +142,22 @@ def _resolve_pipeline(
     Raises:
         PipelineNotFoundError: if the pipeline cannot be found anywhere
         InvalidPipelineIdError: if the ID format is invalid
-        GitOperationError: if the state-store worktree cannot be loaded
-            (e.g. ``git worktree add`` contention).  Callers should
-            surface this as 500, not 404 — it is recoverable
-            infrastructure failure, not a missing pipeline.
+        GitOperationError: if a state-store worktree cannot be loaded
+            (e.g. ``git worktree add`` contention) and the pipeline is
+            found in no other repo.  Callers should surface this as 500,
+            not 404; it is recoverable infrastructure failure, not a
+            missing pipeline.
     """
     from state_store import discover_repo_paths
 
+    # A repo that fails to load must not abort the scan; one
+    # foreign/broken directory in the repos dir would 500 every pipeline
+    # lookup (#3545).  But the failure is not swallowed either: when the
+    # pipeline is found nowhere, the first infrastructure error is
+    # re-raised rather than ``PipelineNotFoundError``, so a state-store
+    # wedge still surfaces to operators as 500 with the actual error,
+    # not a masking 404 (#2167).
+    deferred_error: Exception | None = None
     for repo_path in discover_repo_paths(base_path):
         try:
             store = _pkg.get_state_store(repo_path)
@@ -156,13 +165,19 @@ def _resolve_pipeline(
             return store, pipeline
         except _pkg.PipelineNotFoundError:
             continue
-        # NOTE: do NOT broaden this to ``StateStoreError``.  Swallowing
-        # ``GitOperationError`` here re-raised every state-store wedge
-        # as ``Pipeline not found`` and surfaced to operators as 404,
-        # masking a recoverable git contention as a missing pipeline
-        # (#2167).  Let infrastructure failures propagate so the route
-        # can return 500 with the actual error.
+        except (_pkg.StateStoreError, OSError) as e:
+            _pkg.logger.warning(
+                "Skipping unreadable repo during pipeline lookup",
+                pipeline_id=pipeline_id,
+                repo_path=str(repo_path),
+                error=str(e),
+            )
+            if deferred_error is None:
+                deferred_error = e
+            continue
 
+    if deferred_error is not None:
+        raise deferred_error
     raise _pkg.PipelineNotFoundError(f"Pipeline {pipeline_id} not found") from None
 
 
@@ -184,13 +199,15 @@ def _collect_all_pipelines(base_path: _pkg.Path) -> list:
             try:
                 pipelines.append(store.load_pipeline(pid))
                 seen.add(pid)
-            except _pkg.StateStoreError:
+            except _pkg.StateStoreError, OSError:
                 continue
 
+    # OSError included: an unreachable repo (e.g. a foreign worktree,
+    # #3545) must cost one skipped store, not the whole listing.
     for repo_path in discover_repo_paths(base_path):
         try:
             _add_from_store(_pkg.get_state_store(repo_path))
-        except _pkg.StateStoreError:
+        except _pkg.StateStoreError, OSError:
             continue
 
     return pipelines

@@ -904,10 +904,20 @@ class KubernetesMonitor:
         success here is what stalled pipeline ``issue-1748`` (see #1749).
         Also returns False when ``tracker.evaluate()`` raises, treating
         the tracker as broken.
+
+        Slice-DAG phases register their trackers under
+        ``{pipeline_id}/{slice_id}``, invisible to the bare-id lookup
+        below (#3542). A live slice tracker means a slice consensus
+        round is in flight and the slice executor is driving it;
+        pipeline-level reconstruction would only build a cross-slice
+        tracker nothing consumes, and Track 2 would kill the live round
+        (the issue-3523 14-hour stall). So live slice trackers report
+        "handled" and aggressive recovery never fires over them.
         """
         try:
             from peer_consensus import (  # type: ignore[import-untyped]
                 get_peer_consensus_tracker,
+                get_slice_trackers,
                 reconstruct_tracker_from_messages,
             )
             from review_graph import get_review_graph_for_phase  # type: ignore[import-untyped]
@@ -928,10 +938,23 @@ class KubernetesMonitor:
                 # will keep watching it; nothing for Track 2 to do.
                 return True
 
+            slice_trackers = get_slice_trackers(pipeline_id)
+            if slice_trackers:
+                logger.info(
+                    "Live slice-scoped consensus trackers found; slice "
+                    "executor is driving; skipping pipeline-level recovery",
+                    pipeline_id=pipeline_id,
+                    slice_ids=sorted(slice_trackers),
+                )
+                return True
+
             current_phase = pipeline.current_phase
             phase_value = current_phase.value
             graph = get_review_graph_for_phase(phase_value, repo=pipeline.repo)
-            reconstructed = reconstruct_tracker_from_messages(pipeline_id, graph)
+            # Phase-scoped replay: without it, reconstruction folds an
+            # earlier phase's consensus round (refine/plan share the same
+            # review graph) into the current phase's tracker (#3542).
+            reconstructed = reconstruct_tracker_from_messages(pipeline_id, graph, phase=phase_value)
             return reconstructed is not None
         except Exception:
             logger.debug(

@@ -135,6 +135,39 @@ def test_main_and_worktree_share_one_lock(tmp_path: Path) -> None:
     assert t2_acquired.is_set(), "worktree caller never acquired — test did not run to completion"
 
 
+def test_unreachable_main_repo_falls_back_instead_of_crashing(tmp_path: Path) -> None:
+    """A worktree whose gitdir target cannot host the lock file must not crash.
+
+    A host-created worktree dropped into the shared repos mount carries a
+    ``gitdir:`` pointer into a filesystem view that does not exist in the
+    container; creating the lock path under the resolved main repo then
+    fails with an ``OSError`` (EROFS in the #3545 incident).  The lock
+    must degrade to a temp-dir fallback so one alien directory does not
+    500 every pipeline that scans past it.
+
+    The unreachable path is simulated with a regular *file* on the main
+    repo's path (mkdir then fails with ``NotADirectoryError``), which is
+    deterministic regardless of the uid the tests run as.
+    """
+    from egg_git.cross_process_lock import _fallback_lock_path
+
+    blocker = tmp_path / "blocker"
+    blocker.write_text("")  # a file where a directory is needed
+    unreachable_admin = blocker / "main" / ".git" / "worktrees" / "wt"
+
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {unreachable_admin}\n")
+
+    expected = _fallback_lock_path(str((blocker / "main").resolve()))
+    with bare_repo_lock(worktree):
+        assert expected.exists()
+    # Reentrancy still works on the fallback state.
+    with bare_repo_lock(worktree):
+        with bare_repo_lock(worktree):
+            pass
+
+
 def test_acquiring_creates_lock_file(repo: Path) -> None:
     expected = repo / ".git" / LOCK_FILENAME
     assert not expected.exists()

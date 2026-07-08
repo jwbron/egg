@@ -490,6 +490,7 @@ from . import (  # noqa: E402
     _spawn,
     _worktree,
 )
+from ._concurrent import _resolve_live_phase  # noqa: E402
 from ._env import (  # noqa: E402
     _dedupe_label_value,
     _forwarded_discipline_env,
@@ -516,6 +517,7 @@ KubernetesSpawner._clean_reused_worktree = _worktree._clean_reused_worktree
 KubernetesSpawner._find_missing_worktrees = _worktree._find_missing_worktrees
 KubernetesSpawner._get_or_create_session = _session._get_or_create_session
 KubernetesSpawner._teardown_session = _session._teardown_session
+KubernetesSpawner.sync_session_phases = _session.sync_session_phases
 KubernetesSpawner.spawn_agent_job = _spawn.spawn_agent_job
 KubernetesSpawner._event_dedupe_key_live = _events._event_dedupe_key_live
 KubernetesSpawner.create_event_job_status_view = _events.create_event_job_status_view
@@ -565,5 +567,6 @@ __all__ = [
     "_fit_k8s_name",
     "_dedupe_label_value",
     "_forwarded_discipline_env",
+    "_resolve_live_phase",
     "_resolve_wait_producer_allowlist",
 ]
