@@ -11,7 +11,7 @@ import sys
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -540,6 +540,11 @@ class ConcurrentPhaseExecutor:
             # parked while racing its upstream producer). ``getattr`` keeps
             # test doubles without the method on the heartbeat-only path.
             brc_probe=getattr(tracker, "consensus_state_fingerprint", None),
+            # #3520: at the park transition the parked role's latest
+            # WAITING_ON_ROLE heartbeat decides the alert's severity —
+            # waiting on a live upstream producer is choreography, not a
+            # wedge, so it must not fire at [high].
+            waiting_probe=self._role_waiting_status,
         )
 
         # #3064 slice-5: convergence-stall notifier re-uses the same
@@ -1069,6 +1074,156 @@ class ConcurrentPhaseExecutor:
             logger.warning(
                 "Failed to probe contract decisions for no-op park fingerprint",
                 pipeline_id=self.pipeline.id,
+                exc_info=True,
+            )
+            return None
+
+    def _role_waiting_status(self, role: str) -> tuple[str, bool] | None:
+        """Return ``role``'s latest WAITING_ON_ROLE self-report status (#3520).
+
+        Wired as the :class:`JobSupervisor`'s ``waiting_probe``, consulted
+        once at the no-op park transition to pick the park alert's severity.
+        Reads the message bus for ``role``'s most recent HEARTBEAT in the
+        current phase; when that heartbeat self-reports
+        ``state=WAITING_ON_ROLE`` this returns ``(waiting_on,
+        waited_on_live)``, where ``waited_on_live`` is True iff every role
+        named in ``metadata.waiting_on`` (comma-tolerant) emitted a bus
+        message IN THE CURRENT PHASE within the health monitor's phase-aware
+        staleness window (120s default in refine/plan/pr, 600s in implement —
+        see below).
+
+        Latest-heartbeat semantics are sound despite server-side dedup
+        (``routes/messages.py``): only *consecutive identical* states are
+        deduped, so the newest HEARTBEAT on the bus is always the role's
+        current self-reported state. The phase filter keeps a previous
+        phase's WAITING_ON_ROLE report (same pipeline stream) from being
+        mistaken for current evidence. The broad latest-heartbeat read is
+        HEAD-anchored so a dedup-aged (arbitrarily old but still current)
+        WAITING_ON_ROLE self-report is always found; its residual tip-miss on
+        a >30k-entry single-phase stream is closed by a supersession guard —
+        if the tip-anchored liveness read shows the parked role's own latest
+        in-window heartbeat is NOT WAITING_ON_ROLE, the self-report is treated
+        as stale and this returns ``None`` (→ high alert).
+
+        Returns ``None`` (unknown / no self-report) when the latest
+        heartbeat is any other state, the role has no heartbeat this phase,
+        the self-report has been superseded by a newer in-window heartbeat,
+        or the read fails — the supervisor then falls back to the
+        wedge-shaped high-priority alert, so a probe failure (or a stale
+        self-report) can only make the alert MORE alarming, never quieter.
+        """
+        try:
+            messages = get_message_store().get_messages(
+                self.pipeline.id, limit=10000, slice_id=self._slice_id
+            )
+            phase = self.pipeline.current_phase.value
+            latest = None
+            for msg in messages:
+                if (
+                    msg.message_type == MessageType.HEARTBEAT
+                    and msg.from_role == role
+                    and msg.phase == phase
+                ):
+                    latest = msg
+            if latest is None or latest.metadata.get("state") != "WAITING_ON_ROLE":
+                return None
+            waiting_on = str(latest.metadata.get("waiting_on") or "")
+            waited_roles = [r.strip() for r in waiting_on.split(",") if r.strip()]
+            if not waited_roles:
+                return None
+            # #3520: mirror the health monitor's phase-aware staleness
+            # threshold (``health_monitor._get_heartbeat_threshold``): the
+            # implement phase tolerates the longer implement heartbeat timeout
+            # (default 600s), every other phase the shorter default (120s).
+            # Reading the SAME ``PipelineConfig`` fields the monitor reads
+            # keeps the two in lockstep under operator overrides — so a
+            # producer this probe calls "live" is exactly one the monitor
+            # would not yet have flagged stale, and the low-priority park
+            # notice can never contradict a fresh ``heartbeat_timeout`` alert
+            # about the same producer. A flat 600s would have called a
+            # producer "live" for 5x the monitor's 120s window in refine/plan
+            # — the very phases this PR targets.
+            live_window_seconds = (
+                self.pipeline.config.orchestrator_implement_heartbeat_timeout_seconds
+                if phase == "implement"
+                else self.pipeline.config.orchestrator_heartbeat_timeout_seconds
+            )
+            cutoff = datetime.now(UTC) - timedelta(seconds=live_window_seconds)
+            # #3520 (review notes #2/#4): compute liveness from a dedicated
+            # window-bounded, phase-filtered read rather than re-scanning the
+            # broad latest-heartbeat fetch. ``since=cutoff`` anchors the read
+            # near the stream tip, so the waited-on role's liveness stays
+            # correct and cheap regardless of stream length — the unbounded
+            # ``limit`` fetch above starts at the stream HEAD and can miss the
+            # tip on a >30k-entry stream (note #2). The explicit ``>= cutoff``
+            # filter is kept for precise sub-millisecond bounding on top of the
+            # ``since`` stream-ID resolution. Phase-filtering (note #4) mirrors
+            # the latest-heartbeat filter so a producer that emitted only in
+            # the PRIOR phase, still inside the window, is not miscounted as
+            # live right after a phase boundary. Both trims only ever SHRINK
+            # the live set → fail-safe (toward the high-priority alert), never
+            # a false low-priority notice. The latest-heartbeat read above
+            # stays broad on purpose: server-side dedup can make the role's
+            # current WAITING_ON_ROLE self-report arbitrarily old, so it must
+            # be found outside any liveness window.
+            recent = get_message_store().get_messages(
+                self.pipeline.id, since=cutoff, limit=10000, slice_id=self._slice_id
+            )
+
+            def _at_or_after_cutoff(msg: Message) -> bool:
+                ts = msg.timestamp if msg.timestamp.tzinfo else msg.timestamp.replace(tzinfo=UTC)
+                return ts >= cutoff
+
+            # #3520 (re-review note): guard the broad latest-heartbeat read's
+            # residual tip-miss. That read is HEAD-anchored (``limit`` from
+            # ``0-0``), so on a >30k-entry SINGLE-phase stream it can stop
+            # before the tip and resolve ``latest`` to a stale WAITING_ON_ROLE
+            # the role has since moved off of (e.g. dedup-exempt WORKING beats
+            # at the tip while its arm is genuinely wedged). Left unguarded that
+            # yields a low-priority "healthy wait" notice for a real wedge — the
+            # one direction this probe must never take. The tip-anchored
+            # ``recent`` read (``since=cutoff``) DOES see the tip, so if the
+            # PARKED role's own latest in-window, current-phase heartbeat is not
+            # WAITING_ON_ROLE, the self-report has been superseded → return
+            # None → the high-priority wedge alert. When the role emitted
+            # nothing in the window (its WAITING_ON_ROLE is deduped-old but
+            # still current) the guard is inert and the downgrade still fires,
+            # so the healthy-wait case (a self-report arbitrarily older than the
+            # window) is preserved. This makes the "always degrades to high"
+            # characterization hold in both directions.
+            role_tip_state: str | None = None
+            for msg in recent:
+                if (
+                    msg.message_type == MessageType.HEARTBEAT
+                    and msg.from_role == role
+                    and msg.phase == phase
+                    and _at_or_after_cutoff(msg)
+                ):
+                    role_tip_state = msg.metadata.get("state")
+            if role_tip_state is not None and role_tip_state != "WAITING_ON_ROLE":
+                return None
+
+            # #3520 (review notes #2/#4): compute liveness from the same
+            # dedicated window-bounded, phase-filtered read rather than
+            # re-scanning the broad latest-heartbeat fetch. ``since=cutoff``
+            # anchors the read near the stream tip, so the waited-on role's
+            # liveness stays correct and cheap regardless of stream length. The
+            # explicit ``>= cutoff`` filter is kept for precise sub-millisecond
+            # bounding on top of the ``since`` stream-ID resolution.
+            # Phase-filtering (note #4) mirrors the latest-heartbeat filter so a
+            # producer that emitted only in the PRIOR phase, still inside the
+            # window, is not miscounted as live right after a phase boundary.
+            # Both trims only ever SHRINK the live set → fail-safe (toward the
+            # high-priority alert), never a false low-priority notice.
+            recent_senders = {
+                msg.from_role for msg in recent if msg.phase == phase and _at_or_after_cutoff(msg)
+            }
+            return (waiting_on, all(r in recent_senders for r in waited_roles))
+        except Exception:  # noqa: BLE001 — probing is best-effort
+            logger.warning(
+                "Failed to probe WAITING_ON_ROLE heartbeat for no-op park alert",
+                pipeline_id=self.pipeline.id,
+                role=role,
                 exc_info=True,
             )
             return None
