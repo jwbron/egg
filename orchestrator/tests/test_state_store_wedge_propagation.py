@@ -90,6 +90,114 @@ class TestResolvePipelinePropagatesGitErrors:
 
 
 # ---------------------------------------------------------------------------
+# 1b. #3545: one broken repo must not abort the multi-repo scan
+# ---------------------------------------------------------------------------
+
+
+class TestScanSurvivesBrokenSiblingRepo:
+    """One unreadable repo in the repos dir must cost a warning, not the API.
+
+    In #3545 a foreign worktree that sorted before ``egg`` made every
+    store construction raise ``OSError`` and aborted the scan, so every
+    pipeline lookup 500'd.  The scan now skips past per-repo failures and
+    only re-raises the deferred error when the pipeline is found nowhere
+    (preserving the #2167 no-masking-as-404 guarantee).
+    """
+
+    def _two_repos(self, tmp_path):
+        broken = tmp_path / "actions-slice-10"
+        good = tmp_path / "egg"
+        for repo in (broken, good):
+            (repo / ".git").mkdir(parents=True)
+        return broken, good
+
+    def test_resolve_pipeline_skips_broken_repo(self, tmp_path):
+        from routes.pipelines import _resolve_pipeline
+
+        broken, good = self._two_repos(tmp_path)
+        pipeline = MagicMock()
+        good_store = MagicMock()
+        good_store.load_pipeline.return_value = pipeline
+
+        def fake_get_state_store(repo_path):
+            if repo_path == broken:
+                raise OSError(30, "Read-only file system", "/home/jwies")
+            return good_store
+
+        with (
+            patch("state_store.discover_repo_paths", return_value=[broken, good]),
+            patch("routes.pipelines.get_state_store", side_effect=fake_get_state_store),
+        ):
+            store, result = _resolve_pipeline("issue-3545", tmp_path)
+
+        assert store is good_store
+        assert result is pipeline
+
+    def test_resolve_pipeline_reraises_when_not_found_anywhere(self, tmp_path):
+        """The deferred infra error surfaces (500), not a masking 404 (#2167)."""
+        from routes.pipelines import _resolve_pipeline
+        from state_store import GitOperationError, PipelineNotFoundError
+
+        broken, good = self._two_repos(tmp_path)
+        good_store = MagicMock()
+        good_store.load_pipeline.side_effect = PipelineNotFoundError("nope")
+
+        def fake_get_state_store(repo_path):
+            if repo_path == broken:
+                raise GitOperationError("worktree wedged")
+            return good_store
+
+        with (
+            patch("state_store.discover_repo_paths", return_value=[broken, good]),
+            patch("routes.pipelines.get_state_store", side_effect=fake_get_state_store),
+        ):
+            with pytest.raises(GitOperationError, match="worktree wedged"):
+                _resolve_pipeline("issue-3545", tmp_path)
+
+    def test_get_state_store_for_pipeline_skips_broken_repo(self, tmp_path):
+        from routes import get_state_store_for_pipeline
+
+        broken, good = self._two_repos(tmp_path)
+        pipeline = MagicMock()
+        good_store = MagicMock()
+        good_store.load_pipeline.return_value = pipeline
+
+        def fake_get_state_store(repo_path):
+            if repo_path == broken:
+                raise OSError(30, "Read-only file system", "/home/jwies")
+            return good_store
+
+        with (
+            patch("state_store.discover_repo_paths", return_value=[broken, good]),
+            patch("state_store.get_state_store", side_effect=fake_get_state_store),
+        ):
+            store, result = get_state_store_for_pipeline("issue-3545", repo_path=tmp_path)
+
+        assert store is good_store
+        assert result is pipeline
+
+    def test_get_state_store_for_pipeline_reraises_when_not_found_anywhere(self, tmp_path):
+        from routes import get_state_store_for_pipeline
+        from state_store import PipelineNotFoundError
+
+        broken, good = self._two_repos(tmp_path)
+        good_store = MagicMock()
+        good_store.load_pipeline.side_effect = PipelineNotFoundError("nope")
+
+        def fake_get_state_store(repo_path):
+            if repo_path == broken:
+                raise OSError(30, "Read-only file system", "/home/jwies")
+            return good_store
+
+        with (
+            patch("state_store.discover_repo_paths", return_value=[broken, good]),
+            patch("state_store.get_state_store", side_effect=fake_get_state_store),
+        ):
+            with pytest.raises(OSError, match="Read-only file system"):
+                get_state_store_for_pipeline("issue-3545", repo_path=tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # 2. Flask app error handler renders StateStoreError → 500 with detail
 # ---------------------------------------------------------------------------
 
