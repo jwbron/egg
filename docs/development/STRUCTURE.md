@@ -141,7 +141,6 @@ orchestrator/
 ├── sse.py                  # Server-Sent Events streaming for pipeline visualization
 ├── startup_reconciliation.py # Startup reconciliation for orphaned containers
 ├── commit_authorship_store.py # Durable {sha → role} registry sharded by pipeline on the pipeline-state branch; backing store for the commit-authorship registry
-├── agent_log_store.py      # Redis-backed store for one-shot agent pod logs captured by `remove_agent_job` just before Job deletion; `get_container_logs` falls back to it once the live pod is gone (24h TTL) (#3547)
 ├── session_state_store.py  # Redis-backed cross-pod session-state store for BRC warm-resume: persists (session_id + window_occupancy + transcript) keyed (pipeline, slice, role) with 6-hour TTL; 32 MiB transcript cap degrades to pointer-only on overflow (#3278)
 ├── agent_log_store.py      # Redis-backed store for one-shot agent pod logs captured at Job removal: `remove_agent_job` snapshots the pod's log tail before deletion, `get_container_logs` falls back to it once the live pod is gone; 24h TTL (#3547)
 ├── state_store.py          # Git-backed pipeline state
