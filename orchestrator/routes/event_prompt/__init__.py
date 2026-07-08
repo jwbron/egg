@@ -54,6 +54,7 @@ implementation lives in underscore-prefixed private submodules:
 - ``_render_event``  — role banner + JSON event section
 - ``_render_delta``  — per-producer delta (inline + JIT-pull pointer)
 - ``_render_nacks``  — open-NACK barrier section
+- ``_render_release`` - #3537 park-release delta section
 - ``_render_memory`` — durable-memory section (inline + JIT-pull pointer)
 - ``_render_task``   — task_description / iteration-feedback / issue-anchor
 - ``_compose``       — ``compose_event_prompt`` + envelope-cap pass
@@ -89,6 +90,7 @@ from ._caps import (
     ITERATION_FEEDBACK_MAX_CHARS,
     MEMORY_EXCERPT_MAX_CHARS,
     PROMPT_ENVELOPE_MAX_BYTES,
+    RELEASE_RESOLUTION_MAX_CHARS,
     TASK_DESCRIPTION_MAX_CHARS,
     _truncate,
 )
@@ -116,6 +118,7 @@ from ._render_delta import _render_delta_pointer_section, _render_producer_delta
 from ._render_event import _render_event_section, _strip_nacks_for_json
 from ._render_memory import _render_memory_pointer_section, _render_memory_section
 from ._render_nacks import _render_nacks_section
+from ._render_release import _render_release_context_section
 from ._render_task import (
     _directive_meta_tag,
     _issue_anchor_fallback,
@@ -128,6 +131,7 @@ __all__ = [
     "ITERATION_FEEDBACK_MAX_CHARS",
     "MEMORY_EXCERPT_MAX_CHARS",
     "PROMPT_ENVELOPE_MAX_BYTES",
+    "RELEASE_RESOLUTION_MAX_CHARS",
     "TASK_DESCRIPTION_MAX_CHARS",
     "_ENVELOPE_TRUNCATION_SENTINEL",
     "_GIT_LOG_DELTA_MAX_BYTES",
@@ -147,6 +151,7 @@ __all__ = [
     "_render_producer_delta_section",
     "_render_delta_pointer_section",
     "_render_nacks_section",
+    "_render_release_context_section",
     "_render_memory_section",
     "_render_memory_pointer_section",
     "_render_task_section",

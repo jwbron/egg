@@ -12,6 +12,10 @@ the single writer.
 - ``GET  /<pid>/session-state`` — the next event pod for the same ``(slice,
   role)``, on startup, *pulls* the prior session so it can re-materialise the
   transcript and warm-resume.
+- ``DELETE /<pid>/session-state`` - operator-facing *eviction* (#3537): drops
+  the record so the role's next spawn cold-reseeds instead of warm-resuming a
+  session that has encoded a wrong conclusion about the world.
+  ``restart_agent`` with ``fresh_session: true`` calls the same store method.
 
 Both are best-effort by contract: a miss / failure degrades to a safe cold
 reseed in the agent, so a GET miss returns ``200`` with ``found: false`` rather
@@ -151,3 +155,29 @@ def pull_session_state(pipeline_id: str) -> tuple[Response, int]:
         "transcript": record.transcript,
     }
     return jsonify({"success": True, "found": True, "data": data}), 200
+
+
+@session_state_bp.route("/<pipeline_id>/session-state", methods=["DELETE"])
+def evict_session_state(pipeline_id: str) -> tuple[Response, int]:
+    """Evict a role's warm-resume record so the next spawn cold-reseeds (#3537).
+
+    Query params: ``role`` (required), ``slice_id`` (optional). ``deleted``
+    reports whether a record existed; a miss is not an error (the desired
+    end state - no record - already holds).
+    """
+    role = request.args.get("role")
+    if not role:
+        return _make_error("Missing required query param: role")
+    slice_id = request.args.get("slice_id") or None
+
+    deleted = get_session_state_store().delete(pipeline_id, slice_id, role)
+    logger.info(
+        "session-state evict",
+        event_type="system",
+        event_subtype="session_state_evict",
+        pipeline_id=pipeline_id,
+        slice_id=slice_id,
+        role=role,
+        deleted=deleted,
+    )
+    return jsonify({"success": True, "deleted": deleted}), 200

@@ -574,7 +574,11 @@ PIPELINE_TOOLS = [
             "state (cancelled pipelines come from cancel_task with cleanup=false). "
             "For a per-slice agent in a multi-slice implement phase, omit slice_id "
             "to let the orchestrator derive it from the phase's agent records; if "
-            "the restart is rejected as ambiguous, re-issue with an explicit slice_id."
+            "the restart is rejected as ambiguous, re-issue with an explicit slice_id. "
+            "By default the agent's prior Claude session is preserved and "
+            "warm-resumed; set fresh_session=true to evict it so the agent "
+            "cold-starts - required when the restart's purpose is to change the "
+            "agent's mind (e.g. it is livelocked on a stale conclusion)."
         ),
         "inputSchema": {
             "type": "object",
@@ -599,6 +603,16 @@ PIPELINE_TOOLS = [
                         "derives the slice from the phase's agent records when "
                         "unambiguous; supply it explicitly when an omitted-slice "
                         "restart is rejected with reason 'slice_id_required'."
+                    ),
+                },
+                "fresh_session": {
+                    "type": "boolean",
+                    "description": (
+                        "Also evict the agent's durable warm-resume session "
+                        "record so the respawned agent cold-starts instead of "
+                        "resuming its prior Claude session (#3537). Use when "
+                        "the agent is stuck on a stale/wrong conclusion that a "
+                        "plain restart would replay. Default false."
                     ),
                 },
             },

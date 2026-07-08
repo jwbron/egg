@@ -116,6 +116,40 @@ class TestDefensiveContract:
         assert store.put("issue-1", "slice-3", "coder", session_id="a") is False
 
 
+class TestDelete:
+    """#3537 operator eviction: drop the record so the next spawn cold-reseeds."""
+
+    def test_delete_removes_record(self, store):
+        store.put("issue-1", "slice-3", "coder", session_id="sid-abc")
+        assert store.delete("issue-1", "slice-3", "coder") is True
+        assert store.get("issue-1", "slice-3", "coder") is None
+
+    def test_delete_missing_returns_false(self, store):
+        assert store.delete("issue-1", "slice-3", "coder") is False
+
+    def test_delete_is_scoped(self, store):
+        store.put("issue-1", "slice-3", "coder", session_id="keep-slice")
+        store.put("issue-1", None, "coder", session_id="keep-pipeline")
+        store.put("issue-1", "slice-3", "tester", session_id="keep-role")
+        assert store.delete("issue-1", "slice-3", "coder") is True
+        assert store.get("issue-1", None, "coder").session_id == "keep-pipeline"
+        assert store.get("issue-1", "slice-3", "tester").session_id == "keep-role"
+        assert store.get("issue-1", "slice-3", "coder") is None
+
+    def test_delete_pipeline_level_record(self, store):
+        store.put("issue-1", None, "coder", session_id="pipeline-level")
+        assert store.delete("issue-1", None, "coder") is True
+        assert store.get("issue-1", None, "coder") is None
+
+    def test_delete_failure_returns_false(self):
+        class _Boom:
+            def delete(self, *_a, **_k):
+                raise RuntimeError("redis down")
+
+        store = SessionStateStore(_Boom())
+        assert store.delete("issue-1", "slice-3", "coder") is False
+
+
 class TestListRecords:
     """Operator-facing index over the pipeline's stored records (#3547)."""
 

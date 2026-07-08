@@ -19,6 +19,7 @@ from __future__ import annotations
 import threading  # noqa: F401 — used by start()/stop()
 import time
 from collections.abc import Iterable  # noqa: F401 — used in method annotations
+from typing import Any
 
 import event_loop as _pkg
 
@@ -647,8 +648,19 @@ def _handle_role(self, role: str) -> EventDecision:
     self._reap_superseded_siblings(role, keep_key=key)
 
     requested_at = self.clock()
+    # #3537: if this spawn is the probe granted by a fingerprint-change park
+    # release, carry the release delta (resolved cq-N ids / BRC movement) so
+    # the spawner can surface it in the event prompt - the respawned pod's
+    # prompt is otherwise byte-identical to the one that parked, and a
+    # warm-resumed session just replays its cached "still blocked" plan.
+    # Passed only when present so spawner fakes without the kwarg keep
+    # working on the common path.
+    release_context = self.supervisor.consume_noop_release_context(key)
+    spawn_kwargs: dict[str, Any] = {}
+    if release_context:
+        spawn_kwargs["release_context"] = release_context
     spawn_result = self.spawner.spawn_event(
-        role=role, action=action, dedupe_key=key, payload=payload
+        role=role, action=action, dedupe_key=key, payload=payload, **spawn_kwargs
     )
     dispatched_at = self.clock()
     self._live_keys.add(key)
@@ -663,6 +675,12 @@ def _handle_role(self, role: str) -> EventDecision:
     # was created, so this is not a fresh spawn — record spawned=False and
     # emit no timing, so the slice-4 p50<60s budget (which reads `timing`)
     # never counts an adoption as a spawn→invoke latency sample.
+    #
+    # Note: any release_context consumed above is forfeited on this branch —
+    # it was popped before the spawn but the adopted, already-running pod
+    # never receives it. This is acceptable: the delta is a best-effort
+    # accelerator, and a still-blocked arm re-derives it on the next
+    # fingerprint move (with the retry-heartbeat backstop underneath).
     if spawn_result is None:
         return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
 

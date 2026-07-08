@@ -68,8 +68,17 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
     Request body (optional):
         {
             "reason": "Human-readable reason for the restart",
-            "slice_id": "slice-2"
+            "slice_id": "slice-2",
+            "fresh_session": true
         }
+
+    ``fresh_session`` (#3537, default false): also evict the role's durable
+    warm-resume record (``session-state:<pipeline>:<slice|none>:<role>``) so
+    the respawned agent cold-reseeds instead of resuming its prior Claude
+    session. Without it a restart silently preserves the session via the
+    #3278 warm-resume path - a resumed session replays its cached plan
+    before reading anything, so when the restart's purpose is to change the
+    agent's mind about the world, the default restart cannot do it.
 
     Response:
         {
@@ -115,6 +124,7 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
 
     body = _pkg.request.get_json(silent=True) or {}
     reason = body.get("reason", "Manual restart via API")
+    fresh_session = bool(body.get("fresh_session"))
 
     # Slice scope (#2410): query param wins over body so the URL
     # form is unambiguous; both forms validate against the canonical
@@ -444,6 +454,37 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
             error=str(e),
         )
 
+    # #3537: operator-requested session eviction. The #3278 warm-resume path
+    # is deliberately preserved by a default restart (the durable Redis
+    # session record is never touched here, mirroring the message-store
+    # invariant above) - but when the restart's purpose is to change the
+    # agent's mind, that preservation silently defeats it: the resumed
+    # session replays its cached plan before reading anything. With
+    # ``fresh_session: true`` the record is dropped so the next one-shot
+    # pod's ``session-state pull`` misses and the agent cold-reseeds from
+    # true contract/worktree state. Best-effort: an eviction failure must
+    # not fail the restart (the store's 6h TTL remains the backstop).
+    if fresh_session:
+        try:
+            from session_state_store import get_session_state_store
+
+            evicted = get_session_state_store().delete(pipeline_id, slice_id, role.value)
+            _pkg.logger.info(
+                "Evicted warm-resume session state for restarted agent",
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+                slice_id=slice_id,
+                evicted=evicted,
+            )
+        except Exception as e:
+            _pkg.logger.warning(
+                "Failed to evict warm-resume session state (agent may warm-resume)",
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+                slice_id=slice_id,
+                error=str(e),
+            )
+
     # Invalidate the role's arms on the live event loop (#3548). The consensus
     # reset above makes the loop re-derive the role's event, but with the SAME
     # identity — and therefore the same dedupe key — as before the restart.
@@ -593,6 +634,8 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
         "arms_invalidated": invalidated_keys,
         "restart_count": new_restart_count,
     }
+    if fresh_session:
+        response_data["fresh_session"] = True
 
     # When the pipeline was FAILED/CANCELLED its event loop and driver thread
     # are dead (see the early-status comment above), so the consensus reset
