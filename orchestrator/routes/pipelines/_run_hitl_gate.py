@@ -46,7 +46,7 @@ def _run_hitl_gate_converge(
         # the gate-skip posture — surface a missing ledger loudly
         # (event + warning) but never block.
         try:
-            _ledger_note, _ledger_missing, _ledger_explicit_none = (
+            _ledger_note, _ledger_missing, _ledger_explicit_none, _ledger_summary = (
                 _pkg._collect_decision_ledger_status(
                     worktree_repo_path,
                     pipeline_id,
@@ -54,6 +54,11 @@ def _run_hitl_gate_converge(
                     current_phase,
                 )
             )
+            _persisted = _pkg._persist_decision_ledger_summary(
+                store, pipeline_id, current_phase, _ledger_summary
+            )
+            if _persisted is not None:
+                pipeline = _persisted
             if _ledger_missing:
                 _pkg.logger.warning(
                     "Decision ledger missing at autonomous gate skip (#3390)",
@@ -100,9 +105,9 @@ def _run_hitl_gate_converge(
         # explicit operator override to proceed.
         _ledger_note = ""
         _ledger_missing = False
-        _ledger_explicit_none: tuple[str, str] | None = None
+        _ledger_explicit_none: tuple[str, str, list[dict]] | None = None
         try:
-            _ledger_note, _ledger_missing, _ledger_explicit_none = (
+            _ledger_note, _ledger_missing, _ledger_explicit_none, _ledger_summary = (
                 _pkg._collect_decision_ledger_status(
                     worktree_repo_path,
                     pipeline_id,
@@ -110,6 +115,11 @@ def _run_hitl_gate_converge(
                     current_phase,
                 )
             )
+            _persisted = _pkg._persist_decision_ledger_summary(
+                store, pipeline_id, current_phase, _ledger_summary
+            )
+            if _persisted is not None:
+                pipeline = _persisted
         except Exception as ledger_err:  # noqa: BLE001
             # Never let a helper bug strand the pipeline — the
             # propose-time hard gate remains the primary enforcement.

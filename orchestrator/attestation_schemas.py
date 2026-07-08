@@ -65,8 +65,32 @@ class DocumenterAttestation(BaseModel):
     concern_considered: str = Field(default="", description="One concern considered")
 
 
+class ConsideredCandidate(BaseModel):
+    """A decision candidate weighed and dispositioned away, not registered (#3526).
+
+    The structured unit of the explicit-none ledger: instead of one
+    free-form rationale paragraph, the producer names each open choice it
+    considered and why it is not an operator decision. ``deferred_to_plan``
+    candidates are carried into the plan phase as pre-seeded candidates
+    the planner must register or disposition; deferral becomes a
+    handoff, not a disappearance.
+    """
+
+    question: str = Field(..., description="The candidate decision, phrased as a question")
+    disposition: str = Field(
+        ...,
+        description=(
+            "Why this is not registered: 'not_operator_grade' (a design "
+            "call the planner/implementer owns) or 'deferred_to_plan' "
+            "(potentially operator-grade, better asked once the plan is "
+            "concrete; the plan phase must pick it up)"
+        ),
+    )
+    why: str = Field(..., description="One sentence justifying the disposition")
+
+
 class DecisionSurfacingAttestation(BaseModel):
-    """Decision-ledger attestation for refine/plan producers (#3390).
+    """Decision-ledger attestation for refine/plan producers (#3390, #3526).
 
     Refine/plan producers own the phase's operator-decision surface: every
     HITL decision they identify must be registered via ``egg-contract
@@ -77,7 +101,14 @@ class DecisionSurfacingAttestation(BaseModel):
     gate" trustworthy as *deliberately none* rather than *forgot to
     register* (the motivating failure of #3390).
 
-    The exactly-one-of shape is validated here (via the shared
+    The explicit-none form additionally requires ``candidates_considered``
+    (#3526): the enumerated open choices the producer weighed and
+    dispositioned away. A single free-form paragraph proved trivially
+    satisfiable (surfaced decisions collapsed to near zero within weeks
+    of the rationale form landing), so the empty ledger must now name
+    what was considered.
+
+    The shape is validated here (via the shared
     ``decision_attestation_errors`` helper, so this model and the
     propose-time signal validator cannot drift) and enforced regardless
     of the pipeline's attestation strictness: an incoherent ledger claim
@@ -102,13 +133,26 @@ class DecisionSurfacingAttestation(BaseModel):
             "empty ledger, never an omission."
         ),
     )
+    candidates_considered: list[ConsideredCandidate] = Field(
+        default_factory=list,
+        description=(
+            "The decision candidates weighed and dispositioned away "
+            "rather than registered (#3526). Required (>= 1 entry) with "
+            "no_decisions_rationale; optional alongside "
+            "decisions_registered."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_ledger_shape(self) -> DecisionSurfacingAttestation:
         """Require exactly one of decisions_registered / no_decisions_rationale."""
         from egg_contracts.decisions import decision_attestation_errors
 
-        errors = decision_attestation_errors(self.decisions_registered, self.no_decisions_rationale)
+        errors = decision_attestation_errors(
+            self.decisions_registered,
+            self.no_decisions_rationale,
+            [c.model_dump() for c in self.candidates_considered],
+        )
         if errors:
             raise ValueError("Decision-ledger attestation invalid: " + " ".join(errors))
         return self

@@ -127,19 +127,32 @@ def _sync_pipeline_decisions_to_contract(
         )
 
 
-def _ledger_attestation_question(role: str, rationale: str, phase_value: str) -> str:
-    """Compose the explicit-none confirmation question (#3462).
+def _ledger_attestation_question(
+    role: str,
+    rationale: str,
+    phase_value: str,
+    candidates: list[dict] | None = None,
+) -> str:
+    """Compose the explicit-none confirmation question (#3462, #3526).
 
     A producer's claim that a phase raises no operator decisions is itself
     a judgment call about what *is* a judgment call — exactly the class of
     decision the HITL contract assigns to the operator. It therefore
     surfaces as its own confirmable decision, not a sentence embedded in
-    the phase_gate question.
+    the phase_gate question. The considered-candidate enumeration (#3526)
+    is included so the operator confirms specific dispositions rather
+    than a paragraph.
     """
+    candidate_block = ""
+    if candidates:
+        rendered = _pkg._format_considered_candidates(candidates)
+        if rendered:
+            candidate_block = f"\nCandidates considered and dispositioned away:\n\n{rendered}\n"
     return (
         f"The {role} attests the {phase_value} phase deliberately raises "
         f"no operator decisions (#3462):\n\n"
-        f"> {rationale}\n\n"
+        f"> {rationale}\n"
+        f"{candidate_block}\n"
         f"Confirm to proceed to the phase gate, or choose "
         f"“{_pkg._LEDGER_BACKSTOP_RERUN_OPTION}” to send the phase back so its "
         f"agents register the decisions as first-class contract entries "
@@ -210,7 +223,7 @@ def _handle_explicit_none_attestation_gate(
     repo_path,
     current_phase: _pkg.PipelinePhase,
     ledger_note: str,
-    explicit_none: tuple[str, str],
+    explicit_none: tuple[str, str, list[dict]],
     store,
     spawner,
 ):
@@ -236,9 +249,9 @@ def _handle_explicit_none_attestation_gate(
     - ``pipeline`` — the (possibly reloaded) pipeline the caller must rebind,
       since queuing the confirmation decision reloads and mutates state.
     """
-    attest_role, attest_rationale = explicit_none
+    attest_role, attest_rationale, attest_candidates = explicit_none
     attest_question = _pkg._ledger_attestation_question(
-        attest_role, attest_rationale, current_phase.value
+        attest_role, attest_rationale, current_phase.value, attest_candidates
     )
     # A converge-loop round (or a resume) re-enters this gate with the same
     # attestation — do not re-ask a question the operator already answered,
@@ -370,7 +383,7 @@ def _handle_explicit_none_attestation_gate(
 def _find_explicit_none_attestation(
     pipeline_id: str,
     phase_value: str,
-) -> tuple[str, str] | None:
+) -> tuple[str, str, list[dict]] | None:
     """Find a producer's explicit-none decision-ledger attestation (#3390).
 
     Scans the phase's ``CONSENSUS_PROPOSE`` messages (newest first) for a
@@ -378,9 +391,10 @@ def _find_explicit_none_attestation(
     ``no_decisions_rationale`` — the durable record that a producer
     *deliberately* registered no decisions this phase (propose-time
     validation guarantees the field was well-formed when accepted).
-    Returns ``(role, rationale)`` or ``None``; message-store outages
-    degrade to ``None`` (the caller fails closed into the backstop HITL,
-    which the operator can resolve either way — never a silent pass).
+    Returns ``(role, rationale, candidates_considered)`` or ``None``;
+    message-store outages degrade to ``None`` (the caller fails closed
+    into the backstop HITL, which the operator can resolve either way —
+    never a silent pass).
     """
     try:
         from message_store import MessageType, get_message_store
@@ -408,7 +422,13 @@ def _find_explicit_none_attestation(
             continue
         rationale = attestation.get("no_decisions_rationale")
         if isinstance(rationale, str) and rationale.strip():
-            return message.from_role, rationale.strip()
+            raw_candidates = attestation.get("candidates_considered")
+            candidates = (
+                [c for c in raw_candidates if isinstance(c, dict)]
+                if isinstance(raw_candidates, list)
+                else []
+            )
+            return message.from_role, rationale.strip(), candidates
     return None
 
 
@@ -417,10 +437,10 @@ def _collect_decision_ledger_status(
     pipeline_id: str,
     pipeline_identifier: int | str,
     phase: _pkg.PipelinePhase,
-) -> tuple[str, bool, tuple[str, str] | None]:
+) -> tuple[str, bool, tuple[str, str, list[dict]] | None, dict]:
     """Summarize the phase's decision ledger for the gate surface (#3390).
 
-    Returns ``(note, missing, explicit_none)``:
+    Returns ``(note, missing, explicit_none, summary)``:
 
     - ``note`` — an operator-visible one-liner appended to the phase_gate
       question so "N registered" vs "explicitly none" vs "MISSING" is
@@ -431,11 +451,16 @@ def _collect_decision_ledger_status(
       bypassed consensus (force-advance, resume) or the producer's claim
       was lost — the caller surfaces a dedicated backstop HITL rather
       than silently advancing.
-    - ``explicit_none`` — the ``(role, rationale)`` of a producer's
-      explicit-none attestation when that is what stands in for a ledger
-      (zero registered decisions), else ``None``. The caller surfaces it
-      as its own confirmable decision (#3462) rather than trusting the
-      self-attestation. Mutually exclusive with ``missing``.
+    - ``explicit_none`` — the ``(role, rationale, candidates_considered)``
+      of a producer's explicit-none attestation when that is what stands
+      in for a ledger (zero registered decisions), else ``None``. The
+      caller surfaces it as its own confirmable decision (#3462) rather
+      than trusting the self-attestation. Mutually exclusive with
+      ``missing``.
+    - ``summary``: a JSON-serializable snapshot for
+      ``PhaseExecution.decision_ledger`` (#3526): registered ids,
+      explicit-none flag, and considered candidates, so
+      decisions-surfaced-per-phase is queryable from pipeline state.
     """
     phase_value = phase.value
     registered_ids: list[str] = []
@@ -471,15 +496,29 @@ def _collect_decision_ledger_status(
             f"phase ({', '.join(registered_ids)}), {resolved} resolved.",
             False,
             None,
+            {
+                "registered": registered_ids,
+                "resolved": resolved,
+                "explicit_none": False,
+                "candidates_considered": [],
+            },
         )
 
     explicit_none = _pkg._find_explicit_none_attestation(pipeline_id, phase_value)
     if explicit_none is not None:
-        role, rationale = explicit_none
+        role, rationale, candidates = explicit_none
+        candidate_note = f" ({len(candidates)} candidate(s) considered)" if candidates else ""
         return (
-            f"Decision ledger: explicitly none — {role} attested: {rationale}",
+            f"Decision ledger: explicitly none — {role} attested: {rationale}{candidate_note}",
             False,
             explicit_none,
+            {
+                "registered": [],
+                "resolved": 0,
+                "explicit_none": True,
+                "attested_by": role,
+                "candidates_considered": candidates,
+            },
         )
 
     return (
@@ -489,6 +528,13 @@ def _collect_decision_ledger_status(
         "to register”.",
         True,
         None,
+        {
+            "registered": [],
+            "resolved": 0,
+            "explicit_none": False,
+            "missing": True,
+            "candidates_considered": [],
+        },
     )
 
 
