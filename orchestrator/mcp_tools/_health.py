@@ -144,7 +144,14 @@ def _handle_get_container_logs(self, args: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         # Live pod gone between listing and fetch (or an explicit
         # container_id for an already-reaped pod): try the captures.
-        fallback = self._persisted_agent_logs_fallback(task_id, container_id, agent_role)
+        # When auto-select picked the container, forward its known role so
+        # role re-narrowing can recover the capture even if the exact
+        # container_id (a pod UID) misses the job-name-keyed lookup; the
+        # miss-on-ambiguity guard would otherwise give up in that race
+        # window (#3566 review).
+        fallback = self._persisted_agent_logs_fallback(
+            task_id, container_id, agent_role or selected.get("agent_role")
+        )
         if fallback is not None:
             return fallback
         raise

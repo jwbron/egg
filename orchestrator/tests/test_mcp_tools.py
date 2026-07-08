@@ -376,6 +376,45 @@ class TestGetContainerLogsPersistedFallback:
         assert result["logs"] == "captured stdout"
         assert result["agent_role"] == "coder"
 
+    def test_auto_selected_container_forwards_role_to_fallback(self, handler):
+        """Auto-select picks a container, the live fetch loses the race, and the
+        selected UID misses the job-name-keyed exact lookup. The selected
+        container's role must be forwarded so role re-narrowing recovers the
+        capture instead of the miss-on-ambiguity guard giving up (#3566)."""
+        from urllib.error import HTTPError
+
+        containers_response = {
+            "data": {
+                "containers": [
+                    {
+                        "container_id": "pod-uid-not-a-job-name",
+                        "status": "running",
+                        "agent_role": "coder",
+                        "started_at": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            }
+        }
+
+        def _sequence(endpoint, **kwargs):
+            if endpoint.endswith("/logs?tail=100"):
+                raise HTTPError(endpoint, 404, "not found", None, None)
+            if "/containers?all=true" in endpoint:
+                return containers_response
+            if endpoint.endswith("/agent-logs/pod-uid-not-a-job-name"):
+                return {"data": {}}  # exact-match miss on the pod UID
+            if endpoint.endswith("/agent-logs"):
+                return {"data": {"records": [dict(self._RECORD, logs=None, log_bytes=15)]}}
+            return {"data": dict(self._RECORD)}  # full body for the role's job
+
+        with patch.object(handler, "_make_request", side_effect=_sequence):
+            # No container_id and no agent_role: pure auto-select path.
+            result = handler.handle_tool_call("get_container_logs", {"task_id": "issue-42"})
+
+        assert result["source"] == "persisted"
+        assert result["logs"] == "captured stdout"
+        assert result["agent_role"] == "coder"
+
 
 class TestGetAgentTranscript:
     """Operator read path for session-state transcripts (#3547)."""
