@@ -229,6 +229,17 @@ The escalation report is scoped to the keys currently blocking a derivable arm �
 
 Supervision state is per-process: an orchestrator restart already resets all streaks and exhausted keys (`JobSupervisor.reconcile`), so "Retry arms" is meaningful only against a live loop; when none exists the resolution reports that and points at "Restart phase".
 
+### All-arms-parked escalation (#3548)
+
+A no-op-parked dedupe key (#3425) is not terminal like an exhausted one — it self-releases — but only for a single probe spawn per fingerprint change or per `SUPERVISION_NOOP_PARK_RETRY_SECONDS` heartbeat. When *every* arm a slice needs is blocked on a no-op-park (or exhausted) key at once, a round that is one verdict away from converging can sit silently for the whole heartbeat window with `pending_decisions` empty — the same zero-operator-signal shape as the exhausted wedge, but on a live-but-ineffective arm instead of a dead one.
+
+The loop detects this (`_check_arms_parked`, `event_loop/_loop.py`): every derivable spawn action is blocked `parked` or `exhausted` (at least one `parked`), no one-shot Job is in flight, and no agent-free progress ran this tick — a mixed parked+exhausted round is caught here rather than falling between the two detectors, since `_check_arms_exhausted`'s `all(== "exhausted")` predicate can't see it. Once per episode it fires the same two surfaces via the executor (`_handle_arms_parked`, `concurrent_executor.py`):
+
+- an `OVERSEER_ALERT` (anomaly `event-arms-parked`, priority `high`), and
+- a **persisted HITL decision** (context `event_arms_parked`) carrying each parked key's role/action and no-op streak (plus any co-blocking exhausted keys), with the same three resolution options as the exhausted decision except the first: **Retry arms (release no-op parks)** clears the parked keys on the pipeline's live event loop(s) (`event_loop.get_live_event_loops` → `reset_parked_arms` → `JobSupervisor.reset_noop_parks`) instead of resetting failure streaks.
+
+The wedge auto-clears the sticky latch and withdraws a pending decision (`_withdraw_arms_parked_hitl` / `_withdraw_arms_parked_decisions`) the same way the exhausted escalation does, with the same multi-slice guard via `arms_parked_escalated`.
+
 ## Agent-Level Restart
 
 Source: `orchestrator/container_spawner.py`, `orchestrator/routes/pipelines.py`
@@ -247,6 +258,8 @@ Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, `FAILE
 6. Recovery context is injected into the respawned agent (e.g., "You are being restarted after a stall. Resume from where your predecessor left off.")
 7. The pipeline's `PhaseExecution` state is updated with the new container/agent entries
 8. Restart count is tracked per agent per phase — configurable maximum (default: 2) prevents infinite restart loops
+
+**Event-loop arm invalidation (#3548).** The consensus reset in step 4 makes the event loop re-derive the role's next event, but with the *same* identity — and therefore the same dedupe key — as before the restart, so loop-local state silently blocked the respawn: the key stayed in the loop's live-key set (the route deletes the Job by label, and Job observation maps a missing Job to "still running"), and any exhaustion / no-op-park latch for the key survived untouched. `_restart_agent_body` (`orchestrator/routes/pipelines/_routes_restart.py`) now reaches into the live event loop for the restarted role's `(pipeline_id, slice_id)` and calls `invalidate_role_arms(agent_role)`, which drops the role's keys from the loop's live-key/metadata tracking and retires their supervisor state (unioning `_key_meta` with the supervisor's own parked/exhausted key reports, since a parked key has already been popped from `_key_meta`) so the next poll re-derives the key as fresh and actually spawns. The route's JSON response now reports `live_event_loop` (bool) and `arms_invalidated` (count), and the `respawn` field is honest about whether a live loop exists to honor the delegation: `"delegated to orchestrator event loop"` when one was found, `"driver thread relaunched; event loop will respawn the role"` when the pipeline was inactive, or `"no live event loop for this slice — no respawn will occur; restart the phase if the agent must re-run"` otherwise.
 
 ### Concurrency Safety
 
