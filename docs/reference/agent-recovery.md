@@ -280,11 +280,13 @@ The `restart_agent_container()` method requires the `mode` parameter (gateway ne
 | Method | How |
 |--------|-----|
 | **CLI** | `egg-orch agent restart <role> [--reason "..."]` |
-| **API** | `POST /api/v1/pipelines/{id}/agents/{role}/restart` with optional `{"reason": "...", "slice_id": "slice-N"}` body (`slice_id` also accepted as a query param) |
-| **MCP tool** | `restart_agent(task_id, agent_role, reason?, slice_id?)` via the orchestrator MCP server |
+| **API** | `POST /api/v1/pipelines/{id}/agents/{role}/restart` with optional `{"reason": "...", "slice_id": "slice-N", "fresh_session": true}` body (`slice_id` also accepted as a query param) |
+| **MCP tool** | `restart_agent(task_id, agent_role, reason?, slice_id?, fresh_session?)` via the orchestrator MCP server |
 | **Overseer** | Automatic — after consecutive heartbeat failures or unresponsive nudges (see below) |
 
 For a per-slice agent in a multi-slice implement phase, `slice_id` scopes the restart to the slice's Job, worktree, and BRC tracker. When omitted, the route derives it from the phase's agent records: if exactly one slice has a non-complete record for the role, that slice is used; if the choice is ambiguous the request is rejected with HTTP 400 reason `slice_id_required` and a `details` object listing `known_slices` / `restart_candidates`. The scan is **scoped to `pipeline.current_phase`** — if the pipeline has already advanced past `implement` (e.g. to `pr` or a later iteration), no current-phase records will name the role, derivation falls through, and the operator should supply `slice_id` explicitly. This is **operator guidance, not a code-enforced precondition**: the fall-through branch still proceeds to a pipeline-level spawn, which would re-trigger the wedge mode below if a slice tracker is somehow still live past `implement` (in practice it is not — slice trackers are resolved by the time `current_phase` advances). This guards against a slice-mode restart silently spawning an unscoped agent — `EGG_SLICE_ID` unset — whose BRC signals route to the bare pipeline tracker instead of the slice's, wedging the slice's consensus ([#2759](https://github.com/jwbron/egg/issues/2759)).
+
+By default a restart preserves the role's durable warm-resume session record, so the respawned agent resumes its prior Claude session rather than cold-starting. When the restart's purpose is to change the agent's mind about the world (e.g. it is livelocked on a stale conclusion that plain consensus reset and worktree state can't reach), pass `fresh_session: true` to also evict that record — see [Cross-pod persistence](../architecture/context-discipline.md#cross-pod-persistence-3278) in the context-discipline doc ([#3537](https://github.com/jwbron/egg/issues/3537)).
 
 ### Worktree Preservation
 
