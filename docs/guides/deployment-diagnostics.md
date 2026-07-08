@@ -184,7 +184,11 @@ The `logs_unavailable` / `pods "<pod>" not found` case is now narrower: it
 still occurs when the Pod was removed by some path other than
 `remove_agent_job` (e.g. raw k8s `ttlSecondsAfterFinished` GC winning the
 race before the orchestrator reaped it), the capture's 24-hour TTL has
-expired, or the Redis store itself is unavailable.
+expired, or the Redis store itself is unavailable. Note the capture is
+strictly best-effort even on the `remove_agent_job` path: if the pod was
+already GC'd by the time `remove_agent_job` ran, the pre-removal log read
+comes back empty and no capture is written — so a missing capture does
+**not** imply the orchestrator failed to reap the Job.
 
 The skill detects an outright miss and surfaces it in the Top finding — it
 does **not** silently return "no classifier match" when logs are simply
