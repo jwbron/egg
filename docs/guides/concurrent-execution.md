@@ -827,11 +827,18 @@ The consensus block returns:
   "agents": {
     "coder": {"producer_phase": "PROPOSED", "confirmed": false},
     "reviewer_code": {"reviewer_phase": "REVIEWING", "confirmed": false}
-  }
+  },
+  "proposal_versions": {"coder": 1},
+  "review_edges": [
+    {"reviewer": "reviewer_code", "producer": "coder", "state": "nacked", "version": 1}
+  ],
+  "zero_proposal_producers": []
 }
 ```
 
 Consensus is reached when `is_complete: true` — all registered agents are confirmed **and there are no unresolved NACKs** in the approval matrix. An agent can be in the `confirmed` set but `is_complete` still remains `false` if a reviewer has issued a NACK that the producer has not yet addressed. The `version` field in each NACK entry tracks which proposal iteration the NACK was issued against, so agents and operators can tell whether the producer has re-proposed since the NACK.
+
+**`proposal_versions` / `review_edges` / `zero_proposal_producers` (#3548).** Compact projections of the approval matrix that make a *recorded but not-yet-visible* verdict distinguishable from a lost one: before this, a landed `CONSENSUS_ACK` was invisible in this block — the reviewer still showed `reviewer_phase: REVIEWING` + `confirmed: false` whether or not the ACK had actually recorded — and the confirm-blocking "some producer has never proposed" condition had no name. `proposal_versions` maps each producer role to its current proposal version; `review_edges` lists one `{reviewer, producer, state, version}` entry per matrix cell (`state` is the lowercase `ApprovalState` value: `pending`, `acked`, or `nacked`); `zero_proposal_producers` names producer roles with no recorded proposal at all — the global confirm guard rejects every `confirm` call while this list is non-empty. The same three fields are surfaced through `mcp__brc__get_state` / `egg-orch brc get-state` via `_structured_consensus`.
 
 ### Objections
 
