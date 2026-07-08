@@ -928,8 +928,12 @@ class KubernetesMonitor:
             mode = str(details.get("mode", "unknown"))
 
             now = time.monotonic()
-            last = self._driver_liveness_alerted.get(pipeline_id, 0.0)
-            if now - last < self._driver_liveness_realert_seconds:
+            # ``time.monotonic()`` has an arbitrary zero point (boot time),
+            # so 0.0 is not a safe "never alerted" sentinel: on a host with
+            # uptime < realert_seconds a first alert would be throttled
+            # (``now - 0.0 < realert_seconds``). Use ``None`` for "unseen".
+            last = self._driver_liveness_alerted.get(pipeline_id)
+            if last is not None and now - last < self._driver_liveness_realert_seconds:
                 return
 
             try:
