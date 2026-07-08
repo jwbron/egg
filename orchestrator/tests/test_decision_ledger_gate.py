@@ -113,6 +113,8 @@ class TestCollectDecisionLedgerStatus:
             "registered": ["cq-1", "cq-2"],
             "resolved": 1,
             "explicit_none": False,
+            "attested_by": None,
+            "missing": False,
             "candidates_considered": [],
         }
 
@@ -137,6 +139,16 @@ class TestCollectDecisionLedgerStatus:
         assert summary["explicit_none"] is True
         assert summary["registered"] == []
         assert summary["attested_by"] == "refiner"
+        # Uniform shape across branches (#3526 review): every key present.
+        assert summary["missing"] is False
+        assert set(summary) == {
+            "registered",
+            "resolved",
+            "explicit_none",
+            "attested_by",
+            "missing",
+            "candidates_considered",
+        }
 
     def test_zero_registered_no_attestation_is_missing(self, tmp_path: Path):
         from routes.pipelines import _collect_decision_ledger_status
@@ -150,6 +162,16 @@ class TestCollectDecisionLedgerStatus:
         assert explicit_none is None
         assert "MISSING" in note
         assert summary["missing"] is True
+        # Uniform shape across branches (#3526 review): every key present.
+        assert summary["attested_by"] is None
+        assert set(summary) == {
+            "registered",
+            "resolved",
+            "explicit_none",
+            "attested_by",
+            "missing",
+            "candidates_considered",
+        }
 
     def test_contract_unloadable_falls_back_to_attestation(self, tmp_path: Path):
         from routes.pipelines import _collect_decision_ledger_status
