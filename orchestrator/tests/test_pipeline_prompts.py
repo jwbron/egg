@@ -4162,12 +4162,22 @@ class TestDecisionLedgerPromptSurface:
         # Calibration guard so the obligation doesn't over-NACK
         # legitimate implementation choices.
         assert "do not over-NACK" in criteria
+        # The explicit-none contract now requires enumerated candidates
+        # (#3526); the reviewer rubric must name it so the reviewer checks
+        # the enumeration, not just the free-form rationale.
+        assert "candidates_considered" in criteria
+        assert "deferred_to_plan" in criteria
 
     def test_plan_reviewer_carries_unsurfaced_decision_obligation(self):
         criteria = _get_plan_review_criteria()
         assert "Un-surfaced decisions — NACK" in criteria
         assert "no_decisions_rationale" in criteria
         assert "do not over-NACK" in criteria
+        # Enumerated-candidate requirement + the plan-is-last-surface rule
+        # (#3526): the reviewer must cross-check the refiner's deferred
+        # candidates against the plan attestation.
+        assert "candidates_considered" in criteria
+        assert "not_operator_grade" in criteria
 
 
 class TestTaskNamedDecisionRegistrationSurface:

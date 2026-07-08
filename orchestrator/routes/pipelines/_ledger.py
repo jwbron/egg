@@ -461,6 +461,13 @@ def _collect_decision_ledger_status(
       ``PhaseExecution.decision_ledger`` (#3526): registered ids,
       explicit-none flag, and considered candidates, so
       decisions-surfaced-per-phase is queryable from pipeline state.
+      The key set is **uniform across all three branches** —
+      ``registered``, ``resolved``, ``explicit_none``, ``attested_by``,
+      ``missing``, ``candidates_considered`` are always present (with
+      ``attested_by=None`` / ``missing=False`` on the branches that
+      don't set them) so a downstream consumer never has to guess
+      whether a key is absent because it doesn't apply or because the
+      branch simply forgot it.
     """
     phase_value = phase.value
     registered_ids: list[str] = []
@@ -500,6 +507,8 @@ def _collect_decision_ledger_status(
                 "registered": registered_ids,
                 "resolved": resolved,
                 "explicit_none": False,
+                "attested_by": None,
+                "missing": False,
                 "candidates_considered": [],
             },
         )
@@ -517,6 +526,7 @@ def _collect_decision_ledger_status(
                 "resolved": 0,
                 "explicit_none": True,
                 "attested_by": role,
+                "missing": False,
                 "candidates_considered": candidates,
             },
         )
@@ -532,6 +542,7 @@ def _collect_decision_ledger_status(
             "registered": [],
             "resolved": 0,
             "explicit_none": False,
+            "attested_by": None,
             "missing": True,
             "candidates_considered": [],
         },
