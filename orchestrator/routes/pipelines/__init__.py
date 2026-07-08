@@ -1184,6 +1184,7 @@ from ._decisions import (  # noqa: E402,F401
     _incomplete_consensus_decision_text,
     _persist_hitl_decision,
     _withdraw_arms_exhausted_decisions,
+    _withdraw_arms_parked_decisions,
 )
 
 # drafts helpers live in _drafts.py (#3312 slice-4); re-exported here.
@@ -1405,6 +1406,7 @@ from ._run_pipeline_setup import (  # noqa: E402,F401  # noqa: E402,F401  # noqa
 from ._run_pipeline_support import (  # noqa: E402,F401
     _health_monitor_poll_impl,
     _on_health_escalation_impl,
+    _sync_session_phases_best_effort,
 )
 from ._run_support import (  # noqa: E402,F401
     _clear_stale_impasses_for_producers,

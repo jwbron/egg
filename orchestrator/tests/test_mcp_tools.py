@@ -3504,3 +3504,86 @@ class TestUpdatePipelineConfig:
 
         assert "error" in result
         mock_req.assert_not_called()
+
+
+class TestConsensusStatusVerdictPassThrough:
+    """get_consensus_status passes the compact verdict fields through (#3548)."""
+
+    def test_structured_consensus_includes_verdict_fields(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                {
+                    "data": {
+                        "pipeline": {
+                            "id": "issue-3548",
+                            "current_phase": "implement",
+                            "status": "running",
+                        }
+                    }
+                },
+                {
+                    "data": {
+                        "concurrent": {
+                            "consensus": {
+                                "is_complete": False,
+                                "blocking_agents": ["coder", "tester"],
+                                "has_unresolved_nacks": False,
+                                "unresolved_nacks": [],
+                                "agents": {
+                                    "documenter": {
+                                        "producer_phase": "PROPOSED",
+                                        "confirmed": False,
+                                    }
+                                },
+                                "proposal_versions": {"documenter": 1},
+                                "review_edges": [
+                                    {
+                                        "reviewer": "reviewer_code",
+                                        "producer": "documenter",
+                                        "state": "acked",
+                                        "version": 1,
+                                    }
+                                ],
+                                "zero_proposal_producers": ["coder", "tester"],
+                            }
+                        }
+                    }
+                },
+            ]
+            result = handler.handle_tool_call("get_consensus_status", {"task_id": "issue-3548"})
+
+        consensus = result["consensus"]
+        assert consensus["proposal_versions"] == {"documenter": 1}
+        assert consensus["review_edges"][0]["state"] == "acked"
+        assert consensus["zero_proposal_producers"] == ["coder", "tester"]
+
+    def test_fields_default_empty_for_older_blocks(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                {
+                    "data": {
+                        "pipeline": {
+                            "id": "issue-3548",
+                            "current_phase": "implement",
+                            "status": "running",
+                        }
+                    }
+                },
+                {
+                    "data": {
+                        "concurrent": {
+                            "consensus": {
+                                "is_complete": False,
+                                "blocking_agents": [],
+                                "agents": {"coder": {"producer_phase": "PROPOSED"}},
+                            }
+                        }
+                    }
+                },
+            ]
+            result = handler.handle_tool_call("get_consensus_status", {"task_id": "issue-3548"})
+
+        consensus = result["consensus"]
+        assert consensus["proposal_versions"] == {}
+        assert consensus["review_edges"] == []
+        assert consensus["zero_proposal_producers"] == []

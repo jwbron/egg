@@ -15,11 +15,45 @@ import state_store as _pkg
 from ._errors import StateStoreError
 
 
+def _child_is_managed_repo(child: Path, base_path: Path) -> bool:
+    """Return True when *child* can be an egg-managed repo.
+
+    A ``.git`` directory is a normal clone: always managed.  A ``.git``
+    *file* is a worktree (or ``--separate-git-dir``) pointer, which can
+    only belong to an egg-managed repo when the ``gitdir:`` target lives
+    under *base_path*.  A worktree checked out host-side and dropped into
+    the repos dir carries a host-view absolute pointer that does not
+    exist inside the pod; constructing a ``StateStore`` for it crashes on
+    the unreachable gitdir and aborts repo discovery for every pipeline
+    (#3545), so such children are skipped.
+    """
+    git = child / ".git"
+    if git.is_dir():
+        return True
+    if not git.is_file():
+        return False
+    try:
+        content = git.read_text().strip()
+    except OSError:
+        return False
+    if not content.startswith("gitdir:"):
+        return False
+    gitdir = Path(content.split("gitdir:", 1)[1].strip())
+    if not gitdir.is_absolute():
+        gitdir = child / gitdir
+    try:
+        return gitdir.resolve().is_relative_to(base_path.resolve())
+    except OSError:
+        return False
+
+
 def discover_repo_paths(base_path: Path | str) -> list[Path]:
     """Discover git repositories under a base path.
 
     If *base_path* is itself a git repo, returns ``[base_path]``.
-    Otherwise, scans immediate children for directories containing ``.git``.
+    Otherwise, scans immediate children for directories containing
+    ``.git``, skipping foreign worktrees whose ``gitdir:`` points outside
+    *base_path* (#3545).
 
     Args:
         base_path: A git repo or a parent directory containing repos.
@@ -35,7 +69,7 @@ def discover_repo_paths(base_path: Path | str) -> list[Path]:
         return [
             child
             for child in sorted(base_path.iterdir())
-            if child.is_dir() and (child / ".git").exists()
+            if child.is_dir() and _child_is_managed_repo(child, base_path)
         ]
     return []
 

@@ -265,6 +265,7 @@ GatewayClient.register_session = _session.register_session
 GatewayClient.validate_session = _session.validate_session
 GatewayClient.delete_session = _session.delete_session
 GatewayClient.update_session = _session.update_session
+GatewayClient.update_session_phase = _session.update_session_phase
 GatewayClient.delete_session_by_container = _session.delete_session_by_container
 GatewayClient.heartbeat_session_by_container = _session.heartbeat_session_by_container
 GatewayClient.create_worktrees = _worktree.create_worktrees

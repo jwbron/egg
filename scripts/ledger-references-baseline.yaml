@@ -106,7 +106,7 @@ files:
   shared/egg_agent/queryable_env.py: 6
   shared/egg_agent/reseed.py: 7
   shared/egg_agent/session.py: 13
-  shared/egg_contracts/agent_roles.py: 1
+  shared/egg_contracts/agent_roles/_registry.py: 1
   shared/egg_contracts/artifact_spec.py: 9
   shared/egg_contracts/dependency_graph.py: 3
   shared/egg_contracts/models.py: 11
