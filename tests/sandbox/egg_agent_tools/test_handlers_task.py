@@ -19,12 +19,39 @@ from egg_agent_tools.handlers import task  # noqa: E402
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError  # noqa: E402
 
 
+def _contract(*phase_task_ids, key="slices"):
+    """Build a served-contract read response body.
+
+    Each positional arg is the list of task ids for one phase.  The
+    orchestrator serves ``slices`` (``Contract.model_dump``); pass
+    ``key="phases"`` to exercise the legacy raw-JSON fallback.
+    """
+    return {
+        key: [
+            {
+                "id": f"phase-{i + 1}",
+                "tasks": [{"id": tid, "status": "pending"} for tid in tids],
+            }
+            for i, tids in enumerate(phase_task_ids)
+        ]
+    }
+
+
+def _gateway_seq(*responses):
+    """Patch gateway_request to return the given responses in order."""
+    seq = list(responses)
+    return patch(
+        "egg_agent_tools.handlers.task.gateway_request",
+        side_effect=lambda *a, **kw: seq.pop(0),
+    )
+
+
 class TestTaskComplete:
     def test_happy_path_without_commit(self):
         with (
-            patch(
-                "egg_agent_tools.handlers.task.gateway_request",
-                return_value={"success": True, "data": {}},
+            _gateway_seq(
+                {"success": True, "data": _contract(["task-1-1", "task-1-2"])},
+                {"success": True, "data": {}},
             ) as req,
             patch("egg_agent_tools.handlers.task.get_contract_identifier", return_value=1765),
         ):
@@ -32,45 +59,113 @@ class TestTaskComplete:
         assert resp["ok"] is True
         assert resp["task"] == "task-1-1"
         assert resp["commit"] is None
-        assert req.call_count == 1
+        # Two calls: contract read (id → index resolution), then the
+        # status mutate.
+        assert req.call_count == 2
+        assert req.call_args_list[0].args[0] == "/api/v1/contract/1765"
         data = req.call_args.kwargs["data"]
         assert data["field_path"] == "phases.0.tasks.0.status"
         assert data["new_value"] == "complete"
 
     def test_happy_path_with_commit(self):
+        contract = _contract(["task-1-1"], ["task-2-1", "task-2-2", "task-2-3"])
         with (
-            patch(
-                "egg_agent_tools.handlers.task.gateway_request",
-                return_value={"success": True, "data": {}},
+            _gateway_seq(
+                {"success": True, "data": contract},
+                {"success": True, "data": {}},
+                {"success": True, "data": {}},
             ) as req,
             patch("egg_agent_tools.handlers.task.get_contract_identifier", return_value=1765),
         ):
             resp = task.task_complete({"task": "task-2-3", "commit": "abcdef1234"})
         assert resp["ok"] is True
         assert resp["commit"] == "abcdef1234"
-        # Two calls: commit link FIRST, then status (safe ordering —
-        # mid-way failure leaves task not-yet-complete with commit
-        # populated, so the caller can retry).
-        assert req.call_count == 2
-        commit_call = req.call_args_list[0].kwargs["data"]
+        # Three calls: read, then commit link FIRST, then status (safe
+        # ordering: mid-way failure leaves task not-yet-complete with
+        # commit populated, so the caller can retry).
+        assert req.call_count == 3
+        commit_call = req.call_args_list[1].kwargs["data"]
         assert commit_call["field_path"] == "phases.1.tasks.2.commit"
         assert commit_call["new_value"] == "abcdef1234"
-        status_call = req.call_args_list[1].kwargs["data"]
+        status_call = req.call_args_list[2].kwargs["data"]
         assert status_call["field_path"] == "phases.1.tasks.2.status"
         assert status_call["new_value"] == "complete"
 
-    def test_parses_single_segment_task_id(self):
-        """'task-5' interpreted as phases.0.tasks.4 per parity with CLI."""
+    def test_rescoped_slice_resolves_by_id_not_suffix(self):
+        """#3527 regression: slice-1 re-scoped to hold only
+        [task-1-5, task-1-6] at list positions 0-1.  The completer must
+        resolve task-1-5 to tasks[0] by id lookup; the old numeric-suffix
+        derivation targeted tasks[4] and every completion failed with
+        'list index out of range'."""
         with (
-            patch(
-                "egg_agent_tools.handlers.task.gateway_request",
-                return_value={"success": True, "data": {}},
+            _gateway_seq(
+                {"success": True, "data": _contract(["task-1-5", "task-1-6"])},
+                {"success": True, "data": {}},
+                {"success": True, "data": {}},
+            ) as req,
+            patch("egg_agent_tools.handlers.task.get_contract_identifier", return_value=3364),
+        ):
+            resp = task.task_complete({"task": "task-1-5", "commit": "c2a77847a"})
+        assert resp["ok"] is True
+        commit_call = req.call_args_list[1].kwargs["data"]
+        assert commit_call["field_path"] == "phases.0.tasks.0.commit"
+        status_call = req.call_args_list[2].kwargs["data"]
+        assert status_call["field_path"] == "phases.0.tasks.0.status"
+
+    def test_single_segment_task_id_resolved_by_lookup(self):
+        """'task-5' resolves to wherever that id lives in the contract,
+        not positionally to phases.0.tasks.4."""
+        with (
+            _gateway_seq(
+                {"success": True, "data": _contract(["task-4", "task-5"])},
+                {"success": True, "data": {}},
             ) as req,
             patch("egg_agent_tools.handlers.task.get_contract_identifier", return_value=1),
         ):
             task.task_complete({"task": "task-5"})
         data = req.call_args.kwargs["data"]
-        assert data["field_path"] == "phases.0.tasks.4.status"
+        assert data["field_path"] == "phases.0.tasks.1.status"
+
+    def test_case_insensitive_id_match(self):
+        """'TASK-1-2' matches the contract's lowercase 'task-1-2' id,
+        preserving the old parser's case tolerance."""
+        with (
+            _gateway_seq(
+                {"success": True, "data": _contract(["task-1-1", "task-1-2"])},
+                {"success": True, "data": {}},
+            ) as req,
+            patch("egg_agent_tools.handlers.task.get_contract_identifier", return_value=1),
+        ):
+            task.task_complete({"task": "TASK-1-2"})
+        data = req.call_args.kwargs["data"]
+        assert data["field_path"] == "phases.0.tasks.1.status"
+
+    def test_legacy_phases_key_fallback(self):
+        """Un-migrated raw JSON serves ``phases`` instead of ``slices``;
+        the id lookup must read both."""
+        with (
+            _gateway_seq(
+                {"success": True, "data": _contract(["task-1-1"], key="phases")},
+                {"success": True, "data": {}},
+            ) as req,
+            patch("egg_agent_tools.handlers.task.get_contract_identifier", return_value=1),
+        ):
+            task.task_complete({"task": "task-1-1"})
+        assert req.call_args.kwargs["data"]["field_path"] == "phases.0.tasks.0.status"
+
+    def test_task_not_found_raises_before_mutate(self):
+        """An id absent from the contract fails loudly; no positional
+        fallback that could mutate the wrong task."""
+        with (
+            _gateway_seq(
+                {"success": True, "data": _contract(["task-1-5", "task-1-6"])},
+            ) as req,
+            patch("egg_agent_tools.handlers.task.get_contract_identifier", return_value=1),
+        ):
+            with pytest.raises(HandlerError, match="not found"):
+                task.task_complete({"task": "task-1-1"})
+        # Only the read; no mutation was attempted.
+        assert req.call_count == 1
 
     def test_missing_task_id(self):
         with pytest.raises(HandlerError):
@@ -110,26 +205,26 @@ class TestTaskComplete:
                 task.task_complete({"task": "task-1-1"})
 
     def test_commit_link_failure_raises_gateway_error(self):
-        """Commit-link is the FIRST call; failure means status was never
-        set — the task stays in its prior state, safe to retry."""
+        """Commit-link is the first mutation; failure means status was
+        never set; the task stays in its prior state, safe to retry."""
         with (
-            patch(
-                "egg_agent_tools.handlers.task.gateway_request",
-                return_value={"success": False, "message": "commit link failed"},
+            _gateway_seq(
+                {"success": True, "data": _contract(["task-1-1"])},
+                {"success": False, "message": "commit link failed"},
             ) as req,
             patch("egg_agent_tools.handlers.task.get_contract_identifier", return_value=1),
         ):
             with pytest.raises(GatewayError) as exc:
                 task.task_complete({"task": "task-1-1", "commit": "a" * 40})
         assert "commit link failed" in str(exc.value).lower()
-        # Only one call — status was never attempted.
-        assert req.call_count == 1
+        # Read + failed commit link; status was never attempted.
+        assert req.call_count == 2
 
     def test_unsuccessful_status_raises(self):
         with (
-            patch(
-                "egg_agent_tools.handlers.task.gateway_request",
-                return_value={"success": False, "message": "denied"},
+            _gateway_seq(
+                {"success": True, "data": _contract(["task-1-1"])},
+                {"success": False, "message": "denied"},
             ),
             patch("egg_agent_tools.handlers.task.get_contract_identifier", return_value=1),
         ):
@@ -143,22 +238,40 @@ class TestTaskComplete:
 
 
 class TestTaskAddCommit:
-    def _ok(self):
-        return patch(
-            "egg_agent_tools.handlers.task.gateway_request",
-            return_value={"success": True, "data": {}},
+    def _gw(self, contract=None):
+        """Sequenced gateway mock: contract read first, then mutate ok."""
+        return _gateway_seq(
+            {"success": True, "data": contract or _contract(["task-1-1"])},
+            {"success": True, "data": {}},
         )
 
     def _id(self, value=42):
         return patch("egg_agent_tools.handlers.task.get_contract_identifier", return_value=value)
 
     def test_happy_path(self):
-        with self._ok() as gr, self._id():
+        contract = _contract(["task-1-1"], ["task-2-1", "task-2-2", "task-2-3"])
+        with self._gw(contract) as gr, self._id():
             resp = task.task_add_commit({"task": "task-2-3", "commit": "a" * 40})
         assert resp == {"ok": True, "task": "task-2-3", "commit": "a" * 40}
         data = gr.call_args.kwargs["data"]
         assert data["field_path"] == "phases.1.tasks.2.commit"
         assert data["new_value"] == "a" * 40
+
+    def test_rescoped_slice_resolves_by_id_not_suffix(self):
+        """#3527 regression: task-1-5 at list position 0 must resolve to
+        tasks[0], not tasks[4]."""
+        with self._gw(_contract(["task-1-5", "task-1-6"])) as gr, self._id():
+            task.task_add_commit({"task": "task-1-6", "commit": "a" * 40})
+        assert gr.call_args.kwargs["data"]["field_path"] == "phases.0.tasks.1.commit"
+
+    def test_task_not_found(self):
+        with (
+            _gateway_seq({"success": True, "data": _contract(["task-1-5"])}) as gr,
+            self._id(),
+        ):
+            with pytest.raises(HandlerError, match="not found"):
+                task.task_add_commit({"task": "task-1-1", "commit": "a" * 40})
+        assert gr.call_count == 1
 
     def test_missing_task_id(self):
         with pytest.raises(HandlerError):
@@ -174,7 +287,7 @@ class TestTaskAddCommit:
                 task.task_add_commit({"task": "task-1-1", "commit": "not-hex!"})
 
     def test_short_sha_7_hex_accepted(self):
-        with self._ok(), self._id():
+        with self._gw(), self._id():
             resp = task.task_add_commit({"task": "task-1-1", "commit": "1234567"})
         assert resp["commit"] == "1234567"
 
@@ -203,26 +316,38 @@ class TestTaskAddCommit:
 
 
 class TestTaskUpdateNotes:
-    def _ok(self):
-        return patch(
-            "egg_agent_tools.handlers.task.gateway_request",
-            return_value={"success": True, "data": {}},
-        )
+    def _gw(self, contract=None):
+        """Gateway mock: contract read on the first call, mutate-ok after."""
+        served = {"success": True, "data": contract or _contract(["task-1-1"])}
+        ok = {"success": True, "data": {}}
+        state = {"calls": 0}
+
+        def fake(*a, **kw):
+            state["calls"] += 1
+            return served if state["calls"] == 1 else ok
+
+        return patch("egg_agent_tools.handlers.task.gateway_request", side_effect=fake)
 
     def _id(self, value=42):
         return patch("egg_agent_tools.handlers.task.get_contract_identifier", return_value=value)
 
     def test_happy_path(self):
-        with self._ok() as gr, self._id():
+        with self._gw() as gr, self._id():
             resp = task.task_update_notes({"task": "task-1-1", "notes": "hello"})
         assert resp == {"ok": True, "task": "task-1-1"}
         data = gr.call_args.kwargs["data"]
         assert data["field_path"] == "phases.0.tasks.0.notes"
         assert data["new_value"] == "hello"
 
+    def test_rescoped_slice_resolves_by_id_not_suffix(self):
+        """#3527 regression: id lookup, not numeric-suffix position."""
+        with self._gw(_contract(["task-1-5", "task-1-6"])) as gr, self._id():
+            task.task_update_notes({"task": "task-1-5", "notes": "n"})
+        assert gr.call_args.kwargs["data"]["field_path"] == "phases.0.tasks.0.notes"
+
     def test_empty_notes_allowed(self):
         """Clearing notes is a valid operation — notes='' shouldn't raise."""
-        with self._ok() as gr, self._id():
+        with self._gw() as gr, self._id():
             task.task_update_notes({"task": "task-1-1", "notes": ""})
         data = gr.call_args.kwargs["data"]
         assert data["new_value"] == ""
@@ -258,49 +383,53 @@ class TestTaskUpdateNotes:
         """Apply-phase notes-prefix projection (issue #1557).
 
         When the notes start with ``jira_action_status=<value>``, a
-        second gateway call propagates the typed
+        follow-up gateway call propagates the typed
         ``Task.jira_action_status`` field so the apply-phase reviewer
         and the wontdo drain's idempotency gate see a single coherent
         surface.
         """
-        with self._ok() as gr, self._id():
+        with self._gw() as gr, self._id():
             task.task_update_notes(
                 {"task": "task-1-1", "notes": "jira_action_status=applied\nall good"}
             )
-        assert gr.call_count == 2
-        field_paths = [c.kwargs["data"]["field_path"] for c in gr.call_args_list]
-        new_values = [c.kwargs["data"]["new_value"] for c in gr.call_args_list]
+        # Read + notes mutate + projection mutate.
+        assert gr.call_count == 3
+        mutates = gr.call_args_list[1:]
+        field_paths = [c.kwargs["data"]["field_path"] for c in mutates]
+        new_values = [c.kwargs["data"]["new_value"] for c in mutates]
         assert "phases.0.tasks.0.notes" in field_paths
         assert "phases.0.tasks.0.jira_action_status" in field_paths
         assert "applied" in new_values
 
     def test_jira_key_prefix_projects_to_typed_field(self):
         """Two-line prefix: status + key both projected."""
-        with self._ok() as gr, self._id():
+        with self._gw() as gr, self._id():
             task.task_update_notes(
                 {
                     "task": "task-1-1",
                     "notes": "jira_action_status=applied\njira_key=ENG-456\nnarrative",
                 }
             )
-        assert gr.call_count == 3
-        field_paths = {c.kwargs["data"]["field_path"] for c in gr.call_args_list}
+        # Read + notes mutate + two projection mutates.
+        assert gr.call_count == 4
+        field_paths = {c.kwargs["data"]["field_path"] for c in gr.call_args_list[1:]}
         assert "phases.0.tasks.0.notes" in field_paths
         assert "phases.0.tasks.0.jira_action_status" in field_paths
         assert "phases.0.tasks.0.jira_key" in field_paths
 
     def test_no_prefix_skips_projection(self):
         """Notes without a structured prefix make only the notes mutation."""
-        with self._ok() as gr, self._id():
+        with self._gw() as gr, self._id():
             task.task_update_notes({"task": "task-1-1", "notes": "just regular notes"})
-        assert gr.call_count == 1
+        # Read + notes mutate only.
+        assert gr.call_count == 2
         assert gr.call_args.kwargs["data"]["field_path"] == "phases.0.tasks.0.notes"
 
     def test_invalid_prefix_value_skips_projection(self):
         """Unknown ``jira_action_status`` value falls through to notes-only."""
-        with self._ok() as gr, self._id():
+        with self._gw() as gr, self._id():
             task.task_update_notes({"task": "task-1-1", "notes": "jira_action_status=bogus\nrest"})
-        assert gr.call_count == 1
+        assert gr.call_count == 2
 
 
 class TestProjectNotesPrefix:
@@ -609,7 +738,7 @@ class TestTaskMarkGap:
                 task.task_mark_gap({"task": "task-1-1", "description": "x"})
         assert "Sender role" in str(exc.value)
 
-    def test_phase_out_of_range(self):
+    def test_empty_contract_task_not_found(self):
         responses = [{"success": True, "data": {"phases": []}}]
         with (
             patch(
@@ -621,9 +750,9 @@ class TestTaskMarkGap:
         ):
             with pytest.raises(HandlerError) as exc:
                 task.task_mark_gap({"task": "task-3-1", "description": "x"})
-        assert "out of range" in str(exc.value)
+        assert "not found" in str(exc.value)
 
-    def test_task_out_of_range(self):
+    def test_unknown_task_id_not_found(self):
         responses = [
             {
                 "success": True,
@@ -640,7 +769,35 @@ class TestTaskMarkGap:
         ):
             with pytest.raises(HandlerError) as exc:
                 task.task_mark_gap({"task": "task-1-7", "description": "x"})
-        assert "out of range" in str(exc.value)
+        assert "not found" in str(exc.value)
+
+    def test_rescoped_slice_resolves_by_id_not_suffix(self):
+        """#3527 regression: the gap write targets the task's actual
+        list position, not the position implied by its numeric suffix."""
+        contract = {
+            "slices": [
+                {
+                    "id": "slice-1",
+                    "tasks": [{"id": "task-1-5", "gaps": []}, {"id": "task-1-6", "gaps": []}],
+                }
+            ]
+        }
+        responses = [
+            {"success": True, "data": contract},
+            {"success": True, "data": {}},
+        ]
+        with (
+            patch(
+                "egg_agent_tools.handlers.task.gateway_request",
+                side_effect=lambda *a, **kw: responses.pop(0),
+            ) as gr,
+            self._id(),
+            self._role("tester"),
+        ):
+            resp = task.task_mark_gap({"task": "task-1-6", "description": "x"})
+        assert resp["ok"] is True
+        data = gr.call_args_list[1].kwargs["data"]
+        assert data["field_path"] == "phases.0.tasks.1.gaps.0"
 
     def test_contract_fetch_failure_raises_gateway_error(self):
         with (

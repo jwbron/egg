@@ -399,6 +399,18 @@ class RedisMessageStore:
                 return False
             return True
 
+        # Capped tail read (#3548): a non-blocking, cursor-less read is a
+        # "recent messages" query (operator views, the snapshot's
+        # recent_messages, consensus inference, tracker reconstruction).
+        # XRANGE from ``0-0`` with a count cap returns the OLDEST ``count``
+        # entries, so once the stream outgrows the cap these callers saw a
+        # frozen head-of-stream window and concluded the bus was dead — the
+        # #3548 incident's "no CONSENSUS_ACK ever appears on the bus"
+        # misdiagnosis. Read the NEWEST entries instead (XREVRANGE, restored
+        # to chronological order). Cursor / timestamp / from_tip / blocking
+        # reads keep forward semantics — their start id bounds the window.
+        tail_read = since_id is None and since is None and not from_tip and wait <= 0
+
         def _read_once(
             read_start_id: str, block_ms: int | None
         ) -> tuple[list[Message], str | None]:
@@ -411,14 +423,22 @@ class RedisMessageStore:
                         block=block_ms,
                     )
                 else:
-                    # Non-blocking read — XRANGE for everything after
-                    # read_start_id. Exclusive start when since_id is set.
-                    exclusive_start = (
-                        self._increment_stream_id(read_start_id)
-                        if since_id and read_start_id != "0-0"
-                        else read_start_id
-                    )
-                    result_entries = self._redis.xrange(key, min=exclusive_start, count=limit * 3)
+                    if tail_read:
+                        # Newest ``limit * 3`` entries, oldest→newest so the
+                        # downstream filters and ``[-limit:]`` truncation keep
+                        # working unchanged.
+                        result_entries = list(reversed(self._redis.xrevrange(key, count=limit * 3)))
+                    else:
+                        # Non-blocking read — XRANGE for everything after
+                        # read_start_id. Exclusive start when since_id is set.
+                        exclusive_start = (
+                            self._increment_stream_id(read_start_id)
+                            if since_id and read_start_id != "0-0"
+                            else read_start_id
+                        )
+                        result_entries = self._redis.xrange(
+                            key, min=exclusive_start, count=limit * 3
+                        )
                     result = (
                         [
                             (

@@ -558,6 +558,47 @@ class TestDiscoverRepoPaths:
 
         assert discover_repo_paths(tmp_path) == []
 
+    def test_skips_foreign_worktree(self, tmp_path):
+        """A host-created worktree dropped into the repos dir is skipped.
+
+        Its ``.git`` file's ``gitdir:`` pointer targets a host-view path
+        outside the repos dir that does not exist in the pod; treating it
+        as an egg-managed repo crashed every pipeline lookup (#3545).
+        """
+        from state_store import discover_repo_paths
+
+        (tmp_path / "egg" / ".git").mkdir(parents=True)
+        foreign = tmp_path / "actions-slice-10"
+        foreign.mkdir()
+        (foreign / ".git").write_text(
+            "gitdir: /home/jwies/khan/actions/.git/worktrees/actions-slice-10\n"
+        )
+
+        assert discover_repo_paths(tmp_path) == [tmp_path / "egg"]
+
+    def test_keeps_worktree_pointing_inside_base(self, tmp_path):
+        """A worktree whose gitdir resolves under base_path is kept."""
+        from state_store import discover_repo_paths
+
+        main = tmp_path / "egg"
+        admin = main / ".git" / "worktrees" / "wt"
+        admin.mkdir(parents=True)
+        wt = tmp_path / "wt"
+        wt.mkdir()
+        (wt / ".git").write_text(f"gitdir: {admin}\n")
+
+        assert discover_repo_paths(tmp_path) == [main, wt]
+
+    def test_skips_unparseable_git_file(self, tmp_path):
+        """A ``.git`` file without a gitdir: pointer is not a repo."""
+        from state_store import discover_repo_paths
+
+        child = tmp_path / "junk"
+        child.mkdir()
+        (child / ".git").write_text("not a pointer\n")
+
+        assert discover_repo_paths(tmp_path) == []
+
 
 class TestGenerateCommitMessage:
     """Tests for commit message generation."""

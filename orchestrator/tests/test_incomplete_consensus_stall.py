@@ -297,6 +297,7 @@ class TestIncompleteConsensusStallCheck:
         mock_msg.message_type = "CONSENSUS_CONFIRMED"
         mock_msg.from_role = "coder"
         mock_msg.metadata = {}
+        mock_msg.phase = "implement"
 
         mock_store = MagicMock()
         mock_store.get_messages.return_value = [mock_msg]
@@ -324,6 +325,57 @@ class TestIncompleteConsensusStallCheck:
 
         assert result.status == HealthStatus.DEGRADED
         assert "documenter" in result.details["blocking_agents"]
+
+    def test_prior_phase_confirmations_still_block(self):
+        """A confirmation from an earlier phase does not clear a role (#3542).
+
+        Refine/plan/implement share the default review graph, so a coder
+        confirmation left over from the plan phase would otherwise hide
+        the coder from the implement phase's blocking set.
+        """
+        pipeline = _make_concurrent_pipeline()
+        ctx = _make_context(pipeline)
+        check = _make_check(stall_tick_threshold=2)
+
+        mock_ce = MagicMock()
+        mock_ce.is_concurrent_execution.return_value = True
+
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = None
+
+        # Coder confirmed, but during the *plan* phase, not implement.
+        mock_msg = MagicMock()
+        mock_msg.message_type = "CONSENSUS_CONFIRMED"
+        mock_msg.from_role = "coder"
+        mock_msg.metadata = {}
+        mock_msg.phase = "plan"
+
+        mock_store = MagicMock()
+        mock_store.get_messages.return_value = [mock_msg]
+
+        mock_ms = MagicMock()
+        mock_ms.get_message_store.return_value = mock_store
+
+        mock_graph = MagicMock()
+        mock_graph.all_roles.return_value = {"coder", "documenter"}
+
+        mock_rg = MagicMock()
+        mock_rg.get_review_graph_for_phase.return_value = mock_graph
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "concurrent_executor": mock_ce,
+                "peer_consensus": mock_pc,
+                "message_store": mock_ms,
+                "review_graph": mock_rg,
+            },
+        ):
+            for _ in range(2):
+                result = check.run(ctx)
+
+        assert result.status == HealthStatus.DEGRADED
+        assert result.details["blocking_agents"] == ["coder", "documenter"]
 
     def test_resets_after_consensus_resolves(self):
         """Counter resets when blocking agents are cleared."""
