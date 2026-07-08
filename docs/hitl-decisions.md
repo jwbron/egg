@@ -407,17 +407,40 @@ proposal `attestation` carries exactly one of:
   registered this phase, or
 - `no_decisions_rationale: "<why>"` — the **explicit empty ledger**: the
   phase deliberately raises no operator decisions, recorded as a claim
-  rather than an omission.
+  rather than an omission. Requires `candidates_considered` (#3526, below).
+
+The explicit-none form must additionally carry **`candidates_considered`**
+(#3526): at least one `{question, disposition, why}` entry per open choice
+the producer weighed and dispositioned away, with `disposition` one of:
+
+- `not_operator_grade`: a design call the planner/implementer owns;
+- `deferred_to_plan`: potentially operator-grade, better asked once the
+  plan phase has made the design concrete. **Deferral is a handoff, not a
+  disappearance**: the orchestrator injects refine's `deferred_to_plan`
+  candidates into the plan-phase prompts as pre-seeded candidates the
+  planner must register or explicitly disposition, and a **plan-phase**
+  attestation may not use `deferred_to_plan` at all (plan is the last
+  decision surface).
+
+A single free-form rationale paragraph proved trivially satisfiable; #3526's
+backfill showed refine-surfaced decisions collapsing from ~8 per pipeline to
+~0 within weeks of the rationale form landing, with deferrals to plan never
+materializing. So the empty ledger must now name what was considered.
+`candidates_considered` may also accompany `decisions_registered` (some
+choices registered, others dispositioned away).
 
 CLI: `egg-orch consensus propose --decisions-registered cq-1 cq-2 …` or
-`--no-decisions-rationale "<why>"`. MCP: the `attestation` argument of
-`mcp__brc__propose`.
+`--no-decisions-rationale "<why>" --considered
+"<disposition> :: <question> :: <why>" …` (repeatable). MCP: the
+`attestation` argument of `mcp__brc__propose`.
 
 The orchestrator **hard-rejects** the propose (HTTP 400, tracker untouched)
 when:
 
-- the attestation is missing or malformed (neither field, both fields, or a
-  non-`cq-N` id) — `attestation_schemas.DecisionSurfacingAttestation` and
+- the attestation is missing or malformed (neither field, both fields, a
+  non-`cq-N` id, an explicit-none with no candidates, a malformed candidate,
+  or a plan-phase `deferred_to_plan` disposition);
+  `attestation_schemas.DecisionSurfacingAttestation` and
   `routes/signals/_validation.py::_validate_decision_attestation`, both built
   on the shared `egg_contracts.decisions.decision_attestation_errors` shape
   check;
@@ -437,8 +460,12 @@ trustworthy as *deliberately none*.
 At the phase gate, the orchestrator summarizes the ledger on the `phase_gate`
 question so the operator can read it without a `get_contract` round-trip:
 "N decision(s) registered this phase (cq-…), M resolved" or "explicitly none —
-&lt;role&gt; attested: &lt;rationale&gt;" (recovered from the phase's
-`CONSENSUS_PROPOSE` messages).
+&lt;role&gt; attested: &lt;rationale&gt; (K candidate(s) considered)"
+(recovered from the phase's `CONSENSUS_PROPOSE` messages). The same summary is
+persisted as a structured snapshot on `PhaseExecution.decision_ledger`
+(#3526) (registered ids, explicit-none flag, considered candidates) so
+decisions-surfaced-per-phase is queryable from pipeline state over time and a
+future decline in surfacing shows up in data rather than operator feel.
 
 When the phase reaches the gate with **zero registered decisions and no
 explicit-none attestation** — possible only on paths that bypass consensus
@@ -459,7 +486,9 @@ convergence pressure can bypass the whole register → bridge → resolve chain.
 So the gate does not fold it into the `phase_gate` question as prose: when a
 refine/plan phase reaches its gate with an explicit-none attestation standing
 in for a ledger, the orchestrator first surfaces a dedicated **confirmable
-`choice` decision** quoting the role and rationale ("the &lt;role&gt; attests
+`choice` decision** quoting the role, the rationale, and the enumerated
+`candidates_considered` with their dispositions (#3526), so the operator
+confirms specific dispositions, not a paragraph ("the &lt;role&gt; attests
 this phase deliberately raises no operator decisions — confirm?").
 
 - **Confirm** (the bare keyword or the full option label — anything else is
@@ -945,44 +974,44 @@ shared decision in place.
 
 ### Executable Arms-Parked Retry (#3548)
 
-The no-op-park sibling of the arms-exhausted retry above. A no-op-parked key
-(#3425) self-releases — but only for one probe spawn per fingerprint change
-or per the park retry heartbeat — so a round that is one verdict away from
-converging can still sit silent, `pending_decisions` empty, for the full
-heartbeat window when *every* spawn arm the slice needs is parked (or a mix
-of parked and exhausted). See [Agent Recovery: All-arms-parked escalation and
-in-band reset](reference/agent-recovery.md#all-arms-parked-escalation-and-in-band-reset-3548)
-for the detection mechanics.
+A no-op-parked dedupe key (#3425) self-releases — but only for a single probe
+spawn per fingerprint change or per `SUPERVISION_NOOP_PARK_RETRY_SECONDS`
+heartbeat — so when *every* spawn arm a slice needs is blocked on a
+no-op-park (or exhausted) key at once, a round that is one verdict away from
+converging can sit silently for the full heartbeat window with
+`pending_decisions` empty: the no-op-park sibling of the arms-exhausted wedge
+above. See [Agent Recovery: All-arms-parked
+escalation](reference/agent-recovery.md#all-arms-parked-escalation-3548) for
+the detection mechanics (`_check_arms_parked`, `event_loop/_loop.py`).
 
-The event loop detects this wedge and persists an `event_arms_parked` HITL
-decision (deduped the same way as the exhausted decision) with three options:
+The event loop persists an `event_arms_parked` HITL decision (deduped the
+same way as `event_arms_exhausted`) with three options:
 
 - **Retry arms (release no-op parks)** — clears the no-op-parked keys on the
-  pipeline's live event loop(s) in-band via `event_loop.get_live_event_loops`,
-  so the blocked arms respawn on the next poll with nothing torn down. If the
-  agents keep no-oping, the arms re-park and the decision re-fires. Reports an
-  error instead of resolving silently when no live loop exists (e.g. after an
-  orchestrator restart) — resolve with "Restart phase" instead.
-- **Restart phase** — the same `_execute_restart_phase` executor used by the
-  arms-exhausted and consensus-timeout resolutions.
-- **Abort (manual — recorded only)** — shares its label with the
-  arms-exhausted abort option so operators see one vocabulary; no action is
-  taken, and the payload points at `cancel_task` as the manual follow-up.
+  pipeline's live event loop(s) in-band (`event_loop.get_live_event_loops`),
+  so the blocked arms respawn on the next poll instead of waiting out the
+  park retry heartbeat. If the agents keep no-oping, the arms re-park and the
+  decision re-fires. Reports an error instead of resolving silently when no
+  live loop exists for the pipeline — resolve with "Restart phase" instead in
+  that case.
+- **Restart phase** — the same `_execute_restart_phase` executor shared by
+  the consensus-timeout and arms-exhausted retry dispatches.
+- **Abort (manual — recorded only)** — no action is taken; the payload points
+  at `cancel_task` as the manual follow-up.
 
 `_maybe_dispatch_arms_parked_resolution` (`orchestrator/routes/decisions/_handlers.py`)
-keys the dispatch on `ARMS_PARKED_HITL_CONTEXT = "event_arms_parked"`
-(`orchestrator/concurrent_executor.py`). If the wedge clears by another route
-before the operator resolves the decision, the loop auto-withdraws the
-now-stale decision (`_withdraw_arms_parked_hitl` /
-`_withdraw_arms_parked_decisions`), guarded against the multi-slice case the
-same way as the exhausted-arms withdrawal.
+keys the dispatch on `ARMS_PARKED_HITL_CONTEXT = "event_arms_parked"` (in
+`orchestrator/concurrent_executor.py`). If the stall clears by another route
+before the operator resolves the decision, the event loop auto-withdraws it
+(`_withdraw_arms_parked_decisions` in `routes/pipelines/_decisions.py`), with
+the same multi-slice guard as the arms-exhausted withdrawal.
 
 ## Related Files
 
 - `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches all pending decisions with `draft_content`; enriches `phase_gate` decisions additionally with `completed_agents_summary` and `reviewer_feedback`
 - `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, `phase`, and `content_changed` fields; `content_changed` is set by the orchestrator on re-run phase gates to indicate whether the draft changed since the previous resolved decision (literal string comparison; `None` on first decision, `True`/`False` on subsequent ones). Also contains `OperatorDirective` (a single timestamped operator directive stored on kickback) and `IterationSummary` (BRC verdict snapshot for a kicked-back iteration), both accumulated on `PhaseExecution.operator_directives` / `PhaseExecution.iteration_history`.
 - `orchestrator/decision_queue.py` — Decision queue handling typed decisions
-- `orchestrator/routes/decisions/` — Decision API endpoints (create, list, resolve), the `POST .../feedback/answer` route for contract-scoped feedback (`answer_feedback` MCP tool; #3007), the contract-decision fallback in `resolve_decision` that writes pre-gate `cq-N` resolutions directly to the contract when the id is not in the queue (#3071), the executable task-completion dispatch (`_maybe_complete_task_from_resolution`) that auto-executes `complete_task_as_operator` when the resolution matches "Mark task `<id>` complete" (#3124), orphaned-driver revival on `phase_gate` resolution: when no live `_run_pipeline` driver thread owns an `AWAITING_HUMAN` pipeline (e.g. after an orchestrator restart), the resolve path re-launches the driver via `start_pipeline`'s recovery branch so the resolution self-heals rather than hanging silently; an `OVERSEER_ALERT` is broadcast on the bus when the orphaned park is detected (before the `start_pipeline` re-launch, so it fires even if that re-launch returns non-200 or raises) (#3233), and the first-principles redirect accept-path (`_maybe_apply_first_principles_redirect`, in `_handlers.py` and re-exported through the package barrel `__init__.py`): when the operator resolves a `first_principles_reviewer` refine-phase decision with "Adopt the redirect", this handler rewrites the pipeline seed via `rewrite_task_description_as_operator` and re-runs the refine phase; "Don't build this" cancels the pipeline; "Proceed as-is" is a no-op (#3385); the consensus-timeout retry dispatch (`_maybe_dispatch_consensus_timeout_resolution`, in `_handlers.py`) that auto-executes `restart_phase` when a `consensus_timeout_incomplete` decision is resolved with "Retry phase" (#3421); and the arms-exhausted retry dispatch (`_maybe_dispatch_arms_exhausted_resolution`, sharing the `_execute_restart_phase` helper with the consensus-timeout path) that clears exhausted spawn budgets in-band, restarts the phase, or records an abort when an `event_arms_exhausted` decision is resolved (#3496); and its no-op-park sibling, the arms-parked retry dispatch (`_maybe_dispatch_arms_parked_resolution`) that clears no-op-parked keys in-band, restarts the phase, or records an abort when an `event_arms_parked` decision is resolved (#3548)
+- `orchestrator/routes/decisions/` — Decision API endpoints (create, list, resolve), the `POST .../feedback/answer` route for contract-scoped feedback (`answer_feedback` MCP tool; #3007), the contract-decision fallback in `resolve_decision` that writes pre-gate `cq-N` resolutions directly to the contract when the id is not in the queue (#3071), the executable task-completion dispatch (`_maybe_complete_task_from_resolution`) that auto-executes `complete_task_as_operator` when the resolution matches "Mark task `<id>` complete" (#3124), orphaned-driver revival on `phase_gate` resolution: when no live `_run_pipeline` driver thread owns an `AWAITING_HUMAN` pipeline (e.g. after an orchestrator restart), the resolve path re-launches the driver via `start_pipeline`'s recovery branch so the resolution self-heals rather than hanging silently; an `OVERSEER_ALERT` is broadcast on the bus when the orphaned park is detected (before the `start_pipeline` re-launch, so it fires even if that re-launch returns non-200 or raises) (#3233), and the first-principles redirect accept-path (`_maybe_apply_first_principles_redirect`, in `_handlers.py` and re-exported through the package barrel `__init__.py`): when the operator resolves a `first_principles_reviewer` refine-phase decision with "Adopt the redirect", this handler rewrites the pipeline seed via `rewrite_task_description_as_operator` and re-runs the refine phase; "Don't build this" cancels the pipeline; "Proceed as-is" is a no-op (#3385); the consensus-timeout retry dispatch (`_maybe_dispatch_consensus_timeout_resolution`, in `_handlers.py`) that auto-executes `restart_phase` when a `consensus_timeout_incomplete` decision is resolved with "Retry phase" (#3421); and the arms-exhausted retry dispatch (`_maybe_dispatch_arms_exhausted_resolution`, sharing the `_execute_restart_phase` helper with the consensus-timeout path) that clears exhausted spawn budgets in-band, restarts the phase, or records an abort when an `event_arms_exhausted` decision is resolved (#3496); its no-op-park sibling (`_maybe_dispatch_arms_parked_resolution`) that releases no-op-parked keys in-band, restarts the phase, or records an abort when an `event_arms_parked` decision is resolved (#3548)
 - `orchestrator/operator_actions.py` — Operator-grade contract mutations; `complete_task_as_operator` applies task-status mutations as `Role.HUMAN`, bypassing the implementer/reviewer field-ownership restriction (#3124); `rewrite_task_description_as_operator` rewrites `contract.task_description` as `Role.HUMAN` for the first-principles redirect accept-path (#3385); `add_task_as_operator` appends a task to a slice as `Role.HUMAN` for the executable `adds_task` decision option and the direct `POST /api/v1/contracts/<id>/tasks` route (#3428)
 - `orchestrator/mcp_tools.py` — `answer_feedback` MCP tool (`_handle_answer_feedback`) for host-side answering of pre-proposal contract feedback
 - `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing; `persist_contract_statefiles` commits and pushes a contract decision write to the work branch at write time so a phase-(re)start worktree reset cannot revert it (#3427)

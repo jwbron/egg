@@ -273,6 +273,17 @@ class PhaseExecution(BaseModel):
             "source of truth while the phase is running. See issue #2205."
         ),
     )
+    decision_ledger: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Decision-ledger summary captured at the phase's HITL gate "
+            "(#3526): registered cq-N ids, whether the phase attested an "
+            "explicit-none ledger, and the considered-candidate entries. "
+            "Persisted so decisions-surfaced-per-phase is queryable from "
+            "pipeline state over time; a behavioral decline in decision "
+            "surfacing must be visible in data, not operator feel."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod

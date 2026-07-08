@@ -7,6 +7,7 @@ test-patched globals are reached via ``_pkg`` so
 
 from __future__ import annotations
 
+import driver_heartbeat
 import routes.pipelines as _pkg  # noqa: E402,F401
 
 
@@ -323,6 +324,7 @@ def _run_pipeline(
             )
 
         while True:
+            driver_heartbeat.record_tick(pipeline_id)  # #3540 liveness tick
             try:
                 pipeline = store.load_pipeline(pipeline_id)
             except Exception:

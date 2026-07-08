@@ -129,6 +129,12 @@ class KubernetesMonitor:
         self._reconciliation_interval: int = 30
         self._clean_exit_skipped: set[str] = set()
 
+        # #3540 driver-liveness escalation throttle: monotonic timestamp of
+        # the last alert per pipeline, so a persistently wedged driver
+        # re-alerts on a bounded cadence instead of every 30s sweep.
+        self._driver_liveness_alerted: dict[str, float] = {}
+        self._driver_liveness_realert_seconds: float = 3600.0
+
     def add_handler(self, handler: EventHandler) -> None:
         """Add an event handler.
 
@@ -241,6 +247,7 @@ class KubernetesMonitor:
                     try:
                         pipeline = store.load_pipeline(pid)
                         if pipeline.status.value != "running":
+                            self._prune_driver_liveness_state(pid, runner)
                             continue
                         ctx = PipelineHealthContext(
                             pipeline=pipeline,
@@ -251,6 +258,7 @@ class KubernetesMonitor:
                         )
                         results = runner.run(ctx, HealthTrigger.RUNTIME_TICK)
                         self._handle_consensus_stall_recovery(results, pipeline, store)
+                        self._handle_driver_liveness_results(results, pipeline, store)
                     except Exception as e:
                         logger.debug(
                             "RUNTIME_TICK check failed for pipeline",
@@ -887,6 +895,162 @@ class KubernetesMonitor:
                 )
             return
 
+    def _prune_driver_liveness_state(self, pipeline_id: str, runner: Any) -> None:
+        """Drop per-pipeline driver-liveness state for a terminal pipeline.
+
+        The heartbeat stamps (``driver_heartbeat``), the re-alert throttle
+        (``_driver_liveness_alerted``), and the check's first-observed clocks
+        are all keyed by pipeline id. Terminal pipelines are skipped before
+        the check runs, so its own ``_clear_observed`` never fires for them;
+        without this each of the three would grow one entry per pipeline id
+        for the orchestrator's process lifetime — a slow leak (#3540
+        re-review, non-blocking #1). Idempotent and safe to call every sweep.
+        """
+        try:
+            import driver_heartbeat
+
+            driver_heartbeat.clear(pipeline_id)
+        except Exception:
+            pass
+        self._driver_liveness_alerted.pop(pipeline_id, None)
+        try:
+            for check in getattr(runner, "checks", []):
+                if getattr(check, "name", "") == "driver_liveness":
+                    check.discard_pipeline(pipeline_id)
+        except Exception:
+            pass
+
+    def _handle_driver_liveness_results(
+        self,
+        results: list[Any],
+        pipeline: Any,
+        store: Any,
+    ) -> None:
+        """Escalate a DEGRADED driver-liveness finding (#3540).
+
+        The check is purely diagnostic; this handler makes the wedge
+        visible on every surface the operator actually watches:
+
+        1. An ERROR log (the incident produced zero error/warning lines).
+        2. An OVERSEER_ALERT broadcast on the message bus.
+        3. A pending HITL decision ("Retry phase" / dismiss), so the wedge
+           lands in ``pending_decisions`` (the field that stayed empty for
+           11 hours in #3540), and "Retry phase" is executed in-process on
+           resolve via the #3421 restart-phase dispatch.
+
+        Re-alerts are throttled per pipeline, and no new decision is
+        created while a driver-liveness decision is still pending.
+        """
+        from health_checks.types import HealthStatus
+
+        for result in results:
+            if result.check_name != "driver_liveness":
+                continue
+            if result.status != HealthStatus.DEGRADED:
+                continue
+
+            details = result.details or {}
+            pipeline_id = details.get("pipeline_id") or pipeline.id
+            mode = str(details.get("mode", "unknown"))
+
+            now = time.monotonic()
+            # ``time.monotonic()`` has an arbitrary zero point (boot time),
+            # so 0.0 is not a safe "never alerted" sentinel: on a host with
+            # uptime < realert_seconds a first alert would be throttled
+            # (``now - 0.0 < realert_seconds``). Use ``None`` for "unseen".
+            last = self._driver_liveness_alerted.get(pipeline_id)
+            if last is not None and now - last < self._driver_liveness_realert_seconds:
+                return
+
+            try:
+                from health_checks.tier1.driver_liveness import (
+                    DRIVER_LIVENESS_HITL_CONTEXT,
+                    DRIVER_LIVENESS_HITL_OPTIONS,
+                )
+            except ImportError:
+                return
+
+            already_pending = any(
+                getattr(d, "context", "") == DRIVER_LIVENESS_HITL_CONTEXT
+                for d in pipeline.get_pending_decisions()
+            )
+            if already_pending:
+                self._driver_liveness_alerted[pipeline_id] = now
+                return
+
+            logger.error(
+                "OVERSEER_ALERT driver_liveness_stall: pipeline driver is "
+                "dead, hung, or making no progress (#3540)",
+                pipeline_id=pipeline_id,
+                mode=mode,
+                phase=details.get("phase"),
+                reasoning=result.reasoning,
+            )
+            self._broadcast_driver_liveness_alert(pipeline_id, mode, result, details)
+
+            try:
+                from routes.pipelines import _persist_hitl_decision
+
+                phase = pipeline.current_phase
+                question = (
+                    f"Driver liveness alert ({mode}): {result.reasoning} "
+                    "The pipeline reads RUNNING but nothing is driving it; "
+                    "without intervention it will sit here indefinitely. "
+                    "'Retry phase' tears down and re-runs the current phase "
+                    "in-process. Dismiss if you can see legitimate progress "
+                    "(the alert re-fires if the stall persists); use "
+                    "cancel_task to stop the pipeline instead."
+                )
+                _persist_hitl_decision(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    question=question,
+                    options=list(DRIVER_LIVENESS_HITL_OPTIONS),
+                    phase=phase,
+                    context=DRIVER_LIVENESS_HITL_CONTEXT,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to persist driver-liveness HITL decision "
+                    "(alert was still logged and broadcast)",
+                    pipeline_id=pipeline_id,
+                    exc_info=True,
+                )
+
+            self._driver_liveness_alerted[pipeline_id] = now
+            return
+
+    @staticmethod
+    def _broadcast_driver_liveness_alert(
+        pipeline_id: str,
+        mode: str,
+        result: Any,
+        details: dict[str, Any],
+    ) -> None:
+        """Best-effort OVERSEER_ALERT broadcast for a driver-liveness finding."""
+        try:
+            from message_store import Message, MessageType, get_message_store
+
+            get_message_store().add_message(
+                Message(
+                    pipeline_id=pipeline_id,
+                    from_role="orchestrator",
+                    to_role="all",
+                    message_type=MessageType.OVERSEER_ALERT,
+                    subject=f"driver_liveness_{mode}: orchestrator [high]",
+                    body=result.reasoning,
+                    metadata={"reason": "driver_liveness_stall", "mode": mode},
+                    phase=details.get("phase"),
+                )
+            )
+        except Exception as alert_err:  # noqa: BLE001
+            logger.warning(
+                "Failed to broadcast driver-liveness alert (non-fatal)",
+                pipeline_id=pipeline_id,
+                error=str(alert_err),
+            )
+
     @staticmethod
     def _attempt_tracker_reconstruction(pipeline_id: str | None, pipeline: Any) -> bool:
         """Try to reconstruct the consensus tracker from messages.
@@ -904,10 +1068,20 @@ class KubernetesMonitor:
         success here is what stalled pipeline ``issue-1748`` (see #1749).
         Also returns False when ``tracker.evaluate()`` raises, treating
         the tracker as broken.
+
+        Slice-DAG phases register their trackers under
+        ``{pipeline_id}/{slice_id}``, invisible to the bare-id lookup
+        below (#3542). A live slice tracker means a slice consensus
+        round is in flight and the slice executor is driving it;
+        pipeline-level reconstruction would only build a cross-slice
+        tracker nothing consumes, and Track 2 would kill the live round
+        (the issue-3523 14-hour stall). So live slice trackers report
+        "handled" and aggressive recovery never fires over them.
         """
         try:
             from peer_consensus import (  # type: ignore[import-untyped]
                 get_peer_consensus_tracker,
+                get_slice_trackers,
                 reconstruct_tracker_from_messages,
             )
             from review_graph import get_review_graph_for_phase  # type: ignore[import-untyped]
@@ -928,10 +1102,23 @@ class KubernetesMonitor:
                 # will keep watching it; nothing for Track 2 to do.
                 return True
 
+            slice_trackers = get_slice_trackers(pipeline_id)
+            if slice_trackers:
+                logger.info(
+                    "Live slice-scoped consensus trackers found; slice "
+                    "executor is driving; skipping pipeline-level recovery",
+                    pipeline_id=pipeline_id,
+                    slice_ids=sorted(slice_trackers),
+                )
+                return True
+
             current_phase = pipeline.current_phase
             phase_value = current_phase.value
             graph = get_review_graph_for_phase(phase_value, repo=pipeline.repo)
-            reconstructed = reconstruct_tracker_from_messages(pipeline_id, graph)
+            # Phase-scoped replay: without it, reconstruction folds an
+            # earlier phase's consensus round (refine/plan share the same
+            # review graph) into the current phase's tracker (#3542).
+            reconstructed = reconstruct_tracker_from_messages(pipeline_id, graph, phase=phase_value)
             return reconstructed is not None
         except Exception:
             logger.debug(

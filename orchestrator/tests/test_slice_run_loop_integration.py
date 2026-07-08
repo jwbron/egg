@@ -2766,3 +2766,108 @@ class TestSliceIntegrationBranchQualifierPreserved:
             "for the same issue don't collide in the slice namespace; got "
             f"{captured.get('integration_branch')!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# _start_stacked_pr_reconciler — per-tick pipeline-status guard (#3540)
+# ---------------------------------------------------------------------------
+
+
+class TestStackedPrReconcilerStatusGuard:
+    """The daemon must self-terminate when the pipeline is terminal or
+    deleted, independent of the launcher's ``finally``-driven stop_event
+    (#3540: a wedged driver never reaches its finally block, leaving the
+    reconciler registering gateway sessions every 30s for hours)."""
+
+    def _store_with_status(self, status: PipelineStatus) -> MagicMock:
+        store = MagicMock()
+        store.load_pipeline.return_value = MagicMock(status=status)
+        return store
+
+    def test_terminal_status_stops_daemon_without_stop_event(self) -> None:
+        pipeline = _make_pipeline()
+        thread, stop_event = _start_stacked_pr_reconciler(
+            pipeline.id,
+            lambda: None,
+            MagicMock(),
+            pipeline,
+            interval_seconds=0.02,
+            store=self._store_with_status(PipelineStatus.CANCELLED),
+        )
+        try:
+            thread.join(timeout=2.0)
+            assert not thread.is_alive(), (
+                "reconciler must exit on its own once the pipeline is terminal"
+            )
+        finally:
+            stop_event.set()
+            thread.join(timeout=2.0)
+
+    def test_pipeline_not_found_stops_daemon(self) -> None:
+        from state_store import PipelineNotFoundError
+
+        pipeline = _make_pipeline()
+        store = MagicMock()
+        store.load_pipeline.side_effect = PipelineNotFoundError("gone")
+        thread, stop_event = _start_stacked_pr_reconciler(
+            pipeline.id,
+            lambda: None,
+            MagicMock(),
+            pipeline,
+            interval_seconds=0.02,
+            store=store,
+        )
+        try:
+            thread.join(timeout=2.0)
+            assert not thread.is_alive(), "reconciler must exit when the pipeline is deleted"
+        finally:
+            stop_event.set()
+            thread.join(timeout=2.0)
+
+    def test_transient_store_error_keeps_daemon_running(self) -> None:
+        pipeline = _make_pipeline()
+        store = MagicMock()
+        store.load_pipeline.side_effect = RuntimeError("transient git read failure")
+        contract_loader = MagicMock(return_value=None)
+        thread, stop_event = _start_stacked_pr_reconciler(
+            pipeline.id,
+            contract_loader,
+            MagicMock(),
+            pipeline,
+            interval_seconds=0.02,
+            store=store,
+        )
+        try:
+            deadline = time.monotonic() + 1.5
+            while time.monotonic() < deadline:
+                if contract_loader.call_count >= 1:
+                    break
+                time.sleep(0.02)
+            assert thread.is_alive(), "a transient status-read failure must not stop the daemon"
+            assert contract_loader.call_count >= 1, "ticks must continue past the failed guard read"
+        finally:
+            stop_event.set()
+            thread.join(timeout=2.0)
+
+    def test_running_status_keeps_daemon_running(self) -> None:
+        pipeline = _make_pipeline()
+        contract_loader = MagicMock(return_value=None)
+        thread, stop_event = _start_stacked_pr_reconciler(
+            pipeline.id,
+            contract_loader,
+            MagicMock(),
+            pipeline,
+            interval_seconds=0.02,
+            store=self._store_with_status(PipelineStatus.RUNNING),
+        )
+        try:
+            deadline = time.monotonic() + 1.5
+            while time.monotonic() < deadline:
+                if contract_loader.call_count >= 1:
+                    break
+                time.sleep(0.02)
+            assert thread.is_alive()
+            assert contract_loader.call_count >= 1
+        finally:
+            stop_event.set()
+            thread.join(timeout=2.0)

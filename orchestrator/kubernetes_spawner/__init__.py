@@ -524,6 +524,10 @@ KubernetesSpawner.create_event_job_status_view = _events.create_event_job_status
 KubernetesSpawner.spawn_event_job = _events.spawn_event_job
 KubernetesSpawner.stop_agent_job = _jobs.stop_agent_job
 KubernetesSpawner.remove_agent_job = _jobs.remove_agent_job
+# Module-level (not a class method) so ``remove_agent_job`` reaches it via the
+# barrel; patchable as ``kubernetes_spawner._persist_job_logs_best_effort``
+# (#3547).
+_persist_job_logs_best_effort = _jobs._persist_job_logs_best_effort
 KubernetesSpawner.list_pipeline_jobs = _jobs.list_pipeline_jobs
 KubernetesSpawner.list_slice_jobs = _jobs.list_slice_jobs
 KubernetesSpawner.cleanup_pipeline = _jobs.cleanup_pipeline

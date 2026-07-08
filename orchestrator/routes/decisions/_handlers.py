@@ -706,6 +706,66 @@ def _maybe_dispatch_arms_parked_resolution(
 
 
 # ---------------------------------------------------------------------------
+# Driver-liveness HITL executable resolutions (#3540)
+# ---------------------------------------------------------------------------
+#
+# The kubernetes-monitor sweep escalates a dead/hung/no-progress
+# ``_run_pipeline`` driver as a persisted HITL decision (see
+# ``KubernetesMonitor._handle_driver_liveness_results``). Dispatch keys on
+# the decision's ``driver_liveness_stall`` context (imported lazily from
+# ``health_checks.tier1.driver_liveness``, its single source). "Retry phase"
+# reuses the shared restart-phase executor; the wedged/dead driver cannot
+# consume the resolution itself, so without this dispatch the resolution
+# would be the silent no-op this decision exists to prevent (#3421 class).
+
+
+def _maybe_dispatch_driver_liveness_resolution(
+    pipeline_id: str,
+    decision: Any,
+    resolution_label: str | None,
+) -> dict[str, Any] | None:
+    """Execute a driver-liveness HITL resolution (#3540).
+
+    - **Retry phase** → tear down and re-run the decision's phase
+      in-process (shared ``_execute_restart_phase`` executor). This also
+      replaces the wedged/dead driver thread: ``restart_phase`` bumps
+      ``run_epoch`` and spawns a fresh ``_run_pipeline`` driver.
+    - **Dismiss (recorded only)** → not automated; the alert re-fires on
+      the monitor's re-alert cadence if the stall persists.
+
+    Returns the executed-action payload, or ``None`` when the decision is
+    not a driver-liveness HITL (or the resolution is a free-form reply).
+    """
+    from health_checks.tier1.driver_liveness import (
+        DRIVER_LIVENESS_DISMISS_OPTION,
+        DRIVER_LIVENESS_HITL_CONTEXT,
+        DRIVER_LIVENESS_RETRY_OPTION,
+    )
+
+    if getattr(decision, "context", "") != DRIVER_LIVENESS_HITL_CONTEXT:
+        return None
+
+    label = (resolution_label or "").strip()
+
+    if label == DRIVER_LIVENESS_DISMISS_OPTION:
+        return {
+            "action": "driver_liveness_dismiss",
+            "success": True,
+            "note": (
+                "Recorded only; no automated action. The driver-liveness "
+                "alert re-fires if the stall persists; use cancel_task to "
+                "stop the pipeline, or resolve a future alert with "
+                "'Retry phase' to re-run the phase."
+            ),
+        }
+
+    if label != DRIVER_LIVENESS_RETRY_OPTION:
+        return None
+
+    return _execute_restart_phase(pipeline_id, decision, log_label="Driver-liveness 'Retry phase'")
+
+
+# ---------------------------------------------------------------------------
 # Executable adds_task option (#3428)
 # ---------------------------------------------------------------------------
 #
