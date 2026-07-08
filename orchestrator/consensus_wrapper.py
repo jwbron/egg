@@ -35,6 +35,14 @@ from typing import TYPE_CHECKING
 
 from egg_contracts.agent_roles import REVIEWER_CHECKOUT_ROLE_VALUES
 
+# ``evidence_prefix_mode`` is the S7 staged-flag resolver
+# (``EGG_REVIEW_EVIDENCE_PREFIX`` off/log/on, unknown => off) owned by the
+# evidence-gatherer feature module. The wrapper reads it to decide whether the
+# shared-evidence prefix is active and, in ``log`` mode, to record the measured
+# per-wave cache-hit rate + cost into the BRC artifacts. Plain top-level import
+# (no cycle: evidence_gatherer depends only on egg_logging + stdlib).
+from evidence_gatherer import evidence_prefix_mode
+
 # ``review_findings_mode`` is the S3 staged-flag resolver
 # (``EGG_REVIEW_FINDINGS_MODE`` off/log/on, unknown => off). S4's
 # per-finding tool-call cap RIDES that same flag rather than adding a
@@ -232,6 +240,113 @@ def tool_call_cap_log_record(
         "enforced": decision.enforced,
         "recorded": decision.recorded,
         "exempt": decision.exempt,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Shared-evidence prompt prefix — log-mode measurement (#3523 S7 / task-7-2)
+# ---------------------------------------------------------------------------
+#
+# Item 5's whole bet is cost: a shared, byte-identical prefix across a wave of
+# same-model reviewers turns most of each agent's ramp-up into cache reads
+# (~1/10 the price). "Measure actual cache-hit rate and per-wave cost in log
+# mode before enabling" is an EXPLICIT acceptance criterion, not an afterthought
+# — so the wrapper (the shared serial spine that builds every reviewer's spawn
+# command) owns a pure aggregator over the gateway/LiteLLM per-session cache
+# stats and a JSON record the caller writes into the BRC artifacts. The prompt
+# assembly itself is untouched in ``log`` mode (that is ``_criteria.py``'s
+# contract); this half only measures.
+#
+# The per-session stat dicts are exactly what ``config/litellm/cost_callback.py``
+# emits: each carries a ``session`` sub-dict (cumulative ``prompt_tokens`` /
+# ``cached_tokens`` / ``cache_write_tokens`` / ``cost``) and a top-level
+# ``cache_hit_rate_pct``. We accept either the whole line or a pre-reduced
+# per-session summary and read defensively.
+
+
+def _stat_get(record: dict[str, object], key: str) -> float:
+    """Read a numeric field from a cost-callback record's ``session`` or top level."""
+    session = record.get("session")
+    if isinstance(session, dict) and key in session:
+        raw = session.get(key)
+    else:
+        raw = record.get(key)
+    try:
+        return float(raw)  # type: ignore[arg-type]
+    except TypeError, ValueError:
+        return 0.0
+
+
+def aggregate_wave_cache_stats(session_records: list[dict[str, object]]) -> dict[str, object]:
+    """Roll up per-session LiteLLM cache stats into wave-level totals (pure).
+
+    ``session_records`` is one cost-callback summary per reviewer session in the
+    wave (the final cumulative line for each session). Returns the wave's total
+    prompt / cached / cache-write tokens, total cost, session count, and the
+    wave cache-hit rate (cached / prompt * 100, clamped to [0, 100]). Cost is
+    ``None`` when no session reported a known cost — never silently 0, so an
+    operator can tell "no cache benefit" from "cost not captured".
+    """
+    total_prompt = 0.0
+    total_cached = 0.0
+    total_cache_write = 0.0
+    total_cost = 0.0
+    cost_known = 0
+    for rec in session_records:
+        total_prompt += _stat_get(rec, "prompt_tokens")
+        total_cached += _stat_get(rec, "cached_tokens")
+        total_cache_write += _stat_get(rec, "cache_write_tokens")
+        cost = _stat_get(rec, "cost")
+        # Distinguish "cost 0.0 reported" from "cost absent": only count it as
+        # known when the record actually carried a cost field.
+        session = rec.get("session")
+        has_cost = (isinstance(session, dict) and session.get("cost") is not None) or (
+            rec.get("cost") is not None
+        )
+        if has_cost:
+            total_cost += cost
+            cost_known += 1
+
+    hit_rate: float | None = None
+    if total_prompt > 0:
+        hit_rate = round(min(total_cached * 100.0 / total_prompt, 100.0), 2)
+
+    return {
+        "sessions": len(session_records),
+        "prompt_tokens": int(total_prompt),
+        "cached_tokens": int(total_cached),
+        "cache_write_tokens": int(total_cache_write),
+        "cache_hit_rate_pct": hit_rate,
+        "per_wave_cost": total_cost if cost_known else None,
+        "cost_known_sessions": cost_known,
+    }
+
+
+def evidence_prefix_log_record(
+    *,
+    wave_roles: list[str] | None = None,
+    shared_prefix_bytes: int | None = None,
+    session_records: list[dict[str, object]] | None = None,
+    mode: str | None = None,
+) -> dict[str, object]:
+    """A JSON-serializable shared-evidence-prefix record for ``log`` mode (pure).
+
+    Mirrors ``tool_call_cap_log_record`` / ``verdict_log_record``: in ``log``
+    mode the caller writes this into the BRC artifacts so an operator can read
+    the measured wave cache-hit rate and per-wave cost — the go/no-go signal for
+    flipping ``EGG_REVIEW_EVIDENCE_PREFIX`` to ``on`` — before any prompt
+    assembly changes. ``mode`` defaults to the live flag resolution but is
+    injectable for tests. ``shared_prefix_bytes`` is the byte length of the
+    byte-identical prefix every sharing lens would carry (the cacheable span).
+    """
+    resolved_mode = mode if mode is not None else evidence_prefix_mode()
+    stats = aggregate_wave_cache_stats(session_records or [])
+    return {
+        "kind": "evidence_prefix",
+        "mode": resolved_mode,
+        "wave_roles": sorted(wave_roles) if wave_roles else [],
+        "shared_prefix_bytes": shared_prefix_bytes,
+        "cache_stats": stats,
     }
 
 

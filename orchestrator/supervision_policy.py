@@ -43,3 +43,15 @@ SUPERVISION_NOOP_STREAK_PARK = 3
 # through the contract-decision fingerprint; it bounds the burn to ~2 pods/h
 # instead of deadlocking the arm.
 SUPERVISION_NOOP_PARK_RETRY_SECONDS = 1800
+
+# NOTE (#3520): the "waited-on role is live" window that downgrades the no-op
+# park alert to low priority is NOT a constant here. It is read per-probe from
+# the pipeline's own heartbeat-timeout config so it stays in lockstep with the
+# health monitor's phase-aware staleness threshold — 120s in refine/plan/pr,
+# 600s in implement (``orchestrator_heartbeat_timeout_seconds`` /
+# ``orchestrator_implement_heartbeat_timeout_seconds``, mirrored by
+# ``health_monitor._get_heartbeat_threshold`` and
+# ``ConcurrentPhaseExecutor._role_waiting_status``). A flat constant here
+# previously hard-coded 600s for every phase, which called a producer "live"
+# for 5x the monitor's 120s window in the refine/plan phases this alert most
+# affects; keeping the value config-derived avoids that contradiction.

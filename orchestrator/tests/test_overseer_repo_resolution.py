@@ -8,13 +8,13 @@ collapsed with a positional ``repos[0]``; slice-3 replaced that with
 tests prove the *resolution is correct* — the primary entry is passed for a
 2-repo pipeline, and ``None`` (never ``IndexError``) for an empty/absent list.
 
-This lives in its own module rather than ``test_phase_scoped_overseer.py``
-deliberately: that module gates its whole import on
-``routes.pipelines._check_and_respawn_overseer``, a symbol that does not exist
-in ``routes/pipelines.py`` (on this branch or ``main``), so the module is
-skipped repo-wide and any assertion added there would *skip*, not execute. The
-resolution site under test — ``_spawn_overseer_agent`` — imports cleanly, so
-this module gates only on that and actually runs.
+This lived in its own module rather than ``test_phase_scoped_overseer.py``
+deliberately: that module gated its whole import on
+``routes.pipelines._check_and_respawn_overseer``, a symbol deleted by the
+#2270 slice-5 fold, so the module was skipped repo-wide and any assertion
+added there would *skip*, not execute (it has since been removed entirely,
+#3513). The resolution site under test — ``_spawn_overseer_agent`` — imports
+cleanly, so this module gates only on that and actually runs.
 """
 
 from __future__ import annotations

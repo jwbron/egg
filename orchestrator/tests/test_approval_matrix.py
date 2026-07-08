@@ -60,9 +60,7 @@ def blocking_finding(finding_id: str = "f-1", role: str = "reviewer_security") -
             "validator rejects it, escalating a healthy slice to HITL."
         ),
         confidence=FindingConfidence.HIGH,
-        anchor=FindingAnchor(
-            path="orchestrator/approval_matrix.py", line_start=40, line_end=52
-        ),
+        anchor=FindingAnchor(path="orchestrator/approval_matrix.py", line_start=40, line_end=52),
     )
 
 

@@ -30,11 +30,16 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import hashlib
+import logging
 import os
+import tempfile
 import threading
 from collections.abc import Generator
 from pathlib import Path
 from typing import Final
+
+logger = logging.getLogger(__name__)
 
 LOCK_FILENAME: Final = ".egg-cross-process.lock"
 
@@ -93,6 +98,23 @@ def lock_path_for_repo(repo_path: Path | str) -> Path:
     return _resolve_main_repo(Path(repo_path)) / ".git" / LOCK_FILENAME
 
 
+def _fallback_lock_path(key: str) -> Path:
+    """Lock path of last resort when ``<main_repo>/.git/`` is unreachable.
+
+    A worktree whose ``gitdir:`` pointer targets a path that does not
+    exist in this filesystem view (e.g. a host-created worktree dropped
+    into the shared repos mount, #3545) resolves to a main repo whose
+    ``.git/`` cannot be created; the ``mkdir`` lands on the read-only
+    container rootfs.  Such a repo is not egg-managed, so cross-pod lock
+    correctness is not needed; a per-container lock file in the temp dir,
+    keyed by the resolved repo path, still serialises every process and
+    thread inside this container and, critically, does not crash the
+    caller.
+    """
+    digest = hashlib.sha256(key.encode()).hexdigest()[:16]
+    return Path(tempfile.gettempdir()) / f"egg-cross-process-{digest}.lock"
+
+
 class _RepoLockState:
     __slots__ = ("rlock", "fd", "depth")
 
@@ -133,16 +155,28 @@ def _get_state(repo_path: Path) -> _RepoLockState:
         state = _per_repo_state.get(key)
         if state is None:
             lock_path = lock_path_for_repo(repo_path)
-            lock_path.parent.mkdir(parents=True, exist_ok=True)
             # O_CLOEXEC: prevent inheritance into child git subprocesses.
             # flock(2) locks are tied to the open file description and are
             # inherited across fork+exec; without close-on-exec, a stuck
             # git child would keep the parent's flock held until it exits.
-            fd = os.open(
-                str(lock_path),
-                os.O_CREAT | os.O_RDWR | os.O_CLOEXEC,
-                0o644,
-            )
+            flags = os.O_CREAT | os.O_RDWR | os.O_CLOEXEC
+            try:
+                lock_path.parent.mkdir(parents=True, exist_ok=True)
+                fd = os.open(str(lock_path), flags, 0o644)
+            except OSError as exc:
+                # The canonical location under the main repo's .git/ is
+                # unreachable; typically a foreign worktree whose gitdir
+                # pointer targets a path outside this container (#3545).
+                # Degrade to a per-container temp-dir lock instead of
+                # crashing every caller that touches this repo.
+                fallback = _fallback_lock_path(key)
+                logger.warning(
+                    "Cross-process lock path %s unreachable (%s); falling back to %s",
+                    lock_path,
+                    exc,
+                    fallback,
+                )
+                fd = os.open(str(fallback), flags, 0o644)
             state = _RepoLockState(fd=fd)
             _per_repo_state[key] = state
         return state

@@ -1973,6 +1973,130 @@ class TestNoopParkSupervisor:
         supervisor.record_success("key-n", action="propose", role="coder")
         assert len(alerts) == 1
 
+    def test_waiting_on_live_role_downgrades_to_low_priority(self):
+        """#3520: a consumer parked while its live upstream producer works
+        toward its first proposal is normal BRC choreography in every phase
+        with a dependent role — firing the routine shape at [high] trains
+        operators to skim past the alert feed (#3364)."""
+        import event_loop
+
+        alerts: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            overseer_alert=lambda **kw: alerts.append(kw),
+            hitl_probe=lambda: set(),
+            waiting_probe=lambda role: ("refiner", True),
+        )
+        self._park(supervisor, "key-n", role="simplifier")
+        assert len(alerts) == 1
+        assert alerts[0]["anomaly"] == "agent-parked-waiting-on-role"
+        assert alerts[0]["priority"] == "low"
+        assert "refiner" in alerts[0]["detail"]
+        assert "No operator action needed" in alerts[0]["detail"]
+        # Only the alert changes — the park itself (pod-spawn saving) stays.
+        assert supervisor.noop_parked("key-n")
+
+    def test_waiting_on_non_live_role_stays_high_priority(self):
+        """#3520: WAITING_ON_ROLE on a role with no recent bus activity is a
+        genuine stall — the parked role's own escalation threshold can never
+        fire once its pod stops spawning, so the alert must stay [high]."""
+        import event_loop
+
+        alerts: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            overseer_alert=lambda **kw: alerts.append(kw),
+            hitl_probe=lambda: set(),
+            waiting_probe=lambda role: ("refiner", False),
+        )
+        self._park(supervisor, "key-n", role="simplifier")
+        assert len(alerts) == 1
+        assert alerts[0]["anomaly"] == "agent-invocation-noop-streak"
+        assert alerts[0]["priority"] == "high"
+        assert "refiner" in alerts[0]["detail"]
+
+    def test_gating_decision_wins_over_waiting_probe(self):
+        """A visible unresolved cq-N keeps the original wedge alert verbatim;
+        the waiting probe is not consulted at all (#3520)."""
+        import event_loop
+
+        alerts: list[dict] = []
+        probed: list[str] = []
+
+        def _waiting_probe(role: str):
+            probed.append(role)
+            return ("refiner", True)
+
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            overseer_alert=lambda **kw: alerts.append(kw),
+            hitl_probe=lambda: {"cq-3"},
+            waiting_probe=_waiting_probe,
+        )
+        self._park(supervisor, "key-n", role="simplifier")
+        assert len(alerts) == 1
+        assert alerts[0]["anomaly"] == "agent-invocation-noop-streak"
+        assert alerts[0]["priority"] == "high"
+        assert "cq-3" in alerts[0]["detail"]
+        assert probed == []
+
+    def test_no_waiting_self_report_keeps_high_priority(self):
+        """No WAITING_ON_ROLE self-report (probe returns None) is the silent
+        wedge — the empty-fingerprint high alert is unchanged (#3520)."""
+        import event_loop
+
+        alerts: list[dict] = []
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            overseer_alert=lambda **kw: alerts.append(kw),
+            hitl_probe=lambda: set(),
+            waiting_probe=lambda role: None,
+        )
+        self._park(supervisor, "key-n")
+        assert len(alerts) == 1
+        assert alerts[0]["anomaly"] == "agent-invocation-noop-streak"
+        assert alerts[0]["priority"] == "high"
+
+    def test_waiting_probe_failure_keeps_high_priority(self):
+        """A probe crash maps to unknown → the alert can only get MORE
+        alarming on failure, never quieter (#3520)."""
+        import event_loop
+
+        alerts: list[dict] = []
+
+        def _boom(role: str):
+            raise RuntimeError("bus unreachable")
+
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            overseer_alert=lambda **kw: alerts.append(kw),
+            hitl_probe=lambda: set(),
+            waiting_probe=_boom,
+        )
+        self._park(supervisor, "key-n")
+        assert len(alerts) == 1
+        assert alerts[0]["anomaly"] == "agent-invocation-noop-streak"
+        assert alerts[0]["priority"] == "high"
+
+    def test_waiting_probe_receives_parking_role(self):
+        """The probe is called with the role whose arm parked (#3520)."""
+        import event_loop
+
+        probed: list[str] = []
+
+        def _waiting_probe(role: str):
+            probed.append(role)
+            return ("refiner", True)
+
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            overseer_alert=lambda **kw: None,
+            hitl_probe=lambda: set(),
+            waiting_probe=_waiting_probe,
+        )
+        self._park(supervisor, "key-n", role="simplifier")
+        assert probed == ["simplifier"]
+
     def test_park_never_engages_agent_failed(self):
         """The wedge is operator-bound and already alerted; creating another
         HITL decision via AGENT_FAILED would be noise."""
