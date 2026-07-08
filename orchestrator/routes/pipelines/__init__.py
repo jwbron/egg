@@ -1175,6 +1175,12 @@ from ._criteria import (  # noqa: E402,F401
     _human_companion_review_criteria,
     _read_shared_criteria,
 )
+from ._decision_candidates import (  # noqa: E402,F401
+    _build_deferred_candidates_section,
+    _find_deferred_plan_candidates,
+    _format_considered_candidates,
+    _persist_decision_ledger_summary,
+)
 from ._decisions import (  # noqa: E402,F401
     _cancel_consensus_timeout_decisions,
     _divergence_reconcile_hitl_question,
