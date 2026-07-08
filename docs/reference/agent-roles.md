@@ -510,6 +510,8 @@ tests, and its mandate is two-fold: **(1) comprehensive regression coverage** �
 - Allowed writes: `.egg-state/agent-outputs/`
 - Blocked: `src/`, `lib/`, `shared/`, `gateway/`, `sandbox/`, `action/`, `orchestrator/`, `docs/`, `tests/`, `test/`, `.egg-state/contracts/`, `.egg-state/drafts/`, `.egg-state/reviews/`, `.github/` — no source, test, doc, or config access; casts no verdict, posts nothing, touches no network
 
+**GitHub access**: None. `evidence_gatherer` is deliberately absent from `gateway.agent_restrictions.AGENT_GH_RESTRICTIONS`, so the gateway's deny-by-default posture rejects every `gh` operation for it — stronger than the per-op block producers get.
+
 **Outputs**:
 - `.egg-state/agent-outputs/{identifier}-evidence_gatherer-output.json` — the assembled evidence pack
 
