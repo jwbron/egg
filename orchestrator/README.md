@@ -171,8 +171,10 @@ in-cluster agents cannot bypass HITL phase gates. Successful calls log a
 | `GET` | `/pipelines/{id}/containers/{cid}` | Get container details |
 | `DELETE` | `/pipelines/{id}/containers/{cid}` † | Remove container |
 | `POST` | `/pipelines/{id}/containers/{cid}/stop` † | Stop container |
-| `GET` | `/pipelines/{id}/containers/{cid}/logs` | Get container logs |
+| `GET` | `/pipelines/{id}/containers/{cid}/logs` | Get container logs (falls back to the persisted post-reap capture if the live pod is gone, #3547) |
 | `GET` | `/pipelines/{id}/containers/{cid}/health` | Container health check |
+| `GET` | `/pipelines/{id}/agent-logs` | List persisted post-reap agent log captures, metadata only (#3547) |
+| `GET` | `/pipelines/{id}/agent-logs/{job_name}` | Get one persisted post-reap agent log capture, including the log body (#3547) |
 
 ### HITL Decisions
 
@@ -202,6 +204,14 @@ in-cluster agents cannot bypass HITL phase gates. Successful calls log a
 |--------|------|-------------|
 | `POST` | `/pipelines/{id}/progress` | Emit structured progress event |
 | `GET` | `/pipelines/{id}/progress` | Query progress events (filterable by agent, time, limit) |
+
+### Session State
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/pipelines/{id}/session-state` | Push a role's warm-resume record (session_id, window_occupancy, transcript) |
+| `GET` | `/pipelines/{id}/session-state` | Pull a role's warm-resume record, or `found: false` on any miss |
+| `GET` | `/pipelines/{id}/session-state/index` | List the pipeline's stored records, metadata only — backs the `get_agent_transcript` MCP tool (#3547) |
 
 ### Anchors
 
@@ -322,7 +332,7 @@ These tools require a `gateway_url` and authenticate via a gateway session. The 
 
 ### Orchestrator-Backed Tools
 
-`submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `validate_config`, `restart_agent`, `restart_phase`, `advance_phase`, `start_phase`, `complete_phase`, `populate_contract`
+`submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `get_agent_transcript`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `validate_config`, `restart_agent`, `restart_phase`, `advance_phase`, `start_phase`, `complete_phase`, `populate_contract`
 
 The `get_status` tool returns an enriched pipeline status response. In addition to the standard fields (`current_phase`, `status`, `pipeline`, `running_agents`, `completed_agents`, `pending_decisions`, `recent_messages`), the response includes server-computed timing fields:
 

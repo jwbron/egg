@@ -172,13 +172,29 @@ load-bearing evidence in that case.
 ### Short-lived crashed pod logs are reaped quickly
 
 `/agent-diagnose` depends on `get_container_logs` to surface the log tail.
-If the Pod exited fast and Kubernetes garbage-collected it before you ran
-the skill, the call returns `logs_unavailable` / `pods "<pod>" not found`.
+As of [#3547](https://github.com/jwbron/egg/issues/3547), `remove_agent_job`
+snapshots the pod's log tail into a Redis-backed agent-log store just
+before deleting the Job, and `get_container_logs` (both the REST route and
+the MCP tool) falls back to that capture once the live Pod is gone — the
+response carries `"source": "persisted"` plus `captured_at` / `exit_code`.
+This covers the common case: the orchestrator observes the exit and reaps
+the Job itself.
 
-The skill detects this case and surfaces it in the Top finding — it does
-**not** silently return "no classifier match" when logs are simply gone.
-You will still get the Job spec, Events, and env keys; the classifier
+The `logs_unavailable` / `pods "<pod>" not found` case is now narrower: it
+still occurs when the Pod was removed by some path other than
+`remove_agent_job` (e.g. raw k8s `ttlSecondsAfterFinished` GC winning the
+race before the orchestrator reaped it), the capture's 24-hour TTL has
+expired, or the Redis store itself is unavailable.
+
+The skill detects an outright miss and surfaces it in the Top finding — it
+does **not** silently return "no classifier match" when logs are simply
+gone. You will still get the Job spec, Events, and env keys; the classifier
 runs against the reduced evidence.
+
+A second, longer-lived evidence source is the `get_agent_transcript` MCP
+tool, which reads the agent's Claude Code session transcript from the
+session-state store (~6-hour retention) — useful for diagnosing *why* an
+agent exited when even the persisted pod-log capture is unavailable.
 
 **Concurrent BRC phases**: For pipelines running in concurrent execution
 mode, the orchestrator now captures a frozen exit snapshot
@@ -198,10 +214,11 @@ egg-orch phase get <pipeline-id> --json | jq '.data.phase_execution.agent_exits'
 
 The `container_id` in each entry can also be fed directly to
 `/agent-diagnose` while the Pod still exists; `last_lines` gives you the
-log tail after it doesn't. This means the `short-lived pod, log
-unavailable` failure class is mitigated for concurrent phases — provided
-the orchestrator's exit-poll observed the exit before the Pod was
-GC'd. If the poll lost the race with k8s GC, the log fetch fails
+log tail after it doesn't. This is on top of the general agent-log-store
+fallback described above — `agent_exits` is concurrent-phase-only and
+lives in pipeline state, while the agent-log-store capture applies to any
+agent role reaped via `remove_agent_job`, concurrent or not. If neither
+path observed the exit before the Pod was GC'd, the log fetch fails
 silently and `last_lines` is `[]`; you still have the role, exit code,
 and `terminated_at`, but you'll need to fall back to the Job spec and
 Events for the log content itself.
