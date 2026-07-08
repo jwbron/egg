@@ -524,6 +524,12 @@ filtering (`pipeline_id`, `level`, `pattern`) applied **before** truncation,
 so a targeted query returns the relevant lines instead of a raw tail that is
 mostly health-check noise.
 
+[#3547](https://github.com/jwbron/egg/issues/3547) made the filters work on
+the console-formatted lines production pods actually emit (the JSON-only
+`pipeline_id` matching returned empty against real logs) and grouped physical
+lines into logical records so multi-line tracebacks stay attached to the log
+line that raised them.
+
 **HTTP route**: `GET /api/v1/deployment/logs`
 
 **Input schema**:
@@ -552,20 +558,28 @@ mostly health-check noise.
   HH:MM." When filters are active this bounds the per-pod scan window;
   the backing fetch is widened to 10 000 lines so the filter has
   material to match.
-- `pipeline_id` (optional) — keep only lines emitted for this
-  pipeline/task id. Checked against `context.task_id`,
-  `extra.pipeline_id`, and `extra.task_id` (in that order) — production
-  call sites use `pipeline_id=...`, which the `JsonFormatter` lands in
-  `extra` rather than the context-allowlisted `task_id` slot.
+- `pipeline_id` (optional); keep only records emitted for this
+  pipeline/task id. For JSON-formatted records this checks
+  `context.task_id`, `extra.pipeline_id`, and `extra.task_id` (in that
+  order); production call sites use `pipeline_id=...`, which the
+  `JsonFormatter` lands in `extra` rather than the context-allowlisted
+  `task_id` slot. For console-formatted records (what the k8s pods emit -
+  `JsonFormatter` only activates when the environment detects as GCP) it
+  matches the inline `pipeline_id=` / `task_id=` key=value pair (#3547).
 - `level` (optional) — minimum severity (`DEBUG` | `INFO` | `WARNING` |
-  `ERROR` | `CRITICAL`); drops lower-severity and unstructured lines.
+  `ERROR` | `CRITICAL`); reads the JSON `severity` field or the console
+  `[LEVEL]` bracket, and drops records with no determinable severity.
   Case-sensitive on the HTTP route (matches the MCP schema enum).
 - `pattern` (optional) — Python regex applied via `re.search`; a plain
-  substring is a valid pattern. Matches against the raw line, so it can
-  keep non-JSON / unstructured lines too (unlike `level`, which drops
-  them); combine with `level` if you want JSON-only matches.
+  substring is a valid pattern. Matches against the record's full raw
+  text, continuation lines included, so a pattern that matches an
+  exception message returns the whole traceback.
 
-Filters are ANDed: a line must pass every active filter to be kept.
+Filters are ANDed and operate on **logical records**, not physical lines
+(#3547): a record starts at a JSON object line or a console timestamp
+head, and everything else (traceback frames, wrapped payloads) attaches
+to the preceding record. With filters active, `lines` caps the matching
+records returned.
 
 **Output shape** (no filters active):
 

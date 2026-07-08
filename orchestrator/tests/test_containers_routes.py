@@ -207,3 +207,83 @@ class TestListContainersResolvedModel:
 
         with patch("routes.get_repo_path", side_effect=RuntimeError("no repo path")):
             assert _resolved_models_by_container("issue-77") == {}
+
+
+class TestPersistedAgentLogFallback:
+    """Post-reap log capture read paths (#3547).
+
+    One-shot agent pods are reaped minutes after exit; ``remove_agent_job``
+    snapshots their logs into the agent-log store, and the logs route falls
+    back to that capture instead of returning 404.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _fakeredis_store(self):
+        import agent_log_store
+        import fakeredis
+        from agent_log_store import AgentLogStore
+
+        agent_log_store.set_agent_log_store(AgentLogStore(fakeredis.FakeRedis()))
+        yield
+        agent_log_store.reset_agent_log_store()
+
+    def _persist(self, pipeline_id="p-1", job_name="egg-agent-p-1-coder-abc", **kwargs):
+        from agent_log_store import get_agent_log_store
+
+        defaults = {"logs": "agent stdout tail", "agent_role": "coder", "exit_code": 1}
+        defaults.update(kwargs)
+        get_agent_log_store().put(pipeline_id, job_name, **defaults)
+
+    def test_logs_route_falls_back_to_capture(self, client):
+        from kubernetes_client import PodNotFoundError
+
+        self._persist()
+        with patch("routes.containers._get_backend") as mock_get_backend:
+            mock_get_backend.return_value.get_container_logs.side_effect = PodNotFoundError(
+                "pod gone"
+            )
+            response = client.get("/api/v1/pipelines/p-1/containers/egg-agent-p-1-coder-abc/logs")
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["logs"] == "agent stdout tail"
+        assert data["source"] == "persisted"
+        assert data["exit_code"] == 1
+        assert data["agent_role"] == "coder"
+
+    def test_logs_route_404_when_no_capture(self, client):
+        from kubernetes_client import PodNotFoundError
+
+        with patch("routes.containers._get_backend") as mock_get_backend:
+            mock_get_backend.return_value.get_container_logs.side_effect = PodNotFoundError(
+                "pod gone"
+            )
+            response = client.get("/api/v1/pipelines/p-1/containers/unknown/logs")
+        assert response.status_code == 404
+
+    def test_live_logs_do_not_touch_store(self, client):
+        self._persist(logs="stale capture")
+        with patch("routes.containers._get_backend") as mock_get_backend:
+            mock_get_backend.return_value.get_container_logs.return_value = "live logs"
+            response = client.get("/api/v1/pipelines/p-1/containers/egg-agent-p-1-coder-abc/logs")
+        data = response.get_json()["data"]
+        assert data["logs"] == "live logs"
+        assert "source" not in data
+
+    def test_agent_logs_index(self, client):
+        self._persist(job_name="job-a", captured_at="2026-07-07T01:00:00+00:00")
+        self._persist(job_name="job-b", captured_at="2026-07-07T02:00:00+00:00")
+        response = client.get("/api/v1/pipelines/p-1/agent-logs")
+        assert response.status_code == 200
+        records = response.get_json()["data"]["records"]
+        assert [r["job_name"] for r in records] == ["job-b", "job-a"]
+        assert all("logs" not in r for r in records)
+
+    def test_agent_logs_get_by_job_name(self, client):
+        self._persist(job_name="job-a")
+        response = client.get("/api/v1/pipelines/p-1/agent-logs/job-a")
+        assert response.status_code == 200
+        assert response.get_json()["data"]["logs"] == "agent stdout tail"
+
+    def test_agent_logs_get_miss_404(self, client):
+        response = client.get("/api/v1/pipelines/p-1/agent-logs/unknown")
+        assert response.status_code == 404

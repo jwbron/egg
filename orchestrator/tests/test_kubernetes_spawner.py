@@ -1300,6 +1300,64 @@ class TestRemoveAgentJob:
         mock_gateway.delete_session_by_container.assert_called_once_with("job-name")
 
 
+class TestRemoveAgentJobLogCapture:
+    """Pre-removal log capture into the agent-log store (#3547)."""
+
+    @pytest.fixture(autouse=True)
+    def _fakeredis_store(self):
+        import agent_log_store
+        import fakeredis
+        from agent_log_store import AgentLogStore
+
+        agent_log_store.set_agent_log_store(AgentLogStore(fakeredis.FakeRedis()))
+        yield
+        agent_log_store.reset_agent_log_store()
+
+    def test_remove_persists_snapshot_before_deletion(self, spawner, mock_k8s_client):
+        from agent_log_store import get_agent_log_store
+
+        mock_k8s_client.read_job_log_snapshot.return_value = {
+            "job_name": "job-name",
+            "pod_name": "job-name-xyz",
+            "pipeline_id": "issue-1",
+            "agent_role": "coder",
+            "slice_id": "slice-3",
+            "exit_code": 137,
+            "logs": "agent stdout\n",
+        }
+        spawner.remove_agent_job("job-name")
+        mock_k8s_client.remove_container.assert_called_once_with("job-name", force=False)
+        rec = get_agent_log_store().get("issue-1", "job-name")
+        assert rec["logs"] == "agent stdout\n"
+        assert rec["agent_role"] == "coder"
+        assert rec["slice_id"] == "slice-3"
+        assert rec["exit_code"] == 137
+
+    def test_remove_proceeds_when_snapshot_unavailable(self, spawner, mock_k8s_client):
+        """Pod already GC'd (snapshot None); removal is not blocked."""
+        mock_k8s_client.read_job_log_snapshot.return_value = None
+        spawner.remove_agent_job("job-name")
+        mock_k8s_client.remove_container.assert_called_once_with("job-name", force=False)
+
+    def test_remove_proceeds_when_snapshot_raises(self, spawner, mock_k8s_client):
+        mock_k8s_client.read_job_log_snapshot.side_effect = RuntimeError("api down")
+        spawner.remove_agent_job("job-name")
+        mock_k8s_client.remove_container.assert_called_once_with("job-name", force=False)
+
+    def test_no_capture_without_pipeline_label(self, spawner, mock_k8s_client):
+        """A pod with no pipeline label has no operator-facing key; skip."""
+        from agent_log_store import get_agent_log_store
+
+        mock_k8s_client.read_job_log_snapshot.return_value = {
+            "job_name": "job-name",
+            "pipeline_id": None,
+            "logs": "orphan logs",
+        }
+        spawner.remove_agent_job("job-name")
+        assert get_agent_log_store().list_records("issue-1") == []
+        mock_k8s_client.remove_container.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # TestListPipelineJobs
 # ---------------------------------------------------------------------------

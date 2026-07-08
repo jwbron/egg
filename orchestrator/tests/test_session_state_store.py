@@ -114,3 +114,33 @@ class TestDefensiveContract:
 
         store = SessionStateStore(_Boom())
         assert store.put("issue-1", "slice-3", "coder", session_id="a") is False
+
+
+class TestListRecords:
+    """Operator-facing index over the pipeline's stored records (#3547)."""
+
+    def test_lists_all_records_for_pipeline(self, store):
+        store.put("issue-1", "slice-3", "coder", session_id="a", transcript='{"l":1}\n')
+        store.put("issue-1", None, "architect", session_id="b", window_occupancy=7)
+        store.put("issue-2", "slice-1", "coder", session_id="c")
+
+        records = store.list_records("issue-1")
+        assert len(records) == 2
+        by_role = {r["role"]: r for r in records}
+        assert by_role["coder"]["slice_id"] == "slice-3"
+        assert by_role["coder"]["transcript_bytes"] == len('{"l":1}\n')
+        assert by_role["architect"]["slice_id"] is None
+        assert by_role["architect"]["window_occupancy"] == 7
+
+    def test_scan_failure_returns_empty(self):
+        class _Boom:
+            def scan_iter(self, *_a, **_k):
+                raise RuntimeError("redis down")
+
+        assert SessionStateStore(_Boom()).list_records("issue-1") == []
+
+    def test_malformed_record_omitted(self, store):
+        store.put("issue-1", "slice-3", "coder", session_id="a")
+        store._redis.set(SessionStateStore._key("issue-1", "slice-4", "coder"), b"not json")
+        records = store.list_records("issue-1")
+        assert [r["slice_id"] for r in records] == ["slice-3"]
