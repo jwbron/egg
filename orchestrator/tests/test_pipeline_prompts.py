@@ -44,6 +44,19 @@ from routes.pipelines import (
     _synthesize_plan_draft,
 )
 
+# Explicit-none ledger attestation fixture: #3526 requires the rationale
+# form to enumerate the candidates it considered.
+_NO_DECISIONS_ATTESTATION = {
+    "no_decisions_rationale": "test fixture",
+    "candidates_considered": [
+        {
+            "question": "fixture candidate?",
+            "disposition": "not_operator_grade",
+            "why": "fixture",
+        }
+    ],
+}
+
 
 class TestReadSharedCriteria:
     """Tests for _read_shared_criteria helper function."""
@@ -2529,7 +2542,7 @@ class TestPlanProposalValidation:
                 "commit_sha": "abc1234",
                 # Explicit-none decision ledger so the #3390 attestation
                 # gate passes and the check under test is reached.
-                "attestation": {"no_decisions_rationale": "test fixture"},
+                "attestation": dict(_NO_DECISIONS_ATTESTATION),
             }
             with pytest.raises(ValueError, match="role↔files alignment violations"):
                 _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
@@ -2547,7 +2560,7 @@ class TestPlanProposalValidation:
                 "commit_sha": "abc1234",
                 # Explicit-none decision ledger so the #3390 attestation
                 # gate passes and the check under test is reached.
-                "attestation": {"no_decisions_rationale": "test fixture"},
+                "attestation": dict(_NO_DECISIONS_ATTESTATION),
             }
             # Should not raise.
             _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
@@ -2569,7 +2582,7 @@ class TestPlanProposalValidation:
                 "commit_sha": "abc1234",
                 # Explicit-none decision ledger so the #3390 attestation
                 # gate passes and the check under test is reached.
-                "attestation": {"no_decisions_rationale": "test fixture"},
+                "attestation": dict(_NO_DECISIONS_ATTESTATION),
             }
             with pytest.raises(ValueError, match="does not parse into any tasks"):
                 _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
@@ -2592,7 +2605,7 @@ class TestPlanProposalValidation:
                 "commit_sha": "abc1234",
                 # Explicit-none decision ledger so the #3390 attestation
                 # gate passes and the check under test is reached.
-                "attestation": {"no_decisions_rationale": "test fixture"},
+                "attestation": dict(_NO_DECISIONS_ATTESTATION),
             }
             with pytest.raises(ValueError, match="the slice DAG is not a forest"):
                 _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
@@ -2614,7 +2627,7 @@ class TestPlanProposalValidation:
                 "commit_sha": "abc1234",
                 # Explicit-none decision ledger so the #3390 attestation
                 # gate passes and the check under test is reached.
-                "attestation": {"no_decisions_rationale": "test fixture"},
+                "attestation": dict(_NO_DECISIONS_ATTESTATION),
             }
             with pytest.raises(ValueError, match="slices touch overlapping files"):
                 _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
@@ -2636,7 +2649,7 @@ class TestPlanProposalValidation:
                 "commit_sha": "abc1234",
                 # Explicit-none decision ledger so the #3390 attestation
                 # gate passes and the check under test is reached.
-                "attestation": {"no_decisions_rationale": "test fixture"},
+                "attestation": dict(_NO_DECISIONS_ATTESTATION),
             }
             # Should not raise.
             _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
@@ -2657,7 +2670,7 @@ class TestPlanProposalValidation:
                 "commit_sha": "abc1234",
                 # Explicit-none decision ledger so the #3390 attestation
                 # gate passes and the check under test is reached.
-                "attestation": {"no_decisions_rationale": "test fixture"},
+                "attestation": dict(_NO_DECISIONS_ATTESTATION),
             }
             with pytest.raises(ValueError, match=r"no plan draft found.*-plan\.md"):
                 _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
@@ -2675,7 +2688,7 @@ class TestPlanProposalValidation:
                 "commit_sha": "abc1234",
                 # Explicit-none decision ledger so the #3390 attestation
                 # gate passes and the check under test is reached.
-                "attestation": {"no_decisions_rationale": "test fixture"},
+                "attestation": dict(_NO_DECISIONS_ATTESTATION),
             }
             with pytest.raises(ValueError, match="no plan draft found"):
                 _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
@@ -2698,7 +2711,7 @@ class TestPlanProposalValidation:
                 "issue-2527",
                 {
                     "commit_sha": "abc1234",
-                    "attestation": {"no_decisions_rationale": "test fixture"},
+                    "attestation": dict(_NO_DECISIONS_ATTESTATION),
                 },
                 Path("/tmp/repo"),
                 branch_verified=None,
@@ -2728,7 +2741,7 @@ class TestPlanProposalValidation:
                 "issue-2527",
                 {
                     "commit_sha": "abc1234",
-                    "attestation": {"no_decisions_rationale": "test fixture"},
+                    "attestation": dict(_NO_DECISIONS_ATTESTATION),
                 },
                 Path("/tmp/repo"),
                 branch_verified=None,
@@ -2754,7 +2767,7 @@ class TestPlanProposalValidation:
                 "issue-2527",
                 {
                     "commit_sha": "abc1234",
-                    "attestation": {"no_decisions_rationale": "test fixture"},
+                    "attestation": dict(_NO_DECISIONS_ATTESTATION),
                 },
                 Path("/tmp/repo"),
             )
@@ -2775,7 +2788,7 @@ class TestPlanProposalValidation:
                 "commit_sha": "abc1234",
                 # Explicit-none decision ledger so the #3390 attestation
                 # gate passes and the check under test is reached.
-                "attestation": {"no_decisions_rationale": "test fixture"},
+                "attestation": dict(_NO_DECISIONS_ATTESTATION),
             }
             # Should not raise — graceful degradation
             _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
@@ -2792,7 +2805,7 @@ class TestPlanProposalValidation:
                 "commit_sha": "abc1234",
                 # Explicit-none decision ledger so the #3390 attestation
                 # gate passes and the check under test is reached.
-                "attestation": {"no_decisions_rationale": "test fixture"},
+                "attestation": dict(_NO_DECISIONS_ATTESTATION),
             }
             # Should not raise — branch is required to resolve the worktree commit.
             _validate_plan_proposal("issue-2527", payload, Path("/tmp/repo"))
@@ -2851,7 +2864,7 @@ class TestPlanProposalValidation:
                     ),
                     "artifacts": [".egg-state/drafts/2527-plan.md"],
                     "commit_sha": "abc1234",
-                    "attestation": {"no_decisions_rationale": "test fixture"},
+                    "attestation": dict(_NO_DECISIONS_ATTESTATION),
                 },
             }
             response, status_code = handle_consensus_propose_signal(
@@ -2908,7 +2921,7 @@ class TestPlanProposalValidation:
                     ),
                     "artifacts": [".egg-state/drafts/2527-plan.md"],
                     "commit_sha": "abc1234",
-                    "attestation": {"no_decisions_rationale": "test fixture"},
+                    "attestation": dict(_NO_DECISIONS_ATTESTATION),
                 },
             }
             response, status_code = handle_consensus_propose_signal(
@@ -3023,7 +3036,7 @@ class TestProducerDraftPresentValidation:
                     ),
                     "artifacts": [".egg-state/drafts/3016-analysis.md"],
                     "commit_sha": "abc1234",
-                    "attestation": {"no_decisions_rationale": "test fixture"},
+                    "attestation": dict(_NO_DECISIONS_ATTESTATION),
                 },
             }
             response, status_code = handle_consensus_propose_signal(
@@ -3098,7 +3111,7 @@ class TestProducerDraftPresentValidation:
                     ),
                     "artifacts": [".egg-state/agent-outputs/refiner-refine.md"],
                     "commit_sha": "abc1234",
-                    "attestation": {"no_decisions_rationale": "test fixture"},
+                    "attestation": dict(_NO_DECISIONS_ATTESTATION),
                 },
             }
             response, status_code = handle_consensus_propose_signal(
@@ -3154,7 +3167,7 @@ class TestProducerDraftPresentValidation:
                     ),
                     "artifacts": [".egg-state/agent-outputs/refiner-refine.md"],
                     "commit_sha": "abc1234",
-                    "attestation": {"no_decisions_rationale": "test fixture"},
+                    "attestation": dict(_NO_DECISIONS_ATTESTATION),
                 },
             }
             response, status_code = handle_consensus_propose_signal(

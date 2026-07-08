@@ -488,15 +488,36 @@ class TestAttestationSchemas:
             )
 
     def test_decision_ledger_explicit_none_valid(self):
-        """The explicit empty ledger (rationale, no ids) validates (#3390)."""
+        """The explicit empty ledger (rationale + candidates) validates (#3390, #3526)."""
         from attestation_schemas import AttestationStrictness, validate_attestation
 
         validate_attestation(
             "refiner",
-            {"no_decisions_rationale": "mechanical change; no operator-grade choices"},
+            {
+                "no_decisions_rationale": "mechanical change; no operator-grade choices",
+                "candidates_considered": [
+                    {
+                        "question": "which helper to reuse?",
+                        "disposition": "not_operator_grade",
+                        "why": "internal design call",
+                    }
+                ],
+            },
             AttestationStrictness.STRICT,
             is_producer=True,
         )
+
+    def test_decision_ledger_explicit_none_requires_candidates(self):
+        """A bare rationale with no candidates is rejected (#3526)."""
+        from attestation_schemas import AttestationStrictness, validate_attestation
+
+        with pytest.raises(ValueError, match="candidates_considered"):
+            validate_attestation(
+                "refiner",
+                {"no_decisions_rationale": "mechanical change; no operator-grade choices"},
+                AttestationStrictness.STRICT,
+                is_producer=True,
+            )
 
     def test_decision_ledger_rejects_empty_claim(self):
         """Neither ids nor rationale ⇒ malformed ledger, rejected even RELAXED (#3390)."""

@@ -1081,6 +1081,10 @@ def _run_pipeline(
                 pipeline, worktree_repo_path, source="auto_advance"
             )
 
+            # #3528: gateway sessions survive the transition; sync their
+            # phase in lockstep (best-effort; see the helper's docstring).
+            _pkg._sync_session_phases_best_effort(pipeline_id, next_phase.value)
+
             # Drop the previous phase's in-memory consensus tracker and
             # message-store entries (#2502).  The other phase-transition
             # paths -- ``advance_phase`` REST handler, HITL-revision

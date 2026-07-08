@@ -160,12 +160,21 @@ class ConsensusStallCheck:
             store = get_message_store()
             messages = store.get_messages(pipeline_id, limit=10000)
             # Slice-tagged confirmations belong to per-slice consensus
-            # rounds and must not count toward pipeline-level consensus
-            # (#3542); otherwise one completed slice makes this fallback
+            # rounds, and confirmations from earlier phases belong to
+            # rounds that already closed; neither counts toward the
+            # current phase's pipeline-level consensus (#3542); otherwise
+            # one completed slice (or a completed refine/plan phase,
+            # which shares the same review graph) makes this fallback
             # report "consensus complete" for the rest of the pipeline's
-            # life, and the aggressive stall recovery kills the phase
-            # between slices.
-            confirmed_roles = pipeline_level_confirmed_roles(messages)
+            # life, and the aggressive stall recovery kills the phase.
+            # NOTE: the primary defense against earlier-phase confirmations
+            # lingering is the transition-time clear
+            # (`_clear_concurrent_state()` wipes the message bus and bare
+            # tracker on every phase transition); this phase filter is the
+            # belt-and-suspenders backstop for when that clear is skipped
+            # or a best-effort Redis clear fails, not the load-bearing
+            # happy-path defense.
+            confirmed_roles = pipeline_level_confirmed_roles(messages, phase=phase_value)
             return expected_roles.issubset(confirmed_roles)
         except Exception:
             logger.debug(

@@ -192,6 +192,12 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             pipeline_id, decision, dispatch_resolution
         )
 
+        # Arms-parked HITL (#3548): the no-op-park sibling — "Retry arms"
+        # releases the no-op parks on the live event loop(s) in-band.
+        executed_action = executed_action or _pkg._maybe_dispatch_arms_parked_resolution(
+            pipeline_id, decision, dispatch_resolution
+        )
+
         # Driver-liveness HITL (#3540): "Retry phase" on the
         # ``driver_liveness_stall`` decision restarts the wedged phase and
         # replaces the dead/hung driver in-process. The driver this decision

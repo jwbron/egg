@@ -10,6 +10,30 @@ from __future__ import annotations
 import routes.pipelines as _pkg  # noqa: E402,F401
 
 
+def _sync_session_phases_best_effort(pipeline_id: str, phase: str) -> None:
+    """Sync surviving gateway sessions to *phase* at a transition (#3528).
+
+    Gateway sessions outlive phase transitions (their teardown lives in the
+    driver thread's finally block, which every advance skips by bumping
+    ``run_epoch``) and the gateway commit gate keys off the per-SESSION
+    phase: a session registered in the completed phase would deny every
+    commit in the next one. Both advance paths (auto-advance and the
+    ``advance_phase`` route) call this right after the transition persists.
+
+    Best-effort: any failure is logged and swallowed; the per-spawn
+    resolution and reuse-path sync self-correct on the next spawn.
+    """
+    try:
+        _pkg._get_spawner().sync_session_phases(pipeline_id, phase)
+    except Exception as sync_err:  # noqa: BLE001 - must never block advance
+        _pkg.logger.warning(
+            "Gateway session phase sync failed at phase advance (continuing) (#3528)",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            error=str(sync_err),
+        )
+
+
 def _on_health_escalation_impl(escalation, *, health_monitor_instance, pipeline_id):
     phase = health_monitor_instance.get_current_phase()
     _pkg._send_brc_confirmation_nudge(escalation, pipeline_id, phase)
