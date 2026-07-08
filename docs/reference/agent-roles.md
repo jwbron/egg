@@ -510,7 +510,7 @@ Gated behind the `EGG_REVIEW_EVIDENCE_PREFIX` staged flag (`off` / `log` / `on`;
 
 **File access**:
 - Allowed writes: `.egg-state/agent-outputs/` (the assembled pack only)
-- Blocked: All source, tests, docs, contracts, drafts, reviews, pipelines, oversight, `.github/`
+- Blocked: All source, tests, docs, contracts, drafts, reviews, `.github/` (the explicit `blocked_patterns`). Everything else outside `.egg-state/agent-outputs/` — including `.egg-state/pipelines/` and `.egg-state/oversight/` — is denied by default, since `allowed_patterns` is limited to the pack handoff.
 
 **GitHub access**: None. `evidence_gatherer` is deliberately absent from `gateway.agent_restrictions.AGENT_GH_RESTRICTIONS`, so the gateway's deny-by-default posture rejects every `gh` operation for it — stronger than the per-op block producers get.
 
