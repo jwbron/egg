@@ -10,6 +10,7 @@ from egg_agent_tools.handlers._gateway import (
     container_id_field,
     gateway_request,
     get_agent_role,
+    get_container_id,
     get_contract_identifier,
     get_repo_path,
 )
@@ -86,27 +87,85 @@ def _resolve_identifier(req: dict[str, Any]) -> int | str:
     return identifier
 
 
-def _parse_task_id(task_id: str) -> tuple[int, int]:
-    """Parse ``task-N`` or ``task-P-T`` → (phase_idx, task_idx)."""
+def _validate_task_id(task_id: str) -> None:
+    """Validate the ``task-N`` / ``task-P-T`` id shape (values >= 1).
+
+    Format-only: the numeric parts are NOT used to derive list indices.
+    Deriving indices from the numeric suffix (task-1-5 → tasks[4]) is
+    exactly the #3527 bug: it breaks the moment a slice is re-scoped,
+    tasks are reordered, or tasks are added mid-flight
+    (``add_task_as_operator`` exists, so that is a supported state).
+    Mutation indices come from ``_locate_task``'s id lookup instead.
+    """
     lower = task_id.lower()
     stripped = lower.removeprefix("task-")
     if stripped == lower:
         raise HandlerError(f"Invalid task ID '{task_id}': expected format 'task-N' or 'task-P-T'")
     parts = stripped.split("-")
     try:
-        if len(parts) == 1:
-            phase_idx = 0
-            task_idx = int(parts[0]) - 1
-        elif len(parts) == 2:
-            phase_idx = int(parts[0]) - 1
-            task_idx = int(parts[1]) - 1
-        else:
+        if len(parts) not in (1, 2):
             raise ValueError
+        numbers = [int(p) for p in parts]
     except ValueError as exc:
         raise HandlerError(f"Invalid task ID '{task_id}'") from exc
-    if phase_idx < 0 or task_idx < 0:
+    if any(n < 1 for n in numbers):
         raise HandlerError(f"Task/phase numbers must be >= 1: {task_id}")
-    return phase_idx, task_idx
+
+
+def _fetch_contract(identifier: int | str, repo_path: str) -> dict[str, Any]:
+    """Read the live contract from the gateway."""
+    params: dict[str, str] = {}
+    if repo_path:
+        params["repo_path"] = repo_path
+    cid = get_container_id()
+    if cid:
+        params["container_id"] = cid
+    result = gateway_request(f"/api/v1/contract/{identifier}", params=params or None)
+    if not result.get("success"):
+        raise GatewayError(result.get("message", "contract fetch failed"))
+    return result.get("data", {}) or {}
+
+
+def _find_task(contract: dict[str, Any], task_id: str) -> tuple[int, int, dict[str, Any]] | None:
+    """Locate a task by id; return (phase_idx, task_idx, task) or None.
+
+    Reads ``slices`` first and falls back to the legacy ``phases`` key
+    for pre-#2137 / un-migrated raw JSON (same shape as the
+    ``_tasks_for_role`` fix in #3029); the served contract shape is
+    ``Contract.model_dump`` → ``slices``.  Ids compare
+    case-insensitively, matching the validator's tolerance for
+    ``TASK-1-2``-style input.
+    """
+    wanted = task_id.lower()
+    phases = contract.get("slices") or contract.get("phases") or []
+    for phase_idx, phase in enumerate(phases):
+        if not isinstance(phase, dict):
+            continue
+        for task_idx, task_obj in enumerate(phase.get("tasks") or []):
+            if not isinstance(task_obj, dict):
+                continue
+            tid = task_obj.get("id")
+            if isinstance(tid, str) and tid.lower() == wanted:
+                return phase_idx, task_idx, task_obj
+    return None
+
+
+def _locate_task(identifier: int | str, repo_path: str, task_id: str) -> tuple[int, int]:
+    """Resolve a task id to (phase_idx, task_idx) by id lookup (#3527).
+
+    Enumerates the live contract and matches ``task.id == task_id``,
+    the same resolution the operator-side ``complete_task_as_operator``
+    uses (#3124).  The returned indices feed the gateway's positional
+    ``phases.<p>.tasks.<t>.<field>`` mutate paths; a concurrent
+    re-scope between this read and the mutate can still shift them
+    (inherent to the index-addressed mutate API), but the id lookup
+    removes the deterministic breakage where a re-scoped slice made
+    every suffix-derived index wrong.
+    """
+    located = _find_task(_fetch_contract(identifier, repo_path), task_id)
+    if located is None:
+        raise HandlerError(f"Task '{task_id}' not found on contract {identifier}")
+    return located[0], located[1]
 
 
 def _validate_commit_sha(commit: str) -> str:
@@ -161,11 +220,14 @@ def task_complete(req: dict[str, Any]) -> dict[str, Any]:
 
     Response:
         { ok: True, task: task_id, commit: sha|None }
+
+    The task is resolved by id lookup in the live contract, not by
+    positional numeric suffix (#3527).
     """
     task_id = req.get("task")
     if not task_id or not isinstance(task_id, str):
         raise HandlerError("'task' is required")
-    phase_idx, task_idx = _parse_task_id(task_id)
+    _validate_task_id(task_id)
 
     commit = req.get("commit")
     if commit is not None:
@@ -175,6 +237,7 @@ def task_complete(req: dict[str, Any]) -> dict[str, Any]:
 
     repo_path = req.get("repo_path") or get_repo_path()
     identifier = _resolve_identifier(req)
+    phase_idx, task_idx = _locate_task(identifier, repo_path, task_id)
 
     # Atomicity: the commit-link and the status transition are two
     # separate gateway mutations (the gateway's ``contract/mutate``
@@ -234,6 +297,9 @@ def task_add_commit(req: dict[str, Any]) -> dict[str, Any]:
     State-machine effect: links the commit SHA to the task. Does NOT
     mark the task complete — call ``task_complete`` separately once
     all work on the task is done.
+
+    The task is resolved by id lookup in the live contract, not by
+    positional numeric suffix (#3527).
     """
     task_id = req.get("task")
     if not task_id or not isinstance(task_id, str):
@@ -242,10 +308,11 @@ def task_add_commit(req: dict[str, Any]) -> dict[str, Any]:
     if not commit or not isinstance(commit, str):
         raise HandlerError("'commit' is required")
     _validate_commit_sha(commit)
-    phase_idx, task_idx = _parse_task_id(task_id)
+    _validate_task_id(task_id)
 
     repo_path = req.get("repo_path") or get_repo_path()
     identifier = _resolve_identifier(req)
+    phase_idx, task_idx = _locate_task(identifier, repo_path, task_id)
 
     _task_field_mutate(
         identifier=identifier,
@@ -272,6 +339,9 @@ def task_update_notes(req: dict[str, Any]) -> dict[str, Any]:
 
     State-machine effect: replaces the task's ``notes`` field. Does
     NOT mark the task complete.
+
+    The task is resolved by id lookup in the live contract, not by
+    positional numeric suffix (#3527).
     """
     task_id = req.get("task")
     if not task_id or not isinstance(task_id, str):
@@ -279,10 +349,11 @@ def task_update_notes(req: dict[str, Any]) -> dict[str, Any]:
     notes = req.get("notes")
     if notes is None or not isinstance(notes, str):
         raise HandlerError("'notes' is required")
-    phase_idx, task_idx = _parse_task_id(task_id)
+    _validate_task_id(task_id)
 
     repo_path = req.get("repo_path") or get_repo_path()
     identifier = _resolve_identifier(req)
+    phase_idx, task_idx = _locate_task(identifier, repo_path, task_id)
 
     _task_field_mutate(
         identifier=identifier,
@@ -389,7 +460,7 @@ def task_mark_gap(req: dict[str, Any]) -> dict[str, Any]:
     description = req.get("description")
     if not description or not isinstance(description, str):
         raise HandlerError("'description' is required")
-    phase_idx, task_idx = _parse_task_id(task_id)
+    _validate_task_id(task_id)
 
     to_role = req.get("to_role") or "coder"
     if not isinstance(to_role, str) or not to_role:
@@ -401,48 +472,23 @@ def task_mark_gap(req: dict[str, Any]) -> dict[str, Any]:
     repo_path = req.get("repo_path") or get_repo_path()
     identifier = _resolve_identifier(req)
 
-    from egg_agent_tools.handlers._gateway import get_container_id
-
-    params: dict[str, str] = {}
-    if repo_path:
-        params["repo_path"] = repo_path
-    cid = get_container_id()
-    if cid:
-        params["container_id"] = cid
-
     last_error: GatewayError | None = None
     for attempt in range(1, _GAP_RETRY_ATTEMPTS + 1):
         # Re-read the contract on every attempt so a concurrent writer
         # that already landed a gap at our chosen index forces us to
-        # recompute the next free slot + id.
-        read_result = gateway_request(f"/api/v1/contract/{identifier}", params=params or None)
-        if not read_result.get("success"):
-            raise GatewayError(read_result.get("message", "contract fetch failed"))
-        contract = read_result.get("data", {}) or {}
-        # Read ``slices`` first and fall back to the legacy ``phases`` key
-        # for any pre-#2137 / un-migrated raw JSON (same shape as the
-        # ``_tasks_for_role`` fix in #3029).  The served contract shape is
-        # ``Contract.model_dump`` → ``slices``; reading *only* ``phases``
-        # silently returned ``[]`` for every modern contract and raised
-        # "Phase index out of range" for every mark-gap call.  The
-        # ``field_path`` write below still uses ``phases.{...}``: that
-        # path works because ``Contract.phases`` is a ``@property`` alias
-        # for ``self.slices`` and the orchestrator's mutate handler
-        # navigates via ``hasattr``, so write-side compatibility holds
-        # without further changes.
-        phases = contract.get("slices") or contract.get("phases") or []
-        if phase_idx >= len(phases):
-            raise HandlerError(
-                f"Phase index {phase_idx + 1} out of range for contract "
-                f"(has {len(phases)} phase(s))"
-            )
-        tasks = phases[phase_idx].get("tasks") or []
-        if task_idx >= len(tasks):
-            raise HandlerError(
-                f"Task index {task_idx + 1} out of range for phase {phase_idx + 1} "
-                f"(has {len(tasks)} task(s))"
-            )
-        existing_gaps = list(tasks[task_idx].get("gaps") or [])
+        # recompute the next free slot + id.  The task is re-located by
+        # id on each read (#3527); indices are never derived from the
+        # id's numeric suffix.  The ``field_path`` write below still
+        # uses ``phases.{...}`` even though the read side serves
+        # ``slices``: ``Contract.phases`` is a ``@property`` alias for
+        # ``self.slices`` and the orchestrator's mutate handler
+        # navigates via ``hasattr``, so write-side compatibility holds.
+        contract = _fetch_contract(identifier, repo_path)
+        located = _find_task(contract, task_id)
+        if located is None:
+            raise HandlerError(f"Task '{task_id}' not found on contract {identifier}")
+        phase_idx, task_idx, task_obj = located
+        existing_gaps = list(task_obj.get("gaps") or [])
         next_gap_idx = len(existing_gaps)
         gap_id = _next_gap_id(existing_gaps)
 

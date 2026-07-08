@@ -232,6 +232,48 @@ class SessionStateStore:
             transcript,
         )
 
+    def list_records(self, pipeline_id: str) -> list[dict[str, Any]]:
+        """Enumerate the pipeline's stored records as an operator-facing index (#3547).
+
+        Returns one metadata entry per live ``(slice, role)`` record -
+        ``slice_id`` (``None`` for pipeline-level), ``role``, ``session_id``,
+        ``window_occupancy`` and ``transcript_bytes``; without the transcript
+        bodies, so an operator can discover what is readable before pulling a
+        specific transcript. Best-effort like every other method: any Redis or
+        parse failure degrades to omitting the entry (or returning ``[]``),
+        never raising.
+        """
+        prefix = f"{_KEY_PREFIX}:{pipeline_id}:"
+        try:
+            keys = sorted(self._redis.scan_iter(match=f"{prefix}*".encode()))
+        except Exception as exc:  # noqa: BLE001; best-effort index
+            logger.warning("Failed to scan session-state keys (pipeline=%s): %s", pipeline_id, exc)
+            return []
+        entries: list[dict[str, Any]] = []
+        for key in keys:
+            key_str = key.decode("utf-8", errors="replace") if isinstance(key, bytes) else key
+            remainder = key_str[len(prefix) :]
+            slice_segment, sep, role = remainder.partition(":")
+            if not sep or not role:
+                continue
+            slice_id = None if slice_segment == "none" else slice_segment
+            record = self.get(pipeline_id, slice_id, role)
+            if record is None:
+                continue
+            transcript_bytes = (
+                len(record.transcript.encode("utf-8")) if record.transcript is not None else 0
+            )
+            entries.append(
+                {
+                    "slice_id": slice_id,
+                    "role": role,
+                    "session_id": record.session_id,
+                    "window_occupancy": record.window_occupancy,
+                    "transcript_bytes": transcript_bytes,
+                }
+            )
+        return entries
+
 
 _store: SessionStateStore | None = None
 

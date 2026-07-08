@@ -271,7 +271,10 @@ PIPELINE_TOOLS = [
         "description": (
             "Get logs from a pipeline container. If container_id is omitted, "
             "auto-selects the best container (filtered by agent_role if given, "
-            "preferring running containers)."
+            "preferring running containers). One-shot agent pods are reaped "
+            "within minutes of exit; when the live pod is gone this falls back "
+            "to the post-reap log capture (result carries `source: persisted` "
+            "plus `captured_at`/`exit_code`), so exited agents stay diagnosable."
         ),
         "inputSchema": {
             "type": "object",
@@ -292,6 +295,46 @@ PIPELINE_TOOLS = [
                     "type": "integer",
                     "description": "Number of log lines to return",
                     "default": 100,
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "get_agent_transcript",
+        "description": (
+            "Read an agent's Claude Code session transcript from the "
+            "session-state store. Agents push their transcript on every "
+            "event-pod exit, so this survives pod reaping (records expire ~6h "
+            "after the last push); use it to diagnose WHY an agent exited "
+            "when its pod (and pod logs) are already gone. Returns the last "
+            "`lines` JSONL entries. Omit agent_role to list the available "
+            "(agent_role, slice_id) transcripts for the pipeline."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+                "agent_role": {
+                    "type": "string",
+                    "description": (
+                        "Agent role (e.g. 'coder', 'reviewer_code'). Omit to "
+                        "list available transcripts instead."
+                    ),
+                },
+                "slice_id": {
+                    "type": "string",
+                    "description": (
+                        "Slice scope (e.g. 'slice-3'); omit for pipeline-level (non-sliced) agents."
+                    ),
+                },
+                "lines": {
+                    "type": "integer",
+                    "description": "Number of transcript JSONL lines to return from the tail",
+                    "default": 200,
                 },
             },
             "required": ["task_id"],
@@ -1069,12 +1112,12 @@ PIPELINE_TOOLS = [
                 "pipeline_id": {
                     "type": "string",
                     "description": (
-                        "Keep only lines emitted for this pipeline/task id. "
-                        "Matched against the log's `context.task_id`, with "
-                        "`extra.pipeline_id` and `extra.task_id` as fallbacks "
-                        "— production call sites use `pipeline_id=...`, which "
-                        "the JsonFormatter lands in `extra` rather than the "
-                        "context-allowlisted `task_id` slot."
+                        "Keep only records emitted for this pipeline/task id. "
+                        "Works for both log formats: JSON records are matched "
+                        "on `context.task_id` / `extra.pipeline_id` / "
+                        "`extra.task_id`; console-formatted records (what the "
+                        "k8s pods emit) are matched on the inline "
+                        "`pipeline_id=` / `task_id=` pair."
                     ),
                 },
                 "level": {
@@ -1087,8 +1130,11 @@ PIPELINE_TOOLS = [
                 "pattern": {
                     "type": "string",
                     "description": (
-                        "Python regular expression; keep only lines it matches "
-                        "(`re.search`). A plain substring is a valid pattern."
+                        "Python regular expression; keep only records it matches "
+                        "(`re.search`). A plain substring is a valid pattern. "
+                        "Multi-line tracebacks stay attached to the log line that "
+                        "raised them, so matching the exception message returns "
+                        "the whole stack."
                     ),
                 },
             },

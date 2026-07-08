@@ -485,6 +485,44 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
                 error=str(e),
             )
 
+    # Invalidate the role's arms on the live event loop (#3548). The consensus
+    # reset above makes the loop re-derive the role's event, but with the SAME
+    # identity — and therefore the same dedupe key — as before the restart.
+    # Loop-local state then silently blocks the respawn: the key is still in
+    # ``_live_keys`` (the Job deletion above maps to "running" in
+    # ``_observe_jobs``, so the key never leaves the live set), and any
+    # exhaustion / no-op-park latches for it survive untouched. Without this
+    # reach-in the "respawn delegated to event loop" claim below is false —
+    # the loop never derives a spawn for the role (observed twice in the
+    # #3548 incident). Uses the same live-loop registry seam as the
+    # arms-exhausted HITL "Retry arms" resolution.
+    live_loop_found = False
+    invalidated_keys = 0
+    try:
+        from event_loop import get_live_event_loops
+
+        for _loop in get_live_event_loops(pipeline_id):
+            if _loop.slice_id != slice_id:
+                continue
+            live_loop_found = True
+            invalidated_keys += len(_loop.invalidate_role_arms(agent_role))
+        _pkg.logger.info(
+            "restart_agent: invalidated event-loop arms for role",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            slice_id=slice_id,
+            live_loop_found=live_loop_found,
+            invalidated_keys=invalidated_keys,
+        )
+    except Exception as e:  # noqa: BLE001 - best-effort reach-in
+        _pkg.logger.warning(
+            "Failed to invalidate event-loop arms for restarted role",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            slice_id=slice_id,
+            error=str(e),
+        )
+
     # Reset health-monitor anchor so the pre-respawn _last_heartbeat does not
     # generate a stale-elapsed heartbeat_timeout alert against the fresh
     # container (issue #2084).
@@ -574,10 +612,26 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
     # on, so it correctly reports the operator's "you've burned N of M
     # restarts" telemetry — the pre-fix read-only ``get_restart_count`` read
     # always reported 0 here because nothing on this path incremented it.
+    # Honest respawn reporting (#3548): "delegated to the event loop" is only
+    # true when a live loop for this (pipeline, slice) exists to honor the
+    # delegation (or the inactive-pipeline branch below relaunches one). When
+    # the pipeline is RUNNING but no loop matched, say so instead of
+    # reporting a success that will never materialize.
+    if live_loop_found:
+        respawn_note = "delegated to orchestrator event loop"
+    elif pipeline_was_inactive:
+        respawn_note = "driver thread relaunched; event loop will respawn the role"
+    else:
+        respawn_note = (
+            "no live event loop for this slice — no respawn will occur; "
+            "restart the phase if the agent must re-run"
+        )
     response_data: dict[str, object] = {
         "agent_role": agent_role,
         "slice_id": slice_id,
-        "respawn": "delegated to orchestrator event loop",
+        "respawn": respawn_note,
+        "live_event_loop": live_loop_found,
+        "arms_invalidated": invalidated_keys,
         "restart_count": new_restart_count,
     }
     if fresh_session:

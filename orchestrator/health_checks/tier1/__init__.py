@@ -28,6 +28,7 @@ from health_checks.tier1.decision_queue import (
     detect_hitl_queue_backlog,
     detect_restarted_decision_replay,
 )
+from health_checks.tier1.driver_liveness import DriverLivenessCheck
 from health_checks.tier1.gateway_health import (
     detect_gateway_error_spike,
     detect_gateway_repeated_denial,
@@ -57,6 +58,7 @@ from health_checks.tier1.worktree_branch import (
 __all__ = [
     "ConsensusStallCheck",
     "ContainerLivenessCheck",
+    "DriverLivenessCheck",
     "IncompleteConsensusStallCheck",
     "PhaseOutputPresenceCheck",
     "StartupStateCheck",

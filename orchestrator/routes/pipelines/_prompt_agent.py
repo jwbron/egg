@@ -798,6 +798,22 @@ def _build_agent_prompt(
                 "- Do NOT create or modify reviews (`.egg-state/reviews/`)",
                 "- Do NOT create or modify plan drafts (`.egg-state/drafts/*-plan.md`)",
                 "",
+                "### Operator Decisions (plan phase, #3526)",
+                "",
+                "You own the plan phase's operator-decision surface. Plan is "
+                "the pipeline's LAST decision surface: a genuine fork you "
+                "resolve silently here never reaches the operator. Register "
+                "operator-grade choices (scope boundaries the analysis left "
+                "open, forks where defensible designs diverge in "
+                "user-visible behavior, cost, or risk) via "
+                "`egg-contract add-decision` with your recommended option "
+                "first, and cite the returned cq-N ids in your ledger "
+                "attestation (#3390). A plan-phase attestation may NOT "
+                "disposition a candidate as `deferred_to_plan`: register "
+                "it, or disposition it `not_operator_grade` with a concrete "
+                "why.",
+                "",
+                *_pkg._build_deferred_candidates_section(pipeline_id),
                 *_pkg._EXPLORATION_SUBAGENT_GUIDANCE,
             ]
         )

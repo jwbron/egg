@@ -456,10 +456,18 @@ class TestRestartAgentEndpoint:
         mock_spawner.check_and_increment_restart_count.return_value = 1
         mock_spawner_fn.return_value = mock_spawner
 
-        response = client.post(
-            "/api/v1/pipelines/issue-100/agents/coder/restart",
-            json={"reason": "Agent stalled"},
-        )
+        # #3548: a live event loop exists for this (pipeline, slice=None)
+        # scope, so the delegation claim is true and the route invalidates
+        # the role's stale arm state on it.
+        live_loop = MagicMock()
+        live_loop.slice_id = None
+        live_loop.invalidate_role_arms.return_value = ["stale-key-1"]
+
+        with patch("event_loop.get_live_event_loops", return_value=[live_loop]):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={"reason": "Agent stalled"},
+            )
 
         assert response.status_code == 200
         data = response.get_json()
@@ -469,10 +477,99 @@ class TestRestartAgentEndpoint:
         assert "container_id" not in data["data"]
         assert data["data"]["agent_role"] == "coder"
         assert data["data"]["respawn"] == "delegated to orchestrator event loop"
+        # #3548: the role's dedupe/supervision state was invalidated so the
+        # loop actually re-derives a fresh spawn.
+        live_loop.invalidate_role_arms.assert_called_once_with("coder")
+        assert data["data"]["live_event_loop"] is True
+        assert data["data"]["arms_invalidated"] == 1
         # restart_count reflects the just-incremented budget (#3244), not 0.
         assert data["data"]["restart_count"] == 1
         # RUNNING pipeline: live event loop owns the respawn; no relaunch.
         mock_spawn_thread.assert_not_called()
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_agent_no_live_loop_reports_honestly(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """No live event loop → the route says no respawn will occur (#3548).
+
+        The incident shape: the route reported "restarted successfully"
+        with respawn delegated while nothing existed to honor the
+        delegation. A RUNNING pipeline with no registered loop for the
+        requested slice scope must say so.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = []
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with patch("event_loop.get_live_event_loops", return_value=[]):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={"reason": "Agent stalled"},
+            )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["data"]["live_event_loop"] is False
+        assert data["data"]["arms_invalidated"] == 0
+        assert "no live event loop" in data["data"]["respawn"]
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_agent_slice_scoped_loop_selection(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """Only the loop matching the requested slice scope is invalidated (#3548)."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = []
+        mock_spawner.list_slice_jobs.return_value = []
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        matching = MagicMock()
+        matching.slice_id = "slice-8"
+        matching.invalidate_role_arms.return_value = ["k1", "k2"]
+        other = MagicMock()
+        other.slice_id = "slice-7"
+
+        with patch("event_loop.get_live_event_loops", return_value=[other, matching]):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={"reason": "Agent stalled", "slice_id": "slice-8"},
+            )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        matching.invalidate_role_arms.assert_called_once_with("coder")
+        other.invalidate_role_arms.assert_not_called()
+        assert data["data"]["arms_invalidated"] == 2
+        assert data["data"]["live_event_loop"] is True
 
     @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.pipelines.get_pipeline_state_lock")

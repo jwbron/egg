@@ -2730,7 +2730,18 @@ def _propose_payload(
         "summary": summary,
         "artifacts": list(artifacts),
         "commit_sha": commit_sha,
-        "attestation": {"no_decisions_rationale": "test fixture: no operator decisions"},
+        "attestation": {
+            "no_decisions_rationale": "test fixture: no operator decisions",
+            # #3526: an explicit-none ledger must enumerate the candidates
+            # it considered.
+            "candidates_considered": [
+                {
+                    "question": "test fixture candidate?",
+                    "disposition": "not_operator_grade",
+                    "why": "fixture",
+                }
+            ],
+        },
     }
     if no_changes_needed:
         payload["no_changes_needed"] = True
@@ -3619,7 +3630,80 @@ class TestDecisionLedgerProposeValidation:
         self._validate(
             payload={
                 "commit_sha": "abc1234",
-                "attestation": {"no_decisions_rationale": "no operator-grade choices here"},
+                "attestation": {
+                    "no_decisions_rationale": "no operator-grade choices here",
+                    "candidates_considered": [
+                        {
+                            "question": "which helper to reuse?",
+                            "disposition": "not_operator_grade",
+                            "why": "internal design call",
+                        }
+                    ],
+                },
+            }
+        )
+
+    def test_explicit_none_without_candidates_rejected(self):
+        # #3526: the empty ledger must enumerate what was considered; a
+        # bare rationale paragraph is no longer a valid explicit-none.
+        with pytest.raises(ValueError, match="candidates_considered"):
+            self._validate(
+                payload={
+                    "commit_sha": "abc1234",
+                    "attestation": {"no_decisions_rationale": "no operator-grade choices here"},
+                }
+            )
+
+    def test_malformed_candidate_rejected(self):
+        with pytest.raises(ValueError, match="disposition"):
+            self._validate(
+                payload={
+                    "commit_sha": "abc1234",
+                    "attestation": {
+                        "no_decisions_rationale": "none",
+                        "candidates_considered": [
+                            {"question": "q?", "disposition": "bogus", "why": "w"}
+                        ],
+                    },
+                }
+            )
+
+    def test_plan_phase_deferred_to_plan_rejected(self):
+        # Plan is the last decision surface (#3526): a plan producer cannot
+        # defer a candidate to itself.
+        with pytest.raises(ValueError, match="deferred_to_plan"):
+            self._validate(
+                payload={
+                    "commit_sha": "abc1234",
+                    "attestation": {
+                        "no_decisions_rationale": "none",
+                        "candidates_considered": [
+                            {
+                                "question": "cache default?",
+                                "disposition": "deferred_to_plan",
+                                "why": "later",
+                            }
+                        ],
+                    },
+                },
+                agent_role="architect",
+                phase="plan",
+            )
+
+    def test_refine_phase_deferred_to_plan_accepted(self):
+        self._validate(
+            payload={
+                "commit_sha": "abc1234",
+                "attestation": {
+                    "no_decisions_rationale": "all open choices are plan-level",
+                    "candidates_considered": [
+                        {
+                            "question": "cache default?",
+                            "disposition": "deferred_to_plan",
+                            "why": "depends on plan's storage design",
+                        }
+                    ],
+                },
             }
         )
 
@@ -3755,7 +3839,16 @@ class TestDecisionLedgerProposeValidation:
         self._validate(
             payload={
                 "commit_sha": "abc1234",
-                "attestation": {"no_decisions_rationale": "nothing operator-grade"},
+                "attestation": {
+                    "no_decisions_rationale": "nothing operator-grade",
+                    "candidates_considered": [
+                        {
+                            "question": "which helper to reuse?",
+                            "disposition": "not_operator_grade",
+                            "why": "internal design call",
+                        }
+                    ],
+                },
             },
             router=router,
         )
@@ -3859,7 +3952,16 @@ class TestSimplifierSingleArtifactEnforcement:
         # #3390 decision-ledger requirement and reach the gate under test.
         payload = {
             "commit_sha": "abc1234",
-            "attestation": {"no_decisions_rationale": "test fixture: no operator decisions"},
+            "attestation": {
+                "no_decisions_rationale": "test fixture: no operator decisions",
+                "candidates_considered": [
+                    {
+                        "question": "test fixture candidate?",
+                        "disposition": "not_operator_grade",
+                        "why": "fixture",
+                    }
+                ],
+            },
         }
         with patch("routes.signals.subprocess.run", side_effect=router):
             _validate_producer_artifacts(

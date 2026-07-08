@@ -517,7 +517,23 @@ def create_parser() -> argparse.ArgumentParser:
         help=(
             "Decision-ledger attestation (#3390, refine/plan producers): "
             "why this phase deliberately raises no operator decisions — the "
-            "explicit empty ledger. Mutually exclusive with "
+            "explicit empty ledger. Requires at least one --considered "
+            "entry (#3526). Mutually exclusive with --decisions-registered."
+        ),
+    )
+    cons_propose.add_argument(
+        "--considered",
+        dest="considered",
+        action="append",
+        metavar='"<disposition> :: <question> :: <why>"',
+        help=(
+            "Decision candidate weighed and dispositioned away rather than "
+            "registered (#3526); repeatable. Format: "
+            '"<disposition> :: <question> :: <why>" where <disposition> is '
+            "'not_operator_grade' (a design call the planner/implementer "
+            "owns) or 'deferred_to_plan' (potentially operator-grade, "
+            "better asked once the plan is concrete). Required (>= 1) with "
+            "--no-decisions-rationale; optional alongside "
             "--decisions-registered."
         ),
     )

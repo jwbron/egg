@@ -118,6 +118,20 @@ def push_session_state(pipeline_id: str) -> tuple[Response, int]:
     return jsonify({"success": True, "stored": stored}), 200
 
 
+@session_state_bp.route("/<pipeline_id>/session-state/index", methods=["GET"])
+def list_session_state(pipeline_id: str) -> tuple[Response, int]:
+    """Return the operator-facing index of stored records (#3547).
+
+    Transcripts are the one artifact that always survives a one-shot agent
+    run, but until this route the only reader was the next event pod's
+    ``session-state pull``. This index lets an operator (via the
+    ``get_agent_transcript`` MCP tool) discover which ``(slice, role)``
+    transcripts are currently readable; metadata only, no transcript bodies.
+    """
+    records = get_session_state_store().list_records(pipeline_id)
+    return jsonify({"success": True, "records": records}), 200
+
+
 @session_state_bp.route("/<pipeline_id>/session-state", methods=["GET"])
 def pull_session_state(pipeline_id: str) -> tuple[Response, int]:
     """Return a role's warm-resume record, or ``found: false`` on any miss.

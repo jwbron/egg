@@ -101,7 +101,7 @@ class TestCollectDecisionLedgerStatus:
                 _decision("cq-3", phase="plan"),
             ],
         )
-        note, missing, explicit_none = _collect_decision_ledger_status(
+        note, missing, explicit_none, summary = _collect_decision_ledger_status(
             tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
         )
         assert missing is False
@@ -109,6 +109,14 @@ class TestCollectDecisionLedgerStatus:
         assert "2 decision(s) registered" in note
         assert "cq-1" in note and "cq-2" in note and "cq-3" not in note
         assert "1 resolved" in note
+        assert summary == {
+            "registered": ["cq-1", "cq-2"],
+            "resolved": 1,
+            "explicit_none": False,
+            "attested_by": None,
+            "missing": False,
+            "candidates_considered": [],
+        }
 
     def test_zero_registered_with_explicit_none_attestation(self, tmp_path: Path):
         from routes.pipelines import _collect_decision_ledger_status
@@ -120,26 +128,50 @@ class TestCollectDecisionLedgerStatus:
             )
         ]
         with _patch_message_store(messages):
-            note, missing, explicit_none = _collect_decision_ledger_status(
+            note, missing, explicit_none, summary = _collect_decision_ledger_status(
                 tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
             )
         assert missing is False
-        assert explicit_none == ("refiner", "mechanical change, no choices")
+        assert explicit_none == ("refiner", "mechanical change, no choices", [])
         assert "explicitly none" in note
         assert "refiner" in note
         assert "mechanical change" in note
+        assert summary["explicit_none"] is True
+        assert summary["registered"] == []
+        assert summary["attested_by"] == "refiner"
+        # Uniform shape across branches (#3526 review): every key present.
+        assert summary["missing"] is False
+        assert set(summary) == {
+            "registered",
+            "resolved",
+            "explicit_none",
+            "attested_by",
+            "missing",
+            "candidates_considered",
+        }
 
     def test_zero_registered_no_attestation_is_missing(self, tmp_path: Path):
         from routes.pipelines import _collect_decision_ledger_status
 
         _make_contract_file(tmp_path, "issue-42", decisions=[])
         with _patch_message_store([]):
-            note, missing, explicit_none = _collect_decision_ledger_status(
+            note, missing, explicit_none, summary = _collect_decision_ledger_status(
                 tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
             )
         assert missing is True
         assert explicit_none is None
         assert "MISSING" in note
+        assert summary["missing"] is True
+        # Uniform shape across branches (#3526 review): every key present.
+        assert summary["attested_by"] is None
+        assert set(summary) == {
+            "registered",
+            "resolved",
+            "explicit_none",
+            "attested_by",
+            "missing",
+            "candidates_considered",
+        }
 
     def test_contract_unloadable_falls_back_to_attestation(self, tmp_path: Path):
         from routes.pipelines import _collect_decision_ledger_status
@@ -147,11 +179,11 @@ class TestCollectDecisionLedgerStatus:
         # No contract file written at all.
         messages = [_propose_message(attestation={"no_decisions_rationale": "none needed"})]
         with _patch_message_store(messages):
-            note, missing, explicit_none = _collect_decision_ledger_status(
+            note, missing, explicit_none, _summary = _collect_decision_ledger_status(
                 tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
             )
         assert missing is False
-        assert explicit_none == ("refiner", "none needed")
+        assert explicit_none == ("refiner", "none needed", [])
         assert "explicitly none" in note
 
     def test_message_store_outage_fails_closed(self, tmp_path: Path):
@@ -159,7 +191,7 @@ class TestCollectDecisionLedgerStatus:
 
         _make_contract_file(tmp_path, "issue-42", decisions=[])
         with patch("message_store.get_message_store", side_effect=RuntimeError("redis down")):
-            note, missing, explicit_none = _collect_decision_ledger_status(
+            note, missing, explicit_none, _summary = _collect_decision_ledger_status(
                 tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
             )
         assert missing is True
@@ -181,7 +213,7 @@ class TestFindExplicitNoneAttestation:
         ]
         with _patch_message_store(messages):
             found = _find_explicit_none_attestation("pipeline-id", "plan")
-        assert found == ("risk_analyst", "risk register raises none")
+        assert found == ("risk_analyst", "risk register raises none", [])
 
     def test_other_phase_attestation_ignored(self):
         from routes.pipelines import _find_explicit_none_attestation
@@ -401,7 +433,7 @@ class TestHandleExplicitNoneAttestationGate:
                 repo_path=Path("/tmp/repo"),
                 current_phase=PipelinePhase.REFINE,
                 ledger_note="Decision ledger: explicitly none — refiner attested: x",
-                explicit_none=(self._ROLE, self._RATIONALE),
+                explicit_none=(self._ROLE, self._RATIONALE, []),
                 store=store,
                 spawner=spawner,
             )
@@ -547,3 +579,220 @@ class TestHandleExplicitNoneAttestationGate:
         assert "Operator confirmed the attestation." not in res["note"]
         assert "cancelled" in res["note"].lower()
         res["rerun"].assert_not_called()
+
+
+class TestConsideredCandidates:
+    """The structured considered-candidate surface (#3526).
+
+    Explicit-none attestations enumerate the candidates they weighed;
+    the gate renders them on the confirmation question, and refine's
+    ``deferred_to_plan`` candidates are recoverable for the plan-phase
+    handoff.
+    """
+
+    _CANDIDATES = [
+        {
+            "question": "Should the fallback cache be enabled by default?",
+            "disposition": "deferred_to_plan",
+            "why": "depends on the plan's storage design",
+        },
+        {
+            "question": "Which retry helper to reuse?",
+            "disposition": "not_operator_grade",
+            "why": "internal design call",
+        },
+    ]
+
+    def test_find_explicit_none_returns_candidates(self):
+        from routes.pipelines import _find_explicit_none_attestation
+
+        messages = [
+            _propose_message(
+                attestation={
+                    "no_decisions_rationale": "prescriptive task",
+                    "candidates_considered": self._CANDIDATES,
+                }
+            )
+        ]
+        with _patch_message_store(messages):
+            found = _find_explicit_none_attestation("pipeline-id", "refine")
+        assert found == ("refiner", "prescriptive task", self._CANDIDATES)
+
+    def test_attestation_question_renders_candidates(self):
+        from routes.pipelines import _ledger_attestation_question
+
+        question = _ledger_attestation_question(
+            "refiner", "prescriptive task", "refine", self._CANDIDATES
+        )
+        assert "Should the fallback cache be enabled by default?" in question
+        assert "deferred to plan" in question
+        assert "Which retry helper to reuse?" in question
+        assert "not_operator_grade" in question
+
+    def test_attestation_question_without_candidates_unchanged_shape(self):
+        # Back-compat: pre-#3526 attestations (no candidates) still compose
+        # a stable question so converge-round dedupe keeps keying on it.
+        from routes.pipelines import _ledger_attestation_question
+
+        a = _ledger_attestation_question("refiner", "no choices", "refine")
+        b = _ledger_attestation_question("refiner", "no choices", "refine", [])
+        assert a == b
+
+    def test_ledger_note_counts_candidates(self, tmp_path: Path):
+        from routes.pipelines import _collect_decision_ledger_status
+
+        _make_contract_file(tmp_path, "issue-42", decisions=[])
+        messages = [
+            _propose_message(
+                attestation={
+                    "no_decisions_rationale": "prescriptive task",
+                    "candidates_considered": self._CANDIDATES,
+                }
+            )
+        ]
+        with _patch_message_store(messages):
+            note, _missing, explicit_none, summary = _collect_decision_ledger_status(
+                tmp_path, "pipeline-id", "issue-42", PipelinePhase.REFINE
+            )
+        assert "2 candidate(s) considered" in note
+        assert explicit_none == ("refiner", "prescriptive task", self._CANDIDATES)
+        assert summary["candidates_considered"] == self._CANDIDATES
+
+    def test_deferred_plan_candidates_found_from_refine_propose(self):
+        from routes.pipelines import _find_deferred_plan_candidates
+
+        messages = [
+            _propose_message(
+                phase="refine",
+                attestation={
+                    "decisions_registered": ["cq-1"],
+                    "candidates_considered": self._CANDIDATES,
+                },
+            )
+        ]
+        with _patch_message_store(messages):
+            deferred = _find_deferred_plan_candidates("pipeline-id")
+        assert deferred == [self._CANDIDATES[0]]
+
+    def test_deferred_candidates_ignore_plan_phase_proposals(self):
+        from routes.pipelines import _find_deferred_plan_candidates
+
+        messages = [
+            _propose_message(
+                phase="plan",
+                from_role="architect",
+                attestation={
+                    "no_decisions_rationale": "x",
+                    "candidates_considered": self._CANDIDATES,
+                },
+            )
+        ]
+        with _patch_message_store(messages):
+            assert _find_deferred_plan_candidates("pipeline-id") == []
+
+    def test_deferred_candidates_empty_on_store_outage(self):
+        from routes.pipelines import _find_deferred_plan_candidates
+
+        with patch("message_store.get_message_store", side_effect=RuntimeError("down")):
+            assert _find_deferred_plan_candidates("pipeline-id") == []
+
+
+class TestDeferredCandidatesPromptSection:
+    """The plan-prompt injection of refine deferrals (#3526)."""
+
+    _DEFERRED = [
+        {
+            "question": "Should the fallback cache be enabled by default?",
+            "disposition": "deferred_to_plan",
+            "why": "depends on the plan's storage design",
+        }
+    ]
+
+    def test_section_renders_deferred_candidates(self):
+        from routes.pipelines import _build_deferred_candidates_section
+
+        with patch("routes.pipelines._find_deferred_plan_candidates", return_value=self._DEFERRED):
+            section = _build_deferred_candidates_section("pipeline-id")
+        text = "\n".join(section)
+        assert "Deferred from refine" in text
+        assert "Should the fallback cache be enabled by default?" in text
+        assert "egg-contract add-decision" in text
+
+    def test_section_empty_without_deferrals(self):
+        from routes.pipelines import _build_deferred_candidates_section
+
+        with patch("routes.pipelines._find_deferred_plan_candidates", return_value=[]):
+            assert _build_deferred_candidates_section("pipeline-id") == []
+
+    def test_section_empty_without_pipeline_id(self):
+        from routes.pipelines import _build_deferred_candidates_section
+
+        assert _build_deferred_candidates_section(None) == []
+
+    def test_plan_phase_prompt_includes_deferred_section(self):
+        from routes.pipelines import _build_phase_prompt
+
+        with patch("routes.pipelines._find_deferred_plan_candidates", return_value=self._DEFERRED):
+            prompt = _build_phase_prompt(
+                phase="plan",
+                pipeline_id="pipeline-id",
+                pipeline_mode="issue",
+                issue_number=42,
+            )
+        assert "Deferred from refine" in prompt
+        assert "Should the fallback cache be enabled by default?" in prompt
+        assert "Operator Decisions (plan phase)" in prompt
+
+    def test_plan_phase_prompt_without_deferrals_has_protocol_only(self):
+        from routes.pipelines import _build_phase_prompt
+
+        with patch("routes.pipelines._find_deferred_plan_candidates", return_value=[]):
+            prompt = _build_phase_prompt(
+                phase="plan",
+                pipeline_id="pipeline-id",
+                pipeline_mode="issue",
+                issue_number=42,
+            )
+        assert "Deferred from refine" not in prompt
+        assert "Operator Decisions (plan phase)" in prompt
+        assert "egg-contract add-decision" in prompt
+
+
+class TestPersistDecisionLedgerSummary:
+    """Gate-time persistence of the ledger summary (#3526)."""
+
+    def test_summary_persisted_on_phase_execution(self):
+        from unittest.mock import MagicMock
+
+        from routes.pipelines import _persist_decision_ledger_summary
+
+        phase_exec = MagicMock()
+        pipeline = MagicMock()
+        pipeline.get_phase_execution.return_value = phase_exec
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        summary = {"registered": ["cq-1"], "resolved": 0, "explicit_none": False}
+
+        with patch("routes.pipelines.get_pipeline_state_lock", return_value=MagicMock()):
+            out = _persist_decision_ledger_summary(
+                store, "pipeline-id", PipelinePhase.REFINE, summary
+            )
+
+        assert out is pipeline
+        assert phase_exec.decision_ledger == summary
+        store.save_pipeline.assert_called_once_with(pipeline)
+
+    def test_persistence_failure_is_non_blocking(self):
+        from unittest.mock import MagicMock
+
+        from routes.pipelines import _persist_decision_ledger_summary
+
+        store = MagicMock()
+        store.load_pipeline.side_effect = RuntimeError("state store down")
+
+        with patch("routes.pipelines.get_pipeline_state_lock", return_value=MagicMock()):
+            out = _persist_decision_ledger_summary(
+                store, "pipeline-id", PipelinePhase.REFINE, {"registered": []}
+            )
+
+        assert out is None

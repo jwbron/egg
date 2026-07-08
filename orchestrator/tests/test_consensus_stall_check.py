@@ -220,6 +220,7 @@ class TestConsensusStallCheck:
         mock_message.message_type = "CONSENSUS_CONFIRMED"
         mock_message.from_role = "coder"
         mock_message.metadata = {}
+        mock_message.phase = "implement"
         mock_msg_store.get_messages.return_value = [mock_message]
 
         mock_msg_store_mod = MagicMock()
@@ -274,6 +275,7 @@ class TestConsensusStallCheck:
             msg.message_type = "CONSENSUS_CONFIRMED"
             msg.from_role = role
             msg.metadata = {"slice_id": "slice-1"}
+            msg.phase = "implement"
             messages.append(msg)
         mock_msg_store.get_messages.return_value = messages
 
@@ -297,6 +299,97 @@ class TestConsensusStallCheck:
             result = ConsensusStallCheck(consensus_stall_grace_seconds=60).run(ctx)
 
         assert result.status == HealthStatus.HEALTHY
+
+    def test_prior_phase_confirmations_do_not_trigger_stall(self):
+        """Earlier-phase pipeline-level confirmations are ignored (#3542).
+
+        Refine, plan, and implement share the default review graph, so a
+        completed plan phase leaves untagged CONSENSUS_CONFIRMED messages
+        on the bus from exactly the roles the implement phase expects.
+        Without phase scoping the fallback reports "consensus complete"
+        for the whole implement phase.
+        """
+        pipeline = _make_concurrent_pipeline(phase_started_seconds_ago=120)
+        ctx = _make_context(pipeline)
+
+        mock_ce = MagicMock()
+        mock_ce.is_concurrent_execution.return_value = True
+
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = None
+
+        # Every role confirmed, but during the *plan* phase, not implement.
+        mock_msg_store = MagicMock()
+        messages = []
+        for role in ("coder", "tester"):
+            msg = MagicMock()
+            msg.message_type = "CONSENSUS_CONFIRMED"
+            msg.from_role = role
+            msg.metadata = {}
+            msg.phase = "plan"
+            messages.append(msg)
+        mock_msg_store.get_messages.return_value = messages
+
+        mock_msg_store_mod = MagicMock()
+        mock_msg_store_mod.get_message_store.return_value = mock_msg_store
+
+        mock_graph = MagicMock()
+        mock_graph.all_roles.return_value = {"coder", "tester"}
+        mock_graph_mod = MagicMock()
+        mock_graph_mod.get_review_graph_for_phase.return_value = mock_graph
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "concurrent_executor": mock_ce,
+                "peer_consensus": mock_pc,
+                "message_store": mock_msg_store_mod,
+                "review_graph": mock_graph_mod,
+            },
+        ):
+            result = ConsensusStallCheck(consensus_stall_grace_seconds=60).run(ctx)
+
+        assert result.status == HealthStatus.HEALTHY
+
+    def test_null_phase_confirmations_still_count(self):
+        """A confirmation with no phase field conservatively matches (#3542)."""
+        pipeline = _make_concurrent_pipeline(phase_started_seconds_ago=120)
+        ctx = _make_context(pipeline)
+
+        mock_ce = MagicMock()
+        mock_ce.is_concurrent_execution.return_value = True
+
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = None
+
+        mock_msg_store = MagicMock()
+        msg = MagicMock()
+        msg.message_type = "CONSENSUS_CONFIRMED"
+        msg.from_role = "coder"
+        msg.metadata = {}
+        msg.phase = None
+        mock_msg_store.get_messages.return_value = [msg]
+
+        mock_msg_store_mod = MagicMock()
+        mock_msg_store_mod.get_message_store.return_value = mock_msg_store
+
+        mock_graph = MagicMock()
+        mock_graph.all_roles.return_value = {"coder"}
+        mock_graph_mod = MagicMock()
+        mock_graph_mod.get_review_graph_for_phase.return_value = mock_graph
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "concurrent_executor": mock_ce,
+                "peer_consensus": mock_pc,
+                "message_store": mock_msg_store_mod,
+                "review_graph": mock_graph_mod,
+            },
+        ):
+            result = ConsensusStallCheck(consensus_stall_grace_seconds=60).run(ctx)
+
+        assert result.status == HealthStatus.DEGRADED
 
     def test_idempotent(self):
         """Running the check twice produces the same result without side effects."""
@@ -413,6 +506,7 @@ def _setup_aggressive_recovery() -> AggressiveRecoveryFixture:
 
     mock_pc = MagicMock()
     mock_pc.get_peer_consensus_tracker.return_value = None
+    mock_pc.get_slice_trackers.return_value = {}
     mock_pc.reconstruct_tracker_from_messages.return_value = None
     mock_graph = MagicMock()
 
@@ -471,6 +565,7 @@ class TestHandleConsensusStallRecovery:
 
         mock_pc = MagicMock()
         mock_pc.get_peer_consensus_tracker.return_value = None
+        mock_pc.get_slice_trackers.return_value = {}
         mock_reconstructed = MagicMock()
         mock_pc.reconstruct_tracker_from_messages.return_value = mock_reconstructed
 
@@ -488,6 +583,68 @@ class TestHandleConsensusStallRecovery:
         # Tracker was reconstructed — save_pipeline should NOT be called
         mock_store.save_pipeline.assert_not_called()
 
+    def test_live_slice_trackers_skip_aggressive_recovery(self):
+        """Live slice-scoped trackers mean a slice round is in flight (#3542).
+
+        The bare-id lookup cannot see trackers registered under
+        ``{pipeline_id}/{slice_id}``; without this guard Track 1 falls
+        through to pipeline-level reconstruction and Track 2 kills the
+        live slice round (the issue-3523 14-hour stall).
+        """
+        monitor = _make_monitor()
+        mock_store = MagicMock()
+        pipeline = _make_concurrent_pipeline()
+        result = _make_degraded_result()
+
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = None
+        mock_pc.get_slice_trackers.return_value = {"slice-8": MagicMock()}
+
+        mock_graph_mod = MagicMock()
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": mock_pc,
+                "review_graph": mock_graph_mod,
+            },
+        ):
+            monitor._handle_consensus_stall_recovery([result], pipeline, mock_store)
+
+        # Neither reconstruction nor aggressive recovery may run over a
+        # live slice consensus round.
+        mock_pc.reconstruct_tracker_from_messages.assert_not_called()
+        mock_store.save_pipeline.assert_not_called()
+
+    def test_reconstruction_is_phase_scoped(self):
+        """Reconstruction replays only the current phase's messages (#3542)."""
+        monitor = _make_monitor()
+        mock_store = MagicMock()
+        pipeline = _make_concurrent_pipeline()
+        result = _make_degraded_result()
+
+        mock_pc = MagicMock()
+        mock_pc.get_peer_consensus_tracker.return_value = None
+        mock_pc.get_slice_trackers.return_value = {}
+        mock_pc.reconstruct_tracker_from_messages.return_value = MagicMock()
+
+        mock_graph = MagicMock()
+        mock_graph_mod = MagicMock()
+        mock_graph_mod.get_review_graph_for_phase.return_value = mock_graph
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": mock_pc,
+                "review_graph": mock_graph_mod,
+            },
+        ):
+            monitor._handle_consensus_stall_recovery([result], pipeline, mock_store)
+
+        mock_pc.reconstruct_tracker_from_messages.assert_called_once_with(
+            "issue-1014", mock_graph, phase="implement"
+        )
+
     def test_aggressive_recovery_sets_completed_at(self):
         """Aggressive recovery sets completed_at on agents and phase."""
         monitor = _make_monitor()
@@ -502,6 +659,7 @@ class TestHandleConsensusStallRecovery:
         # Tracker reconstruction fails
         mock_pc = MagicMock()
         mock_pc.get_peer_consensus_tracker.return_value = None
+        mock_pc.get_slice_trackers.return_value = {}
         mock_pc.reconstruct_tracker_from_messages.return_value = None
 
         mock_graph_mod = MagicMock()
@@ -542,6 +700,7 @@ class TestHandleConsensusStallRecovery:
 
         mock_pc = MagicMock()
         mock_pc.get_peer_consensus_tracker.return_value = None
+        mock_pc.get_slice_trackers.return_value = {}
         mock_pc.reconstruct_tracker_from_messages.return_value = None
         mock_graph_mod = MagicMock()
 
@@ -572,6 +731,7 @@ class TestHandleConsensusStallRecovery:
 
         mock_pc = MagicMock()
         mock_pc.get_peer_consensus_tracker.return_value = None
+        mock_pc.get_slice_trackers.return_value = {}
         mock_pc.reconstruct_tracker_from_messages.return_value = None
         mock_graph_mod = MagicMock()
 
@@ -602,6 +762,7 @@ class TestHandleConsensusStallRecovery:
 
         mock_pc = MagicMock()
         mock_pc.get_peer_consensus_tracker.return_value = None
+        mock_pc.get_slice_trackers.return_value = {}
         mock_pc.reconstruct_tracker_from_messages.return_value = None
         mock_graph_mod = MagicMock()
 
@@ -879,6 +1040,7 @@ class TestSliceScopedAggressiveRecovery:
 
         mock_pc = MagicMock()
         mock_pc.get_peer_consensus_tracker.return_value = None
+        mock_pc.get_slice_trackers.return_value = {}
         mock_pc.reconstruct_tracker_from_messages.return_value = None
         mock_graph_mod = MagicMock()
 
@@ -937,6 +1099,7 @@ class TestSliceScopedAggressiveRecovery:
 
         mock_pc = MagicMock()
         mock_pc.get_peer_consensus_tracker.return_value = None
+        mock_pc.get_slice_trackers.return_value = {}
         mock_pc.reconstruct_tracker_from_messages.return_value = None
         mock_graph_mod = MagicMock()
 

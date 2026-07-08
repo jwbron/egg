@@ -50,16 +50,47 @@ def _consensus_block(consensus_state: dict) -> dict:
     NACKed whom, on which version, and why; #3481) and drops the
     bulky ``approval_matrix`` / ``review_graph`` dumps.
 
+    #3548: the slimming used to drop the recorded verdicts entirely, so a
+    landed ACK was indistinguishable from a lost one (the reviewer shows
+    ``reviewer_phase: REVIEWING`` + ``confirmed: false`` either way) and
+    the zero-proposal confirm blocker was unnamed. Keep compact
+    projections of both: ``proposal_versions``, a 4-field
+    ``review_edges`` list, and ``zero_proposal_producers`` (producers
+    with no proposal — the global confirm guard rejects every confirm
+    while this set is non-empty).
+
     BRC trackers only emit dict-format agent entries (the legacy
     AgentReadiness object came from the now-deleted ConsensusEvaluator,
     cq-5 of #2777).
     """
+    agents = dict(consensus_state.get("agents", {}))
+    matrix = consensus_state.get("approval_matrix") or {}
+    proposal_versions = dict(matrix.get("proposal_versions") or {})
+    review_edges = [
+        {
+            "reviewer": entry.get("reviewer_role"),
+            "producer": entry.get("producer_role"),
+            "state": entry.get("state"),
+            "version": entry.get("version"),
+        }
+        for entry in (matrix.get("entries") or {}).values()
+        if isinstance(entry, dict)
+    ]
+    review_edges.sort(key=lambda e: (str(e["producer"]), str(e["reviewer"])))
+    zero_proposal_producers = sorted(
+        role
+        for role, info in agents.items()
+        if isinstance(info, dict) and "producer_phase" in info and not proposal_versions.get(role)
+    )
     return {
-        "agents": dict(consensus_state.get("agents", {})),
+        "agents": agents,
         "is_complete": consensus_state.get("is_complete", False),
         "blocking_agents": consensus_state.get("blocking_agents", []),
         "has_unresolved_nacks": consensus_state.get("has_unresolved_nacks", False),
         "unresolved_nacks": consensus_state.get("unresolved_nacks", []),
+        "proposal_versions": proposal_versions,
+        "review_edges": review_edges,
+        "zero_proposal_producers": zero_proposal_producers,
         "protocol": consensus_state.get("protocol", "brc"),
     }
 
