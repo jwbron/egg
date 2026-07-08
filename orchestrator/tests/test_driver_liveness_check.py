@@ -80,12 +80,19 @@ def _make_pipeline(
     return pipeline
 
 
-def _make_context(pipeline: Pipeline) -> PipelineHealthContext:
+def _make_context(
+    pipeline: Pipeline, live_pods: list[ContainerInfo] | None = None
+) -> PipelineHealthContext:
+    client = MagicMock()
+    # Default: no live pod (the container backend's ground-truth liveness
+    # signal consulted by the driver_no_progress exemption). Tests exercising
+    # the exemption pass an explicit RUNNING pod.
+    client.list_containers.return_value = list(live_pods or [])
     return PipelineHealthContext(
         pipeline=pipeline,
         repo_path=Path("/tmp/test-repo"),
         trigger="runtime_tick",
-        docker_client=MagicMock(),
+        docker_client=client,
     )
 
 
@@ -285,6 +292,49 @@ class TestDriverLivenessDegradedModes:
         assert result.details["mode"] == "driver_no_progress"
         assert result.details["spawn_age_s"] == 9999.0
 
+    def test_live_agent_pod_exempts_no_progress(self):
+        """Event-pump path: persisted phase state is empty and spawn_age is
+        stale, but a live RUNNING agent pod means the driver is progressing —
+        firing here would tear down in-flight work (#3540 re-review)."""
+        _fresh_registry()
+        driver_heartbeat.record_tick(PID)
+        check = DriverLivenessCheck(stall_grace_seconds=100)
+        pipeline = _make_pipeline()  # old phase, no persisted containers/agents
+        live_pod = ContainerInfo(
+            container_id="pod-1",
+            container_name="egg-planner",
+            status=ContainerStatus.RUNNING,
+            started_at=datetime.now(UTC),
+        )
+        with (
+            patch("routes.pipelines.has_live_pipeline_driver", return_value=True),
+            patch("driver_heartbeat.spawn_age_seconds", return_value=9999.0),
+        ):
+            result = check.run(_make_context(pipeline, live_pods=[live_pod]))
+        assert result.status == HealthStatus.HEALTHY
+        assert "live agent pod" in result.reasoning
+
+    def test_no_live_pod_still_fires_no_progress(self):
+        """A non-RUNNING pod (e.g. a just-completed one-shot) is not a live
+        agent, so the wedge still fires — the exemption is RUNNING-only."""
+        _fresh_registry()
+        driver_heartbeat.record_tick(PID)
+        check = DriverLivenessCheck(stall_grace_seconds=100)
+        pipeline = _make_pipeline()
+        done_pod = ContainerInfo(
+            container_id="pod-1",
+            container_name="egg-planner",
+            status=ContainerStatus.EXITED,
+            started_at=datetime.now(UTC),
+        )
+        with (
+            patch("routes.pipelines.has_live_pipeline_driver", return_value=True),
+            patch("driver_heartbeat.spawn_age_seconds", return_value=9999.0),
+        ):
+            result = check.run(_make_context(pipeline, live_pods=[done_pod]))
+        assert result.status == HealthStatus.DEGRADED
+        assert result.details["mode"] == "driver_no_progress"
+
     def test_driver_no_progress_without_any_spawn_stamp_uses_observation_clock(self):
         _fresh_registry()
         check = DriverLivenessCheck(stall_grace_seconds=0)
@@ -375,6 +425,24 @@ class TestDriverLivenessEscalation:
         mock_broadcast.assert_not_called()
         mock_persist.assert_not_called()
 
+    def test_first_alert_fires_on_low_uptime_host(self):
+        """Regression: the re-alert throttle uses ``None`` (not ``0.0``) as the
+        'never alerted' sentinel, so on a host whose uptime is below
+        ``realert_seconds`` the FIRST alert is not spuriously suppressed
+        (``time.monotonic`` is boot-relative, #3540 re-review)."""
+        monitor = _make_monitor()
+        pipeline = _make_pipeline()
+        store = MagicMock()
+        assert not monitor._driver_liveness_alerted  # never alerted
+        with (
+            patch("kubernetes_monitor.time.monotonic", return_value=10.0),
+            patch.object(monitor, "_broadcast_driver_liveness_alert") as mock_broadcast,
+            patch("routes.pipelines._persist_hitl_decision") as mock_persist,
+        ):
+            monitor._handle_driver_liveness_results([_degraded_result()], pipeline, store)
+        mock_broadcast.assert_called_once()
+        mock_persist.assert_called_once()
+
     def test_healthy_results_ignored(self):
         from health_checks.types import HealthResult, HealthTier
 
@@ -389,6 +457,47 @@ class TestDriverLivenessEscalation:
         with patch.object(monitor, "_broadcast_driver_liveness_alert") as mock_broadcast:
             monitor._handle_driver_liveness_results([healthy], pipeline, MagicMock())
         mock_broadcast.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# KubernetesMonitor._prune_driver_liveness_state — terminal-pipeline cleanup
+# ---------------------------------------------------------------------------
+
+
+class TestDriverLivenessStatePruning:
+    def test_terminal_pipeline_prunes_all_registries(self):
+        """All three per-pipeline registries (heartbeat stamps, re-alert
+        throttle, first-observed clocks) are dropped for a terminal pipeline
+        (#3540 re-review, non-blocking #1)."""
+        from health_checks.runner import HealthCheckRunner
+
+        _fresh_registry()
+        driver_heartbeat.record_tick(PID)
+        driver_heartbeat.record_spawn(PID)
+        monitor = _make_monitor()
+        monitor._driver_liveness_alerted[PID] = 123.0
+        check = DriverLivenessCheck()
+        check._first_observed[(PID, "driver_no_progress")] = 1.0
+        runner = HealthCheckRunner()
+        runner.register(check)
+
+        monitor._prune_driver_liveness_state(PID, runner)
+
+        assert driver_heartbeat.tick_age_seconds(PID) is None
+        assert driver_heartbeat.spawn_age_seconds(PID) is None
+        assert PID not in monitor._driver_liveness_alerted
+        assert (PID, "driver_no_progress") not in check._first_observed
+
+    def test_prune_is_safe_without_registered_check(self):
+        """No driver_liveness check registered on the runner — must not raise
+        and must still drop the monitor-level registries."""
+        _fresh_registry()
+        driver_heartbeat.record_spawn(PID)
+        monitor = _make_monitor()
+        monitor._driver_liveness_alerted[PID] = 5.0
+        monitor._prune_driver_liveness_state(PID, MagicMock(checks=[]))
+        assert PID not in monitor._driver_liveness_alerted
+        assert driver_heartbeat.spawn_age_seconds(PID) is None
 
 
 # ---------------------------------------------------------------------------

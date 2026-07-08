@@ -247,6 +247,7 @@ class KubernetesMonitor:
                     try:
                         pipeline = store.load_pipeline(pid)
                         if pipeline.status.value != "running":
+                            self._prune_driver_liveness_state(pid, runner)
                             continue
                         ctx = PipelineHealthContext(
                             pipeline=pipeline,
@@ -893,6 +894,31 @@ class KubernetesMonitor:
                     exc_info=True,
                 )
             return
+
+    def _prune_driver_liveness_state(self, pipeline_id: str, runner: Any) -> None:
+        """Drop per-pipeline driver-liveness state for a terminal pipeline.
+
+        The heartbeat stamps (``driver_heartbeat``), the re-alert throttle
+        (``_driver_liveness_alerted``), and the check's first-observed clocks
+        are all keyed by pipeline id. Terminal pipelines are skipped before
+        the check runs, so its own ``_clear_observed`` never fires for them;
+        without this each of the three would grow one entry per pipeline id
+        for the orchestrator's process lifetime — a slow leak (#3540
+        re-review, non-blocking #1). Idempotent and safe to call every sweep.
+        """
+        try:
+            import driver_heartbeat
+
+            driver_heartbeat.clear(pipeline_id)
+        except Exception:
+            pass
+        self._driver_liveness_alerted.pop(pipeline_id, None)
+        try:
+            for check in getattr(runner, "checks", []):
+                if getattr(check, "name", "") == "driver_liveness":
+                    check.discard_pipeline(pipeline_id)
+        except Exception:
+            pass
 
     def _handle_driver_liveness_results(
         self,

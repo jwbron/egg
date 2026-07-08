@@ -17,8 +17,9 @@ in three modes, most severe first:
 * ``driver_hung``: a driver thread exists but its work-loop heartbeat
   (``driver_heartbeat.record_tick``) has gone stale.
 * ``driver_no_progress``: the driver is ticking, but nothing has spawned,
-  no agent container is live, and no HITL decision is pending; the phase
-  is silently spinning (the #3540 signature).
+  no agent container is live (neither in persisted phase state nor as a
+  live pod), and no HITL decision is pending; the phase is silently
+  spinning (the #3540 signature).
 
 Purely diagnostic: it never mutates state. Escalation (error log,
 OVERSEER_ALERT broadcast, HITL decision) is driven by the caller in
@@ -62,10 +63,19 @@ logger = get_logger("orchestrator.health_checks.driver_liveness")
 DEFAULT_DEAD_GRACE_SECONDS = 300
 
 # Grace before a stale heartbeat / spawn-free window counts as a wedge.
-# Must exceed the event loop's no-op park retry window (1800s,
-# supervision_policy.SUPERVISION_NOOP_PARK_RETRY_SECONDS): a legitimately
-# parked pipeline respawns at most every 30 minutes, and each respawn
-# stamps ``record_spawn``, so 45 minutes of silence is never a healthy park.
+# Set above the event loop's no-op park retry window (1800s,
+# supervision_policy.SUPERVISION_NOOP_PARK_RETRY_SECONDS) so a legitimately
+# parked pipeline's periodic respawns keep the spawn stamp fresh.
+#
+# The grace alone is NOT sufficient to rule out a healthy run: in event-pump
+# mode a single long-running one-shot agent produces zero respawns for its
+# whole runtime (the event loop's dedupe branch returns without spawning
+# while the pod is live, so ``record_spawn`` is never re-stamped) and is
+# never written to persisted phase state (``spawn_all()`` returns ``[]``,
+# #3230). Such an agent would look identical to a wedge to the spawn-age and
+# persisted-state signals. The live pod itself is therefore consulted as the
+# ground-truth liveness signal before ``driver_no_progress`` fires
+# (see ``_has_live_agent_pod``, #3540 re-review).
 DEFAULT_STALL_GRACE_SECONDS = 2700
 
 # HITL wiring shared with routes/decisions (single source of truth; the
@@ -123,6 +133,37 @@ class DriverLivenessCheck:
                 continue
             if conditions is None or key[1] in conditions:
                 del self._first_observed[key]
+
+    def discard_pipeline(self, pipeline_id: str) -> None:
+        """Forget all observation clocks for a terminal/removed pipeline.
+
+        The kubernetes-monitor calls this when a pipeline leaves RUNNING.
+        Non-running pipelines are skipped before :meth:`run` executes, so the
+        in-band ``_clear_observed`` at the top of :meth:`run` never fires for
+        them; without this the per-pipeline ``_first_observed`` entries would
+        accumulate for the orchestrator's process lifetime (#3540 re-review).
+        """
+        self._clear_observed(pipeline_id)
+
+    def _has_live_agent_pod(self, context: PipelineHealthContext, pipeline_id: str) -> bool:
+        """Whether a RUNNING agent pod exists for the pipeline right now.
+
+        Consults the container backend directly (the signal persisted phase
+        state can no longer provide in event-pump mode, #3230). Returns
+        ``True`` only when a live RUNNING pod is confirmed; ``False`` on an
+        empty result or any query error, so an unconfirmable pipeline is not
+        exempted and detection is preserved.
+        """
+        client = getattr(context, "docker_client", None)
+        if client is None:
+            return False
+        try:
+            from kubernetes_client import LABEL_PIPELINE_ID
+
+            containers = client.list_containers(all=False, labels={LABEL_PIPELINE_ID: pipeline_id})
+            return any(c.status == ContainerStatus.RUNNING for c in containers)
+        except Exception:
+            return False
 
     # ------------------------------------------------------------------
     # Check body
@@ -232,6 +273,20 @@ class DriverLivenessCheck:
             return self._healthy(
                 f"Last spawn activity {effective_age:.0f}s ago, within the "
                 f"{self._stall_grace}s no-progress grace."
+            )
+
+        # Ground-truth liveness check before declaring a wedge. In event-pump
+        # mode a genuinely-working single agent leaves persisted phase state
+        # empty and stops re-stamping the spawn clock for its whole runtime
+        # (#3230), so the checks above cannot distinguish it from a wedge. The
+        # live pod is the signal the empty phase state can no longer provide:
+        # if an agent pod is actually RUNNING for this pipeline, the driver is
+        # progressing and firing here would tear down in-flight work (#3540).
+        if self._has_live_agent_pod(context, pipeline.id):
+            self._clear_observed(pipeline.id, {"driver_no_progress"})
+            return self._healthy(
+                "A live agent pod is running; driver is progressing "
+                "(event-pump one-shot not reflected in persisted phase state)."
             )
         return self._degraded(
             pipeline,
