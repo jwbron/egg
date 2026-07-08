@@ -19,6 +19,7 @@ def _start_stacked_pr_reconciler(
     interval_seconds: float | None = None,
     worktree_repo_path: _pkg.Path | None = None,
     repo: str | None = None,
+    store=None,  # noqa: ANN001 — StateStore (avoid import cycle)
 ) -> tuple[_pkg.threading.Thread, _pkg.threading.Event]:
     """Start the periodic stacked-PR reconciler as a daemon thread (#2137 TASK-5-3).
 
@@ -27,6 +28,14 @@ def _start_stacked_pr_reconciler(
     cleanly. The daemon loops on the configured interval and invokes
     :func:`stacked_pr_reconciler.reconcile_once` with callables that
     decouple it from the gateway client.
+
+    ``store`` (optional) bounds the daemon's lifetime independently of the
+    launching driver: each tick re-reads the pipeline status and the loop
+    exits once the pipeline is terminal or deleted (#3540). Without it the
+    daemon's only exit is ``stop_event``, which is set in the launcher's
+    ``finally`` block; a driver wedged inside its work loop never reaches
+    that block, and in #3540 the orphaned reconciler's 30s gateway session
+    registrations were the only log signal for 11 hours.
 
     The list-callables (``list_open_prs`` and ``list_remote_branches``)
     forward to ``GatewayClient.list_open_prs`` /
@@ -213,6 +222,29 @@ def _start_stacked_pr_reconciler(
         # sleep — Event.wait returns True the moment ``stop_event`` is
         # set, so shutdown is bounded by the configured interval.
         while not stop_event.wait(interval_seconds):
+            # #3540: self-terminate when the pipeline is terminal or gone,
+            # so a driver that never reaches its finally block (wedged or
+            # hung) cannot leave this daemon registering gateway sessions
+            # forever. Transient read failures keep the loop running; only
+            # a positive terminal/deleted signal stops it.
+            if store is not None:
+                try:
+                    status = store.load_pipeline(pipeline_id).status
+                except _pkg.PipelineNotFoundError:
+                    _pkg.logger.info(
+                        "stacked_pr_reconciler: pipeline deleted; stopping (#3540)",
+                        pipeline_id=pipeline_id,
+                    )
+                    return
+                except Exception:  # noqa: BLE001
+                    status = None
+                if status is not None and status in _pkg.PipelineStatus.terminal():
+                    _pkg.logger.info(
+                        "stacked_pr_reconciler: pipeline is terminal; stopping (#3540)",
+                        pipeline_id=pipeline_id,
+                        status=status.value,
+                    )
+                    return
             try:
                 contract = contract_loader()
                 if contract is None:

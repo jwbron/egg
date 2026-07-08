@@ -103,6 +103,7 @@ from ._handlers import (  # noqa: E402,F401
     _maybe_dispatch_arms_exhausted_resolution,
     _maybe_dispatch_arms_parked_resolution,
     _maybe_dispatch_consensus_timeout_resolution,
+    _maybe_dispatch_driver_liveness_resolution,
     _normalize_choice_resolution,
     _read_first_principles_redirect,
     _resolution_selects_option,

@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+import driver_heartbeat
 import kubernetes_spawner as _pkg
 from gateway_client import SessionInfo
 from kubernetes_client import (
@@ -755,6 +756,12 @@ def spawn_agent_job(
             # the coarser ``spawn_dispatch_seconds`` timing field).
             spawn_ms=round(spawn_ms, 3),
         )
+
+        # #3540: stamp spawn progress for the driver-liveness check. Both
+        # phase-start spawns and event-pump one-shot Jobs (spawn_event_job
+        # delegates here) count; the check flags a RUNNING pipeline whose
+        # driver ticks but never spawns anything.
+        driver_heartbeat.record_spawn(pipeline_id)
 
         return _pkg.SpawnedContainer(
             container_info=container_info,

@@ -7,6 +7,7 @@ test-patched globals are reached via ``_pkg`` so
 
 from __future__ import annotations
 
+import driver_heartbeat
 import routes.pipelines as _pkg  # noqa: E402,F401
 
 
@@ -459,6 +460,9 @@ def _run_concurrent_phase(
     _hitl_gate_deferring = False
 
     while True:
+        # #3540: the slice-wave threads spend the phase's lifetime in this
+        # poll loop, so this tick is what proves driver liveness mid-slice.
+        driver_heartbeat.record_tick(pipeline_id)
         elapsed = _pkg.time.monotonic() - start_time
 
         # 0. Bail if a restart superseded this thread (#3315). A parked phase
@@ -1186,6 +1190,7 @@ def _run_concurrent_phase(
                 last_seen_proposal_ts = _latest_proposal_ts(pipeline_id, slice_id)
 
                 while remaining:
+                    driver_heartbeat.record_tick(pipeline_id)  # #3540
                     now_monotonic = _pkg.time.monotonic()
                     total_elapsed = now_monotonic - post_timeout_start
                     iteration_elapsed = now_monotonic - last_progress_at
