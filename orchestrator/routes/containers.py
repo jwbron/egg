@@ -31,6 +31,7 @@ except ImportError:
 
 import os
 
+from agent_log_store import get_agent_log_store
 from container_monitor import get_container_monitor
 from docker_client import (
     ContainerNotFoundError,
@@ -482,6 +483,11 @@ def get_container_logs(pipeline_id: str, container_id: str) -> tuple[Response, i
                 "logs": "..."
             }
         }
+
+    When the live container is gone (one-shot agent pods are reaped within
+    minutes of exit), falls back to the post-reap capture in the agent-log
+    store (#3547); the fallback payload carries ``"source": "persisted"``
+    plus the capture metadata.
     """
     try:
         tail = int(request.args.get("tail", request.args.get("lines", 100)))
@@ -503,12 +509,54 @@ def get_container_logs(pipeline_id: str, container_id: str) -> tuple[Response, i
             status_code=400,
         )
     except ContainerNotFoundError, PodNotFoundError:
+        record = get_agent_log_store().get(pipeline_id, container_id)
+        if record is not None:
+            return make_success_response(
+                "Logs retrieved from post-reap capture",
+                data={
+                    "logs": record.get("logs", ""),
+                    "source": "persisted",
+                    "captured_at": record.get("captured_at"),
+                    "exit_code": record.get("exit_code"),
+                    "agent_role": record.get("agent_role"),
+                    "slice_id": record.get("slice_id"),
+                    "truncated": record.get("truncated", False),
+                },
+            )
         return make_error_response(
             f"Container {container_id} not found",
             status_code=404,
         )
     except (DockerClientError, KubernetesClientError) as e:
         return make_error_response(f"Backend error: {e}", status_code=500)
+
+
+@containers_bp.route("/<pipeline_id>/agent-logs", methods=["GET"])
+def list_agent_logs(pipeline_id: str) -> tuple[Response, int]:
+    """List the pipeline's post-reap agent log captures, newest first (#3547).
+
+    Metadata only (``log_bytes`` instead of the log body); fetch a specific
+    capture via ``GET .../agent-logs/<job_name>``. Captures are written by
+    ``remove_agent_job`` just before Job deletion and expire after
+    ``AGENT_LOG_TTL_SECONDS``.
+    """
+    records = get_agent_log_store().list_records(pipeline_id)
+    return make_success_response(
+        "Persisted agent logs",
+        data={"records": records},
+    )
+
+
+@containers_bp.route("/<pipeline_id>/agent-logs/<job_name>", methods=["GET"])
+def get_agent_log(pipeline_id: str, job_name: str) -> tuple[Response, int]:
+    """Return one post-reap agent log capture, including the log body (#3547)."""
+    record = get_agent_log_store().get(pipeline_id, job_name)
+    if record is None:
+        return make_error_response(
+            f"No persisted logs for {job_name}",
+            status_code=404,
+        )
+    return make_success_response("Persisted agent logs", data=record)
 
 
 @containers_bp.route("/<pipeline_id>/containers/<container_id>/health", methods=["GET"])

@@ -39,6 +39,7 @@ def handle_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> dict[st
         "check_health": self._handle_check_health,
         "list_containers": self._handle_list_containers,
         "get_container_logs": self._handle_get_container_logs,
+        "get_agent_transcript": self._handle_get_agent_transcript,
         "send_message": self._handle_send_message,
         "get_consensus_status": self._handle_get_consensus_status,
         "get_phase": self._handle_get_phase,

@@ -246,6 +246,146 @@ class TestGetContainerLogs:
         assert result["container_id"] == "new"
 
 
+class TestGetContainerLogsPersistedFallback:
+    """Post-reap capture fallback in get_container_logs (#3547)."""
+
+    _RECORD = {
+        "job_name": "egg-agent-issue-42-coder-abc",
+        "agent_role": "coder",
+        "slice_id": "slice-3",
+        "exit_code": 137,
+        "captured_at": "2026-07-07T21:00:00+00:00",
+        "truncated": False,
+        "logs": "captured stdout",
+    }
+
+    def test_no_live_container_for_role_uses_captures(self, handler):
+        """Live list has other roles but not the requested one; the reaped
+        role's capture is served instead of another role's live logs."""
+        containers_response = {
+            "data": {
+                "containers": [
+                    {
+                        "container_id": "c-tester",
+                        "status": "running",
+                        "agent_role": "tester",
+                        "started_at": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            }
+        }
+        index_response = {"data": {"records": [dict(self._RECORD, logs=None, log_bytes=15)]}}
+        record_response = {"data": dict(self._RECORD)}
+
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [containers_response, index_response, record_response]
+            result = handler.handle_tool_call(
+                "get_container_logs", {"task_id": "issue-42", "agent_role": "coder"}
+            )
+
+        assert result["source"] == "persisted"
+        assert result["logs"] == "captured stdout"
+        assert result["container_id"] == "egg-agent-issue-42-coder-abc"
+        assert result["agent_role"] == "coder"
+        assert result["exit_code"] == 137
+        assert result["status"] == "reaped"
+
+    def test_live_fetch_404_falls_back_to_exact_capture(self, handler):
+        from urllib.error import HTTPError
+
+        record_response = {"data": dict(self._RECORD)}
+
+        def _sequence(endpoint, **kwargs):
+            if endpoint.endswith("/logs?tail=100"):
+                raise HTTPError(endpoint, 404, "not found", None, None)
+            return record_response
+
+        with patch.object(handler, "_make_request", side_effect=_sequence):
+            result = handler.handle_tool_call(
+                "get_container_logs",
+                {"task_id": "issue-42", "container_id": "egg-agent-issue-42-coder-abc"},
+            )
+
+        assert result["source"] == "persisted"
+        assert result["logs"] == "captured stdout"
+
+    def test_no_containers_and_no_captures_errors(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"data": {"containers": [], "records": []}}
+            result = handler.handle_tool_call("get_container_logs", {"task_id": "issue-42"})
+
+        assert "error" in result
+
+
+class TestGetAgentTranscript:
+    """Operator read path for session-state transcripts (#3547)."""
+
+    def test_returns_transcript_tail(self, handler):
+        transcript = "\n".join(f'{{"line": {i}}}' for i in range(10))
+        response = {
+            "success": True,
+            "found": True,
+            "data": {
+                "session_id": "sid-1",
+                "window_occupancy": 12345,
+                "transcript": transcript,
+            },
+        }
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = response
+            result = handler.handle_tool_call(
+                "get_agent_transcript",
+                {
+                    "task_id": "issue-42",
+                    "agent_role": "coder",
+                    "slice_id": "slice-3",
+                    "lines": 3,
+                },
+            )
+
+        mock_req.assert_called_once_with(
+            "/api/v1/pipelines/issue-42/session-state?role=coder&slice_id=slice-3"
+        )
+        assert result["found"] is True
+        assert result["session_id"] == "sid-1"
+        assert result["window_occupancy"] == 12345
+        assert result["total_transcript_lines"] == 10
+        assert result["lines_returned"] == 3
+        assert result["transcript_tail"].splitlines() == [
+            '{"line": 7}',
+            '{"line": 8}',
+            '{"line": 9}',
+        ]
+
+    def test_miss_returns_index(self, handler):
+        miss = {"success": True, "found": False}
+        index = {
+            "success": True,
+            "records": [
+                {"slice_id": "slice-3", "role": "coder", "session_id": "s", "transcript_bytes": 9}
+            ],
+        }
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [miss, index]
+            result = handler.handle_tool_call(
+                "get_agent_transcript", {"task_id": "issue-42", "agent_role": "documenter"}
+            )
+
+        assert result["found"] is False
+        assert result["available_transcripts"] == index["records"]
+        assert "hint" in result
+
+    def test_no_role_lists_available(self, handler):
+        index = {"success": True, "records": []}
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = index
+            result = handler.handle_tool_call("get_agent_transcript", {"task_id": "issue-42"})
+
+        mock_req.assert_called_once_with("/api/v1/pipelines/issue-42/session-state/index")
+        assert result["found"] is False
+        assert result["available_transcripts"] == []
+
+
 class TestSendMessage:
     def test_send_basic(self, handler):
         with patch.object(handler, "_make_request") as mock_req:
@@ -1097,6 +1237,8 @@ class TestToolRouting:
             "check_health",
             "list_containers",
             "get_container_logs",
+            # Session-transcript read path (#3547)
+            "get_agent_transcript",
             "send_message",
             "get_consensus_status",
             "get_phase",

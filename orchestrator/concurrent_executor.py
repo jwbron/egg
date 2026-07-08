@@ -295,6 +295,12 @@ class ConcurrentPhaseExecutor:
         # #3064 slice-2: set when orchestrator-ownership mode starts the
         # event loop in ``spawn_all``; ``None`` in pod mode.
         self._event_loop: Any | None = None
+        # #3547: the run loop calls ``check_consensus`` every ~5s, so the
+        # "consensus incomplete" observations repeat verbatim for minutes at
+        # a time and define the INFO noise floor for the whole service. This
+        # holds the last-logged incomplete state; the lines log at INFO only
+        # when it changes and at DEBUG otherwise.
+        self._last_incomplete_consensus_log: tuple[Any, ...] | None = None
 
     def _get_review_graph(self) -> ReviewGraph:
         """Get the review graph, using the override if provided."""
@@ -1424,7 +1430,20 @@ class ConcurrentPhaseExecutor:
             if not result.get("is_complete"):
                 all_roles = tracker.graph.all_roles()
                 confirmed_in_tracker = len(all_roles) - len(result.get("blocking_agents", []))
-                logger.info(
+                # #3547: this branch runs on every ~5s poll tick, so at INFO
+                # these lines drown the service log (2 lines x N slices every
+                # tick). Log at INFO only when the incomplete state actually
+                # changes; the unchanged repeats drop to DEBUG.
+                incomplete_state = (
+                    confirmed_in_tracker,
+                    len(all_roles),
+                    tuple(sorted(result.get("blocking_agents", []))),
+                    bool(result.get("has_unresolved_nacks", False)),
+                )
+                state_changed = incomplete_state != self._last_incomplete_consensus_log
+                self._last_incomplete_consensus_log = incomplete_state
+                log_incomplete = logger.info if state_changed else logger.debug
+                log_incomplete(
                     "Consensus incomplete — checking fallbacks",
                     pipeline_id=self.pipeline.id,
                     confirmed=confirmed_in_tracker,
@@ -1462,7 +1481,7 @@ class ConcurrentPhaseExecutor:
                     # an empty fresh tracker correctly returns
                     # is_complete=False here so the pipeline run loop keeps
                     # polling.
-                    logger.info(
+                    log_incomplete(
                         "Skipping pipeline-wide message-bus fallback for slice-scoped tracker",
                         pipeline_id=self.pipeline.id,
                         slice_id=self._slice_id,
@@ -1501,7 +1520,7 @@ class ConcurrentPhaseExecutor:
                             result["fallback"] = "message_bus"
                         else:
                             missing = all_roles - confirmed_roles if all_roles else set()
-                            logger.info(
+                            log_incomplete(
                                 "Message-bus fallback: not all roles confirmed",
                                 pipeline_id=self.pipeline.id,
                                 confirmed_roles=sorted(confirmed_roles),
@@ -1514,6 +1533,10 @@ class ConcurrentPhaseExecutor:
                             pipeline_id=self.pipeline.id,
                             error=str(e),
                         )
+            if result.get("is_complete"):
+                # Consensus reached (possibly via a fallback override): reset
+                # so the next incomplete round logs its first tick at INFO.
+                self._last_incomplete_consensus_log = None
             return result
         return {"is_complete": False, "blocking_agents": [], "has_objections": False, "agents": {}}
 

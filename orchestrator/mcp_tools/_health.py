@@ -92,7 +92,13 @@ def _handle_list_containers(self, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _handle_get_container_logs(self, args: dict[str, Any]) -> dict[str, Any]:
-    """Get container logs, with auto-selection if container_id not specified."""
+    """Get container logs, with auto-selection if container_id not specified.
+
+    One-shot agent pods are reaped within minutes of exit, so when no live
+    container matches (or the live fetch 404s) this falls back to the
+    post-reap captures persisted by ``remove_agent_job`` (#3547); fallback
+    results carry ``"source": "persisted"``.
+    """
     task_id = quote(args["task_id"], safe="")
     container_id = args.get("container_id")
     agent_role = args.get("agent_role")
@@ -103,14 +109,22 @@ def _handle_get_container_logs(self, args: dict[str, Any]) -> dict[str, Any]:
         # Auto-select: list containers, filter by role, pick best match
         containers_result = self._make_request(f"/api/v1/pipelines/{task_id}/containers?all=true")
         containers = containers_result.get("data", {}).get("containers", [])
-        if not containers:
-            return {"error": "No containers found for this pipeline"}
 
         # Filter by agent_role if specified
         if agent_role:
             filtered = [c for c in containers if c.get("agent_role") == agent_role]
             if filtered:
                 containers = filtered
+            elif containers:
+                # No live container for this role; the pod was likely
+                # already reaped; go straight to the persisted captures.
+                containers = []
+
+        if not containers:
+            fallback = self._persisted_agent_logs_fallback(task_id, None, agent_role)
+            if fallback is not None:
+                return fallback
+            return {"error": "No containers found for this pipeline"}
 
         # Prefer running containers, then most recently started
         running = [c for c in containers if c.get("status") == "running"]
@@ -123,15 +137,131 @@ def _handle_get_container_logs(self, args: dict[str, Any]) -> dict[str, Any]:
         container_id = selected.get("container_id", "")
 
     cid = quote(container_id, safe="")
-    logs_result = self._make_request(
-        f"/api/v1/pipelines/{task_id}/containers/{cid}/logs?tail={lines}"
-    )
+    try:
+        logs_result = self._make_request(
+            f"/api/v1/pipelines/{task_id}/containers/{cid}/logs?tail={lines}"
+        )
+    except Exception:
+        # Live pod gone between listing and fetch (or an explicit
+        # container_id for an already-reaped pod): try the captures.
+        fallback = self._persisted_agent_logs_fallback(task_id, container_id, agent_role)
+        if fallback is not None:
+            return fallback
+        raise
 
-    return {
+    data = logs_result.get("data", {})
+    result = {
         "container_id": container_id,
-        "agent_role": agent_role or selected.get("agent_role") or None,
+        "agent_role": agent_role or selected.get("agent_role") or data.get("agent_role") or None,
         "status": selected.get("status") or None,
-        "logs": logs_result.get("data", {}).get("logs", ""),
+        "logs": data.get("logs", ""),
+    }
+    if data.get("source") == "persisted":
+        # The route itself served a post-reap capture; surface its metadata.
+        result["source"] = "persisted"
+        result["captured_at"] = data.get("captured_at")
+        result["exit_code"] = data.get("exit_code")
+    return result
+
+
+def _persisted_agent_logs_fallback(
+    self,
+    task_id: str,
+    container_id: str | None,
+    agent_role: str | None,
+) -> dict[str, Any] | None:
+    """Serve logs from the post-reap agent-log captures, or ``None`` on miss (#3547).
+
+    Prefers an exact ``container_id``/job-name match, then the newest capture
+    for ``agent_role``, then the newest capture overall. ``task_id`` arrives
+    already URL-quoted by the caller.
+    """
+    record: dict[str, Any] = {}
+    if container_id:
+        # Exact match first; but captures are keyed by Job name while an
+        # auto-selected container_id may be a pod UID, so a miss here falls
+        # through to the role/index lookup rather than giving up.
+        try:
+            cid = quote(container_id, safe="")
+            record_result = self._make_request(f"/api/v1/pipelines/{task_id}/agent-logs/{cid}")
+            record = record_result.get("data") or {}
+        except Exception:
+            record = {}
+    if not record:
+        try:
+            index_result = self._make_request(f"/api/v1/pipelines/{task_id}/agent-logs")
+            records = index_result.get("data", {}).get("records", [])
+            if agent_role:
+                records = [r for r in records if r.get("agent_role") == agent_role]
+            if not records:
+                return None
+            # Newest first per the route's ordering; fetch the full body.
+            job = quote(records[0].get("job_name", ""), safe="")
+            record_result = self._make_request(f"/api/v1/pipelines/{task_id}/agent-logs/{job}")
+            record = record_result.get("data") or {}
+        except Exception:
+            return None
+    if not record:
+        return None
+    return {
+        "container_id": record.get("job_name") or container_id,
+        "agent_role": record.get("agent_role") or agent_role,
+        "status": "reaped",
+        "source": "persisted",
+        "captured_at": record.get("captured_at"),
+        "exit_code": record.get("exit_code"),
+        "slice_id": record.get("slice_id"),
+        "truncated": record.get("truncated", False),
+        "logs": record.get("logs", ""),
+    }
+
+
+def _handle_get_agent_transcript(self, args: dict[str, Any]) -> dict[str, Any]:
+    """Read a role's session transcript from the session-state store (#3547).
+
+    Transcripts are pushed on every event-pod exit (``session-state push``)
+    and are the one artifact that always survives a one-shot run; this is the
+    operator-facing read path. On a miss (or when ``agent_role`` is omitted)
+    returns the store's index so the caller can pick a valid
+    ``(agent_role, slice_id)`` pair and retry.
+    """
+    task_id = quote(args["task_id"], safe="")
+    agent_role = args.get("agent_role")
+    slice_id = args.get("slice_id")
+    lines = args.get("lines", 200)
+
+    if agent_role:
+        query = f"role={quote(agent_role, safe='')}"
+        if slice_id:
+            query += f"&slice_id={quote(slice_id, safe='')}"
+        result = self._make_request(f"/api/v1/pipelines/{task_id}/session-state?{query}")
+        if result.get("found"):
+            data = result.get("data", {})
+            transcript = data.get("transcript") or ""
+            all_lines = transcript.splitlines()
+            tail = all_lines[-lines:] if isinstance(lines, int) and lines > 0 else []
+            return {
+                "found": True,
+                "agent_role": agent_role,
+                "slice_id": slice_id,
+                "session_id": data.get("session_id"),
+                "window_occupancy": data.get("window_occupancy"),
+                "total_transcript_lines": len(all_lines),
+                "lines_returned": len(tail),
+                "transcript_tail": "\n".join(tail),
+            }
+
+    index = self._make_request(f"/api/v1/pipelines/{task_id}/session-state/index")
+    return {
+        "found": False,
+        "agent_role": agent_role,
+        "slice_id": slice_id,
+        "available_transcripts": index.get("records", []),
+        "hint": (
+            "No stored transcript for that (agent_role, slice_id); retry with a "
+            "pair from available_transcripts. Records expire 6h after the "
+            "agent's last push."
+        ),
     }
 
 
