@@ -407,17 +407,40 @@ proposal `attestation` carries exactly one of:
   registered this phase, or
 - `no_decisions_rationale: "<why>"` — the **explicit empty ledger**: the
   phase deliberately raises no operator decisions, recorded as a claim
-  rather than an omission.
+  rather than an omission. Requires `candidates_considered` (#3526, below).
+
+The explicit-none form must additionally carry **`candidates_considered`**
+(#3526): at least one `{question, disposition, why}` entry per open choice
+the producer weighed and dispositioned away, with `disposition` one of:
+
+- `not_operator_grade`: a design call the planner/implementer owns;
+- `deferred_to_plan`: potentially operator-grade, better asked once the
+  plan phase has made the design concrete. **Deferral is a handoff, not a
+  disappearance**: the orchestrator injects refine's `deferred_to_plan`
+  candidates into the plan-phase prompts as pre-seeded candidates the
+  planner must register or explicitly disposition, and a **plan-phase**
+  attestation may not use `deferred_to_plan` at all (plan is the last
+  decision surface).
+
+A single free-form rationale paragraph proved trivially satisfiable; #3526's
+backfill showed refine-surfaced decisions collapsing from ~8 per pipeline to
+~0 within weeks of the rationale form landing, with deferrals to plan never
+materializing. So the empty ledger must now name what was considered.
+`candidates_considered` may also accompany `decisions_registered` (some
+choices registered, others dispositioned away).
 
 CLI: `egg-orch consensus propose --decisions-registered cq-1 cq-2 …` or
-`--no-decisions-rationale "<why>"`. MCP: the `attestation` argument of
-`mcp__brc__propose`.
+`--no-decisions-rationale "<why>" --considered
+"<disposition> :: <question> :: <why>" …` (repeatable). MCP: the
+`attestation` argument of `mcp__brc__propose`.
 
 The orchestrator **hard-rejects** the propose (HTTP 400, tracker untouched)
 when:
 
-- the attestation is missing or malformed (neither field, both fields, or a
-  non-`cq-N` id) — `attestation_schemas.DecisionSurfacingAttestation` and
+- the attestation is missing or malformed (neither field, both fields, a
+  non-`cq-N` id, an explicit-none with no candidates, a malformed candidate,
+  or a plan-phase `deferred_to_plan` disposition);
+  `attestation_schemas.DecisionSurfacingAttestation` and
   `routes/signals/_validation.py::_validate_decision_attestation`, both built
   on the shared `egg_contracts.decisions.decision_attestation_errors` shape
   check;
@@ -437,8 +460,12 @@ trustworthy as *deliberately none*.
 At the phase gate, the orchestrator summarizes the ledger on the `phase_gate`
 question so the operator can read it without a `get_contract` round-trip:
 "N decision(s) registered this phase (cq-…), M resolved" or "explicitly none —
-&lt;role&gt; attested: &lt;rationale&gt;" (recovered from the phase's
-`CONSENSUS_PROPOSE` messages).
+&lt;role&gt; attested: &lt;rationale&gt; (K candidate(s) considered)"
+(recovered from the phase's `CONSENSUS_PROPOSE` messages). The same summary is
+persisted as a structured snapshot on `PhaseExecution.decision_ledger`
+(#3526) (registered ids, explicit-none flag, considered candidates) so
+decisions-surfaced-per-phase is queryable from pipeline state over time and a
+future decline in surfacing shows up in data rather than operator feel.
 
 When the phase reaches the gate with **zero registered decisions and no
 explicit-none attestation** — possible only on paths that bypass consensus
@@ -459,7 +486,9 @@ convergence pressure can bypass the whole register → bridge → resolve chain.
 So the gate does not fold it into the `phase_gate` question as prose: when a
 refine/plan phase reaches its gate with an explicit-none attestation standing
 in for a ledger, the orchestrator first surfaces a dedicated **confirmable
-`choice` decision** quoting the role and rationale ("the &lt;role&gt; attests
+`choice` decision** quoting the role, the rationale, and the enumerated
+`candidates_considered` with their dispositions (#3526), so the operator
+confirms specific dispositions, not a paragraph ("the &lt;role&gt; attests
 this phase deliberately raises no operator decisions — confirm?").
 
 - **Confirm** (the bare keyword or the full option label — anything else is
