@@ -818,27 +818,30 @@ The consensus block returns:
 ```json
 {
   "is_complete": false,
-  "blocking_agents": ["tester"],
+  "blocking_agents": ["coder", "reviewer_code", "reviewer_contract", "tester"],
   "has_unresolved_nacks": true,
   "unresolved_nacks": [
-    {"reviewer": "reviewer_code", "producer": "coder", "reason": "Missing error handling", "version": 1}
+    {"reviewer": "reviewer_contract", "producer": "coder", "reason": "Missing error handling", "version": 1}
   ],
+  "proposal_versions": {"coder": 1},
+  "review_edges": [
+    {"reviewer": "reviewer_code", "producer": "coder", "state": "acked", "version": 1},
+    {"reviewer": "reviewer_contract", "producer": "coder", "state": "nacked", "version": 1}
+  ],
+  "zero_proposal_producers": ["tester"],
   "protocol": "brc",
   "agents": {
     "coder": {"producer_phase": "PROPOSED", "confirmed": false},
-    "reviewer_code": {"reviewer_phase": "REVIEWING", "confirmed": false}
-  },
-  "proposal_versions": {"coder": 1},
-  "review_edges": [
-    {"reviewer": "reviewer_code", "producer": "coder", "state": "nacked", "version": 1}
-  ],
-  "zero_proposal_producers": []
+    "tester": {"producer_phase": "WORKING", "confirmed": false},
+    "reviewer_code": {"reviewer_phase": "REVIEWING", "confirmed": false},
+    "reviewer_contract": {"reviewer_phase": "REVIEWING", "confirmed": false}
+  }
 }
 ```
 
 Consensus is reached when `is_complete: true` — all registered agents are confirmed **and there are no unresolved NACKs** in the approval matrix. An agent can be in the `confirmed` set but `is_complete` still remains `false` if a reviewer has issued a NACK that the producer has not yet addressed. The `version` field in each NACK entry tracks which proposal iteration the NACK was issued against, so agents and operators can tell whether the producer has re-proposed since the NACK.
 
-**`proposal_versions` / `review_edges` / `zero_proposal_producers` (#3548).** Compact projections of the approval matrix that make a *recorded but not-yet-visible* verdict distinguishable from a lost one: before this, a landed `CONSENSUS_ACK` was invisible in this block — the reviewer still showed `reviewer_phase: REVIEWING` + `confirmed: false` whether or not the ACK had actually recorded — and the confirm-blocking "some producer has never proposed" condition had no name. `proposal_versions` maps each producer role to its current proposal version; `review_edges` lists one `{reviewer, producer, state, version}` entry per matrix cell (`state` is the lowercase `ApprovalState` value: `pending`, `acked`, or `nacked`); `zero_proposal_producers` names producer roles with no recorded proposal at all — the global confirm guard rejects every `confirm` call while this list is non-empty. The same three fields are surfaced through `mcp__brc__get_state` / `egg-orch brc get-state` via `_structured_consensus`.
+**Recorded-verdict projections (#3548).** Before this, a landed ACK was invisible in this block — a reviewer that had ACKed still showed `reviewer_phase: REVIEWING` + `confirmed: false`, indistinguishable from one that never reviewed at all, and the actual confirm blocker (a producer with no proposal) was unnamed. Three compact projections of the approval matrix close that gap: `proposal_versions` (latest proposal version per producer), `review_edges` (one entry per reviewer→producer pair with its current `state` and the `version` it was recorded against, sorted by `(producer, reviewer)`), and `zero_proposal_producers` (producer roles with no proposal at all — the global confirm guard rejects every confirm while this list is non-empty, which is what makes "ACKs accepted but consensus stuck" diagnosable from the status response alone). In the example above this is exactly the `reviewer_code → coder` edge: its recorded `acked` verdict is now visible in `review_edges` even though `reviewer_code` still reports `reviewer_phase: REVIEWING` + `confirmed: false` in `agents`. `state` carries the serialized `ApprovalState` value, so it is lowercase (`acked` / `nacked` / `pending`), matching `unresolved_nacks`. The same three fields are surfaced through `mcp__brc__get_state` / `egg-orch brc get-state` via `_structured_consensus`.
 
 ### Objections
 

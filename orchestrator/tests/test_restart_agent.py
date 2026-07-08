@@ -2171,3 +2171,120 @@ class TestRestartAgentResetsHealthMonitor:
             assert response.status_code == 200
             mock_spawner.restart_agent_container.assert_not_called()
             mock_hm.reset_agent.assert_called_once_with("coder")
+
+
+@pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")
+class TestRestartAgentFreshSession:
+    """#3537 ``fresh_session``: evict the warm-resume record on request.
+
+    A default restart deliberately preserves the durable session record
+    (the #3278 warm-resume path), which silently defeats a restart whose
+    purpose is to change the agent's mind - the resumed session replays
+    its cached plan before reading anything. ``fresh_session: true`` drops
+    the record so the next spawn cold-reseeds.
+    """
+
+    def _fake_store(self):
+        import fakeredis
+        import session_state_store as sss
+        from session_state_store import SessionStateStore
+
+        store = SessionStateStore(fakeredis.FakeRedis())
+        sss.set_session_state_store(store)
+        return store
+
+    def _restart(self, client, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, body):
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = []
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        return client.post("/api/v1/pipelines/issue-100/agents/coder/restart", json=body)
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_fresh_session_evicts_session_record(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        import session_state_store as sss
+
+        store = self._fake_store()
+        try:
+            store.put("issue-100", None, "coder", session_id="poisoned-session")
+            response = self._restart(
+                client,
+                mock_repo,
+                mock_resolve,
+                mock_spawner_fn,
+                mock_lock_fn,
+                {"reason": "change the agent's mind", "fresh_session": True},
+            )
+            assert response.status_code == 200
+            data = response.get_json()
+            assert data["data"]["fresh_session"] is True
+            assert store.get("issue-100", None, "coder") is None
+        finally:
+            sss.reset_session_state_store()
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_default_restart_preserves_session_record(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        import session_state_store as sss
+
+        store = self._fake_store()
+        try:
+            store.put("issue-100", None, "coder", session_id="keep-me")
+            response = self._restart(
+                client,
+                mock_repo,
+                mock_resolve,
+                mock_spawner_fn,
+                mock_lock_fn,
+                {"reason": "plain restart"},
+            )
+            assert response.status_code == 200
+            data = response.get_json()
+            assert "fresh_session" not in data["data"]
+            assert store.get("issue-100", None, "coder").session_id == "keep-me"
+        finally:
+            sss.reset_session_state_store()
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_fresh_session_eviction_failure_does_not_fail_restart(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        with patch(
+            "session_state_store.get_session_state_store",
+            side_effect=RuntimeError("redis down"),
+        ):
+            response = self._restart(
+                client,
+                mock_repo,
+                mock_resolve,
+                mock_spawner_fn,
+                mock_lock_fn,
+                {"reason": "restart despite store outage", "fresh_session": True},
+            )
+        assert response.status_code == 200
+        assert response.get_json()["success"] is True

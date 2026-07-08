@@ -77,13 +77,14 @@ class _RecordingSpawner:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    def spawn_event(self, *, role, action, dedupe_key, payload=None):
+    def spawn_event(self, *, role, action, dedupe_key, payload=None, release_context=None):
         self.calls.append(
             {
                 "role": role,
                 "action": action,
                 "dedupe_key": dedupe_key,
                 "payload": payload,
+                "release_context": release_context,
             }
         )
         return dedupe_key
@@ -2334,6 +2335,101 @@ class TestNoopParkSupervisor:
         assert not supervisor.is_exhausted("key-n")
         assert supervisor.backoff_seconds("key-n") == 0
 
+    # -- #3537: park-release delta capture --------------------------------
+
+    def test_release_records_resolved_decision_delta(self):
+        """A HITL release records WHICH decisions left the unresolved set."""
+        import event_loop
+
+        pending = {"cq-3", "cq-4"}
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            hitl_probe=lambda: set(pending),
+        )
+        self._park(supervisor, "key-n")
+        assert supervisor.noop_parked("key-n")
+
+        pending.discard("cq-3")  # operator resolved cq-3; cq-4 still gating
+        assert not supervisor.noop_parked("key-n")
+        context = supervisor.consume_noop_release_context("key-n")
+        assert context == {
+            "resolved_decision_ids": ["cq-3"],
+            "newly_gating_decision_ids": [],
+        }
+        # Consume is a pop: the delta rides exactly one spawn.
+        assert supervisor.consume_noop_release_context("key-n") is None
+
+    def test_release_records_newly_gating_ids(self):
+        import event_loop
+
+        pending = {"cq-3"}
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            hitl_probe=lambda: set(pending),
+        )
+        self._park(supervisor, "key-n")
+        pending.clear()
+        pending.add("cq-5")  # cq-3 resolved, cq-5 freshly gating
+        assert not supervisor.noop_parked("key-n")
+        context = supervisor.consume_noop_release_context("key-n")
+        assert context == {
+            "resolved_decision_ids": ["cq-3"],
+            "newly_gating_decision_ids": ["cq-5"],
+        }
+
+    def test_brc_release_records_brc_moved(self):
+        import event_loop
+
+        brc_state = ["s1"]
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            brc_probe=lambda: brc_state[0],
+        )
+        self._park(supervisor, "key-n", role="tester")
+        brc_state[0] = "s2"
+        assert not supervisor.noop_parked("key-n")
+        assert supervisor.consume_noop_release_context("key-n") == {"brc_moved": True}
+
+    def test_heartbeat_release_records_no_context(self):
+        """A heartbeat release observed no change - there is no delta to carry."""
+        import event_loop
+        import supervision_policy
+
+        clock = _ManualClock()
+        supervisor = event_loop.JobSupervisor(clock=clock)
+        self._park(supervisor, "key-n")
+        clock.advance(supervision_policy.SUPERVISION_NOOP_PARK_RETRY_SECONDS + 1)
+        assert not supervisor.noop_parked("key-n")
+        assert supervisor.consume_noop_release_context("key-n") is None
+
+    def test_retire_clears_release_context(self):
+        import event_loop
+
+        pending = {"cq-3"}
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            hitl_probe=lambda: set(pending),
+        )
+        self._park(supervisor, "key-n")
+        pending.clear()
+        assert not supervisor.noop_parked("key-n")
+        supervisor.retire("key-n")
+        assert supervisor.consume_noop_release_context("key-n") is None
+
+    def test_reconcile_clears_release_context(self):
+        import event_loop
+
+        pending = {"cq-3"}
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            hitl_probe=lambda: set(pending),
+        )
+        self._park(supervisor, "key-n")
+        pending.clear()
+        assert not supervisor.noop_parked("key-n")
+        supervisor.reconcile([])
+        assert supervisor.consume_noop_release_context("key-n") is None
+
 
 class TestNoopParkThroughLoop:
     """#3425 driven through ``poll_once`` — the production wiring."""
@@ -2439,6 +2535,35 @@ class TestNoopParkThroughLoop:
         for _ in range(5):
             loop.poll_once(["coder"])
         assert len(spawner.calls) == burned + 1
+
+    def test_release_probe_spawn_carries_release_context(self, monkeypatch):
+        """#3537: the probe spawn granted by a decision-resolution release
+        carries the delta; ordinary spawns and heartbeat probes carry none."""
+        import supervision_policy
+
+        pending = {"cq-3"}
+        loop, spawner, clock, supervisor, key = self._wedged_loop(
+            monkeypatch, hitl_probe=lambda: set(pending)
+        )
+        burned = self._drive_to_park(loop, spawner)
+        assert all(c["release_context"] is None for c in spawner.calls)
+
+        pending.clear()  # operator resolved cq-3
+        loop.poll_once(["coder"])
+        assert len(spawner.calls) == burned + 1
+        probe_call = spawner.calls[-1]
+        assert probe_call["release_context"] == {
+            "resolved_decision_ids": ["cq-3"],
+            "newly_gating_decision_ids": [],
+        }
+
+        # The probe no-ops again; the later heartbeat probe has no delta.
+        for _ in range(5):
+            loop.poll_once(["coder"])
+        clock.advance(supervision_policy.SUPERVISION_NOOP_PARK_RETRY_SECONDS + 1)
+        loop.poll_once(["coder"])
+        assert len(spawner.calls) == burned + 2
+        assert spawner.calls[-1]["release_context"] is None
 
 
 # ---------------------------------------------------------------------------

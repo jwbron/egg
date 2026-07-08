@@ -7,6 +7,7 @@ consensus-based phase completion.
 
 from __future__ import annotations
 
+import json
 import sys
 import threading
 from collections.abc import Callable
@@ -141,6 +142,38 @@ def _is_transient_agent_error(error: str | None) -> bool:
     return any(frag in lowered for frag in _TRANSIENT_AGENT_ERROR_SUBSTRINGS)
 
 
+# #3537: byte budget for the ``EGG_EVENT_RELEASE_CONTEXT`` env value. The
+# composer's whole prompt envelope is 10 KiB (``PROMPT_ENVELOPE_MAX_BYTES``),
+# so the release delta must stay a small fraction of it; resolution text is
+# shrunk progressively and, as a last resort, dropped in favour of the bare
+# decision ids (which alone still break the "retry the failing call" livelock).
+_RELEASE_CONTEXT_ENV_MAX_BYTES = 3072
+
+
+def _release_context_env_json(payload: dict[str, Any]) -> str:
+    """Serialize the park-release delta for the pod env, size-capped (#3537).
+
+    Mutates ``payload`` in place while shrinking (the caller builds it
+    per-spawn). Shrinks the free-text fields (``resolution`` / ``question``)
+    in steps; if the JSON still exceeds the budget, drops the enriched
+    ``resolved_decisions`` list entirely - the id lists always survive.
+    """
+    raw = json.dumps(payload, ensure_ascii=False)
+    if len(raw.encode("utf-8")) <= _RELEASE_CONTEXT_ENV_MAX_BYTES:
+        return raw
+    for cap in (800, 300, 100):
+        for detail in payload.get("resolved_decisions") or []:
+            for field in ("resolution", "question"):
+                value = detail.get(field)
+                if isinstance(value, str) and len(value) > cap:
+                    detail[field] = value[:cap] + "…[truncated]"
+        raw = json.dumps(payload, ensure_ascii=False)
+        if len(raw.encode("utf-8")) <= _RELEASE_CONTEXT_ENV_MAX_BYTES:
+            return raw
+    payload.pop("resolved_decisions", None)
+    return json.dumps(payload, ensure_ascii=False)
+
+
 def _event_payload_refs(payload: dict[str, Any] | None) -> str | None:
     """Render a compact, env-safe payload-ref string for the one-shot Job.
 
@@ -190,6 +223,7 @@ class _ExecutorEventSpawner:
         action: str,
         dedupe_key: str,
         payload: dict[str, Any] | None = None,
+        release_context: dict[str, Any] | None = None,
     ) -> Any:
         agent_role = self._agent_role(role)
         branch = self._ex.get_worktree_branch(agent_role, slice_id=self._slice_id)
@@ -222,6 +256,24 @@ class _ExecutorEventSpawner:
         if session_resume_enabled():
             env["CLAUDE_CONFIG_DIR"] = _POD_CLAUDE_CONFIG_DIR
             env["EGG_SESSION_STATE_FILE"] = _POD_SESSION_STATE_FILE
+        # #3537: this spawn is the probe granted by a no-op-park release - the
+        # world changed while the arm was parked (an operator resolved a
+        # gating ``cq-N``, or the cohort's BRC state moved). Enrich the
+        # resolved decision ids with their resolution text from the live
+        # contract and export the delta so the pod-side prompt composer
+        # (``routes/event_prompt/_cli.py``) can surface WHAT changed: without
+        # it the released pod's prompt is byte-identical to the one that
+        # parked, and a warm-resumed session replays its cached "still
+        # blocked" plan forever. Best-effort: enrichment failure degrades to
+        # the bare id lists, which still break the livelock.
+        if release_context:
+            env_payload: dict[str, Any] = dict(release_context)
+            resolved_ids = release_context.get("resolved_decision_ids") or []
+            if resolved_ids:
+                details = self._ex._contract_decision_details(resolved_ids)
+                if details:
+                    env_payload["resolved_decisions"] = details
+            env["EGG_EVENT_RELEASE_CONTEXT"] = _release_context_env_json(env_payload)
         return self._ex.spawn_fn(
             role=agent_role,
             branch=branch,
@@ -1092,6 +1144,52 @@ class ConcurrentPhaseExecutor:
                 exc_info=True,
             )
             return None
+
+    def _contract_decision_details(self, decision_ids: list[str]) -> list[dict[str, Any]]:
+        """Best-effort resolution details for park-released decisions (#3537).
+
+        Called on the release-probe spawn path for the decision ids the
+        supervisor recorded as having left the unresolved set while the arm
+        was parked. Read path mirrors ``_unresolved_contract_decision_ids``
+        (the live contract in the shared pipeline worktree - the same file
+        the resolve route writes). Returns ``[]`` on any failure or when no
+        listed id is found (e.g. the decision was removed rather than
+        resolved): the caller then ships the bare id list, which alone still
+        tells the respawned agent the blocker set changed.
+        """
+        try:
+            import contract_store
+            from egg_contracts import ContractNotFoundError, load_contract
+            from routes.pipelines import _pipeline_identifier
+
+            worktree = contract_store.resolve_pipeline_worktree(self.pipeline.id)
+            if worktree is None:
+                return []
+            identifier = _pipeline_identifier(self.pipeline.issue_number, self.pipeline.id)
+            try:
+                contract = load_contract(identifier, worktree)
+            except ContractNotFoundError:
+                return []
+            wanted = set(decision_ids)
+            return [
+                {
+                    "id": d.id,
+                    "question": d.question,
+                    "resolved": bool(d.resolved),
+                    "resolution": d.resolution,
+                    "resolved_by": d.resolved_by,
+                }
+                for d in contract.decisions
+                if d.id in wanted
+            ]
+        except Exception:  # noqa: BLE001 - enrichment is best-effort
+            logger.warning(
+                "Failed to enrich park-release decision details",
+                pipeline_id=self.pipeline.id,
+                decision_ids=decision_ids,
+                exc_info=True,
+            )
+            return []
 
     def _role_waiting_status(self, role: str) -> tuple[str, bool] | None:
         """Return ``role``'s latest WAITING_ON_ROLE self-report status (#3520).

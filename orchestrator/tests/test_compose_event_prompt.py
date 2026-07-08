@@ -3267,3 +3267,156 @@ def test_truncation_cuts_larger_iteration_section_before_small_nacks() -> None:
     # ...and the small NACK reason survives whole, un-collapsed.
     assert distinctive in prompt
     assert _ENVELOPE_TRUNCATION_SENTINEL.strip() not in prompt
+
+
+# ---------------------------------------------------------------------------
+# #3537 park-release delta section
+# ---------------------------------------------------------------------------
+
+
+def test_release_context_absent_by_default() -> None:
+    """No release_context → no section; the common path is byte-stable."""
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        None,
+        None,
+        "main",
+    )
+    assert "Why you were respawned" not in prompt
+
+
+def test_release_context_renders_resolution_text() -> None:
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        None,
+        None,
+        "main",
+        release_context={
+            "resolved_decision_ids": ["cq-3"],
+            "newly_gating_decision_ids": [],
+            "resolved_decisions": [
+                {
+                    "id": "cq-3",
+                    "question": "Adopt the prior branch or reimplement?",
+                    "resolved": True,
+                    "resolution": "Adopt the prior branch as-is.",
+                    "resolved_by": "human",
+                }
+            ],
+        },
+    )
+    assert "## Why you were respawned" in prompt
+    assert "``cq-3`` has been RESOLVED by human" in prompt
+    assert "Adopt the prior branch as-is." in prompt
+    assert "Adopt the prior branch or reimplement?" in prompt
+    # The anti-livelock instruction: verify via reads, never retry the
+    # failing side-effectful call.
+    assert "NEVER by retrying" in prompt
+    # The delta leads: rendered before the "What to do" contract block.
+    assert prompt.index("Why you were respawned") < prompt.index("## What to do")
+
+
+def test_release_context_id_without_detail_renders_generic_line() -> None:
+    """A decision that left the unresolved set but has no detail entry
+    (removed from the contract, or enrichment failed) still renders."""
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        None,
+        None,
+        "main",
+        release_context={"resolved_decision_ids": ["cq-7"]},
+    )
+    assert "``cq-7`` is NO LONGER in the unresolved set" in prompt
+
+
+def test_release_context_newly_gating_and_brc_movement() -> None:
+    prompt = compose_event_prompt(
+        "tester",
+        {"action": "propose"},
+        "",
+        None,
+        None,
+        "main",
+        release_context={
+            "resolved_decision_ids": [],
+            "newly_gating_decision_ids": ["cq-9"],
+            "brc_moved": True,
+        },
+    )
+    assert "``cq-9`` became unresolved while" in prompt
+    assert "BRC consensus state moved" in prompt
+
+
+def test_release_context_empty_dict_renders_nothing() -> None:
+    prompt = compose_event_prompt(
+        "coder",
+        {"action": "propose"},
+        "",
+        None,
+        None,
+        "main",
+        release_context={},
+    )
+    assert "Why you were respawned" not in prompt
+
+
+def test_cli_reads_release_context_env(tmp_path) -> None:
+    """The CLI decodes ``EGG_EVENT_RELEASE_CONTEXT`` and renders the section."""
+    import json as _json
+    import os
+
+    repo = _make_tmp_repo_with_memory(
+        tmp_path,
+        role="coder",
+        producer_sha="0123abc",
+        codebase="Release-context CLI test.",
+    )
+    os.environ["EGG_EVENT_RELEASE_CONTEXT"] = _json.dumps(
+        {
+            "resolved_decision_ids": ["cq-3"],
+            "resolved_decisions": [
+                {"id": "cq-3", "question": "Q?", "resolution": "Answered.", "resolved_by": "human"}
+            ],
+        }
+    )
+    try:
+        out = _run_cli(
+            repo,
+            role="coder",
+            memory_mode="off",
+            action="propose",
+            event_payload={"action": "propose"},
+        )
+    finally:
+        os.environ.pop("EGG_EVENT_RELEASE_CONTEXT", None)
+    assert "## Why you were respawned" in out
+    assert "Answered." in out
+
+
+def test_cli_malformed_release_context_env_is_ignored(tmp_path) -> None:
+    import os
+
+    repo = _make_tmp_repo_with_memory(
+        tmp_path,
+        role="coder",
+        producer_sha="0123abc",
+        codebase="Malformed release-context test.",
+    )
+    os.environ["EGG_EVENT_RELEASE_CONTEXT"] = "{not json"
+    try:
+        out = _run_cli(
+            repo,
+            role="coder",
+            memory_mode="off",
+            action="propose",
+            event_payload={"action": "propose"},
+        )
+    finally:
+        os.environ.pop("EGG_EVENT_RELEASE_CONTEXT", None)
+    assert "Why you were respawned" not in out

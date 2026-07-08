@@ -164,6 +164,30 @@ class SessionStateStore:
             )
             return False
 
+    def delete(self, pipeline_id: str, slice_id: str | None, role: str) -> bool:
+        """Evict the record; return whether a key was actually removed (#3537).
+
+        The operator-facing remediation for a poisoned session: when a
+        resumed session has encoded a wrong conclusion about the world, the
+        warm-resume path faithfully replays it on every respawn, so the only
+        way to change the agent's mind is to drop the durable record and let
+        the next spawn cold-reseed from true state. Best-effort like the
+        rest of the store: a Redis failure logs and returns ``False`` (the
+        6-hour TTL remains the backstop reaper).
+        """
+        try:
+            removed = self._redis.delete(self._key(pipeline_id, slice_id, role))
+        except Exception as exc:  # noqa: BLE001 - best-effort; never raise into the route
+            logger.warning(
+                "Failed to evict session state (pipeline=%s slice=%s role=%s): %s",
+                pipeline_id,
+                slice_id,
+                role,
+                exc,
+            )
+            return False
+        return bool(removed)
+
     def get(self, pipeline_id: str, slice_id: str | None, role: str) -> SessionStateRecord | None:
         """Read the record, or ``None`` — never raising.
 
