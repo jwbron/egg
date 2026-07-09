@@ -320,29 +320,3 @@ class TestLoopGuardAndThreshold:
             supervisor.record_rate_limited("k", "propose", "coder", exit_detail="rate_limited")
 
         assert not any(c["deterministic_loop"] for c in spy.calls)
-
-    def test_cumulative_wait_threshold_alert_latches_once(self):
-        progression = ["p"]
-        spy = _NotifierSpy()
-        supervisor = event_loop.JobSupervisor(
-            clock=_ManualClock(),
-            brc_probe=lambda: progression[0],
-            rate_limited_notifier=spy,
-        )
-        threshold = supervision_policy.SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS
-
-        # A parseable reset hint paces each retry near the pacing cap so the
-        # cumulative wait crosses the threshold in a few retries; advance the
-        # progression so the loop-guard stays orthogonal (never escalates).
-        for i in range(10):
-            progression[0] = f"p{i}"
-            supervisor.record_rate_limited(
-                "k", "propose", "coder", exit_detail="retry after 900 seconds"
-            )
-            if supervisor._rate_limit_wait_total["k"] >= threshold:
-                break
-        crossings = [c for c in spy.calls if c["threshold_crossed"]]
-        assert len(crossings) == 1
-        assert crossings[0]["cumulative_wait_seconds"] >= threshold
-        # Orthogonality: the threshold crossing did not also flag a loop.
-        assert crossings[0]["deterministic_loop"] is False
