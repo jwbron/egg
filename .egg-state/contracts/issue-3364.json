@@ -568,6 +568,18 @@
       "resolved_at": "2026-07-07T03:30:29.915985Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "cq-4",
+      "question": "PR D coverage-map GATE (task-3-1): 4 of the 5 host-side detector blocks in skills/sdlc/SKILL.md map cleanly to a confirmed overseer OVERSEER_ALERT emitter that the skill already surfaces generically (Stall\u2192incomplete_consensus_stall; Silent agent\u2192action:{action} via heartbeat_timeout; NACK\u2192incomplete_consensus_stall; Stuck-Pipeline-Rescue-trigger\u2192post_consensus_stall). The FIFTH \u2014 \"Long-Running Phase Detection\" (~SKILL.md:722, the proactive \"implement phase 60m+ / majority confirmed \u2192 offer early PR exit\" affordance) \u2014 maps to NO overseer emitter. Evidence: post_consensus_stall requires FULL consensus (is_complete) + a failed transition (_consensus_stall.py:57,91); incomplete_consensus_stall DEFERS its alert while blocking agents are active (_consensus_stall.py:343) \u2014 exactly the healthy-but-slow case this block targets; the classifier action:{action} path is per-agent on a health alert and a healthy long-running phase raises none; and the detect_phase_long_running referenced by overseer_long_running_phase_seconds (models/_config.py:430) DOES NOT EXIST (detection_plane.py has only detect_phase_stall, a wedged-phase detector, unwired to _broadcast_alert). It is a phase-DURATION UX affordance, not an anomaly, so the anomaly-only overseer has no equivalent. Deleting its host-side detection (as PR D's delete-all-five list directs) removes the early-exit offer entirely. How should the Long-Running Implement Phase block be handled?</question>\n<parameter name=\"options\">[\"Keep the Long-Running Implement Phase block (detection 60m-timer + AskUserQuestion render) in the skill as a host-side proactive early-exit affordance \u2014 it has no overseer equivalent and is cheap; delete the other four detector blocks per plan. This is the minimal-regression choice (nothing goes dark).\", \"Delete the Long-Running Implement Phase block entirely (detection + render), accepting loss of the proactive 60-min early-exit offer \u2014 the user can still manually invoke Stuck Pipeline Rescue or cancel. Fully honors the delete-all-five list; the affordance is a known dropped feature.\", \"Delete only the 60-min host-side timer; keep the AskUserQuestion render flow rewired to fire on the existing post_consensus_stall OVERSEER_ALERT (narrower trigger: only fires once ALL agents confirm + transition stalls, not on majority-confirmed).\", \"Other (explain in reply)\"]",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -1056,6 +1068,28 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T21:06:40.028863Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-4",
+        "question": "PR D coverage-map GATE (task-3-1): 4 of the 5 host-side detector blocks in skills/sdlc/SKILL.md map cleanly to a confirmed overseer OVERSEER_ALERT emitter that the skill already surfaces generically (Stall\u2192incomplete_consensus_stall; Silent agent\u2192action:{action} via heartbeat_timeout; NACK\u2192incomplete_consensus_stall; Stuck-Pipeline-Rescue-trigger\u2192post_consensus_stall). The FIFTH \u2014 \"Long-Running Phase Detection\" (~SKILL.md:722, the proactive \"implement phase 60m+ / majority confirmed \u2192 offer early PR exit\" affordance) \u2014 maps to NO overseer emitter. Evidence: post_consensus_stall requires FULL consensus (is_complete) + a failed transition (_consensus_stall.py:57,91); incomplete_consensus_stall DEFERS its alert while blocking agents are active (_consensus_stall.py:343) \u2014 exactly the healthy-but-slow case this block targets; the classifier action:{action} path is per-agent on a health alert and a healthy long-running phase raises none; and the detect_phase_long_running referenced by overseer_long_running_phase_seconds (models/_config.py:430) DOES NOT EXIST (detection_plane.py has only detect_phase_stall, a wedged-phase detector, unwired to _broadcast_alert). It is a phase-DURATION UX affordance, not an anomaly, so the anomaly-only overseer has no equivalent. Deleting its host-side detection (as PR D's delete-all-five list directs) removes the early-exit offer entirely. How should the Long-Running Implement Phase block be handled?</question>\n<parameter name=\"options\">[\"Keep the Long-Running Implement Phase block (detection 60m-timer + AskUserQuestion render) in the skill as a host-side proactive early-exit affordance \u2014 it has no overseer equivalent and is cheap; delete the other four detector blocks per plan. This is the minimal-regression choice (nothing goes dark).\", \"Delete the Long-Running Implement Phase block entirely (detection + render), accepting loss of the proactive 60-min early-exit offer \u2014 the user can still manually invoke Stuck Pipeline Rescue or cancel. Fully honors the delete-all-five list; the affordance is a known dropped feature.\", \"Delete only the 60-min host-side timer; keep the AskUserQuestion render flow rewired to fire on the existing post_consensus_stall OVERSEER_ALERT (narrower trigger: only fires once ALL agents confirm + transition stalls, not on majority-confirmed).\", \"Other (explain in reply)\"]",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: PR D coverage-map GATE (task-3-1): 4 of the 5 host...",
       "checkpoint_id": null
     }
   ],
