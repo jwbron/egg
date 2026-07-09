@@ -87,7 +87,7 @@
           "id": "task-2-1",
           "description": "shared/egg_agent/auth_errors.py: add EX_RATE_LIMITED (a NEW process\nexit code, distinct from EX_AUTH_FATAL=77 and the reserved codes\n64/75/143 the module docstring names) and is_transient_rate_limit_error(text)\nmatching the throttling signatures (bare 429 / \"rate limit\" /\n\"overloaded\") that _AUTH_FATAL_PATTERNS deliberately EXCLUDES. Do NOT\nwiden EX_AUTH_FATAL / _AUTH_FATAL_PATTERNS. Keep the two classifiers\ndisjoint (a matched weekly/usage cap stays auth-fatal; a bare throttle\nis rate-limited).",
           "status": "complete",
-          "commit": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+          "commit": "2bd6124a3bc23457d12a044c6f466f742b5a58a0",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- EX_RATE_LIMITED defined, distinct from 77/64/75/143;\n  is_transient_rate_limit_error matches 429/\"rate limit\"/\"overloaded\".\n- AC-C6: EX_AUTH_FATAL and _AUTH_FATAL_PATTERNS unchanged; is_auth_fatal_error\n  behavior byte-identical; the two classifiers do not overlap.",
@@ -990,6 +990,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-7 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:04:23.488833Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "new_value": "2bd6124a3bc23457d12a044c6f466f742b5a58a0",
+      "reason": "Linked commit 2bd6124 to task-2-1",
       "checkpoint_id": null
     }
   ],
