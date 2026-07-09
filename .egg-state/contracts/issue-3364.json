@@ -214,7 +214,7 @@
           "id": "task-2-7",
           "description": "orchestrator/concurrent_executor.py (only the wiring that stays here \u2014\nthe JobSupervisor on_exhausted / hitl_probe seam, ~:1023/:1311): on the\nall-producers rate-limited signature, run the WINDOWED PACED RETRY\n(cq-1: NO hard wall-clock ceiling; emit an OVERSEER_ALERT once the\ncumulative wait crosses the TASK-2-6 threshold), using a\nrestart_phase-equivalent that PRESERVES landed slices (re-arm only the\nin-flight/failed frontier \u2014 do not discard completed slice work), and\nthe DETERMINISTIC-LOOP GUARD (using the TASK-2-5 fingerprint: escalate/\nhalt on an identical fingerprint at the same point; continue when state\nadvances). Keep the threshold OVERSEER_ALERT orthogonal to the\nloop-guard escalation.",
           "status": "pending",
-          "commit": null,
+          "commit": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- AC-C2/AC-C5: paced windowed retry with no hard ceiling + threshold\n  OVERSEER_ALERT.\n- AC-C3: landed slices preserved across the paced restart.\n- AC-C4: loop-guard escalates on identical fingerprint at same point,\n  continues when state advances.",
@@ -968,6 +968,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-6 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:27.322816Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.6.commit",
+      "old_value": null,
+      "new_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "reason": "Linked commit 681bdd4 to task-2-7",
       "checkpoint_id": null
     }
   ],
