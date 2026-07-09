@@ -752,6 +752,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "ff4ed52774ad2435e809468bf311e42153472a53": {
+      "branch": "egg/issue-3364/slice-2",
+      "patch_id": "4c957046aac74013b347d150a77f31c1c1f3ed04",
+      "pipeline_id": "issue-3364",
+      "registered_at": "2026-07-09T21:58:47.639943+00:00",
+      "repo": null,
+      "role": "documenter"
+    },
     "ffd57976f5d34b6dd2838d256801ad06bb76af68": {
       "branch": "egg/issue-3364/work",
       "patch_id": null,
