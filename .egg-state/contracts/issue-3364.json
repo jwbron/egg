@@ -128,7 +128,7 @@
         {
           "id": "task-2-3",
           "description": "orchestrator/kubernetes_spawner/_models.py: add a JOB_OUTCOME_RATE_LIMITED\nmapping in outcome_for \u2014 an _is_rate_limited_exit check\n(container exit_code == EX_RATE_LIMITED) mirroring the existing\n_is_auth_fatal_exit -> FATAL detection (which reads exit_code ==\nEX_AUTH_FATAL). A non-matching exit code MUST still fall back to\nabnormal (today's behavior). Import EX_RATE_LIMITED from\negg_agent.auth_errors alongside the existing EX_AUTH_FATAL import.",
-          "status": "pending",
+          "status": "complete",
           "commit": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
           "checkpoint_id": null,
           "notes": "",
@@ -913,6 +913,17 @@
       "old_value": null,
       "new_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
       "reason": "Linked commit 681bdd4 to task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:10.853606Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-3 as complete",
       "checkpoint_id": null
     }
   ],
