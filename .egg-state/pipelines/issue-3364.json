@@ -267,10 +267,28 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Retry phase\"}",
       "phase": "implement",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Event loop for pipeline=issue-3364 slice=slice-3 phase=implement cannot advance: every derivable spawn arm (coder/propose) is blocked on a no-op-parked (or exhausted) dedupe key and no one-shot Job is in flight. Each parked arm's agent keeps completing cleanly with zero BRC progress, so respawning it unchanged cannot converge the round — it is typically blocked on missing upstream state (e.g. a producer that never proposed) or an unresolved operator decision. Blocked arms:\n- coder/propose: 3 consecutive no-op completions (parked)\n\nHow to proceed?\n- 'Retry arms (release no-op parks)': release the no-op parks so the blocked arms respawn immediately (in-band; nothing in flight is torn down). If the agents keep no-oping the arms will re-park and this decision will re-fire.\n- 'Restart phase': tear down and re-run the current phase (work pushed to the shared branch is preserved).\n- 'Abort (manual — recorded only)': recorded only — use cancel_task to stop the pipeline.",
+      "context": "event_arms_parked",
+      "options": [
+        "Retry arms (release no-op parks)",
+        "Restart phase",
+        "Abort (manual — recorded only)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-07-09T21:08:52.117849Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "implement",
+      "content_changed": null
     }
   ],
   "created_at": "2026-07-06T18:14:47.748270Z",
-  "updated_at": "2026-07-09T20:59:17.086749Z",
+  "updated_at": "2026-07-09T21:08:52.118097Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -283,7 +301,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-09T19:38:11.890035Z",
-  "version": 75,
+  "version": 76,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
