@@ -15,6 +15,8 @@ from collections.abc import Iterable  # noqa: F401 — used in method annotation
 from datetime import UTC, datetime
 from typing import Any
 
+from egg_agent.auth_errors import is_transient_rate_limit_error
+
 from . import (
     SUPERVISION_BACKOFF_CAP_SECONDS,
     SUPERVISION_BACKOFF_FACTOR,
@@ -336,11 +338,30 @@ def record_rate_limited(
         total,
     )
 
-    # Deterministic-loop guard fingerprint: WHAT failed (the throttle detail) +
-    # WHERE (the consensus-state progression, via the existing BRC probe). A
-    # restart whose progression advanced (BRC moved) yields a DIFFERENT
-    # fingerprint and resets the repeat counter — real progress, keep pacing;
-    # an identical fingerprint means the pipeline did not advance.
+    # Deterministic-loop guard (AC-C4) — CORRECTED after the v1 open-NACK
+    # barrier (reviewer_contract / reviewer_concurrency / reviewer_code /
+    # reviewer_code_holistic all NACKed the original frozen-progression guard).
+    #
+    # THE FIX: a genuine account-wide cap wall — the headline scenario — freezes
+    # the BRC progression (``consensus_state_fingerprint``) EXACTLY like a
+    # deterministic failure would, because every producer exits EX_RATE_LIMITED
+    # before doing any work, so the bus never moves; and on the bare-exit-code
+    # production path the throttle signature is the invariant "rate_limited".
+    # So "identical fingerprint / frozen progression" is NOT evidence of a
+    # deterministic loop — it is the NORMAL signature of the cap wall this
+    # feature exists to ride out. Binding cq-1 forbids a hard ceiling, so a
+    # steady throttle MUST pace indefinitely and NEVER halt.
+    #
+    # The guard therefore escalates ONLY on POSITIVE evidence that the failure
+    # is no longer a fresh transient throttle: an exit signature that is present
+    # AND does NOT classify as a transient rate limit (the failure CHANGED to a
+    # non-throttle error). A genuine throttle — no signature on the orchestrator
+    # path (``_observe_jobs`` deliberately passes no ``exit_detail``: the pod
+    # exit code carries no classifiable error text), or throttle-classified text
+    # — never satisfies this, so it paces forever with ONLY the cq-1 threshold
+    # alert. The progression fingerprint is retained so an advancing progression
+    # (real cross-arm progress) still resets the repeat counter (AC-C4
+    # "continue when state advances").
     fingerprint = RateLimitFingerprint(
         signature=exit_detail or "rate_limited",
         progression=self._probe_brc_fingerprint() or "",
@@ -349,21 +370,41 @@ def record_rate_limited(
     if prev is not None and prev == fingerprint:
         repeats = self._rate_limit_repeat.get(dedupe_key, 0) + 1
     else:
-        # First sighting or the progression advanced — a NEW (or progressing)
-        # episode. Reset the repeat counter and clear the escalation latch so a
-        # future stall that re-forms identically can escalate again.
+        # First sighting, an advancing progression, or a changed signature —
+        # reset the repeat counter and clear the escalation latch so a future
+        # stall that re-forms identically can escalate again.
         repeats = 1
         self._rate_limit_escalated.discard(dedupe_key)
     self._rate_limit_repeat[dedupe_key] = repeats
     self._rate_limit_fingerprint[dedupe_key] = fingerprint
 
+    # Positive non-throttle evidence gate (the load-bearing correction): a fresh
+    # transient throttle is NEVER deterministic, however many times its identical
+    # fingerprint reproduces — that is the genuine cap wall cq-1 says to pace
+    # through. Only a signature that does not classify as a transient rate limit
+    # promotes a repeated failure to a deterministic loop. A signature carrying a
+    # parseable reset hint (e.g. "retry after 900s") is also a rate-limit signal,
+    # so it is treated as a throttle too — only genuinely-other error text
+    # (a changed, non-throttle failure) counts as deterministic evidence.
+    signature_is_non_throttle = (
+        bool(exit_detail)
+        and not is_transient_rate_limit_error(exit_detail)
+        and parse_rate_limit_reset_seconds(exit_detail) is None
+    )
     deterministic_loop = (
-        repeats >= SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS
+        signature_is_non_throttle
+        and repeats >= SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS
         and dedupe_key not in self._rate_limit_escalated
     )
     if deterministic_loop:
         self._rate_limit_escalated.add(dedupe_key)
 
+    # cq-1 threshold (AC-C5): the SOLE operator surface for a persistent cap
+    # wall. Fires ONCE when the cumulative paced wait crosses the threshold;
+    # there is NO hard ceiling and NO auto-halt, so a genuine multi-day cap
+    # paces here indefinitely and self-heals unattended. Independent of the
+    # loop-guard above (a genuine throttle crosses this threshold while
+    # deterministic_loop stays False).
     threshold_crossed = total >= SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS and not (
         self._alerted_rate_limit.get(dedupe_key, False)
     )

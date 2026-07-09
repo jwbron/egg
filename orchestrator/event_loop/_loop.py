@@ -124,9 +124,19 @@ def _observe_jobs(self) -> None:
             # set exactly like the abnormal branch, so the next poll re-derives
             # and respawns once the paced window elapses; ``_key_meta`` is kept
             # so the respawn re-labels the same arm.
-            self.supervisor.record_rate_limited(
-                key, action, role, exit_detail=self._exit_detail(key)
-            )
+            #
+            # NO ``exit_detail`` is passed (unlike the abnormal/fatal branches):
+            # the outcome is a JOB_OUTCOME_RATE_LIMITED, i.e. the pod already
+            # classified its error as a transient throttle (it exited
+            # EX_RATE_LIMITED), and the pod EXIT CODE ("exit_code=69") is not
+            # classifiable error TEXT. Feeding it to the loop-guard's
+            # non-throttle discriminator would mis-read a genuine cap wall as a
+            # deterministic failure and halt it — the exact v1 regression. So a
+            # bare production throttle carries no signature and never trips the
+            # guard; it paces indefinitely (binding cq-1). The ``exit_detail``
+            # parameter remains for a future enriched observer that can supply
+            # real error text.
+            self.supervisor.record_rate_limited(key, action, role)
             reaper = getattr(self._job_status_view, "reap_terminated", None)
             if reaper is not None:
                 try:

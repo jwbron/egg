@@ -428,8 +428,12 @@ class JobSupervisor:
         # #3364 PR C: fired by ``record_rate_limited`` to REPORT the two
         # rate-limit transitions the executor acts on (TASK-2-7) — the cq-1
         # cumulative-wait threshold crossing (an OVERSEER_ALERT while the paced
-        # retry continues) and the deterministic-loop-guard trip (identical
-        # fingerprint at the same progression point). ``record_rate_limited``
+        # retry continues, no hard ceiling) and the deterministic-loop-guard
+        # trip. The guard trips ONLY on a failure whose signature has changed to
+        # a NON-throttle error (positive deterministic evidence); a genuine
+        # steady cap wall reproduces its throttle fingerprint forever WITHOUT
+        # tripping it, so ``deterministic_loop`` stays False on the bare-throttle
+        # production path and the arm paces indefinitely. ``record_rate_limited``
         # only reports; the notifier owns the alert / HITL / halt. Called as
         # ``rate_limited_notifier(role=, action=, dedupe_key=, retry_count=,
         # cumulative_wait_seconds=, backoff_seconds=, threshold_crossed=,

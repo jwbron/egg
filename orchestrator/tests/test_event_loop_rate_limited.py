@@ -221,7 +221,65 @@ class _NotifierSpy:
 
 
 class TestLoopGuardAndThreshold:
-    def test_identical_fingerprint_escalates_once_past_guard_threshold(self):
+    def test_steady_throttle_never_escalates_and_paces_past_threshold(self):
+        """AC-C5 / binding cq-1 (v1 open-NACK regression): a genuine cap wall —
+        a steady throttle with a FROZEN progression on the bare-exit-code path
+        — must NEVER trip the loop-guard. It paces past the cumulative-wait
+        threshold, emits the OVERSEER_ALERT exactly once, and KEEPS PACING
+        (never exhausted): there is NO hard wall-clock ceiling. This is exactly
+        the production signature (no error text, consensus digest frozen because
+        every producer is throttled) that the v1 guard wrongly halted in ~7.5m.
+        """
+        progression = ["same"]  # frozen: no arm can propose/ack under a cap wall
+        spy = _NotifierSpy()
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            brc_probe=lambda: progression[0],
+            rate_limited_notifier=spy,
+        )
+        threshold = supervision_policy.SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS
+
+        # Drive far past the loop-guard repeat threshold AND the cumulative-wait
+        # threshold on the production bare-throttle path (no exit_detail).
+        for _ in range(60):
+            supervisor.record_rate_limited("k", "propose", "coder")
+
+        # The guard NEVER fires for a genuine throttle, no matter how many
+        # identical reproductions occur.
+        assert not any(c["deterministic_loop"] for c in spy.calls)
+        # Never halted / exhausted — the no-ceiling guarantee.
+        assert supervisor.is_exhausted("k") is False
+        # The cq-1 threshold alert fired exactly once and the wait crossed it.
+        crossings = [c for c in spy.calls if c["threshold_crossed"]]
+        assert len(crossings) == 1
+        assert crossings[0]["cumulative_wait_seconds"] >= threshold
+
+    def test_frozen_throttle_signature_never_escalates(self):
+        """A steady throttle-CLASSIFIED signature (429 / "rate limit" / …) with
+        frozen progression must also NEVER escalate, however many identical
+        reproductions occur — the same no-ceiling guarantee at the signature
+        layer (a throttle signature is not positive deterministic evidence).
+        """
+        progression = ["same"]
+        spy = _NotifierSpy()
+        supervisor = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            brc_probe=lambda: progression[0],
+            rate_limited_notifier=spy,
+        )
+        repeats = supervision_policy.SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS
+        for _ in range(repeats + 5):
+            supervisor.record_rate_limited("k", "propose", "coder", exit_detail="429 rate limit")
+        assert not any(c["deterministic_loop"] for c in spy.calls)
+        assert supervisor.is_exhausted("k") is False
+
+    def test_non_throttle_signature_escalates_once_past_guard_threshold(self):
+        """AC-C4 (corrected): escalation requires POSITIVE evidence that the
+        failure is no longer a fresh transient throttle — the signature CHANGED
+        to a non-throttle error (no 429 / rate-limit / overloaded wording and no
+        parseable reset hint). Only then, reproduced identically past the guard
+        threshold, does the deterministic-loop guard fire (once, sticky).
+        """
         progression = ["same"]
         spy = _NotifierSpy()
         supervisor = event_loop.JobSupervisor(
@@ -231,15 +289,18 @@ class TestLoopGuardAndThreshold:
         )
         repeats = supervision_policy.SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS
 
-        # Identical exit_detail + identical progression => identical fingerprint.
         for _ in range(repeats):
-            supervisor.record_rate_limited("k", "propose", "coder", exit_detail="rate_limited")
+            supervisor.record_rate_limited(
+                "k", "propose", "coder", exit_detail="Traceback: KeyError in handler"
+            )
 
         loops = [c for c in spy.calls if c["deterministic_loop"]]
         assert len(loops) == 1
         assert spy.calls[repeats - 1]["deterministic_loop"] is True
         # Sticky: a further identical retry does not re-escalate.
-        supervisor.record_rate_limited("k", "propose", "coder", exit_detail="rate_limited")
+        supervisor.record_rate_limited(
+            "k", "propose", "coder", exit_detail="Traceback: KeyError in handler"
+        )
         assert spy.calls[-1]["deterministic_loop"] is False
 
     def test_advancing_progression_resets_the_guard(self):

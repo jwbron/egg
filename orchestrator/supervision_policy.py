@@ -86,13 +86,17 @@ SUPERVISION_RATE_LIMIT_MAX_PACING_SECONDS = 3600  # 1 h
 # escalation below.
 SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS = 1800  # 30 min cumulative wait
 
-# Deterministic-loop guard: how many consecutive rate-limit retries that
-# reproduce the IDENTICAL failure fingerprint at the SAME progression point
-# (no state advance) are tolerated before the guard stops looping and
-# escalates. A genuine cap wall keeps the SAME signature while the pipeline
-# still makes progress the moment the cap lifts (its progression advances); a
-# DETERMINISTIC failure masquerading as a throttle reproduces the exact
-# fingerprint on every restart and would otherwise loop forever.
+# Deterministic-loop guard: how many consecutive reproductions of the IDENTICAL
+# failure fingerprint are tolerated before the guard escalates — but ONLY once
+# the failure has been positively classified as a NON-throttle (deterministic)
+# error. This threshold NEVER halts a genuine transient throttle: a steady cap
+# wall carries a throttle-classified (or absent) signature, so it fails the
+# non-throttle gate no matter how many times its fingerprint reproduces, and
+# paces indefinitely per binding cq-1 (no hard ceiling). The threshold applies
+# only to a failure whose signature has CHANGED to a non-throttle error — a
+# deterministic failure that would otherwise loop forever. (v1 open-NACK fix:
+# the guard must not infer "deterministic" from a frozen BRC progression, which
+# a genuine account-wide cap wall freezes identically.)
 SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS = 5
 
 
@@ -165,18 +169,21 @@ def rate_limit_backoff_seconds(retry_count: int, reset_seconds: float | None = N
 class RateLimitFingerprint:
     """Identity of a rate-limit failure for the deterministic-loop guard (#3364).
 
-    ``signature`` — the failure signature (the throttle classification / pod
-    exit detail): WHAT failed. ``progression`` — an opaque marker of how far
-    the pipeline got when it failed (in production the consensus-state
-    fingerprint): WHERE it failed.
+    ``signature`` — the failure signature (the error text / exit detail): WHAT
+    failed. ``progression`` — an opaque marker of how far the pipeline got when
+    it failed (in production the consensus-state fingerprint): WHERE it failed.
 
     Frozen, so ``__eq__`` / ``__hash__`` are structural: two fingerprints are
-    equal iff BOTH fields match. That is exactly the loop-guard's "identical
-    failure at the same point" test — a restart that reproduces the identical
-    signature at the identical progression has NOT advanced state (a
-    deterministic loop to escalate), whereas a restart whose progression moved
-    is making real progress (continue the paced retry). The equality is the
-    load-bearing contract; the field names are opaque to the guard.
+    equal iff BOTH fields match. The guard uses equality only to count IDENTICAL
+    reproductions and to reset that count when the progression advances (AC-C4
+    "continue when state advances"). Equality (frozen progression) is NOT by
+    itself evidence of a deterministic loop — a genuine account-wide cap wall
+    freezes the progression identically to a deterministic failure, so the guard
+    escalates only when the ``signature`` is additionally classified as a
+    NON-throttle error (see ``JobSupervisor.record_rate_limited``). A steady
+    transient throttle therefore reproduces an identical fingerprint forever
+    without ever escalating, which is what binding cq-1 (no hard ceiling)
+    requires.
     """
 
     signature: str
