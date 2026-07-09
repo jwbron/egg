@@ -1112,6 +1112,27 @@ equals the corresponding terminal event type (`pipeline.completed` /
 > `phase_elapsed_seconds` / `concurrent.consensus`) the route's
 > `_build_minimal_status_envelope` ships.
 
+### 7.1.1 Client-side filter flags (`--exclude-types`, `--quiet`)
+
+The standalone launcher `skills/sdlc/bin/wait-status` accepts two
+optional **client-side** filter flags for long-haul monitoring
+([PR B of #3364](https://github.com/jwbron/egg/issues/3364)). They act
+on the JSON-lines the launcher is about to print — the route, the
+cursor threading, and the exit-code contract are untouched:
+
+| Flag | Effect |
+|------|--------|
+| `--exclude-types <t1,t2,…>` | Comma-separated set of `event_type` wire values (e.g. `slice.closed,phase.started`). A JSON line whose event type is in the set is **dropped before printing**; the cursor still advances, so nothing is missed on re-entry. |
+| `--quiet` | Suppresses non-essential lines, leaving only the lines the monitor must act on: terminal (`pipeline.*`) and `synthetic-terminal` lines (always emitted so the exit-0 handshake is preserved), the HITL `decision.created` line, the `slice.closed` lifecycle line, and message-trigger lines. Phase transitions and other lifecycle events are dropped. |
+
+Both flags are additive and default off: with neither flag the launcher's
+output is **byte-for-byte unchanged** from the pre-#3364 behavior, and the
+pre-existing `--since` / `--inner-timeout` / `--max-iterations` flags keep
+their semantics. Filtering is applied purely at the print sites, so an
+excluded/quieted line never reaches the LLM turn but is still counted for
+cursor threading. The launcher stays pure-stdlib — the flags add no imports
+or dependencies.
+
 ### 7.2 Event-trigger allowlist
 
 The route is wired with an **explicit allowlist** of trigger types —
@@ -1132,6 +1153,7 @@ even if it changes pipeline state.
 | `DECISION_CREATED` | EventBus | New HITL gate; surface to the user. Wire value: `decision.created`. |
 | `CONTEXT_PR_SKIPPED` | EventBus + message bus | Context PR hook skipped during plan→implement (hook ran but no context PR number recorded). Wire value: `context_pr.skipped`. |
 | `CONTEXT_PR_FAILED` | EventBus + message bus | Context PR hook raised during plan→implement. Wire value: `context_pr.failed`. |
+| `SLICE_CLOSED` | EventBus | A slice reached a terminal outcome — emitted once at the slice scheduler's `record_complete` and once at `record_failure`. The payload carries the `slice_id` and an `outcome` field (`complete` on success, `failed` on failure), so a consumer needs no second lookup. Wire value: `slice.closed`. Added by [PR B of #3364](https://github.com/jwbron/egg/issues/3364). |
 
 > **Wire values vs Python constants:** The names in this table are the Python
 > `EventType` constant names. The JSON-lines emit **dotted lowercase wire

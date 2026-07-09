@@ -410,6 +410,10 @@ _STATUS_WAIT_EVENT_TYPES = frozenset(
         "pipeline.completed",
         "pipeline.failed",
         "pipeline.cancelled",
+        # Slice-DAG close (issue #3364) — a long-haul monitor threads on
+        # slice completes/failures via ``/status/wait``, so the allowlist
+        # must let ``slice.closed`` through instead of filtering it out.
+        "slice.closed",
     }
 )
 
