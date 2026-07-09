@@ -10,6 +10,11 @@ and a single-line edit here changes both::
                                  event-pump template
 """
 
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
 # ---------------------------------------------------------------------------
 # Agent-invocation failure supervision (#3138)
 # ---------------------------------------------------------------------------
@@ -43,3 +48,136 @@ SUPERVISION_NOOP_STREAK_PARK = 3
 # through the contract-decision fingerprint; it bounds the burn to ~2 pods/h
 # instead of deadlocking the arm.
 SUPERVISION_NOOP_PARK_RETRY_SECONDS = 1800
+
+# ---------------------------------------------------------------------------
+# Transient rate-limit / cap-wall paced retry (#3364 PR C)
+# ---------------------------------------------------------------------------
+# A transient throttle (bare HTTP 429 / "rate limit" / "overloaded" — the
+# signatures ``egg_agent.auth_errors`` deliberately keeps OFF the
+# ``EX_AUTH_FATAL`` path) is neither a credential failure nor an ordinary
+# crash: it self-heals once the rolling cap window lifts. It must therefore be
+# PACED across that window (a persistent weekly/subscription cap can stay shut
+# for hours-to-days) rather than hammered on the 30s abnormal backoff, and it
+# must NEVER feed the ``agent-invocation-fail-streak`` halt.
+#
+# These constants are deliberately SEPARATE from ``SUPERVISION_BACKOFF_*`` (the
+# abnormal path) so the two policies can never bleed into each other — the
+# 30s abnormal cap and streak-to-10 halt above are left byte-for-byte
+# unchanged (AC-C6).
+
+# Bounded paced-retry backoff used when the throttle error carries NO parseable
+# reset time: linear ``retry_count * FACTOR`` growth capped WELL above the 30s
+# abnormal cap so a persistent cap wall is retried on a minutes-scale cadence
+# (not every ~5s poll) without hammering the API. Distinct from
+# ``SUPERVISION_BACKOFF_CAP_SECONDS`` (30).
+SUPERVISION_RATE_LIMIT_BACKOFF_FACTOR = 30
+SUPERVISION_RATE_LIMIT_BACKOFF_CAP_SECONDS = 900  # 15 min bounded backoff
+
+# Upper bound applied to a reset-time-DERIVED wait so a malformed / absurd reset
+# hint ("resets in 9999h") cannot park an arm effectively forever; the paced
+# retry keeps probing on at most this cadence. Hours-scale.
+SUPERVISION_RATE_LIMIT_MAX_PACING_SECONDS = 3600  # 1 h
+
+# cq-1 (resolved, binding): NO hard wall-clock ceiling on the paced retry — a
+# cap wall (incl. a multi-day weekly cap) self-heals with no operator action —
+# BUT emit an ``OVERSEER_ALERT`` once the CUMULATIVE paced wait for a key
+# crosses this threshold, so an attended operator is informed while
+# auto-recovery continues. Orthogonal to the deterministic-loop-guard
+# escalation below.
+SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS = 1800  # 30 min cumulative wait
+
+# Deterministic-loop guard: how many consecutive rate-limit retries that
+# reproduce the IDENTICAL failure fingerprint at the SAME progression point
+# (no state advance) are tolerated before the guard stops looping and
+# escalates. A genuine cap wall keeps the SAME signature while the pipeline
+# still makes progress the moment the cap lifts (its progression advances); a
+# DETERMINISTIC failure masquerading as a throttle reproduces the exact
+# fingerprint on every restart and would otherwise loop forever.
+SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS = 5
+
+
+# Reset-time hints an agent's throttle error text may carry. Best-effort — most
+# production throttles reaching the orchestrator arrive as a bare exit code with
+# no text, so the paced retry falls back to the bounded backoff; these patterns
+# pace precisely WHEN a reset hint is present (e.g. surfaced via ``exit_detail``
+# or in a unit-tested error string).
+_RATE_LIMIT_RESET_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # "Retry-After: 120" / "retry after 120s" / "retry_after=120"
+    re.compile(r"retry[\s_-]*after[=:\s]+(\d+)\s*(?:s|sec|secs|second|seconds)?\b", re.IGNORECASE),
+    # "try again in 90 seconds" / "retry in 90s"
+    re.compile(
+        r"(?:try again|retry)\s+in\s+(\d+)\s*(?:s|sec|secs|second|seconds)\b", re.IGNORECASE
+    ),
+    # "resets in 45 minutes" → captured as minutes (converted below)
+    re.compile(r"reset[s]?\s+in\s+(\d+)\s*(?:m|min|mins|minute|minutes)\b", re.IGNORECASE),
+)
+# Which of the patterns above capture MINUTES (vs seconds) so the group can be
+# scaled to seconds. Index-aligned with ``_RATE_LIMIT_RESET_PATTERNS``.
+_RATE_LIMIT_RESET_UNIT_SECONDS: tuple[int, ...] = (1, 1, 60)
+
+
+def parse_rate_limit_reset_seconds(text: str | None) -> float | None:
+    """Best-effort seconds-to-wait until the cap window lifts, from *text*.
+
+    Returns ``None`` when no reset hint is parseable (the common production
+    case — a throttle usually reaches the orchestrator as a bare exit code
+    with no text — so the caller falls back to the bounded backoff). A parsed
+    value is clamped to ``[0, SUPERVISION_RATE_LIMIT_MAX_PACING_SECONDS]`` so a
+    malformed / absurd hint can never park an arm effectively forever.
+    """
+    if not text:
+        return None
+    for pattern, unit in zip(
+        _RATE_LIMIT_RESET_PATTERNS, _RATE_LIMIT_RESET_UNIT_SECONDS, strict=True
+    ):
+        match = pattern.search(text)
+        if match:
+            # ``match.group(1)`` is a ``\d+`` capture, so ``float`` on it never
+            # raises — no exception guard needed (and none that would drag in
+            # parenthesis-free ``except A, B`` syntax).
+            seconds = float(match.group(1)) * unit
+            return min(seconds, float(SUPERVISION_RATE_LIMIT_MAX_PACING_SECONDS))
+    return None
+
+
+def rate_limit_backoff_seconds(retry_count: int, reset_seconds: float | None = None) -> float:
+    """Paced backoff for a transient rate limit (#3364 PR C).
+
+    Prefer the error's own reset-time hint when present (pace precisely to the
+    cap window); otherwise a BOUNDED linear backoff — ``retry_count * FACTOR``
+    capped at ``SUPERVISION_RATE_LIMIT_BACKOFF_CAP_SECONDS`` — so a persistent
+    cap wall is retried on a minutes-scale cadence without hammering the API.
+    Deliberately hours-scale-capable and entirely distinct from the 30s
+    abnormal ``backoff_seconds`` (AC-C2 / AC-C6).
+    """
+    if reset_seconds is not None and reset_seconds > 0:
+        return min(float(reset_seconds), float(SUPERVISION_RATE_LIMIT_MAX_PACING_SECONDS))
+    count = max(retry_count, 1)
+    return float(
+        min(
+            count * SUPERVISION_RATE_LIMIT_BACKOFF_FACTOR,
+            SUPERVISION_RATE_LIMIT_BACKOFF_CAP_SECONDS,
+        )
+    )
+
+
+@dataclass(frozen=True)
+class RateLimitFingerprint:
+    """Identity of a rate-limit failure for the deterministic-loop guard (#3364).
+
+    ``signature`` — the failure signature (the throttle classification / pod
+    exit detail): WHAT failed. ``progression`` — an opaque marker of how far
+    the pipeline got when it failed (in production the consensus-state
+    fingerprint): WHERE it failed.
+
+    Frozen, so ``__eq__`` / ``__hash__`` are structural: two fingerprints are
+    equal iff BOTH fields match. That is exactly the loop-guard's "identical
+    failure at the same point" test — a restart that reproduces the identical
+    signature at the identical progression has NOT advanced state (a
+    deterministic loop to escalate), whereas a restart whose progression moved
+    is making real progress (continue the paced retry). The equality is the
+    load-bearing contract; the field names are opaque to the guard.
+    """
+
+    signature: str
+    progression: str

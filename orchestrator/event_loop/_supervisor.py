@@ -23,7 +23,12 @@ from . import (
     SUPERVISION_FAILURE_STREAK_WARN,
     SUPERVISION_NOOP_PARK_RETRY_SECONDS,
     SUPERVISION_NOOP_STREAK_PARK,
+    SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS,
+    SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS,
+    RateLimitFingerprint,
     logger,
+    parse_rate_limit_reset_seconds,
+    rate_limit_backoff_seconds,
 )
 
 
@@ -48,6 +53,11 @@ def record_success(self, dedupe_key: str, *, action: str = "", role: str = "") -
     self._alerted_10.pop(dedupe_key, None)
     self._exhausted.discard(dedupe_key)
     self._exit_history.pop(dedupe_key, None)
+    # #3364 PR C: a clean completion means the throttle lifted — reset the
+    # paced-retry state so a later cap wall on the same key starts fresh
+    # (count, backoff window, cumulative-wait threshold latch, loop-guard
+    # fingerprint). No effect on the abnormal streak semantics above.
+    self._clear_rate_limit_state(dedupe_key)
     streak = self._noop_streaks.get(dedupe_key, 0) + 1
     self._noop_streaks[dedupe_key] = streak
     logger.debug(
@@ -94,6 +104,7 @@ def retire(self, dedupe_key: str) -> None:
     self._noop_brc_fingerprint.pop(dedupe_key, None)
     self._noop_last_probe.pop(dedupe_key, None)
     self._alerted_noop.pop(dedupe_key, None)
+    self._clear_rate_limit_state(dedupe_key)  # #3364 PR C
     logger.debug("JobSupervisor: retired key=%s — all supervision state dropped", dedupe_key)
 
 
@@ -263,6 +274,159 @@ def record_fatal(
         )
 
 
+def record_rate_limited(
+    self, dedupe_key: str, action: str, role: str, *, exit_detail: str | None = None
+) -> None:
+    """Record a TRANSIENT rate-limit / cap-wall outcome (#3364 PR C).
+
+    The agent exited ``egg_agent.auth_errors.EX_RATE_LIMITED``: a bare HTTP
+    429 / "rate limit" / "overloaded" throttle that self-heals once the
+    rolling cap window lifts. Unlike :meth:`record_abort` this leaves the
+    abnormal ``_streaks`` / ``_last_abort_time`` / ``_exhausted`` state
+    ENTIRELY untouched (AC-C1 / AC-C6) — mirroring
+    :meth:`record_legitimate_outcome`'s "streak untouched" contract — so a cap
+    wall can never trip the ``agent-invocation-fail-streak`` halt. Instead it
+    PACES the respawn across the cap window (:meth:`ready_to_respawn` honours
+    the per-key rate-limit backoff) and captures the failure fingerprint the
+    deterministic-loop guard consumes.
+
+    Recording ONLY — it does not itself halt or escalate. It reports two
+    transitions to the wired ``rate_limited_notifier`` (the executor owns the
+    action, TASK-2-7), each latched once per key:
+
+    * ``threshold_crossed`` — the CUMULATIVE paced wait first crossed
+      ``SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS`` (the cq-1
+      OVERSEER_ALERT: an attended operator is informed while auto-recovery
+      continues — there is NO hard wall-clock ceiling).
+    * ``deterministic_loop`` — the SAME fingerprint at the SAME progression
+      point reproduced ``SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS`` times in a
+      row (no state advance): a deterministic failure masquerading as a
+      throttle, which the executor escalates + halts instead of looping.
+
+    The two triggers are orthogonal: a threshold crossing does not imply a
+    deterministic loop (a genuine cap wall advances its progression the moment
+    it lifts), and vice-versa.
+    """
+    now = self.clock()
+    count = self._rate_limit_count.get(dedupe_key, 0) + 1
+    self._rate_limit_count[dedupe_key] = count
+    self._last_action[dedupe_key] = (action, role)
+    self._record_exit(dedupe_key, "rate_limited", exit_detail)
+
+    # Pace: reset-time-paced when the error text carries a hint (rare on the
+    # bare-exit-code production path — the pod exits with just EX_RATE_LIMITED),
+    # else the bounded rate-limit backoff. Either way hours-scale-capable and
+    # entirely separate from the 30s abnormal cap.
+    reset_seconds = parse_rate_limit_reset_seconds(exit_detail)
+    backoff = rate_limit_backoff_seconds(count, reset_seconds)
+    self._rate_limit_backoff[dedupe_key] = backoff
+    self._rate_limit_last_time[dedupe_key] = now
+    total = self._rate_limit_wait_total.get(dedupe_key, 0.0) + backoff
+    self._rate_limit_wait_total[dedupe_key] = total
+
+    logger.debug(
+        "JobSupervisor: rate-limited outcome for key=%s (action=%s, role=%s) — "
+        "pacing respawn %.0fs (retry #%d, cumulative wait %.0fs); abnormal "
+        "streak untouched",
+        dedupe_key,
+        action,
+        role,
+        backoff,
+        count,
+        total,
+    )
+
+    # Deterministic-loop guard fingerprint: WHAT failed (the throttle detail) +
+    # WHERE (the consensus-state progression, via the existing BRC probe). A
+    # restart whose progression advanced (BRC moved) yields a DIFFERENT
+    # fingerprint and resets the repeat counter — real progress, keep pacing;
+    # an identical fingerprint means the pipeline did not advance.
+    fingerprint = RateLimitFingerprint(
+        signature=exit_detail or "rate_limited",
+        progression=self._probe_brc_fingerprint() or "",
+    )
+    prev = self._rate_limit_fingerprint.get(dedupe_key)
+    if prev is not None and prev == fingerprint:
+        repeats = self._rate_limit_repeat.get(dedupe_key, 0) + 1
+    else:
+        # First sighting or the progression advanced — a NEW (or progressing)
+        # episode. Reset the repeat counter and clear the escalation latch so a
+        # future stall that re-forms identically can escalate again.
+        repeats = 1
+        self._rate_limit_escalated.discard(dedupe_key)
+    self._rate_limit_repeat[dedupe_key] = repeats
+    self._rate_limit_fingerprint[dedupe_key] = fingerprint
+
+    deterministic_loop = (
+        repeats >= SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS
+        and dedupe_key not in self._rate_limit_escalated
+    )
+    if deterministic_loop:
+        self._rate_limit_escalated.add(dedupe_key)
+
+    threshold_crossed = total >= SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS and not (
+        self._alerted_rate_limit.get(dedupe_key, False)
+    )
+    if threshold_crossed:
+        self._alerted_rate_limit[dedupe_key] = True
+
+    if self._rate_limited_notifier is not None:
+        try:
+            self._rate_limited_notifier(
+                role=role,
+                action=action,
+                dedupe_key=dedupe_key,
+                retry_count=count,
+                cumulative_wait_seconds=total,
+                backoff_seconds=backoff,
+                threshold_crossed=threshold_crossed,
+                deterministic_loop=deterministic_loop,
+                fingerprint=fingerprint,
+            )
+        except Exception:  # noqa: BLE001 — notification is best-effort
+            logger.warning(
+                "JobSupervisor: rate_limited_notifier raised for key=%s (action=%s, role=%s)",
+                dedupe_key,
+                action,
+                role,
+            )
+
+
+def halt_rate_limited(self, dedupe_key: str) -> None:
+    """Halt the paced retry for a deterministic rate-limit loop (#3364 PR C).
+
+    Invoked by the executor's rate-limit loop-guard (TASK-2-7) after
+    :meth:`record_rate_limited` reported ``deterministic_loop`` — the SAME
+    failure fingerprint reproduced at the SAME progression point past the guard
+    threshold, a deterministic failure masquerading as a throttle. Marks the
+    key exhausted so the loop stops respawning it (the terminal
+    :meth:`is_exhausted` gate), letting the operator surfaces (a named
+    OVERSEER_ALERT + the arms-exhausted HITL) take over instead of looping
+    forever. Completed slices are untouched — only this one arm halts, so
+    landed work is preserved (AC-C3). Idempotent.
+    """
+    if dedupe_key in self._exhausted:
+        return
+    self._exhausted.add(dedupe_key)
+    logger.warning(
+        "JobSupervisor: halting paced rate-limit retry for key=%s — deterministic "
+        "loop-guard tripped (identical failure reproduced at the same progression point)",
+        dedupe_key,
+    )
+
+
+def _clear_rate_limit_state(self, dedupe_key: str) -> None:
+    """Drop all #3364 paced rate-limit state for a key (recovery / retire)."""
+    self._rate_limit_count.pop(dedupe_key, None)
+    self._rate_limit_backoff.pop(dedupe_key, None)
+    self._rate_limit_last_time.pop(dedupe_key, None)
+    self._rate_limit_wait_total.pop(dedupe_key, None)
+    self._rate_limit_fingerprint.pop(dedupe_key, None)
+    self._rate_limit_repeat.pop(dedupe_key, None)
+    self._alerted_rate_limit.pop(dedupe_key, None)
+    self._rate_limit_escalated.discard(dedupe_key)
+
+
 def backoff_seconds(self, dedupe_key: str) -> float:
     """Compute backoff delay for the respawn (streak * factor).
 
@@ -281,7 +445,20 @@ def ready_to_respawn(self, dedupe_key: str) -> bool:
     must wait :meth:`backoff_seconds` (``streak*factor`` capped) measured
     from the abort timestamp before respawning — this is what throttles a
     deterministic fast-fail loop instead of hammering the orchestrator.
+
+    #3364 PR C: a TRANSIENT rate-limit outcome paces the respawn across the
+    (hours-scale) cap window via a SEPARATE anchor — a throttle never records
+    an abort, so this gate applies even to a key with no abort. Both windows
+    must have elapsed. The abnormal branch below is byte-for-byte the pre-#3364
+    behaviour (AC-C6): for a key with no rate-limit outcome the rate-limit gate
+    is inert.
     """
+    # Transient rate-limit paced window (independent of the abnormal backoff).
+    rl_last = self._rate_limit_last_time.get(dedupe_key)
+    if rl_last is not None:
+        rl_backoff = self._rate_limit_backoff.get(dedupe_key, 0.0)
+        if rl_backoff > 0 and (self.clock() - rl_last) < rl_backoff:
+            return False
     last = self._last_abort_time.get(dedupe_key)
     if last is None:
         return True
@@ -544,6 +721,16 @@ def reconcile(self, live_dedupe_keys: Iterable[str]) -> None:
     self._noop_brc_fingerprint.clear()
     self._noop_last_probe.clear()
     self._alerted_noop.clear()
+    # #3364 PR C: the paced rate-limit state is process-local like the rest —
+    # a restart re-derives + re-paces from scratch.
+    self._rate_limit_count.clear()
+    self._rate_limit_backoff.clear()
+    self._rate_limit_last_time.clear()
+    self._rate_limit_wait_total.clear()
+    self._rate_limit_fingerprint.clear()
+    self._rate_limit_repeat.clear()
+    self._alerted_rate_limit.clear()
+    self._rate_limit_escalated.clear()
     # Re-initialise live-key set if the caller provides it.
     # We only need to know which keys exist, not the full history.
     for key in live_dedupe_keys:

@@ -28,6 +28,7 @@ from . import (
     JOB_OUTCOME_ABNORMAL,
     JOB_OUTCOME_FATAL,
     JOB_OUTCOME_LEGITIMATE,
+    JOB_OUTCOME_RATE_LIMITED,
     JOB_OUTCOME_SUCCESS,
     SPAWN_ACTIONS,
     EventDecision,
@@ -113,6 +114,32 @@ def _observe_jobs(self) -> None:
                     )
             self._live_keys.discard(key)
             self._key_meta.pop(key, None)
+        elif outcome == JOB_OUTCOME_RATE_LIMITED:
+            # #3364 PR C: a TRANSIENT throttle / cap wall. Route to
+            # ``record_rate_limited`` — NOT ``record_abort`` — so the throttle
+            # NEVER touches the abnormal streak (AC-C1: it cannot trip the
+            # fail-streak halt) and the respawn is PACED across the rolling cap
+            # window (``ready_to_respawn`` honours the per-key rate-limit
+            # backoff). Reap the terminated Job and drop the key from the live
+            # set exactly like the abnormal branch, so the next poll re-derives
+            # and respawns once the paced window elapses; ``_key_meta`` is kept
+            # so the respawn re-labels the same arm.
+            self.supervisor.record_rate_limited(
+                key, action, role, exit_detail=self._exit_detail(key)
+            )
+            reaper = getattr(self._job_status_view, "reap_terminated", None)
+            if reaper is not None:
+                try:
+                    reaper(key)
+                except Exception as exc:  # noqa: BLE001 — reaping is best-effort
+                    logger.warning(
+                        "event-loop: reap of rate-limited job failed",
+                        pipeline_id=self.pipeline_id,
+                        slice_id=self.slice_id,
+                        dedupe_key=key,
+                        error=str(exc),
+                    )
+            self._live_keys.discard(key)
         elif outcome == JOB_OUTCOME_ABNORMAL:
             # #3496: read the pod's exit detail BEFORE reaping (the reap
             # below deletes the Job, after which the exit code is gone).

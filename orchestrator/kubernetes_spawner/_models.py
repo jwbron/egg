@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import kubernetes_spawner as _pkg
-from egg_agent.auth_errors import EX_AUTH_FATAL
+from egg_agent.auth_errors import EX_AUTH_FATAL, EX_RATE_LIMITED
 from gateway_client import SessionInfo
 from kubernetes_spawner import (
     LABEL_EVENT_DEDUPE,
@@ -40,6 +40,7 @@ class _EventJobStatusView:
         self._SUCCESS = _event_loop.JOB_OUTCOME_SUCCESS
         self._ABNORMAL = _event_loop.JOB_OUTCOME_ABNORMAL
         self._FATAL = _event_loop.JOB_OUTCOME_FATAL
+        self._RATE_LIMITED = _event_loop.JOB_OUTCOME_RATE_LIMITED
 
     def outcome_for(self, dedupe_key: str) -> str:
         selector = f"{LABEL_EVENT_DEDUPE}={_pkg._dedupe_label_value(dedupe_key)}"
@@ -66,6 +67,16 @@ class _EventJobStatusView:
             # behaviour — so this can never manufacture a spurious fatal.
             if self._failed_with_auth_fatal(dedupe_key):
                 return self._FATAL
+            # #3364 PR C: a TRANSIENT throttle / cap wall (the agent exited
+            # EX_RATE_LIMITED) is neither a credential-fatal failure nor an
+            # ordinary crash — map it to a distinct rate-limit outcome the
+            # supervisor paces across the cap window instead of counting toward
+            # the abnormal fail-streak halt. Checked AFTER auth-fatal so a
+            # weekly-cap-as-77 still wins. Any other exit code falls through to
+            # ``abnormal`` (today's behaviour) — this can never manufacture a
+            # spurious rate-limit.
+            if self._failed_with_rate_limited(dedupe_key):
+                return self._RATE_LIMITED
             return self._ABNORMAL
         # Live = PENDING/CREATING/RUNNING — the same single-source set the
         # adoption filter (``_event_dedupe_key_live``) and live-pod accounting
@@ -98,6 +109,31 @@ class _EventJobStatusView:
         if not isinstance(containers, (list, tuple)):
             return False
         return any(getattr(c, "exit_code", None) == EX_AUTH_FATAL for c in containers)
+
+    def _failed_with_rate_limited(self, dedupe_key: str) -> bool:
+        """Return True iff the failed event pod exited with ``EX_RATE_LIMITED``.
+
+        Mirrors :meth:`_failed_with_auth_fatal` for the #3364 transient
+        rate-limit path: reads the pod(s) carrying this event's dedupe-key
+        label and checks the terminated container's exit code. Best-effort: a
+        list error, a missing pod (already GC'd), or an unreadable exit code
+        all return ``False`` so the caller falls back to the ordinary
+        ``abnormal`` classification.
+        """
+        try:
+            containers = self._spawner.k8s.list_containers(
+                labels={LABEL_EVENT_DEDUPE: _pkg._dedupe_label_value(dedupe_key)}
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort; fall back to abnormal
+            logger.warning(
+                "Failed to read pod exit code for rate-limit supervision",
+                dedupe_key=dedupe_key,
+                error=str(exc),
+            )
+            return False
+        if not isinstance(containers, (list, tuple)):
+            return False
+        return any(getattr(c, "exit_code", None) == EX_RATE_LIMITED for c in containers)
 
     def exit_detail_for(self, dedupe_key: str) -> str | None:
         """Return a short operator-facing exit description for a dead pod (#3496).
