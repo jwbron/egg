@@ -150,7 +150,7 @@
           "id": "task-2-4",
           "description": "orchestrator/event_loop/__init__.py + _loop.py: define the\nJOB_OUTCOME_RATE_LIMITED constant (export it alongside the existing\nJOB_OUTCOME_* constants) and add a _observe_jobs branch (mirroring the\nexisting `elif outcome == JOB_OUTCOME_FATAL` / `JOB_OUTCOME_ABNORMAL`\nbranches at _loop.py ~:94/:116) that routes a rate-limited outcome to a\nNEW supervisor.record_rate_limited(...) call. This is the per-arm\ninterception point that keeps the throttle signature OFF the abnormal\nstreak (record_abort is NOT called for this outcome).",
           "status": "pending",
-          "commit": null,
+          "commit": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- JOB_OUTCOME_RATE_LIMITED constant exists and is observed;\n  _observe_jobs routes it to record_rate_limited and NOT to record_abort.\n- AC-C6: the SUCCESS/LEGITIMATE/FATAL/ABNORMAL observe branches are\n  unchanged.",
@@ -924,6 +924,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:14.040872Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.3.commit",
+      "old_value": null,
+      "new_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "reason": "Linked commit 681bdd4 to task-2-4",
       "checkpoint_id": null
     }
   ],
