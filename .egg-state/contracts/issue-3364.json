@@ -108,7 +108,7 @@
           "id": "task-2-2",
           "description": "shared/egg_agent/__main__.py (~:142): emit EX_RATE_LIMITED when\nis_transient_rate_limit_error(result.error), as a distinct branch\nalongside the existing `if not result.success and\nis_auth_fatal_error(result.error): return EX_AUTH_FATAL`. auth-fatal\nMUST take precedence (check it first), so a matched weekly cap still\nreturns EX_AUTH_FATAL; the rate-limit branch fires only for the bare\nthrottling signatures.",
           "status": "pending",
-          "commit": null,
+          "commit": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- A throttled failure returns EX_RATE_LIMITED; an auth-fatal failure\n  (incl. weekly cap) still returns EX_AUTH_FATAL; success/other return\n  the prior code.\n- AC-C6: existing auth-fatal exit path unchanged.",
@@ -880,6 +880,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:01.535163Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "reason": "Linked commit 681bdd4 to task-2-2",
       "checkpoint_id": null
     }
   ],
