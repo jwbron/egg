@@ -234,7 +234,7 @@
         {
           "id": "task-2-8",
           "description": "Tests for PR C, weighted on the exit-code plumbing seam:\nis_transient_rate_limit_error classification (429/rate-limit/overloaded\nmatch; auth-fatal wording does NOT match); __main__ emits\nEX_RATE_LIMITED for a throttle and still EX_AUTH_FATAL for a weekly cap;\noutcome_for maps EX_RATE_LIMITED -> JOB_OUTCOME_RATE_LIMITED and a stray\ncode -> abnormal; _observe_jobs routes rate-limited -> record_rate_limited\n(NOT record_abort); record_rate_limited does NOT trip the streak halt;\npaced-retry pacing/window + threshold OVERSEER_ALERT (cq-1); landed-slice\npreservation across a paced restart; loop-guard escalates on identical\nfingerprint and continues when state advances. AC-C6 REGRESSION (new\nrisk surface): EX_AUTH_FATAL(=77) exit-code handling and the ordinary\nabnormal path are unchanged by the new EX_RATE_LIMITED path. make lint +\nmake test green.",
-          "status": "pending",
+          "status": "complete",
           "commit": "b74fa6bbb",
           "checkpoint_id": null,
           "notes": "",
@@ -1023,6 +1023,17 @@
       "old_value": null,
       "new_value": "b74fa6bbb",
       "reason": "Linked commit b74fa6b to task-2-8",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:21:26.570953Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.7.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-8 as complete",
       "checkpoint_id": null
     }
   ],
