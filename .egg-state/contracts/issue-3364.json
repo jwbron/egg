@@ -14,7 +14,7 @@
       "id": "slice-1",
       "name": "PR B follow-ups (tasks 1-1..1-4 landed; not re-derived) \u2014 wire production slice.closed emitter + production-chain integration test",
       "goal": "Additive / low risk. PR B's four original tasks ALREADY LANDED and are NOT\nre-listed (re-deriving them would re-run completed work): TASK-1-1\n(bin/wait-status --exclude-types/--quiet, commit 4fcf1ed7a), TASK-1-2\n(slice.closed EventType + emit at SliceScheduler.record_complete/record_failure,\nc2a77847a), TASK-1-3 (_STATUS_WAIT_EVENT_TYPES allowlist, 4fcf1ed7a),\nTASK-1-4 (tests, 3593d497c). Two post-consensus review follow-ups remain and\nMUST be carried forward (not lost): TASK-1-5 wires the production\nslice_closed_emitter \u2014 currently default-None at\norchestrator/routes/pipelines/_run_implement.py:86 so slice.closed never\nfires in production (green-but-dead) \u2014 and TASK-1-6 adds a production-chain\nintegration test (real record_complete/record_failure -> emitter -> event\nbus -> _STATUS_WAIT_EVENT_TYPES allowlist), closing the reviewer_contract\nslice-1 NACK and proving AC-B5 end-to-end.",
-      "status": "in_progress",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -817,44 +817,48 @@
       "checkpoint_id": null
     },
     {
-      "timestamp": "2026-07-07T04:56:04.792615+00:00",
+      "timestamp": "2026-07-07T04:56:04.792615Z",
       "actor": "operator",
       "role": "human",
       "action": "update",
       "field_path": "phases.0.tasks.0.commit",
       "old_value": null,
       "new_value": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
-      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)"
+      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)",
+      "checkpoint_id": null
     },
     {
-      "timestamp": "2026-07-07T04:56:04.792615+00:00",
+      "timestamp": "2026-07-07T04:56:04.792615Z",
       "actor": "operator",
       "role": "human",
       "action": "update",
       "field_path": "phases.0.tasks.0.status",
       "old_value": "pending",
       "new_value": "complete",
-      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)"
+      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)",
+      "checkpoint_id": null
     },
     {
-      "timestamp": "2026-07-07T04:56:04.792615+00:00",
+      "timestamp": "2026-07-07T04:56:04.792615Z",
       "actor": "operator",
       "role": "human",
       "action": "update",
       "field_path": "phases.0.tasks.1.commit",
       "old_value": null,
       "new_value": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
-      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)"
+      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)",
+      "checkpoint_id": null
     },
     {
-      "timestamp": "2026-07-07T04:56:04.792615+00:00",
+      "timestamp": "2026-07-07T04:56:04.792615Z",
       "actor": "operator",
       "role": "human",
       "action": "update",
       "field_path": "phases.0.tasks.1.status",
       "old_value": "pending",
       "new_value": "complete",
-      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)"
+      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)",
+      "checkpoint_id": null
     }
   ],
   "refine_review_cycles": 0,
