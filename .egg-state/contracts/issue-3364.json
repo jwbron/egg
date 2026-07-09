@@ -193,7 +193,7 @@
           "id": "task-2-6",
           "description": "orchestrator/supervision_policy.py: add the pacing + fingerprint +\nthreshold constants/helpers the executor wiring consumes \u2014 the windowed\nretry window (hours-scale, NOT the 30s SUPERVISION_BACKOFF_CAP_SECONDS),\na reset-time parse helper (pace from the error's reset time when\npresent, else bounded backoff), the loop-guard fingerprint model\n(signature + progression identity + equality), and the cumulative-wait\nthreshold that arms the cq-1 OVERSEER_ALERT. Leave\nSUPERVISION_BACKOFF_CAP_SECONDS and the existing abnormal backoff\nuntouched.",
           "status": "pending",
-          "commit": null,
+          "commit": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- AC-C2: windowed-retry window (hours) + reset-time-paced-else-backoff\n  helpers exist and are distinct from the 30s abnormal cap.\n- AC-C4/AC-C5: fingerprint-equality model + cumulative-wait threshold\n  constant present.\n- AC-C6: the existing 30s abnormal backoff/streak constants unchanged.",
@@ -946,6 +946,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:20.541677Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.5.commit",
+      "old_value": null,
+      "new_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "reason": "Linked commit 681bdd4 to task-2-6",
       "checkpoint_id": null
     }
   ],
