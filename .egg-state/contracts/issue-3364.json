@@ -171,7 +171,7 @@
         {
           "id": "task-2-5",
           "description": "orchestrator/event_loop/_supervisor.py: add record_rate_limited(...)\nthat does NOT increment the per-key abnormal streak (mirror\nrecord_legitimate_outcome's \"streak untouched\" pattern at ~:100), so\nthe throttling signature never trips the per-key streak>=10 halt \u2014\nfully satisfying AC-C1. Capture/expose the failure fingerprint\n(signature + phase/slice progression) that the loop-guard (TASK-2-7)\nconsumes; do not itself halt or escalate.",
-          "status": "pending",
+          "status": "complete",
           "commit": "2bd6124a3",
           "checkpoint_id": null,
           "notes": "",
@@ -1045,6 +1045,17 @@
       "old_value": null,
       "new_value": "2bd6124a3",
       "reason": "Linked commit 2bd6124 to task-2-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:21:33.077377Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-5 as complete",
       "checkpoint_id": null
     }
   ],
