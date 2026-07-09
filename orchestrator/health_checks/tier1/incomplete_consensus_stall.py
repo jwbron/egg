@@ -36,6 +36,7 @@ except ImportError:
 
 
 from health_checks.context import PipelineHealthContext
+from health_checks.tier1._consensus_messages import pipeline_level_confirmed_roles
 from health_checks.types import (
     HealthAction,
     HealthResult,
@@ -255,9 +256,15 @@ class IncompleteConsensusStallCheck:
 
             store = get_message_store()
             messages = store.get_messages(pipeline_id, limit=10000)
-            confirmed_roles = {
-                m.from_role for m in messages if m.message_type == "CONSENSUS_CONFIRMED"
-            }
+            # Slice-tagged confirmations belong to per-slice consensus
+            # rounds and confirmations from earlier phases belong to
+            # closed rounds; neither counts toward the current phase's
+            # pipeline-level consensus (#3542). The primary defense is the
+            # transition-time clear (`_clear_concurrent_state()` wipes the
+            # message bus and bare tracker on every phase transition); this
+            # phase filter is the belt-and-suspenders backstop for when that
+            # clear is skipped or a best-effort Redis clear fails.
+            confirmed_roles = pipeline_level_confirmed_roles(messages, phase=phase_value)
             blocking = sorted(expected_roles - confirmed_roles)
             return blocking
         except Exception:

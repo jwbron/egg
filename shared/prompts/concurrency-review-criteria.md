@@ -123,6 +123,42 @@ that touches:
 - **Flip-flop bound enforcement.** The `max_flip_flops=3` cap bounds
   producer/reviewer ping-pong; flag any change that weakens it.
 
+## Verification Ladder — CONFIRMED / PLAUSIBLE / REFUTED
+
+This lens shares the verification discipline defined in
+[`code-review-criteria.md`](./code-review-criteria.md). Before a candidate
+becomes a finding, assign it exactly one verdict; the evidence duties are
+**symmetric** — quote the line that justifies the call whether you keep the
+candidate or drop it. Concurrency findings lean heavily on PLAUSIBLE because
+the trigger is an interleaving you cannot force on demand; that is expected,
+not a reason to drop them.
+
+- **CONFIRMED** — you can name the concrete interleaving (which actors, in
+  what order) that triggers the race, deadlock, or lost message, and the
+  resulting corruption or hang. Quote the two lines that race.
+- **PLAUSIBLE** — the shared-state access or ordering hazard is real but the
+  triggering schedule is uncertain (timing, load, scheduler). State what
+  would confirm it. **PLAUSIBLE by default** — do not refute a candidate
+  merely because you could not reproduce the interleaving.
+- **REFUTED** — the access is actually synchronized (a lock, channel, or
+  copy-on-write you can point to) or single-threaded by construction. Quote
+  the line that proves it — "single-threaded by convention" does not refute a
+  path that runs inside FastAPI, `pytest-xdist`, or a `Task` subagent.
+
+Two companion rules:
+
+1. **Blocking must reproduce.** A finding may be `blocking` only if it is
+   CONFIRMED with a stated interleaving → the corruption or hang. A candidate
+   you cannot reduce to a concrete schedule cannot block; carry it as advisory.
+2. **Drop only the refuted; downgrade the unconfirmed.** Discard REFUTED
+   candidates; downgrade PLAUSIBLE ones to advisory (non-blocking) so the
+   signal survives without burning a producer revision round.
+
+**Scratch checks (read-only).** You may run read-only commands to confirm a
+candidate — Grep the shared-state writers, Read the lock's scope,
+`git show` the removed synchronization. Do **not** mutate the working tree,
+push, or run destructive commands.
+
 ## How to Review
 
 1. Read the diff with explicit attention to **multi-actor** paths —

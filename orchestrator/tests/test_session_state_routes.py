@@ -85,6 +85,48 @@ class TestPushPullRoundTrip:
         assert body["data"]["session_id"] == "pl"
 
 
+class TestIndex:
+    """Operator-facing index of stored records (#3547)."""
+
+    _INDEX_URL = f"{_URL}/index"
+
+    def test_empty_index(self, client):
+        r = client.get(self._INDEX_URL)
+        assert r.status_code == 200
+        assert r.get_json() == {"success": True, "records": []}
+
+    def test_index_lists_metadata_without_transcripts(self, client):
+        client.post(
+            _URL,
+            json={
+                "role": "coder",
+                "slice_id": "slice-3",
+                "session_id": "sid-a",
+                "window_occupancy": 42,
+                "transcript": '{"l": 1}\n',
+            },
+        )
+        client.post(_URL, json={"role": "reviewer_code", "session_id": "sid-b"})
+
+        records = client.get(self._INDEX_URL).get_json()["records"]
+        assert len(records) == 2
+        by_role = {r["role"]: r for r in records}
+        coder = by_role["coder"]
+        assert coder["slice_id"] == "slice-3"
+        assert coder["session_id"] == "sid-a"
+        assert coder["window_occupancy"] == 42
+        assert coder["transcript_bytes"] == len('{"l": 1}\n')
+        assert "transcript" not in coder
+        reviewer = by_role["reviewer_code"]
+        assert reviewer["slice_id"] is None
+        assert reviewer["transcript_bytes"] == 0
+
+    def test_index_scoped_to_pipeline(self, client):
+        client.post(_URL, json={"role": "coder", "session_id": "a"})
+        other = client.get("/api/v1/pipelines/issue-2/session-state/index").get_json()
+        assert other["records"] == []
+
+
 class TestValidation:
     def test_push_requires_role(self, client):
         r = client.post(_URL, json={"session_id": "a"})
@@ -105,3 +147,39 @@ class TestValidation:
     def test_pull_requires_role(self, client):
         r = client.get(_URL)
         assert r.status_code == 400
+
+
+class TestEvict:
+    """#3537 DELETE - operator-facing eviction of a poisoned warm-resume record."""
+
+    def test_evict_removes_record(self, client):
+        client.post(_URL, json={"role": "coder", "slice_id": "slice-3", "session_id": "sid"})
+        resp = client.delete(_URL, query_string={"role": "coder", "slice_id": "slice-3"})
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["success"] is True
+        assert body["deleted"] is True
+        pull = client.get(_URL, query_string={"role": "coder", "slice_id": "slice-3"})
+        assert pull.get_json()["found"] is False
+
+    def test_evict_miss_is_success_with_deleted_false(self, client):
+        resp = client.delete(_URL, query_string={"role": "coder", "slice_id": "slice-9"})
+        assert resp.status_code == 200
+        assert resp.get_json() == {"success": True, "deleted": False}
+
+    def test_evict_requires_role(self, client):
+        resp = client.delete(_URL)
+        assert resp.status_code == 400
+
+    def test_evict_is_scoped(self, client):
+        client.post(_URL, json={"role": "coder", "slice_id": "slice-3", "session_id": "a"})
+        client.post(_URL, json={"role": "tester", "slice_id": "slice-3", "session_id": "b"})
+        client.delete(_URL, query_string={"role": "coder", "slice_id": "slice-3"})
+        keep = client.get(_URL, query_string={"role": "tester", "slice_id": "slice-3"})
+        assert keep.get_json()["found"] is True
+
+    def test_evict_pipeline_level_omits_slice(self, client):
+        client.post(_URL, json={"role": "coder", "session_id": "pipeline-level"})
+        resp = client.delete(_URL, query_string={"role": "coder"})
+        assert resp.get_json()["deleted"] is True
+        assert client.get(_URL, query_string={"role": "coder"}).get_json()["found"] is False

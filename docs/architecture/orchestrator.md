@@ -688,7 +688,7 @@ NetworkPolicies (enforced by Cilium CNI):
 - `GET /health` - MCP server health check
 - `POST /mcp` - Streamable HTTP transport endpoint (MCP protocol via JSON-RPC)
 
-Available MCP tools (orchestrator-backed): `submit_task`, `get_status`, `provide_input`, `answer_feedback`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `get_contract`, `validate_config`, `update_pipeline_config`, `restart_agent`, `restart_phase`, `list_agent_local_commits`, `salvage_agent_commits`, `advance_phase`, `start_pipeline`, `start_phase`, `complete_phase`, `populate_contract`, `get_deployment_context`, `validate_deployment_manifests`, `prune_stale_worktrees`, `validate_network_isolation`, `rebuild_and_rollout`, `get_service_logs`
+Available MCP tools (orchestrator-backed): `submit_task`, `get_status`, `provide_input`, `answer_feedback`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `get_agent_transcript`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `get_contract`, `validate_config`, `update_pipeline_config`, `restart_agent`, `restart_phase`, `list_agent_local_commits`, `salvage_agent_commits`, `advance_phase`, `start_pipeline`, `start_phase`, `complete_phase`, `populate_contract`, `get_deployment_context`, `validate_deployment_manifests`, `prune_stale_worktrees`, `validate_network_isolation`, `rebuild_and_rollout`, `get_service_logs`
 
 Blocking host-side waits run via the `egg-orch pipeline wait-status` Bash CLI rather than an MCP tool (issue [#2211](https://github.com/jwbron/egg/issues/2211)). The CLI loops the orchestrator's `/api/v1/pipelines/<id>/status/wait` route server-side and emits one JSON-line per pipeline-relevant event. See [Host-Side Waits](../reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the envelope, exit-code contract, and cursor protocol. The route itself stays — the CLI is a wrapper.
 
@@ -839,6 +839,20 @@ engages when at least one upstream producer is terminal (reviews no
 producers itself), so cyclic custom graphs cannot mutually `wait` into a
 deadlock. See `_pre_propose_upstream_producers` in
 `orchestrator/routes/consensus.py`.
+
+**No-op park release delta ([#3537](https://github.com/jwbron/egg/issues/3537)):**
+when the #3425 no-op park releases because the unresolved contract-decision
+set or the BRC state moved, the loop attaches the delta to the released
+probe spawn (`EGG_EVENT_RELEASE_CONTEXT`), and the pod-side prompt composer
+renders it as a leading "why you were respawned" section - the resolved
+`cq-N` ids with their resolution text, freshly-gating decisions, and BRC
+movement. Without it the probe's prompt is byte-identical to the invocation
+that parked, so a warm-resumed session (#3278) replays its cached "still
+blocked" conclusion and the arm livelocks on 30-minute heartbeat cycles.
+The section also instructs the agent to verify blockers via reads, never by
+retrying a previously-failing side-effectful call whose error is invariant
+to the thing being probed. Heartbeat releases carry no delta (nothing
+observably changed).
 
 ### Wake conditions (pre-confirm vs post-confirm)
 
@@ -1022,6 +1036,7 @@ above). It assembles, in order:
 | Position | Section | Source | Bound |
 |----------|---------|--------|-------|
 | Top | Role banner + one-line event description | `role` + `event_payload.kind` | A few hundred bytes; identifies the producer/reviewer side of the dispatch. |
+| Top | Park-release delta — "why you were respawned" (#3537) | `EGG_EVENT_RELEASE_CONTEXT` env, set only on the probe spawn a no-op-park fingerprint-change release granted; decoded by `_cli.py` and rendered by `_render_release_context_section` | Each free-text field (question/resolution) ≤ `RELEASE_RESOLUTION_MAX_CHARS` (1200 chars); omitted (byte-identical common path) on every ordinary spawn and on heartbeat releases. See [No-op park release delta](#deterministic-loop-structure) above. |
 | Top | Task & operator directives (#3123/#3163) | The contract's `task_description`, read from the worktree contract file via the pod-inherited `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER`; populated for all pipeline types since #3163 (issue anchor + submit description); omitted only when the contract carries no task statement and no issue identity | ≤ 4 KB (`TASK_DESCRIPTION_MAX_CHARS`), truncated with a pointer to `mcp__sdlc__show_contract`. Pushes the operator's submit-time directives into every invocation instead of relying on the agent pulling them per the rules file. |
 | Top | Operator feedback steering this phase (#3231) | The current phase execution's `operator_directives` (chronological) threaded onto the event_payload by the `next-action` route from persisted pipeline state. Carried on **both** the `propose` arm (kicked-back producer's re-run — directives **plus** the latest `iteration_history` verdict/NACK summary, #2795) and the `ack` arm (reviewer re-reviewing the producer's directive-driven change — directives only, no producer scorecard). The `audience` tag selects producer vs. reviewer framing. Rendered in full for the most-recent directive, one line each for earlier ones. | ≤ 4 KB (`ITERATION_FEEDBACK_MAX_CHARS`), truncated with a pointer to `egg-orch brc get-state`; also a second-stage envelope-truncation candidate after NACKs. Surfaced via the orchestrator event loop (the only mode post-#3164). Omitted when there is no kickback (golden-stable). Makes an unchanged producer re-propose after `request_changes` a defect, and stops reviewers NACKing a directive-driven change back to a stale rubric. |
 | Middle | NACK payload (per-reviewer NACK with `reason` + `artifact_refs`) | `orchestrator/peer_consensus.py` `_open_nacks_barrier_response.nacks[]` (prefer the function-name reference over line numbers, which drift) — the same envelope the producer sees on the aggregated-NACK 409 (see [§10.6](../reference/agent-wait-patterns.md#106-409-stale_version--aggregated-nack-are-event-pump-signals-not-transient-errors)). | One section per reviewer that NACKed the current version; rendered with reason text + artifact references. |

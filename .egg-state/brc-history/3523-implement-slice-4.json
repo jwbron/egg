@@ -1,0 +1,1423 @@
+[
+  {
+    "id": "18888adf-d3cf-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:05:20.467131+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "cdaf2294-97a2-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:05:21.512220+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "677e2880-91f3-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:05:28.215393+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c9298db5-89cb-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:05:29.728287+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "036e3cf1-1eec-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from documenter",
+    "body": "Documenter has no work in slice-4. All documenter tasks are scoped elsewhere: task-1-1 and task-1-2 (reviewer method-angle procedures + verification ladder across the criteria prompts) are complete in slice-1 (commit 1e6d257), and task-8-1 (the docs/reference/review-quality.md overhaul + conditional-ack.md link) is deliberately deferred to slice-8. Slice-4 touches no documenter-owned artifact, so there is nothing to propose here.",
+    "metadata": {
+      "payload": {
+        "summary": "Documenter has no work in slice-4. All documenter tasks are scoped elsewhere: task-1-1 and task-1-2 (reviewer method-angle procedures + verification ladder across the criteria prompts) are complete in slice-1 (commit 1e6d257), and task-8-1 (the docs/reference/review-quality.md overhaul + conditional-ack.md link) is deliberately deferred to slice-8. Slice-4 touches no documenter-owned artifact, so there is nothing to propose here.",
+        "attestation": {},
+        "artifacts": [],
+        "risk_considered": "",
+        "commit_sha": "",
+        "files_changed": [],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": true,
+        "no_changes_reason": "Documenter is assigned no task in slice-4; all documenter tasks belong to slice-1 (complete) and slice-8 (pending). No documenter-owned files are in scope for this slice."
+      },
+      "version": 1,
+      "commit_sha": "",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:05:56.126960+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1c097e22-de37-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=54875 util=0.05 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:06:02.659431+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d49c2b2f-65f3-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:09:17.132454+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9277b0bf-d89e-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:11:40.998496+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c9490797-f1f6-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:13:57.000514+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0fc6132f-5154-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:16:12.296521+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "33a9e2fb-f426-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from coder",
+    "body": "Per-finding tool-call cap in orchestrator/consensus_wrapper.py (task-4-1, #3523 slice-4). Adds item 2's non-prompt half: a configurable per-finding scratch-check tool-call cap owned by orchestrator code, riding the S3 EGG_REVIEW_FINDINGS_MODE staged flag. off => inert with a byte-identical spawn command; log => record would-be cap hits without enforcing; on => enforce; a flag typo resolves to off via the shared review_findings_mode() resolver. New surface: review_finding_tool_call_cap() (env cap, safe default 8, invalid/non-positive => default), evaluate_finding_tool_call_cap() (pure decision fn \u2014 cap triggers at the configured limit via >=, off/exempt inert, log records, on enforces), ToolCallCapDecision + tool_call_cap_log_record() for the log-mode BRC record, and _render_tool_call_cap_env_block() which exports the wrapper-owned cap+mode for the reviewer ack/nack arms only. tester is exempt (verdict comes from EXECUTING the whole suite; cold-start per S7) and the propose arm is out of scope \u2014 both documented in-code per the task's \"reviewers that cannot be capped are documented\" clause.",
+    "metadata": {
+      "payload": {
+        "summary": "Per-finding tool-call cap in orchestrator/consensus_wrapper.py (task-4-1, #3523 slice-4). Adds item 2's non-prompt half: a configurable per-finding scratch-check tool-call cap owned by orchestrator code, riding the S3 EGG_REVIEW_FINDINGS_MODE staged flag. off => inert with a byte-identical spawn command; log => record would-be cap hits without enforcing; on => enforce; a flag typo resolves to off via the shared review_findings_mode() resolver. New surface: review_finding_tool_call_cap() (env cap, safe default 8, invalid/non-positive => default), evaluate_finding_tool_call_cap() (pure decision fn \u2014 cap triggers at the configured limit via >=, off/exempt inert, log records, on enforces), ToolCallCapDecision + tool_call_cap_log_record() for the log-mode BRC record, and _render_tool_call_cap_env_block() which exports the wrapper-owned cap+mode for the reviewer ack/nack arms only. tester is exempt (verdict comes from EXECUTING the whole suite; cold-start per S7) and the propose arm is out of scope \u2014 both documented in-code per the task's \"reviewers that cannot be capped are documented\" clause.",
+        "attestation": {},
+        "artifacts": [
+          "orchestrator/consensus_wrapper.py",
+          "b2052ac33"
+        ],
+        "risk_considered": "off-mode spawn command verified byte-identical to legacy (no export block); generated bash validated with bash -n in log/on; cap fails safe to default on typo and to off on unknown flag; new top-level import of review_findings_mode is acyclic (review_findings_verdict depends only on egg_contracts). ruff check+format clean; mypy clean under project MYPYPATH.",
+        "commit_sha": "b2052ac33",
+        "files_changed": [
+          "orchestrator/consensus_wrapper.py"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-4-1"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "b2052ac33",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:17:54.976420+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "74a4f763-9133-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:18:01.302307+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "27ea1e05-50e8-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:18:02.708196+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fc5019c0-426a-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:18:04.474992+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5b6bc8a1-760e-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:18:05.848098+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "75e97381-823c-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:18:07.442942+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2efab85d-9878-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=201504 util=0.20 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:18:08.106117+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f606aaf6-4466-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:18:08.596998+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "83730dd1-d63e-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:18:10.214445+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6d64d965-d1f3-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:18:14.031588+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f0877f72-4624-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:18:14.759727+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1539ef3f-b3d2-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:18:15.707224+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "91d57fa7-41f9-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:18:15.750858+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5a14b5cb-91db-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:18:16.114902+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bc144687-b05e-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_security for coder",
+    "body": "Security lens clean, no blocking or advisory findings. The slice-4 change (per-finding tool-call cap in consensus_wrapper.py) is orchestrator-side plumbing gated behind the fail-safe EGG_REVIEW_FINDINGS_MODE staged flag. No shell-injection vector: the only values interpolated into the generated bash export block are static constants (exempt frozenset, env-var names), an int cap, and a mode value strictly constrained to 'log'/'on' ('off' short-circuits to an empty block). The .format() value is not re-scanned and f-string {{/}} escapes emit literal bash braces, so ${EGG_AGENT_ROLE} is a runtime env expansion, not a build-time substitution. The exempt-role `case` is glob pattern-matching (not eval) over an orchestrator-set role enum value. Fail-safe defaults: typo'd cap -> positive default 8 (never 0/negative), typo'd mode -> off; off mode keeps the spawn command byte-identical to legacy, so no security-posture change. Single template .format() call site supplies the new key -> no KeyError.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/consensus_wrapper.py",
+          "orchestrator/review_findings_verdict.py"
+        ],
+        "reason": "Security lens clean, no blocking or advisory findings. The slice-4 change (per-finding tool-call cap in consensus_wrapper.py) is orchestrator-side plumbing gated behind the fail-safe EGG_REVIEW_FINDINGS_MODE staged flag. No shell-injection vector: the only values interpolated into the generated bash export block are static constants (exempt frozenset, env-var names), an int cap, and a mode value strictly constrained to 'log'/'on' ('off' short-circuits to an empty block). The .format() value is not re-scanned and f-string {{/}} escapes emit literal bash braces, so ${EGG_AGENT_ROLE} is a runtime env expansion, not a build-time substitution. The exempt-role `case` is glob pattern-matching (not eval) over an orchestrator-set role enum value. Fail-safe defaults: typo'd cap -> positive default 8 (never 0/negative), typo'd mode -> off; off mode keeps the spawn command byte-identical to legacy, so no security-posture change. Single template .format() call site supplies the new key -> no KeyError.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:19:23.838407+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4556dd13-b3fc-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=63222 util=0.06 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:19:32.253017+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d6d19506-1c8c-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_concurrency for coder",
+    "body": "Concurrency lens clean \u2014 no blocking finding. The per-finding tool-call cap is concurrency-safe by construction: the cap value + mode are exported into each reviewer's OWN one-shot process env inside invoke_agent_for_event, so a wave of 5+ reviewers each enforce a per-finding budget in-process \u2014 there is no cross-reviewer shared counter, hence no race and no lock required. evaluate_finding_tool_call_cap() takes the tool_calls count as a parameter (caller-tracked within a single agent's single-threaded scratch-check loop), so this slice introduces zero concurrent-mutation surface. No shared mutable state is added: os.environ is read-only at build time, ToolCallCapDecision is frozen, and evaluate_*/tool_call_cap_log_record are pure. One-shot wrapper => fresh process per BRC event, so no cap env leaks across spawns. The top-level import from review_findings_verdict is cycle-free and resolved once at load. off-mode renders an empty block, keeping the spawn command byte-identical to the legacy path.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/consensus_wrapper.py"
+        ],
+        "reason": "Concurrency lens clean \u2014 no blocking finding. The per-finding tool-call cap is concurrency-safe by construction: the cap value + mode are exported into each reviewer's OWN one-shot process env inside invoke_agent_for_event, so a wave of 5+ reviewers each enforce a per-finding budget in-process \u2014 there is no cross-reviewer shared counter, hence no race and no lock required. evaluate_finding_tool_call_cap() takes the tool_calls count as a parameter (caller-tracked within a single agent's single-threaded scratch-check loop), so this slice introduces zero concurrent-mutation surface. No shared mutable state is added: os.environ is read-only at build time, ToolCallCapDecision is frozen, and evaluate_*/tool_call_cap_log_record are pure. One-shot wrapper => fresh process per BRC event, so no cap env leaks across spawns. The top-level import from review_findings_verdict is cycle-free and resolved once at load. off-mode renders an empty block, keeping the spawn command byte-identical to the legacy path.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:19:49.793623+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e20ffbc3-f508-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=95718 util=0.10 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:19:56.134820+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9f61971b-62ce-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:20:16.389925+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bbc9fa94-76e1-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:20:19.082898+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2b61d2b2-cda8-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for coder",
+    "body": "ACK. task-4-1: per-finding scratch-check tool-call cap (item-2 non-prompt half) in consensus_wrapper.py, riding the S3 EGG_REVIEW_FINDINGS_MODE staged flag. Verified by scratch-check: (1) pure decision fns behave exactly as documented \u2014 review_finding_tool_call_cap() fail-safes 0/negative/invalid to default 8; evaluate_finding_tool_call_cap() is inert in off mode and for the exempt tester role, enforces at tool_calls>=cap in on mode, records-not-enforces in log mode; tool_call_cap_log_record() mirrors verdict_log_record shape. (2) off-mode byte-identity holds \u2014 _render_tool_call_cap_env_block returns \"\" so the rendered spawn command has zero cap-block bytes, matching the legacy path (staged-flag off=>no behavior change). (3) Template substitution is safe: single .format() call site, placeholders {agent_command_prefix,checkout_roles,tool_call_cap_block} match exactly, and the injected block is passed as a format VALUE so its literal bash braces aren't re-scanned. (4) Rendered wrapper passes bash -n in both off and on modes; injected block references $action/$EGG_AGENT_ROLE, both in scope in invoke_agent_for_event, and is gated on the ack/nack arms only. (5) No import cycle (review_findings_verdict depends only on egg_contracts); ruff clean. Exporting the cap env with no in-slice consumer is the documented item-2 design (prompt half / later wiring consumes it), gated off by default \u2014 not a defect. No blocking or advisory findings from the code-review lens.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/consensus_wrapper.py"
+        ],
+        "reason": "ACK. task-4-1: per-finding scratch-check tool-call cap (item-2 non-prompt half) in consensus_wrapper.py, riding the S3 EGG_REVIEW_FINDINGS_MODE staged flag. Verified by scratch-check: (1) pure decision fns behave exactly as documented \u2014 review_finding_tool_call_cap() fail-safes 0/negative/invalid to default 8; evaluate_finding_tool_call_cap() is inert in off mode and for the exempt tester role, enforces at tool_calls>=cap in on mode, records-not-enforces in log mode; tool_call_cap_log_record() mirrors verdict_log_record shape. (2) off-mode byte-identity holds \u2014 _render_tool_call_cap_env_block returns \"\" so the rendered spawn command has zero cap-block bytes, matching the legacy path (staged-flag off=>no behavior change). (3) Template substitution is safe: single .format() call site, placeholders {agent_command_prefix,checkout_roles,tool_call_cap_block} match exactly, and the injected block is passed as a format VALUE so its literal bash braces aren't re-scanned. (4) Rendered wrapper passes bash -n in both off and on modes; injected block references $action/$EGG_AGENT_ROLE, both in scope in invoke_agent_for_event, and is gated on the ack/nack arms only. (5) No import cycle (review_findings_verdict depends only on egg_contracts); ruff clean. Exporting the cap env with no in-slice consumer is the documented item-2 design (prompt half / later wiring consumes it), gated off by default \u2014 not a defect. No blocking or advisory findings from the code-review lens.",
+        "ack_version": 1,
+        "attestation": {
+          "files_reviewed": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "issues_found": 0,
+          "checks": [
+            "template-format-safety",
+            "off-mode-byte-identity",
+            "bash -n off+on",
+            "pure-fn-decision-matrix",
+            "fail-safe-cap-default",
+            "no-import-cycle",
+            "ruff"
+          ]
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:20:33.533234+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "20ff9793-aa79-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:20:34.022930+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "07675ba3-4e39-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:20:45.654801+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7ef3738c-57ef-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=80214 util=0.08 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:21:04.505387+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fc6c61d9-223c-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for coder",
+    "body": "task-4-1 satisfied as scoped. Verified empirically by rendering the spawn command in all modes: off => no cap block (byte-identical to legacy spawn); log => exports EGG_REVIEW_FINDING_TOOL_CALL_CAP=<n> + _MODE=log; on => exports cap + _MODE=on, gated on the ack/nack arms only, tester exempt; unknown flag (e.g. 'banana') => off (no block). All three render as valid bash (bash -n clean). Cap resolution is fail-safe (unset/non-int/0/negative => documented default 8). Exempt roles (tester: whole-suite exec + cold-start; propose arm: producers don't scratch-check) are documented in-code per the acceptance criterion. File boundary clean: only orchestrator/consensus_wrapper.py touched; prompt files untouched (enforce-not-in-prompt honored); imports review_findings_verdict with no cycle. Single .format() call site supplies the tool_call_cap_block key (no KeyError risk).\\n\\nADVISORY (non-blocking, plan-scope \u2014 routed to operator/architect, not the coder): nothing in the repo consumes the exported EGG_REVIEW_FINDING_TOOL_CALL_CAP/_MODE env vars, and evaluate_finding_tool_call_cap/tool_call_cap_log_record are defined-but-uncalled, so in 'on' mode the cap is exported but not yet enforced by any tool-loop interceptor. The actual enforcement point (agent runtime honoring the cap) lives in sandbox/, outside task-4-1's single-file boundary, and no later slice wires a consumer. This is a plan-completeness question (should a follow-on slice wire the sandbox consumer?), not a fixable coder defect within this task; mode defaults to off so nothing ships broken. Surfaced so the convergence signal isn't discarded.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/consensus_wrapper.py"
+        ],
+        "reason": "task-4-1 satisfied as scoped. Verified empirically by rendering the spawn command in all modes: off => no cap block (byte-identical to legacy spawn); log => exports EGG_REVIEW_FINDING_TOOL_CALL_CAP=<n> + _MODE=log; on => exports cap + _MODE=on, gated on the ack/nack arms only, tester exempt; unknown flag (e.g. 'banana') => off (no block). All three render as valid bash (bash -n clean). Cap resolution is fail-safe (unset/non-int/0/negative => documented default 8). Exempt roles (tester: whole-suite exec + cold-start; propose arm: producers don't scratch-check) are documented in-code per the acceptance criterion. File boundary clean: only orchestrator/consensus_wrapper.py touched; prompt files untouched (enforce-not-in-prompt honored); imports review_findings_verdict with no cycle. Single .format() call site supplies the tool_call_cap_block key (no KeyError risk).\\n\\nADVISORY (non-blocking, plan-scope \u2014 routed to operator/architect, not the coder): nothing in the repo consumes the exported EGG_REVIEW_FINDING_TOOL_CALL_CAP/_MODE env vars, and evaluate_finding_tool_call_cap/tool_call_cap_log_record are defined-but-uncalled, so in 'on' mode the cap is exported but not yet enforced by any tool-loop interceptor. The actual enforcement point (agent runtime honoring the cap) lives in sandbox/, outside task-4-1's single-file boundary, and no later slice wires a consumer. This is a plan-completeness question (should a follow-on slice wire the sandbox consumer?), not a fixable coder defect within this task; mode defaults to off so nothing ships broken. Surfaced so the convergence signal isn't discarded.",
+        "ack_version": 1,
+        "attestation": {
+          "tasks_verified": [
+            "task-4-1"
+          ]
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:22:14.028341+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "faeff7e4-4c62-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:22:20.231845+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3cb8118c-660b-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:22:29.106814+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3965cfea-d655-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=94321 util=0.09 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:22:42.003936+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0b748a42-c2c5-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code_holistic for coder",
+    "body": "Holistic code review of b2052ac33 (slice-4 per-finding tool-call cap). The implemented wrapper half is correct and safe, verified empirically: off-mode renders a byte-identical spawn command (empty block); review_finding_tool_call_cap() fail-safes to the documented default 8 on unset/non-integer/non-positive env; evaluate_finding_tool_call_cap() triggers exactly at the cap (>=), with tester exempt and off/exempt inert; the bash `case` uses space-delimited exact role matching (no substring false-positive); _EVENT_PUMP_WRAPPER_TEMPLATE has a single .format() caller that passes the new kwarg (no KeyError), and the rendered block is inserted as a .format() VALUE so its literal bash braces are not rescanned. Exempt roles (tester) and the out-of-scope propose arm are documented in-code per acceptance. One CONFIRMED but non-blocking gap: the exported cap env vars have no consumer anywhere, so log/on mode does not actually enforce or record cap hits \u2014 captured as a pre-merge obligation rather than a NACK because the missing consumer must live outside task-4-1's single-file boundary (consensus_wrapper.py) and cannot be resolved by the coder within this task; consistent with the slice-3 scaffold-now/wire-later pattern and harmless while the flag defaults off. ACK with obligation.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/consensus_wrapper.py"
+        ],
+        "reason": "Holistic code review of b2052ac33 (slice-4 per-finding tool-call cap). The implemented wrapper half is correct and safe, verified empirically: off-mode renders a byte-identical spawn command (empty block); review_finding_tool_call_cap() fail-safes to the documented default 8 on unset/non-integer/non-positive env; evaluate_finding_tool_call_cap() triggers exactly at the cap (>=), with tester exempt and off/exempt inert; the bash `case` uses space-delimited exact role matching (no substring false-positive); _EVENT_PUMP_WRAPPER_TEMPLATE has a single .format() caller that passes the new kwarg (no KeyError), and the rendered block is inserted as a .format() VALUE so its literal bash braces are not rescanned. Exempt roles (tester) and the out-of-scope propose arm are documented in-code per acceptance. One CONFIRMED but non-blocking gap: the exported cap env vars have no consumer anywhere, so log/on mode does not actually enforce or record cap hits \u2014 captured as a pre-merge obligation rather than a NACK because the missing consumer must live outside task-4-1's single-file boundary (consensus_wrapper.py) and cannot be resolved by the coder within this task; consistent with the slice-3 scaffold-now/wire-later pattern and harmless while the flag defaults off. ACK with obligation.",
+        "ack_version": 1,
+        "pre_merge_condition": "Exported cap env vars (EGG_REVIEW_FINDING_TOOL_CALL_CAP / _MODE) have no consumer: no sandbox PreToolUse hook counts scratch-check tool calls and no reviewer-criteria prompt instructs the agent to honor them, so in log/on mode the per-finding cap neither enforces nor records (it is a dangling signal, and acceptance's \"the wrapper enforces\" is not met by a live path). Before EGG_REVIEW_FINDINGS_MODE is flipped past 'off', add a sandbox-side consumer \u2014 a PreToolUse tool-call counter that reads EGG_REVIEW_FINDING_TOOL_CALL_CAP and, in log mode, records via tool_call_cap_log_record(). This lives outside consensus_wrapper.py (sandbox/ or the prompts), so it is out of scope for task-4-1 and not a coder-blocking defect."
+      },
+      "version": 1,
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:22:54.827773+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7be66830-be51-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=100374 util=0.10 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:23:08.620358+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d8c1de45-a26f-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from tester",
+    "body": "task-4-2: unit-test the per-finding tool-call cap at its boundary. Added 63 tests to orchestrator/tests/test_consensus_wrapper.py covering all four acceptance cases \u2014 cap triggers at the configured limit (>=, with an off-by-one guard); log mode records would-be hits without enforcing (on mode enforces without recording; the two are mutually exclusive); a flag typo resolves to off/inert at both the pure-decision-fn and the build_event_pump_wrapped_command spawn-command layers; and the safe default (8) is applied when the cap env is unset/non-integer/non-positive. Also pins exempt-role behaviour (tester never hit), the JSON-serializable log-mode BRC record, the off=>empty render (byte-identical legacy spawn), and reviewer-arm gating of the exported cap block. All 63 pass; ruff clean; bandit (security) clean at 0 medium/high.",
+    "metadata": {
+      "payload": {
+        "summary": "task-4-2: unit-test the per-finding tool-call cap at its boundary. Added 63 tests to orchestrator/tests/test_consensus_wrapper.py covering all four acceptance cases \u2014 cap triggers at the configured limit (>=, with an off-by-one guard); log mode records would-be hits without enforcing (on mode enforces without recording; the two are mutually exclusive); a flag typo resolves to off/inert at both the pure-decision-fn and the build_event_pump_wrapped_command spawn-command layers; and the safe default (8) is applied when the cap env is unset/non-integer/non-positive. Also pins exempt-role behaviour (tester never hit), the JSON-serializable log-mode BRC record, the off=>empty render (byte-identical legacy spawn), and reviewer-arm gating of the exported cap block. All 63 pass; ruff clean; bandit (security) clean at 0 medium/high.",
+        "attestation": {
+          "tests_run": 63,
+          "checks_passed": [
+            "test",
+            "lint",
+            "security"
+          ]
+        },
+        "artifacts": [
+          "orchestrator/tests/test_consensus_wrapper.py",
+          "3665b3239d21c6a091f9971e35d630756da15ea6"
+        ],
+        "risk_considered": "Pure unit tests over the wrapper's cap functions; the pure decision fn takes injectable role/cap/mode so boundary cases are hermetic, and env resolvers are exercised via monkeypatch. bandit (make security scope: gateway/shared/sandbox/orchestrator) reports 0 medium/high. The 6 pre-existing behavioral failures in this file are the sandbox 'git init is not supported' policy block (confirmed reproducible outside my tests), not introduced by this change. Verified default-off yields a byte-identical spawn command (no cap export), preserving the staged-flag safety contract.",
+        "commit_sha": "3665b3239d21c6a091f9971e35d630756da15ea6",
+        "files_changed": [
+          "orchestrator/tests/test_consensus_wrapper.py"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-4-2"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "3665b3239d21c6a091f9971e35d630756da15ea6",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:42.360512+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b4458982-7442-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "documenter",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:42.364687+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "812892fa-b2ab-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:42.835095+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3e2cb49b-335a-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by documenter",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:47.163199+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "82da51fc-1ba1-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:48.234014+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f7537b9f-2b1e-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:48.722213+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "81e26011-00e6-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:49.636322+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "14794de7-01ae-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:50.140842+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "275140aa-5e53-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:50.706861+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "cdad288b-5188-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:51.411735+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "17de690e-44d2-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:56.045642+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8016c666-8de7-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:56.054684+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4aa99204-f9f6-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:56.306028+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1d49026c-d885-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:57.193374+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8848ba4e-53ba-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:57.341840+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "df0193ce-085f-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-4)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:24:57.711803+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2ff547f7-1a33-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_security for tester",
+    "body": "Security lens clean, no findings. Test-only change (363 lines added to test_consensus_wrapper.py) covering the slice-4 per-finding tool-call cap. No runtime code, no new subprocess/shell surface, no secrets or risky fixtures \u2014 tests use monkeypatch on env vars only. The added tests directly pin the security-relevant fail-safe invariants I care about: off mode renders an empty block / byte-identical legacy spawn (no security-posture change), EGG_REVIEW_FINDINGS_MODE typo resolves to off (cap can never silently strangle review), non-integer/non-positive cap degrades to the positive default 8 (never 0 or negative), the export block is gated on the reviewer ack/nack arms only, and exempt roles (tester) are skipped. These assertions harden the exact fail-safe behaviors validated in the coder-side review. No injection or privilege concerns.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_consensus_wrapper.py"
+        ],
+        "reason": "Security lens clean, no findings. Test-only change (363 lines added to test_consensus_wrapper.py) covering the slice-4 per-finding tool-call cap. No runtime code, no new subprocess/shell surface, no secrets or risky fixtures \u2014 tests use monkeypatch on env vars only. The added tests directly pin the security-relevant fail-safe invariants I care about: off mode renders an empty block / byte-identical legacy spawn (no security-posture change), EGG_REVIEW_FINDINGS_MODE typo resolves to off (cap can never silently strangle review), non-integer/non-positive cap degrades to the positive default 8 (never 0 or negative), the export block is gated on the reviewer ack/nack arms only, and exempt roles (tester) are skipped. These assertions harden the exact fail-safe behaviors validated in the coder-side review. No injection or privilege concerns.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:25:11.454676+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2b517af3-6e35-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=150555 util=0.15 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:25:14.776054+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ad33f085-038a-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_security",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:25:16.072530+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ff5dcbf0-26cb-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=76323 util=0.08 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:25:16.751368+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "16e43dd8-ac33-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for tester",
+    "body": "ACK. task-4-2: unit coverage for the S4 per-finding tool-call cap in test_consensus_wrapper.py. Verified by running the suite: the 63 new cap tests all pass (.venv pytest, ruff clean). The 6 remaining failures are pre-existing and environmental \u2014 all in TestSyncToProposals/TestSyncOutcomesAndBanner, failing at `git init` under the sandbox 'git init not supported' policy; the diff only appends new cap-test classes and does not touch those sync tests, so they are not regressions introduced here. Coverage genuinely exercises task-4-2's acceptance cases and the task-4-1 contract: cap triggers AT the limit (>=) with an explicit cap-1-vs-cap off-by-one guard; log records-not-enforces and on enforces-not-records with an enforced XOR recorded invariant; a misconfigured EGG_REVIEW_FINDINGS_MODE typo degrades to off/inert at BOTH the pure-fn and spawn-command-wiring layers; the safe default 8 is applied on unset/non-integer/non-positive and when the decision fn's cap is None; the exempt tester role never hits; the log-mode BRC record is JSON-serializable with correct fields; off-mode render is \"\" (byte-identical legacy spawn); the active-mode block is gated on the ack/nack arms and skips exempt roles; and build_event_pump_wrapped_command end-to-end emits/omits the cap export per the ridden flag. Boundary cases inject role/cap/mode for hermeticity; env resolvers exercised via monkeypatch. No blocking or advisory findings from the code-review lens.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_consensus_wrapper.py"
+        ],
+        "reason": "ACK. task-4-2: unit coverage for the S4 per-finding tool-call cap in test_consensus_wrapper.py. Verified by running the suite: the 63 new cap tests all pass (.venv pytest, ruff clean). The 6 remaining failures are pre-existing and environmental \u2014 all in TestSyncToProposals/TestSyncOutcomesAndBanner, failing at `git init` under the sandbox 'git init not supported' policy; the diff only appends new cap-test classes and does not touch those sync tests, so they are not regressions introduced here. Coverage genuinely exercises task-4-2's acceptance cases and the task-4-1 contract: cap triggers AT the limit (>=) with an explicit cap-1-vs-cap off-by-one guard; log records-not-enforces and on enforces-not-records with an enforced XOR recorded invariant; a misconfigured EGG_REVIEW_FINDINGS_MODE typo degrades to off/inert at BOTH the pure-fn and spawn-command-wiring layers; the safe default 8 is applied on unset/non-integer/non-positive and when the decision fn's cap is None; the exempt tester role never hits; the log-mode BRC record is JSON-serializable with correct fields; off-mode render is \"\" (byte-identical legacy spawn); the active-mode block is gated on the ack/nack arms and skips exempt roles; and build_event_pump_wrapped_command end-to-end emits/omits the cap export per the ridden flag. Boundary cases inject role/cap/mode for hermeticity; env resolvers exercised via monkeypatch. No blocking or advisory findings from the code-review lens.",
+        "ack_version": 1,
+        "attestation": {
+          "files_reviewed": [
+            "orchestrator/tests/test_consensus_wrapper.py"
+          ],
+          "issues_found": 0,
+          "tests_run": 63,
+          "tests_passed": 63,
+          "checks": [
+            "pytest-63-new-pass",
+            "6-failures-are-preexisting-git-init-policy",
+            "ruff"
+          ]
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:25:43.490850+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "20241063-5e74-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_concurrency for tester",
+    "body": "Concurrency lens clean \u2014 no blocking finding. The S4 per-finding tool-call cap has no concurrency surface (per-process env isolation, no shared counter, pure decision fn, frozen dataclass, read-only os.environ), so no concurrency-behavioral test is owed and none is missing. Test isolation is sound: every env-touching test uses function-scoped monkeypatch.setenv/delenv which auto-restores after each test, so there is no test-ordering or parallel-run (pytest-xdist = separate processes) flakiness hazard \u2014 no shared mutable module-global is left mutated. Imported symbols all exist in the coder's implementation and the pinned semantics are correct: >= cap boundary with explicit off-by-one guard, log-records-never-enforces, enforced ^ recorded mutual exclusion, exempt tester role, and off => empty (byte-identical legacy spawn) render. Thorough boundary + mode + wiring coverage.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_consensus_wrapper.py"
+        ],
+        "reason": "Concurrency lens clean \u2014 no blocking finding. The S4 per-finding tool-call cap has no concurrency surface (per-process env isolation, no shared counter, pure decision fn, frozen dataclass, read-only os.environ), so no concurrency-behavioral test is owed and none is missing. Test isolation is sound: every env-touching test uses function-scoped monkeypatch.setenv/delenv which auto-restores after each test, so there is no test-ordering or parallel-run (pytest-xdist = separate processes) flakiness hazard \u2014 no shared mutable module-global is left mutated. Imported symbols all exist in the coder's implementation and the pinned semantics are correct: >= cap boundary with explicit off-by-one guard, log-records-never-enforces, enforced ^ recorded mutual exclusion, exempt tester role, and off => empty (byte-identical legacy spawn) render. Thorough boundary + mode + wiring coverage.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:25:44.168371+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0064b6cc-e1e5-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:25:46.728224+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "24d2856e-d274-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_concurrency",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:25:46.731566+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "64de77d6-859a-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=112561 util=0.11 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:25:49.149035+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c7293f20-4348-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=97111 util=0.10 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:25:50.788861+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "35bb15dd-2f34-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for tester",
+    "body": "task-4-2 satisfied. Ran the new suite: 63/63 tool-call-cap tests pass (PYTHONPATH=shared:orchestrator pytest -k ToolCallCap...). All four required acceptance cases present and pinning real behavior: (1) cap-boundary \u2014 >= at the configured limit with an explicit off-by-one guard (cap-1 does not trigger, cap does); (2) log-record-only \u2014 log mode sets recorded and NOT enforced, with an enforced^recorded mutual-exclusion invariant; (3) flag-typo-fails-to-off \u2014 verified at both the pure-fn layer (evaluate_finding_tool_call_cap with live mode resolution) and the spawn-command-wiring layer (build_event_pump_wrapped_command renders no cap export on typo/unset); (4) default-when-unset \u2014 review_finding_tool_call_cap falls to the documented default 8 on unset/non-int/0/negative, and the default drives the live boundary. Extra valid coverage: exempt tester role never hits, JSON-serializable log record with correct fields, off=>empty byte-identical render, ack/nack arm gating, exempt-role skip in the case guard, frozen dataclass. Assertions test actual outputs, not tautologies.\\n\\nHonesty verified: the 6 failing tests in this file (TestSyncToProposals / TestSyncOutcomesAndBanner) are pre-existing behavioral tests blocked by the sandbox 'git init is not supported in the container' policy \u2014 unrelated to the S4 change area; the tester's note accurately accounts for them. File boundary clean (only orchestrator/tests/test_consensus_wrapper.py). Consistent with my standing task-4-1 advisory: the suite correctly scopes to the testable surface (pure fns + env-export rendering) and does not claim to test runtime enforcement, which no consumer yet performs \u2014 that remains a plan-scope note, not a tester gap.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_consensus_wrapper.py"
+        ],
+        "reason": "task-4-2 satisfied. Ran the new suite: 63/63 tool-call-cap tests pass (PYTHONPATH=shared:orchestrator pytest -k ToolCallCap...). All four required acceptance cases present and pinning real behavior: (1) cap-boundary \u2014 >= at the configured limit with an explicit off-by-one guard (cap-1 does not trigger, cap does); (2) log-record-only \u2014 log mode sets recorded and NOT enforced, with an enforced^recorded mutual-exclusion invariant; (3) flag-typo-fails-to-off \u2014 verified at both the pure-fn layer (evaluate_finding_tool_call_cap with live mode resolution) and the spawn-command-wiring layer (build_event_pump_wrapped_command renders no cap export on typo/unset); (4) default-when-unset \u2014 review_finding_tool_call_cap falls to the documented default 8 on unset/non-int/0/negative, and the default drives the live boundary. Extra valid coverage: exempt tester role never hits, JSON-serializable log record with correct fields, off=>empty byte-identical render, ack/nack arm gating, exempt-role skip in the case guard, frozen dataclass. Assertions test actual outputs, not tautologies.\\n\\nHonesty verified: the 6 failing tests in this file (TestSyncToProposals / TestSyncOutcomesAndBanner) are pre-existing behavioral tests blocked by the sandbox 'git init is not supported in the container' policy \u2014 unrelated to the S4 change area; the tester's note accurately accounts for them. File boundary clean (only orchestrator/tests/test_consensus_wrapper.py). Consistent with my standing task-4-1 advisory: the suite correctly scopes to the testable surface (pure fns + env-export rendering) and does not claim to test runtime enforcement, which no consumer yet performs \u2014 that remains a plan-scope note, not a tester gap.",
+        "ack_version": 1,
+        "attestation": {
+          "tasks_verified": [
+            "task-4-2"
+          ]
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:25:55.067196+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "64dfe484-6565-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_contract",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:25:59.267664+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d43dcbfd-afab-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code_holistic for tester",
+    "body": "Holistic review of tester proposal 3665b3239 (task-4-2: per-finding tool-call cap tests). Verified empirically: the 63 new cap tests all pass (pytest -k ToolCallCap => 63 passed, 0 failed). The only failures in the file are 6 pre-existing TestSyncToProposals/TestSyncOutcomesAndBanner cases that die at `git init` under the sandbox git-init policy block \u2014 unrelated to this change and confirmed present independent of the cap tests. Coverage is thorough and correctly maps to task-4-2's acceptance: the cap triggers exactly at the limit (>=) with an explicit off-by-one guard (cap-1 does not trigger, cap does); log mode records without enforcing and on mode enforces without recording, with enforced/recorded proven mutually exclusive; an EGG_REVIEW_FINDINGS_MODE typo resolves to off and the cap is inert at both the pure-fn and spawn-command wiring layers; the safe default 8 is applied when the env is unset/non-integer/non-positive; exempt roles (tester, and a None role) are covered; the log-mode BRC record is asserted JSON-serializable with correct fields; and the render/build_event_pump wiring is pinned (off => empty/byte-identical, active mode exports cap+mode gated on the reviewer ack/nack arms and skipping exempt roles). One consistency note, not a defect: the tests assert the cap is EXPORTED into the spawn command, never that it is ENFORCED at runtime \u2014 which corroborates my standing coder-edge pre-merge obligation (the exported env vars have no consumer) rather than contradicting it; the tester correctly tested the code that exists. No blocking or advisory findings. ACK.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_consensus_wrapper.py"
+        ],
+        "reason": "Holistic review of tester proposal 3665b3239 (task-4-2: per-finding tool-call cap tests). Verified empirically: the 63 new cap tests all pass (pytest -k ToolCallCap => 63 passed, 0 failed). The only failures in the file are 6 pre-existing TestSyncToProposals/TestSyncOutcomesAndBanner cases that die at `git init` under the sandbox git-init policy block \u2014 unrelated to this change and confirmed present independent of the cap tests. Coverage is thorough and correctly maps to task-4-2's acceptance: the cap triggers exactly at the limit (>=) with an explicit off-by-one guard (cap-1 does not trigger, cap does); log mode records without enforcing and on mode enforces without recording, with enforced/recorded proven mutually exclusive; an EGG_REVIEW_FINDINGS_MODE typo resolves to off and the cap is inert at both the pure-fn and spawn-command wiring layers; the safe default 8 is applied when the env is unset/non-integer/non-positive; exempt roles (tester, and a None role) are covered; the log-mode BRC record is asserted JSON-serializable with correct fields; and the render/build_event_pump wiring is pinned (off => empty/byte-identical, active mode exports cap+mode gated on the reviewer ack/nack arms and skipping exempt roles). One consistency note, not a defect: the tests assert the cap is EXPORTED into the spawn command, never that it is ENFORCED at runtime \u2014 which corroborates my standing coder-edge pre-merge obligation (the exported env vars have no consumer) rather than contradicting it; the tester correctly tested the code that exists. No blocking or advisory findings. ACK.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:12.879325+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a680f2d1-a124-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=112625 util=0.11 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:14.114186+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "989d6ffe-5b50-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code_holistic",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:16.245247+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "adf4c56a-8029-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=119106 util=0.12 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:23.831388+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3ad3d35c-e56a-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from tester for coder",
+    "body": "Execution-based tester verdict: merged worktree builds and my task-4-2 boundary tests pass (63 passed in test_consensus_wrapper.py) covering cap-triggers-at-limit (>=), log-mode-records-without-enforcing, flag-typo-resolves-to-off, and default-applied-when-unset. `ruff check` clean on consensus_wrapper.py + test file. No new type errors (the 2 mypy hits are pre-existing: line 44 sibling import already used under TYPE_CHECKING at line 48 and resolves at runtime; line 931 `return anchor.path` is from slice-3 commit 846699f700, untouched here). The 6 suite failures are environmental only \u2014 `git init` is disabled in this container (\"Repositories must be configured on the host\"), hitting pre-existing sync/banner behavioral tests, not the cap change. Diff satisfies #3523 item-2: wrapper-owned cap riding EGG_REVIEW_FINDINGS_MODE (off => byte-identical spawn command, log => record would-be hits, on => enforce), safe default 8 with non-positive/non-int => default, tester exemption documented in-code, propose arm correctly out of scope.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/consensus_wrapper.py",
+          "orchestrator/tests/test_consensus_wrapper.py"
+        ],
+        "reason": "Execution-based tester verdict: merged worktree builds and my task-4-2 boundary tests pass (63 passed in test_consensus_wrapper.py) covering cap-triggers-at-limit (>=), log-mode-records-without-enforcing, flag-typo-resolves-to-off, and default-applied-when-unset. `ruff check` clean on consensus_wrapper.py + test file. No new type errors (the 2 mypy hits are pre-existing: line 44 sibling import already used under TYPE_CHECKING at line 48 and resolves at runtime; line 931 `return anchor.path` is from slice-3 commit 846699f700, untouched here). The 6 suite failures are environmental only \u2014 `git init` is disabled in this container (\"Repositories must be configured on the host\"), hitting pre-existing sync/banner behavioral tests, not the cap change. Diff satisfies #3523 item-2: wrapper-owned cap riding EGG_REVIEW_FINDINGS_MODE (off => byte-identical spawn command, log => record would-be hits, on => enforce), safe default 8 with non-positive/non-int => default, tester exemption documented in-code, propose arm correctly out of scope.",
+        "ack_version": 1,
+        "attestation": {
+          "tests_run": 63,
+          "checks_passed": [
+            "test_consensus_wrapper.py::cap-boundary",
+            "ruff"
+          ],
+          "tests_execution_blocked": false,
+          "role": "tester"
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:32.162097+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5e81d925-d8fb-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "tester",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:32.164252+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f8a235a4-ba18-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "coder",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:32.164743+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "743f0be1-7e95-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by coder",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:36.574179+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ff74fbf1-ff24-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by tester",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:36.576444+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3a4732b3-4dc3-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by documenter",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:36.577559+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "114218c6-10de-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:36.578211+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b22c275c-01c1-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code_holistic",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:36.579189+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9b585891-9bf0-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_contract",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:36.580001+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9c5dd243-cf7a-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_security",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:36.580780+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "be00e8a5-577f-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_concurrency",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-4"
+    },
+    "timestamp": "2026-07-07T05:26:36.581872+00:00",
+    "phase": "implement"
+  }
+]

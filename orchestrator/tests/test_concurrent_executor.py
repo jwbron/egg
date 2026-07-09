@@ -1960,3 +1960,387 @@ class TestUnresolvedContractDecisionProbe:
 
             executor._start_event_loop([AgentRole.CODER], tracker=MagicMock())
         assert captured.get("hitl_probe") == executor._unresolved_contract_decision_ids
+
+
+class TestEventSpawnReleaseContext:
+    """#3537: the park-release delta rides the probe spawn as
+    ``EGG_EVENT_RELEASE_CONTEXT`` so the pod-side composer can tell the
+    respawned (possibly warm-resumed) agent WHAT changed while it was parked.
+    """
+
+    def _event_spawner(self, pipeline, mock_spawn):
+        from concurrent_executor import ConcurrentPhaseExecutor, _ExecutorEventSpawner
+        from egg_orchestrator.types import AgentRole
+
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=mock_spawn)
+        return _ExecutorEventSpawner(
+            executor=executor,
+            roles=[AgentRole.CODER, AgentRole.REVIEWER_CODE],
+            slice_id=None,
+        )
+
+    def test_no_release_context_env_by_default(self):
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+
+        spawner.spawn_event(role="coder", action="propose", dedupe_key="k1")
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        assert "EGG_EVENT_RELEASE_CONTEXT" not in env
+
+    def test_release_context_env_injected_with_enrichment(self):
+        import json as _json
+
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+        details = [
+            {
+                "id": "cq-3",
+                "question": "Q?",
+                "resolved": True,
+                "resolution": "Answered.",
+                "resolved_by": "human",
+            }
+        ]
+        with patch.object(spawner._ex, "_contract_decision_details", return_value=details):
+            spawner.spawn_event(
+                role="coder",
+                action="propose",
+                dedupe_key="k1",
+                release_context={
+                    "resolved_decision_ids": ["cq-3"],
+                    "newly_gating_decision_ids": [],
+                },
+            )
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        decoded = _json.loads(env["EGG_EVENT_RELEASE_CONTEXT"])
+        assert decoded["resolved_decision_ids"] == ["cq-3"]
+        assert decoded["resolved_decisions"] == details
+
+    def test_release_context_enrichment_failure_ships_bare_ids(self):
+        import json as _json
+
+        pipeline = _make_pipeline()
+        mock_spawn = MagicMock(return_value=_kubernetes_spawn_result())
+        spawner = self._event_spawner(pipeline, mock_spawn)
+        with patch.object(spawner._ex, "_contract_decision_details", return_value=[]):
+            spawner.spawn_event(
+                role="coder",
+                action="propose",
+                dedupe_key="k1",
+                release_context={"resolved_decision_ids": ["cq-3"], "brc_moved": True},
+            )
+
+        env = mock_spawn.call_args.kwargs["extra_env"]
+        decoded = _json.loads(env["EGG_EVENT_RELEASE_CONTEXT"])
+        assert decoded == {"resolved_decision_ids": ["cq-3"], "brc_moved": True}
+
+
+class TestReleaseContextEnvJson:
+    """The env serializer keeps the delta under its byte budget."""
+
+    def test_small_payload_passes_through(self):
+        import json as _json
+
+        from concurrent_executor import _release_context_env_json
+
+        payload = {"resolved_decision_ids": ["cq-3"], "brc_moved": True}
+        assert _json.loads(_release_context_env_json(dict(payload))) == payload
+
+    def test_long_resolution_text_is_shrunk_under_budget(self):
+        import json as _json
+
+        from concurrent_executor import (
+            _RELEASE_CONTEXT_ENV_MAX_BYTES,
+            _release_context_env_json,
+        )
+
+        payload = {
+            "resolved_decision_ids": ["cq-3"],
+            "resolved_decisions": [
+                {
+                    "id": "cq-3",
+                    "question": "Q" * 10_000,
+                    "resolution": "R" * 10_000,
+                    "resolved_by": "human",
+                }
+            ],
+        }
+        raw = _release_context_env_json(payload)
+        assert len(raw.encode("utf-8")) <= _RELEASE_CONTEXT_ENV_MAX_BYTES
+        decoded = _json.loads(raw)
+        # The ids always survive; the text is truncated, not dropped.
+        assert decoded["resolved_decision_ids"] == ["cq-3"]
+        assert decoded["resolved_decisions"][0]["resolution"].endswith("…[truncated]")
+
+    def test_pathological_payload_drops_details_keeps_ids(self):
+        import json as _json
+
+        from concurrent_executor import (
+            _RELEASE_CONTEXT_ENV_MAX_BYTES,
+            _release_context_env_json,
+        )
+
+        payload = {
+            "resolved_decision_ids": [f"cq-{n}" for n in range(30)],
+            "resolved_decisions": [
+                {
+                    "id": f"cq-{n}",
+                    "question": "Q" * 500,
+                    "resolution": "R" * 500,
+                    "resolved_by": "human",
+                }
+                for n in range(30)
+            ],
+        }
+        raw = _release_context_env_json(payload)
+        assert len(raw.encode("utf-8")) <= _RELEASE_CONTEXT_ENV_MAX_BYTES
+        decoded = _json.loads(raw)
+        assert "resolved_decisions" not in decoded
+        assert len(decoded["resolved_decision_ids"]) == 30
+
+
+class TestRoleWaitingStatusProbe:
+    """#3520: the JobSupervisor ``waiting_probe`` the executor wires in.
+
+    Decides the no-op park alert's severity: a parked role whose latest
+    HEARTBEAT self-reports WAITING_ON_ROLE on a live upstream role is normal
+    BRC choreography and must not fire at [high]. ``None`` (no self-report /
+    unknown) keeps the wedge-shaped high-priority alert, so failure semantics
+    can only make the alert more alarming, never quieter.
+    """
+
+    def _executor(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        return ConcurrentPhaseExecutor(_make_pipeline(), spawn_fn=MagicMock())
+
+    def _probe_with(self, executor, messages):
+        mock_store = MagicMock()
+        mock_store.get_messages.return_value = messages
+        with patch("concurrent_executor.get_message_store", return_value=mock_store):
+            return executor._role_waiting_status("simplifier")
+
+    @staticmethod
+    def _heartbeat(role, state, phase, *, waiting_on=None, age_seconds=0):
+        from datetime import UTC, datetime, timedelta
+
+        from message_store import Message, MessageType
+
+        metadata = {"state": state}
+        if waiting_on:
+            metadata["waiting_on"] = waiting_on
+        return Message(
+            pipeline_id="issue-999",
+            from_role=role,
+            to_role="all",
+            message_type=MessageType.HEARTBEAT,
+            subject=f"heartbeat: {state}",
+            metadata=metadata,
+            timestamp=datetime.now(UTC) - timedelta(seconds=age_seconds),
+            phase=phase,
+        )
+
+    def test_waiting_on_live_role(self):
+        """WAITING_ON_ROLE + recent bus traffic from the waited-on role.
+
+        The self-report itself is OLD (server-side dedup suppresses repeats
+        of an unchanged state, so the newest WAITING_ON_ROLE entry can long
+        predate the park) — only the waited-on role's liveness is
+        recency-gated.
+        """
+        executor = self._executor()
+        phase = executor.pipeline.current_phase.value
+        messages = [
+            self._heartbeat(
+                "simplifier", "WAITING_ON_ROLE", phase, waiting_on="refiner", age_seconds=3600
+            ),
+            self._heartbeat("refiner", "WORKING", phase, age_seconds=30),
+        ]
+        assert self._probe_with(executor, messages) == ("refiner", True)
+
+    def test_waited_on_role_not_live(self):
+        """No recent bus activity from the waited-on role → live=False."""
+        executor = self._executor()
+        phase = executor.pipeline.current_phase.value
+        messages = [
+            self._heartbeat("refiner", "WORKING", phase, age_seconds=7200),
+            self._heartbeat(
+                "simplifier", "WAITING_ON_ROLE", phase, waiting_on="refiner", age_seconds=3600
+            ),
+        ]
+        assert self._probe_with(executor, messages) == ("refiner", False)
+
+    def test_comma_separated_waiting_on_requires_all_live(self):
+        executor = self._executor()
+        phase = executor.pipeline.current_phase.value
+        messages = [
+            self._heartbeat("simplifier", "WAITING_ON_ROLE", phase, waiting_on="refiner, planner"),
+            self._heartbeat("refiner", "WORKING", phase, age_seconds=30),
+            self._heartbeat("planner", "WORKING", phase, age_seconds=7200),  # dead
+        ]
+        assert self._probe_with(executor, messages) == ("refiner, planner", False)
+
+    def _executor_in_phase(self, phase):
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        config = PipelineConfig()
+        config.__dict__["concurrent_execution"] = True
+        pipeline = Pipeline(
+            id="issue-999",
+            repo="test/repo",
+            issue_number=999,
+            status=PipelineStatus.RUNNING,
+            current_phase=phase,
+            config=config,
+        )
+        return ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+    def test_live_window_is_phase_aware(self):
+        """#3520: the liveness window mirrors the health monitor's phase-aware
+        heartbeat timeout — 600s in implement, 120s in refine/plan — rather
+        than a flat 600s, so the low-priority park notice never calls a
+        producer "live" that the monitor would already have flagged stale.
+
+        A waited-on producer whose newest bus message is 300s old sits INSIDE
+        the 600s implement window (→ live, low-priority notice) but OUTSIDE the
+        120s refine window (→ not live, high-priority wedge). A flat 600s
+        constant would wrongly report ``live`` in refine — the very phase this
+        alert most affects.
+        """
+
+        def _messages(phase_value):
+            return [
+                self._heartbeat(
+                    "simplifier",
+                    "WAITING_ON_ROLE",
+                    phase_value,
+                    waiting_on="refiner",
+                    age_seconds=3600,
+                ),
+                self._heartbeat("refiner", "WORKING", phase_value, age_seconds=300),
+            ]
+
+        implement = self._executor_in_phase(PipelinePhase.IMPLEMENT)
+        assert self._probe_with(implement, _messages("implement")) == ("refiner", True)
+
+        refine = self._executor_in_phase(PipelinePhase.REFINE)
+        assert self._probe_with(refine, _messages("refine")) == ("refiner", False)
+
+    def test_waited_on_liveness_is_phase_filtered(self):
+        """#3520 (review note #4): liveness counts only current-phase traffic.
+
+        A waited-on producer whose sole in-window message landed in the PRIOR
+        phase must not read as "live" — otherwise, right after a phase
+        boundary, a role that went quiet in the new phase would be mistaken
+        for a working upstream and downgrade the alert.
+        """
+        executor = self._executor()  # implement phase
+        messages = [
+            self._heartbeat(
+                "simplifier", "WAITING_ON_ROLE", "implement", waiting_on="refiner", age_seconds=60
+            ),
+            # refiner's only recent message is from the prior (plan) phase.
+            self._heartbeat("refiner", "WORKING", "plan", age_seconds=30),
+        ]
+        assert self._probe_with(executor, messages) == ("refiner", False)
+
+    def test_latest_heartbeat_wins_over_older_waiting_report(self):
+        """A role that moved on from WAITING_ON_ROLE (state changes always
+        land on the bus — only consecutive identical states dedup) reports
+        its CURRENT state, so an older waiting entry must not match."""
+        executor = self._executor()
+        phase = executor.pipeline.current_phase.value
+        messages = [
+            self._heartbeat(
+                "simplifier", "WAITING_ON_ROLE", phase, waiting_on="refiner", age_seconds=600
+            ),
+            self._heartbeat("simplifier", "WORKING", phase, age_seconds=60),
+        ]
+        assert self._probe_with(executor, messages) is None
+
+    def test_stale_waiting_report_superseded_by_tip_heartbeat(self):
+        """#3520 (re-review note): the broad latest-heartbeat read is
+        HEAD-anchored, so on a >30k-entry single-phase stream it can stop
+        before the tip and resolve ``latest`` to a WAITING_ON_ROLE the role
+        has since moved off of. The tip-anchored liveness read (``since``)
+        does see the tip; when the parked role's own latest in-window
+        heartbeat is not WAITING_ON_ROLE the self-report is stale, so the
+        probe returns ``None`` (→ high alert), never a false low-priority
+        "healthy wait" notice for a genuine wedge.
+
+        The two reads are mocked separately: the broad read returns only the
+        aged WAITING_ON_ROLE (tip missed), the ``since`` read returns the
+        role's superseding WORKING beat at the tip.
+        """
+        executor = self._executor()
+        phase = executor.pipeline.current_phase.value
+        broad = [
+            self._heartbeat(
+                "simplifier", "WAITING_ON_ROLE", phase, waiting_on="refiner", age_seconds=3600
+            ),
+        ]
+        tip = [
+            # simplifier's genuine current state at the tip — its arm is
+            # wedged, but it is no longer self-reporting WAITING_ON_ROLE.
+            self._heartbeat("simplifier", "WORKING", phase, age_seconds=10),
+            self._heartbeat("refiner", "WORKING", phase, age_seconds=10),
+        ]
+        mock_store = MagicMock()
+        # First call: broad HEAD-anchored latest-heartbeat read (no ``since``).
+        # Second call: tip-anchored liveness read (``since=cutoff``).
+        mock_store.get_messages.side_effect = [broad, tip]
+        with patch("concurrent_executor.get_message_store", return_value=mock_store):
+            assert executor._role_waiting_status("simplifier") is None
+
+    def test_previous_phase_heartbeat_is_ignored(self):
+        """The pipeline stream persists across phases; a refine-phase
+        WAITING_ON_ROLE report is not evidence about the current phase."""
+        executor = self._executor()
+        messages = [
+            self._heartbeat(
+                "simplifier", "WAITING_ON_ROLE", "refine", waiting_on="refiner", age_seconds=60
+            ),
+        ]
+        assert self._probe_with(executor, messages) is None
+
+    def test_no_heartbeats_is_none(self):
+        executor = self._executor()
+        assert self._probe_with(executor, []) is None
+
+    def test_missing_waiting_on_metadata_is_none(self):
+        executor = self._executor()
+        phase = executor.pipeline.current_phase.value
+        messages = [self._heartbeat("simplifier", "WAITING_ON_ROLE", phase)]
+        assert self._probe_with(executor, messages) is None
+
+    def test_read_failure_is_none(self):
+        executor = self._executor()
+        mock_store = MagicMock()
+        mock_store.get_messages.side_effect = OSError("bus down")
+        with patch("concurrent_executor.get_message_store", return_value=mock_store):
+            assert executor._role_waiting_status("simplifier") is None
+
+    def test_wired_as_the_supervisor_waiting_probe(self):
+        """_start_event_loop hands the probe to the JobSupervisor (#3520)."""
+        import event_loop as event_loop_mod
+
+        executor = self._executor()
+        captured: dict = {}
+        real_supervisor = event_loop_mod.JobSupervisor
+
+        def _capturing_supervisor(**kwargs):
+            captured.update(kwargs)
+            return real_supervisor(**kwargs)
+
+        with (
+            patch.object(event_loop_mod, "JobSupervisor", _capturing_supervisor),
+            patch.object(event_loop_mod.OrchestratorEventLoop, "start", lambda self: None),
+        ):
+            from egg_orchestrator.types import AgentRole
+
+            executor._start_event_loop([AgentRole.CODER], tracker=MagicMock())
+        assert captured.get("waiting_probe") == executor._role_waiting_status

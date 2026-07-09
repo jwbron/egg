@@ -607,6 +607,164 @@ def _maybe_dispatch_arms_exhausted_resolution(
     }
 
 
+def _maybe_dispatch_arms_parked_resolution(
+    pipeline_id: str,
+    decision: Any,
+    resolution_label: str | None,
+) -> dict[str, Any] | None:
+    """Execute an arms-parked HITL resolution (#3548).
+
+    The no-op-park twin of :func:`_maybe_dispatch_arms_exhausted_resolution`:
+
+    - **Retry arms (release no-op parks)** → clear the no-op-parked keys on
+      every live event loop registered for this pipeline so the blocked
+      arms respawn immediately instead of waiting out the park retry
+      heartbeat. Reports the cleared keys per slice; fails informatively
+      when no live loop exists.
+    - **Restart phase** → tear down and re-run the decision's phase
+      (shared ``_execute_restart_phase`` executor).
+    - **Abort (manual — recorded only)** → recorded only; points at
+      ``cancel_task``.
+    """
+    from concurrent_executor import (
+        ARMS_EXHAUSTED_ABORT_OPTION,
+        ARMS_EXHAUSTED_RESTART_OPTION,
+        ARMS_PARKED_HITL_CONTEXT,
+        ARMS_PARKED_RETRY_OPTION,
+    )
+
+    if getattr(decision, "context", "") != ARMS_PARKED_HITL_CONTEXT:
+        return None
+
+    label = (resolution_label or "").strip()
+
+    if label == ARMS_EXHAUSTED_ABORT_OPTION:
+        return {
+            "action": "arms_parked_abort",
+            "success": True,
+            "note": (
+                "Recorded only — aborting is not automated from this "
+                "decision. Use cancel_task to stop the pipeline, or resolve "
+                "again with 'Restart phase' to re-run it."
+            ),
+        }
+
+    if label == ARMS_EXHAUSTED_RESTART_OPTION:
+        return _execute_restart_phase(
+            pipeline_id, decision, log_label="Arms-parked 'Restart phase'"
+        )
+
+    if label != ARMS_PARKED_RETRY_OPTION:
+        return None
+
+    from event_loop import get_live_event_loops
+
+    loops = get_live_event_loops(pipeline_id)
+    if not loops:
+        logger.warning(
+            "Arms-parked 'Retry arms' resolution found no live event loop",
+            pipeline_id=pipeline_id,
+            decision_id=getattr(decision, "id", "?"),
+        )
+        return {
+            "action": "reset_parked_arms",
+            "success": False,
+            "error": (
+                "no live event loop for this pipeline — the orchestrator "
+                "likely restarted since the decision was raised (supervision "
+                "state is per-process and resets on restart). If the "
+                "pipeline is still stalled, resolve with 'Restart phase'."
+            ),
+        }
+
+    cleared_by_slice: dict[str, list[str]] = {}
+    for loop in loops:
+        cleared = loop.reset_parked_arms()
+        if cleared:
+            cleared_by_slice[loop.slice_id or "pipeline"] = cleared
+    total = sum(len(keys) for keys in cleared_by_slice.values())
+    logger.info(
+        "Arms-parked 'Retry arms' resolution released no-op parks",
+        pipeline_id=pipeline_id,
+        decision_id=getattr(decision, "id", "?"),
+        cleared=total,
+        slices=sorted(cleared_by_slice),
+    )
+    return {
+        "action": "reset_parked_arms",
+        "success": True,
+        "cleared_total": total,
+        "cleared_by_slice": cleared_by_slice,
+        "note": (
+            "No-op parks were released; the blocked arms respawn on the "
+            "next event-loop poll. If the agents keep no-oping the arms "
+            "will re-park and this decision will re-fire."
+            if total
+            else "No parked keys were held by the live event loop(s); nothing to clear."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Driver-liveness HITL executable resolutions (#3540)
+# ---------------------------------------------------------------------------
+#
+# The kubernetes-monitor sweep escalates a dead/hung/no-progress
+# ``_run_pipeline`` driver as a persisted HITL decision (see
+# ``KubernetesMonitor._handle_driver_liveness_results``). Dispatch keys on
+# the decision's ``driver_liveness_stall`` context (imported lazily from
+# ``health_checks.tier1.driver_liveness``, its single source). "Retry phase"
+# reuses the shared restart-phase executor; the wedged/dead driver cannot
+# consume the resolution itself, so without this dispatch the resolution
+# would be the silent no-op this decision exists to prevent (#3421 class).
+
+
+def _maybe_dispatch_driver_liveness_resolution(
+    pipeline_id: str,
+    decision: Any,
+    resolution_label: str | None,
+) -> dict[str, Any] | None:
+    """Execute a driver-liveness HITL resolution (#3540).
+
+    - **Retry phase** → tear down and re-run the decision's phase
+      in-process (shared ``_execute_restart_phase`` executor). This also
+      replaces the wedged/dead driver thread: ``restart_phase`` bumps
+      ``run_epoch`` and spawns a fresh ``_run_pipeline`` driver.
+    - **Dismiss (recorded only)** → not automated; the alert re-fires on
+      the monitor's re-alert cadence if the stall persists.
+
+    Returns the executed-action payload, or ``None`` when the decision is
+    not a driver-liveness HITL (or the resolution is a free-form reply).
+    """
+    from health_checks.tier1.driver_liveness import (
+        DRIVER_LIVENESS_DISMISS_OPTION,
+        DRIVER_LIVENESS_HITL_CONTEXT,
+        DRIVER_LIVENESS_RETRY_OPTION,
+    )
+
+    if getattr(decision, "context", "") != DRIVER_LIVENESS_HITL_CONTEXT:
+        return None
+
+    label = (resolution_label or "").strip()
+
+    if label == DRIVER_LIVENESS_DISMISS_OPTION:
+        return {
+            "action": "driver_liveness_dismiss",
+            "success": True,
+            "note": (
+                "Recorded only; no automated action. The driver-liveness "
+                "alert re-fires if the stall persists; use cancel_task to "
+                "stop the pipeline, or resolve a future alert with "
+                "'Retry phase' to re-run the phase."
+            ),
+        }
+
+    if label != DRIVER_LIVENESS_RETRY_OPTION:
+        return None
+
+    return _execute_restart_phase(pipeline_id, decision, log_label="Driver-liveness 'Retry phase'")
+
+
 # ---------------------------------------------------------------------------
 # Executable adds_task option (#3428)
 # ---------------------------------------------------------------------------

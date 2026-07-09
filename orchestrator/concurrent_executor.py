@@ -7,11 +7,12 @@ consensus-based phase completion.
 
 from __future__ import annotations
 
+import json
 import sys
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -94,6 +95,13 @@ ARMS_EXHAUSTED_RESTART_OPTION = "Restart phase"
 # "Abort phase" implied an action the resolution does not take (#3496 review).
 ARMS_EXHAUSTED_ABORT_OPTION = "Abort (manual — recorded only)"
 
+# #3548: all-arms-parked HITL escalation — the no-op-park sibling of the
+# #3496 exhausted wedge. Same single-sourcing pattern; the restart/abort
+# option labels are shared with the exhausted decision so operators see one
+# vocabulary.
+ARMS_PARKED_HITL_CONTEXT = "event_arms_parked"
+ARMS_PARKED_RETRY_OPTION = "Retry arms (release no-op parks)"
+
 # Warm-resume session-store substrate (#3278). The agent's Claude session store
 # lives at ``$CLAUDE_CONFIG_DIR`` (default ``~/.claude`` = ``/home/egg/.claude``);
 # we pin it explicitly so the wrapper's pull/push and the agent agree on the path
@@ -132,6 +140,38 @@ def _is_transient_agent_error(error: str | None) -> bool:
         return False
     lowered = error.lower()
     return any(frag in lowered for frag in _TRANSIENT_AGENT_ERROR_SUBSTRINGS)
+
+
+# #3537: byte budget for the ``EGG_EVENT_RELEASE_CONTEXT`` env value. The
+# composer's whole prompt envelope is 10 KiB (``PROMPT_ENVELOPE_MAX_BYTES``),
+# so the release delta must stay a small fraction of it; resolution text is
+# shrunk progressively and, as a last resort, dropped in favour of the bare
+# decision ids (which alone still break the "retry the failing call" livelock).
+_RELEASE_CONTEXT_ENV_MAX_BYTES = 3072
+
+
+def _release_context_env_json(payload: dict[str, Any]) -> str:
+    """Serialize the park-release delta for the pod env, size-capped (#3537).
+
+    Mutates ``payload`` in place while shrinking (the caller builds it
+    per-spawn). Shrinks the free-text fields (``resolution`` / ``question``)
+    in steps; if the JSON still exceeds the budget, drops the enriched
+    ``resolved_decisions`` list entirely - the id lists always survive.
+    """
+    raw = json.dumps(payload, ensure_ascii=False)
+    if len(raw.encode("utf-8")) <= _RELEASE_CONTEXT_ENV_MAX_BYTES:
+        return raw
+    for cap in (800, 300, 100):
+        for detail in payload.get("resolved_decisions") or []:
+            for field in ("resolution", "question"):
+                value = detail.get(field)
+                if isinstance(value, str) and len(value) > cap:
+                    detail[field] = value[:cap] + "…[truncated]"
+        raw = json.dumps(payload, ensure_ascii=False)
+        if len(raw.encode("utf-8")) <= _RELEASE_CONTEXT_ENV_MAX_BYTES:
+            return raw
+    payload.pop("resolved_decisions", None)
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def _event_payload_refs(payload: dict[str, Any] | None) -> str | None:
@@ -183,6 +223,7 @@ class _ExecutorEventSpawner:
         action: str,
         dedupe_key: str,
         payload: dict[str, Any] | None = None,
+        release_context: dict[str, Any] | None = None,
     ) -> Any:
         agent_role = self._agent_role(role)
         branch = self._ex.get_worktree_branch(agent_role, slice_id=self._slice_id)
@@ -215,6 +256,24 @@ class _ExecutorEventSpawner:
         if session_resume_enabled():
             env["CLAUDE_CONFIG_DIR"] = _POD_CLAUDE_CONFIG_DIR
             env["EGG_SESSION_STATE_FILE"] = _POD_SESSION_STATE_FILE
+        # #3537: this spawn is the probe granted by a no-op-park release - the
+        # world changed while the arm was parked (an operator resolved a
+        # gating ``cq-N``, or the cohort's BRC state moved). Enrich the
+        # resolved decision ids with their resolution text from the live
+        # contract and export the delta so the pod-side prompt composer
+        # (``routes/event_prompt/_cli.py``) can surface WHAT changed: without
+        # it the released pod's prompt is byte-identical to the one that
+        # parked, and a warm-resumed session replays its cached "still
+        # blocked" plan forever. Best-effort: enrichment failure degrades to
+        # the bare id lists, which still break the livelock.
+        if release_context:
+            env_payload: dict[str, Any] = dict(release_context)
+            resolved_ids = release_context.get("resolved_decision_ids") or []
+            if resolved_ids:
+                details = self._ex._contract_decision_details(resolved_ids)
+                if details:
+                    env_payload["resolved_decisions"] = details
+            env["EGG_EVENT_RELEASE_CONTEXT"] = _release_context_env_json(env_payload)
         return self._ex.spawn_fn(
             role=agent_role,
             branch=branch,
@@ -295,6 +354,12 @@ class ConcurrentPhaseExecutor:
         # #3064 slice-2: set when orchestrator-ownership mode starts the
         # event loop in ``spawn_all``; ``None`` in pod mode.
         self._event_loop: Any | None = None
+        # #3547: the run loop calls ``check_consensus`` every ~5s, so the
+        # "consensus incomplete" observations repeat verbatim for minutes at
+        # a time and define the INFO noise floor for the whole service. This
+        # holds the last-logged incomplete state; the lines log at INFO only
+        # when it changes and at DEBUG otherwise.
+        self._last_incomplete_consensus_log: tuple[Any, ...] | None = None
 
     def _get_review_graph(self) -> ReviewGraph:
         """Get the review graph, using the override if provided."""
@@ -540,6 +605,11 @@ class ConcurrentPhaseExecutor:
             # parked while racing its upstream producer). ``getattr`` keeps
             # test doubles without the method on the heartbeat-only path.
             brc_probe=getattr(tracker, "consensus_state_fingerprint", None),
+            # #3520: at the park transition the parked role's latest
+            # WAITING_ON_ROLE heartbeat decides the alert's severity —
+            # waiting on a live upstream producer is choreography, not a
+            # wedge, so it must not fire at [high].
+            waiting_probe=self._role_waiting_status,
         )
 
         # #3064 slice-5: convergence-stall notifier re-uses the same
@@ -558,6 +628,8 @@ class ConcurrentPhaseExecutor:
             active_roles_notifier=self._publish_active_roles,
             arms_exhausted_notifier=self._handle_arms_exhausted,
             arms_exhausted_cleared_notifier=self._withdraw_arms_exhausted_hitl,
+            arms_parked_notifier=self._handle_arms_parked,
+            arms_parked_cleared_notifier=self._withdraw_arms_parked_hitl,
         )
         self._event_loop = loop
         loop.start()
@@ -1073,6 +1145,202 @@ class ConcurrentPhaseExecutor:
             )
             return None
 
+    def _contract_decision_details(self, decision_ids: list[str]) -> list[dict[str, Any]]:
+        """Best-effort resolution details for park-released decisions (#3537).
+
+        Called on the release-probe spawn path for the decision ids the
+        supervisor recorded as having left the unresolved set while the arm
+        was parked. Read path mirrors ``_unresolved_contract_decision_ids``
+        (the live contract in the shared pipeline worktree - the same file
+        the resolve route writes). Returns ``[]`` on any failure or when no
+        listed id is found (e.g. the decision was removed rather than
+        resolved): the caller then ships the bare id list, which alone still
+        tells the respawned agent the blocker set changed.
+        """
+        try:
+            import contract_store
+            from egg_contracts import ContractNotFoundError, load_contract
+            from routes.pipelines import _pipeline_identifier
+
+            worktree = contract_store.resolve_pipeline_worktree(self.pipeline.id)
+            if worktree is None:
+                return []
+            identifier = _pipeline_identifier(self.pipeline.issue_number, self.pipeline.id)
+            try:
+                contract = load_contract(identifier, worktree)
+            except ContractNotFoundError:
+                return []
+            wanted = set(decision_ids)
+            return [
+                {
+                    "id": d.id,
+                    "question": d.question,
+                    "resolved": bool(d.resolved),
+                    "resolution": d.resolution,
+                    "resolved_by": d.resolved_by,
+                }
+                for d in contract.decisions
+                if d.id in wanted
+            ]
+        except Exception:  # noqa: BLE001 - enrichment is best-effort
+            logger.warning(
+                "Failed to enrich park-release decision details",
+                pipeline_id=self.pipeline.id,
+                decision_ids=decision_ids,
+                exc_info=True,
+            )
+            return []
+
+    def _role_waiting_status(self, role: str) -> tuple[str, bool] | None:
+        """Return ``role``'s latest WAITING_ON_ROLE self-report status (#3520).
+
+        Wired as the :class:`JobSupervisor`'s ``waiting_probe``, consulted
+        once at the no-op park transition to pick the park alert's severity.
+        Reads the message bus for ``role``'s most recent HEARTBEAT in the
+        current phase; when that heartbeat self-reports
+        ``state=WAITING_ON_ROLE`` this returns ``(waiting_on,
+        waited_on_live)``, where ``waited_on_live`` is True iff every role
+        named in ``metadata.waiting_on`` (comma-tolerant) emitted a bus
+        message IN THE CURRENT PHASE within the health monitor's phase-aware
+        staleness window (120s default in refine/plan/pr, 600s in implement —
+        see below).
+
+        Latest-heartbeat semantics are sound despite server-side dedup
+        (``routes/messages.py``): only *consecutive identical* states are
+        deduped, so the newest HEARTBEAT on the bus is always the role's
+        current self-reported state. The phase filter keeps a previous
+        phase's WAITING_ON_ROLE report (same pipeline stream) from being
+        mistaken for current evidence. The broad latest-heartbeat read is
+        HEAD-anchored so a dedup-aged (arbitrarily old but still current)
+        WAITING_ON_ROLE self-report is always found; its residual tip-miss on
+        a >30k-entry single-phase stream is closed by a supersession guard —
+        if the tip-anchored liveness read shows the parked role's own latest
+        in-window heartbeat is NOT WAITING_ON_ROLE, the self-report is treated
+        as stale and this returns ``None`` (→ high alert).
+
+        Returns ``None`` (unknown / no self-report) when the latest
+        heartbeat is any other state, the role has no heartbeat this phase,
+        the self-report has been superseded by a newer in-window heartbeat,
+        or the read fails — the supervisor then falls back to the
+        wedge-shaped high-priority alert, so a probe failure (or a stale
+        self-report) can only make the alert MORE alarming, never quieter.
+        """
+        try:
+            messages = get_message_store().get_messages(
+                self.pipeline.id, limit=10000, slice_id=self._slice_id
+            )
+            phase = self.pipeline.current_phase.value
+            latest = None
+            for msg in messages:
+                if (
+                    msg.message_type == MessageType.HEARTBEAT
+                    and msg.from_role == role
+                    and msg.phase == phase
+                ):
+                    latest = msg
+            if latest is None or latest.metadata.get("state") != "WAITING_ON_ROLE":
+                return None
+            waiting_on = str(latest.metadata.get("waiting_on") or "")
+            waited_roles = [r.strip() for r in waiting_on.split(",") if r.strip()]
+            if not waited_roles:
+                return None
+            # #3520: mirror the health monitor's phase-aware staleness
+            # threshold (``health_monitor._get_heartbeat_threshold``): the
+            # implement phase tolerates the longer implement heartbeat timeout
+            # (default 600s), every other phase the shorter default (120s).
+            # Reading the SAME ``PipelineConfig`` fields the monitor reads
+            # keeps the two in lockstep under operator overrides — so a
+            # producer this probe calls "live" is exactly one the monitor
+            # would not yet have flagged stale, and the low-priority park
+            # notice can never contradict a fresh ``heartbeat_timeout`` alert
+            # about the same producer. A flat 600s would have called a
+            # producer "live" for 5x the monitor's 120s window in refine/plan
+            # — the very phases this PR targets.
+            live_window_seconds = (
+                self.pipeline.config.orchestrator_implement_heartbeat_timeout_seconds
+                if phase == "implement"
+                else self.pipeline.config.orchestrator_heartbeat_timeout_seconds
+            )
+            cutoff = datetime.now(UTC) - timedelta(seconds=live_window_seconds)
+            # #3520 (review notes #2/#4): compute liveness from a dedicated
+            # window-bounded, phase-filtered read rather than re-scanning the
+            # broad latest-heartbeat fetch. ``since=cutoff`` anchors the read
+            # near the stream tip, so the waited-on role's liveness stays
+            # correct and cheap regardless of stream length — the unbounded
+            # ``limit`` fetch above starts at the stream HEAD and can miss the
+            # tip on a >30k-entry stream (note #2). The explicit ``>= cutoff``
+            # filter is kept for precise sub-millisecond bounding on top of the
+            # ``since`` stream-ID resolution. Phase-filtering (note #4) mirrors
+            # the latest-heartbeat filter so a producer that emitted only in
+            # the PRIOR phase, still inside the window, is not miscounted as
+            # live right after a phase boundary. Both trims only ever SHRINK
+            # the live set → fail-safe (toward the high-priority alert), never
+            # a false low-priority notice. The latest-heartbeat read above
+            # stays broad on purpose: server-side dedup can make the role's
+            # current WAITING_ON_ROLE self-report arbitrarily old, so it must
+            # be found outside any liveness window.
+            recent = get_message_store().get_messages(
+                self.pipeline.id, since=cutoff, limit=10000, slice_id=self._slice_id
+            )
+
+            def _at_or_after_cutoff(msg: Message) -> bool:
+                ts = msg.timestamp if msg.timestamp.tzinfo else msg.timestamp.replace(tzinfo=UTC)
+                return ts >= cutoff
+
+            # #3520 (re-review note): guard the broad latest-heartbeat read's
+            # residual tip-miss. That read is HEAD-anchored (``limit`` from
+            # ``0-0``), so on a >30k-entry SINGLE-phase stream it can stop
+            # before the tip and resolve ``latest`` to a stale WAITING_ON_ROLE
+            # the role has since moved off of (e.g. dedup-exempt WORKING beats
+            # at the tip while its arm is genuinely wedged). Left unguarded that
+            # yields a low-priority "healthy wait" notice for a real wedge — the
+            # one direction this probe must never take. The tip-anchored
+            # ``recent`` read (``since=cutoff``) DOES see the tip, so if the
+            # PARKED role's own latest in-window, current-phase heartbeat is not
+            # WAITING_ON_ROLE, the self-report has been superseded → return
+            # None → the high-priority wedge alert. When the role emitted
+            # nothing in the window (its WAITING_ON_ROLE is deduped-old but
+            # still current) the guard is inert and the downgrade still fires,
+            # so the healthy-wait case (a self-report arbitrarily older than the
+            # window) is preserved. This makes the "always degrades to high"
+            # characterization hold in both directions.
+            role_tip_state: str | None = None
+            for msg in recent:
+                if (
+                    msg.message_type == MessageType.HEARTBEAT
+                    and msg.from_role == role
+                    and msg.phase == phase
+                    and _at_or_after_cutoff(msg)
+                ):
+                    role_tip_state = msg.metadata.get("state")
+            if role_tip_state is not None and role_tip_state != "WAITING_ON_ROLE":
+                return None
+
+            # #3520 (review notes #2/#4): compute liveness from the same
+            # dedicated window-bounded, phase-filtered read rather than
+            # re-scanning the broad latest-heartbeat fetch. ``since=cutoff``
+            # anchors the read near the stream tip, so the waited-on role's
+            # liveness stays correct and cheap regardless of stream length. The
+            # explicit ``>= cutoff`` filter is kept for precise sub-millisecond
+            # bounding on top of the ``since`` stream-ID resolution.
+            # Phase-filtering (note #4) mirrors the latest-heartbeat filter so a
+            # producer that emitted only in the PRIOR phase, still inside the
+            # window, is not miscounted as live right after a phase boundary.
+            # Both trims only ever SHRINK the live set → fail-safe (toward the
+            # high-priority alert), never a false low-priority notice.
+            recent_senders = {
+                msg.from_role for msg in recent if msg.phase == phase and _at_or_after_cutoff(msg)
+            }
+            return (waiting_on, all(r in recent_senders for r in waited_roles))
+        except Exception:  # noqa: BLE001 — probing is best-effort
+            logger.warning(
+                "Failed to probe WAITING_ON_ROLE heartbeat for no-op park alert",
+                pipeline_id=self.pipeline.id,
+                role=role,
+                exc_info=True,
+            )
+            return None
+
     def _handle_arms_exhausted(
         self, *, report: list[dict[str, Any]], blocked_arms: list[tuple[str, str]]
     ) -> None:
@@ -1259,6 +1527,166 @@ class ConcurrentPhaseExecutor:
                 error=str(exc),
             )
 
+    def _handle_arms_parked(
+        self,
+        *,
+        report: list[dict[str, Any]],
+        exhausted_report: list[dict[str, Any]],
+        blocked_arms: list[tuple[str, str]],
+    ) -> None:
+        """Escalate the all-arms-parked stall to the operator (#3548).
+
+        Wired as the event loop's ``arms_parked_notifier`` — the no-op-park
+        sibling of :meth:`_handle_arms_exhausted`. Every arm the slice needs
+        in order to advance is blocked on a no-op-parked (or exhausted)
+        dedupe key with nothing in flight. A park does self-release, but
+        only for one probe spawn per fingerprint change or 30-minute
+        heartbeat; the #3548 incident sat silent for the full window with
+        ``pending_decisions`` empty. Same two surfaces and the same
+        dedup/best-effort posture as the exhausted escalation:
+
+        * an ``OVERSEER_ALERT`` broadcast (message-bus listeners), and
+        * a **persisted** HITL decision whose "Retry arms" resolution
+          releases the parks on the live loop(s) in-band
+          (``routes/decisions/_handlers.py``).
+        """
+        detail_lines = [
+            (
+                f"- {entry['role']}/{entry['action']}: "
+                f"{entry['noop_streak']} consecutive no-op completions (parked)"
+            )
+            for entry in report
+        ] + [
+            (
+                f"- {entry['role']}/{entry['action']}: streak={entry['streak']}, "
+                f"recent terminations: {entry['exit_history_text']} (exhausted)"
+            )
+            for entry in exhausted_report
+        ]
+        arms = ", ".join(f"{role}/{action}" for role, action in blocked_arms)
+        slice_label = self._slice_id or "pipeline"
+        detail = (
+            f"Event loop for pipeline={self.pipeline.id} slice={slice_label} "
+            f"phase={self.pipeline.current_phase.value} cannot advance: every "
+            f"derivable spawn arm ({arms}) is blocked on a no-op-parked (or "
+            f"exhausted) dedupe key and no one-shot Job is in flight. Each "
+            f"parked arm's agent keeps completing cleanly with zero BRC "
+            f"progress, so respawning it unchanged cannot converge the round "
+            f"— it is typically blocked on missing upstream state (e.g. a "
+            f"producer that never proposed) or an unresolved operator "
+            f"decision. Blocked arms:\n" + "\n".join(detail_lines)
+        )
+        store = None
+        try:
+            from routes import get_state_store_for_pipeline
+
+            store, disk_pipeline = get_state_store_for_pipeline(self.pipeline.id)
+            already_pending = any(
+                d.context == ARMS_PARKED_HITL_CONTEXT for d in disk_pipeline.get_pending_decisions()
+            )
+        except Exception as exc:  # noqa: BLE001 — escalation must not wedge the loop
+            logger.warning(
+                "Failed to read pending decisions for arms-parked dedup; escalating anyway",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+                error=str(exc),
+            )
+            already_pending = False
+
+        if already_pending:
+            logger.info(
+                "Arms-parked HITL already pending; not re-alerting or stacking another",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+            )
+            return
+
+        self._emit_supervision_alert(
+            anomaly="event-arms-parked",
+            priority="high",
+            summary=f"all spawn arms no-op-parked for slice {slice_label} — round stalled",
+            detail=detail,
+        )
+
+        if store is None:
+            return
+        try:
+            from routes.pipelines import _persist_hitl_decision
+
+            question = (
+                f"{detail}\n\n"
+                f"How to proceed?\n"
+                f"- '{ARMS_PARKED_RETRY_OPTION}': release the no-op parks so the "
+                f"blocked arms respawn immediately (in-band; nothing in flight "
+                f"is torn down). If the agents keep no-oping the arms will "
+                f"re-park and this decision will re-fire.\n"
+                f"- '{ARMS_EXHAUSTED_RESTART_OPTION}': tear down and re-run the "
+                f"current phase (work pushed to the shared branch is preserved).\n"
+                f"- '{ARMS_EXHAUSTED_ABORT_OPTION}': recorded only — use cancel_task "
+                f"to stop the pipeline."
+            )
+            decision = _persist_hitl_decision(
+                self.pipeline.id,
+                self.pipeline,
+                store,
+                question=question,
+                options=[
+                    ARMS_PARKED_RETRY_OPTION,
+                    ARMS_EXHAUSTED_RESTART_OPTION,
+                    ARMS_EXHAUSTED_ABORT_OPTION,
+                ],
+                phase=self.pipeline.current_phase,
+                context=ARMS_PARKED_HITL_CONTEXT,
+            )
+            if decision is not None:
+                logger.warning(
+                    "Arms-parked HITL decision created",
+                    pipeline_id=self.pipeline.id,
+                    slice_id=self._slice_id,
+                    decision_id=decision.id,
+                    blocked_arms=arms,
+                )
+        except Exception as exc:  # noqa: BLE001 — escalation must not wedge the loop
+            logger.warning(
+                "Failed to persist arms-parked HITL decision",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+                error=str(exc),
+            )
+
+    def _withdraw_arms_parked_hitl(self) -> None:
+        """Auto-withdraw a stale arms-parked HITL once the stall clears (#3548).
+
+        Symmetric to :meth:`_handle_arms_parked` and modeled on
+        :meth:`_withdraw_arms_exhausted_hitl`, including the pipeline-wide
+        guard: the decision is deduped across slices, so it must not be
+        withdrawn while another slice's loop is still inside an escalated
+        parked episode.
+        """
+        try:
+            from event_loop import get_live_event_loops
+            from routes import get_state_store_for_pipeline
+            from routes.pipelines import _withdraw_arms_parked_decisions
+
+            if any(loop.arms_parked_escalated for loop in get_live_event_loops(self.pipeline.id)):
+                return
+            store, _ = get_state_store_for_pipeline(self.pipeline.id)
+            withdrawn = _withdraw_arms_parked_decisions(self.pipeline.id, store)
+            if withdrawn:
+                logger.info(
+                    "Auto-withdrew stale arms-parked HITL after the stall cleared",
+                    pipeline_id=self.pipeline.id,
+                    slice_id=self._slice_id,
+                    withdrawn=withdrawn,
+                )
+        except Exception as exc:  # noqa: BLE001 — withdrawal must not wedge the loop
+            logger.warning(
+                "Failed to auto-withdraw arms-parked HITL after stall cleared",
+                pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
+                error=str(exc),
+            )
+
     def _handle_propose_arm_exhaustion(
         self, *, role: str, action: str, dedupe_key: str, streak: int, fatal: bool = False
     ) -> None:
@@ -1424,7 +1852,20 @@ class ConcurrentPhaseExecutor:
             if not result.get("is_complete"):
                 all_roles = tracker.graph.all_roles()
                 confirmed_in_tracker = len(all_roles) - len(result.get("blocking_agents", []))
-                logger.info(
+                # #3547: this branch runs on every ~5s poll tick, so at INFO
+                # these lines drown the service log (2 lines x N slices every
+                # tick). Log at INFO only when the incomplete state actually
+                # changes; the unchanged repeats drop to DEBUG.
+                incomplete_state = (
+                    confirmed_in_tracker,
+                    len(all_roles),
+                    tuple(sorted(result.get("blocking_agents", []))),
+                    bool(result.get("has_unresolved_nacks", False)),
+                )
+                state_changed = incomplete_state != self._last_incomplete_consensus_log
+                self._last_incomplete_consensus_log = incomplete_state
+                log_incomplete = logger.info if state_changed else logger.debug
+                log_incomplete(
                     "Consensus incomplete — checking fallbacks",
                     pipeline_id=self.pipeline.id,
                     confirmed=confirmed_in_tracker,
@@ -1462,7 +1903,7 @@ class ConcurrentPhaseExecutor:
                     # an empty fresh tracker correctly returns
                     # is_complete=False here so the pipeline run loop keeps
                     # polling.
-                    logger.info(
+                    log_incomplete(
                         "Skipping pipeline-wide message-bus fallback for slice-scoped tracker",
                         pipeline_id=self.pipeline.id,
                         slice_id=self._slice_id,
@@ -1501,7 +1942,7 @@ class ConcurrentPhaseExecutor:
                             result["fallback"] = "message_bus"
                         else:
                             missing = all_roles - confirmed_roles if all_roles else set()
-                            logger.info(
+                            log_incomplete(
                                 "Message-bus fallback: not all roles confirmed",
                                 pipeline_id=self.pipeline.id,
                                 confirmed_roles=sorted(confirmed_roles),
@@ -1514,6 +1955,10 @@ class ConcurrentPhaseExecutor:
                             pipeline_id=self.pipeline.id,
                             error=str(e),
                         )
+            if result.get("is_complete"):
+                # Consensus reached (possibly via a fallback override): reset
+                # so the next incomplete round logs its first tick at INFO.
+                self._last_incomplete_consensus_log = None
             return result
         return {"is_complete": False, "blocking_agents": [], "has_objections": False, "agents": {}}
 

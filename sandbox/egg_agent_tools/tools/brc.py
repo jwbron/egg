@@ -70,7 +70,14 @@ _PROPOSE_SCHEMA: dict[str, Any] = {
                 "/ `mcp__sdlc__register_open_question`) or "
                 "`no_decisions_rationale` (why this phase deliberately "
                 "raises none) — the orchestrator rejects the propose "
-                "without one of them."
+                "without one of them. The explicit-none form also "
+                "requires `candidates_considered` (#3526): a list of "
+                "{question, disposition, why} entries enumerating each "
+                "open choice you weighed and dispositioned away "
+                "(disposition: 'not_operator_grade' or "
+                "'deferred_to_plan'); it may also accompany "
+                "`decisions_registered` for choices you considered but "
+                "did not register."
             ),
         },
         "no_changes_needed": {

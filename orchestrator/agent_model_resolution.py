@@ -45,7 +45,8 @@ from __future__ import annotations
 import logging
 import os
 import re
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, replace
 
 from egg_contracts.agent_roles import EGG_REPO, AgentRole, get_roles_for_phase
 
@@ -533,12 +534,17 @@ def reseed_threshold(model: str) -> int:
     return min(RESEED_THRESHOLD_FLOOR, int(RESEED_THRESHOLD_MARGIN * real))
 
 
-def resolve_agent_model(
+def _resolve_agent_model_base(
     role: AgentRole | str,
     pipeline_config: object | None,
     repo: str | None,
 ) -> AgentModelDecision:
-    """Resolve the model decision for *role* per the precedence rules.
+    """Resolve the base model decision for *role* per the precedence rules.
+
+    The pure precedence resolver (per-pipeline override -> repo default ->
+    built-in). :func:`resolve_agent_model` wraps this to layer the #3523 S6
+    risk-router effort override on top; keeping the base separate keeps that
+    override a single, testable post-step rather than four edited return sites.
 
     Args:
         role: The :class:`AgentRole` (or its raw value) being spawned.
@@ -598,6 +604,97 @@ def resolve_agent_model(
     if role_value in _FABLE_DEFAULT_ROLES:
         return classify_model(FABLE_DEFAULT_MODEL)
     return classify_model(DEFAULT_AGENT_MODEL)
+
+
+def resolve_review_effort(
+    base_effort: str | None,
+    changed_files: Iterable[str] | None,
+    *,
+    repo_root: str | None = None,
+) -> str | None:
+    """Risk-router reasoning effort for a slice's review wave (#3523 S6).
+
+    The effort plumbing already exists (``--effort`` threaded through
+    ``consensus_wrapper.build_event_pump_wrapped_command``); this is the
+    taxonomy that drives it. Given the slice's changed-file set, the router
+    (:mod:`risk_router`) resolves a risk tier whose ``/review``-ladder effort
+    (low/medium/high/xhigh) replaces ``base_effort`` — but only under the
+    ``on`` arm of the shared ``EGG_RISK_ROUTER`` staged flag:
+
+    * ``off`` (or ``changed_files is None``) => return ``base_effort`` verbatim
+      (legacy: whatever ``AgentModelDecision.effort`` already carried).
+    * ``log`` => compute the would-be effort, log it, return ``base_effort``
+      unchanged (soak mode).
+    * ``on``  => return the router tier's effort.
+
+    A ``None`` router decision (bad/missing config) falls open to
+    ``base_effort`` in every mode (the HARD "missing config never means less
+    review" floor: it also must never *change* effort silently).
+    """
+    # Lazy import: ``review_graph`` owns the flag resolver + the fail-open
+    # config/route helper (the router *wiring* layer). Importing lazily avoids
+    # dragging the review-graph module into every model-resolution import and
+    # keeps the dependency one-directional (review_graph -> here, never back).
+    from review_graph import resolve_risk_decision, risk_router_mode
+
+    mode = risk_router_mode()
+    if mode == "off" or changed_files is None:
+        return base_effort
+
+    decision = resolve_risk_decision(changed_files, repo_root=repo_root)
+    if decision is None:
+        return base_effort  # fail-open
+
+    would_be = decision.effort
+    if mode == "log":
+        logger.info(
+            "risk_router log-mode: would pin review effort=%s (tier=%s); "
+            "keeping base effort=%s (#3523 S6).",
+            would_be,
+            decision.tier.name.lower(),
+            base_effort,
+        )
+        return base_effort
+    return would_be
+
+
+def resolve_agent_model(
+    role: AgentRole | str,
+    pipeline_config: object | None,
+    repo: str | None,
+    *,
+    changed_files: Iterable[str] | None = None,
+    repo_root: str | None = None,
+) -> AgentModelDecision:
+    """Resolve the model decision for *role*, incl. the #3523 S6 effort tier.
+
+    Thin wrapper over :func:`_resolve_agent_model_base` (the precedence
+    resolver) that layers the risk-router effort override on top. When a caller
+    threads the slice's ``changed_files`` and ``EGG_RISK_ROUTER`` is ``on``, the
+    returned decision's ``effort`` is the router tier's ``/review``-ladder
+    effort instead of the model's built-in default; otherwise the decision is
+    byte-identical to the base resolver (``changed_files is None`` — the default
+    — leaves every existing caller untouched).
+
+    Args:
+        role: The :class:`AgentRole` (or its raw value) being spawned.
+        pipeline_config: A ``PipelineConfig`` instance (typed loosely) or
+            ``None``.
+        repo: Repository in ``owner/repo`` format, or ``None``.
+        changed_files: Optional per-slice changed-file set. ``None`` (default)
+            disables the router override entirely — the sole seam that opts a
+            spawn into risk-tiered effort.
+        repo_root: Optional repo root for resolving ``.egg/review-risk.yaml``.
+
+    Returns:
+        An :class:`AgentModelDecision`; its ``effort`` follows the router tier
+        only under ``EGG_RISK_ROUTER=on`` with a threaded ``changed_files``.
+    """
+    decision = _resolve_agent_model_base(role, pipeline_config, repo)
+    effort = resolve_review_effort(decision.effort, changed_files, repo_root=repo_root)
+    if effort != decision.effort:
+        return replace(decision, effort=effort)
+    return decision
 
 
 def _overseer_decision_override(pipeline_config: object | None) -> str | None:
@@ -702,4 +799,5 @@ __all__ = [
     "reseed_threshold",
     "resolve_agent_model",
     "resolve_overseer_model",
+    "resolve_review_effort",
 ]

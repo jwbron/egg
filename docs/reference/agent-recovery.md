@@ -229,6 +229,17 @@ The escalation report is scoped to the keys currently blocking a derivable arm �
 
 Supervision state is per-process: an orchestrator restart already resets all streaks and exhausted keys (`JobSupervisor.reconcile`), so "Retry arms" is meaningful only against a live loop; when none exists the resolution reports that and points at "Restart phase".
 
+### All-arms-parked escalation (#3548)
+
+A no-op-parked dedupe key (#3425) is not terminal like an exhausted one — it self-releases — but only for a single probe spawn per fingerprint change or per `SUPERVISION_NOOP_PARK_RETRY_SECONDS` heartbeat. When *every* arm a slice needs is blocked on a no-op-park (or exhausted) key at once, a round that is one verdict away from converging can sit silently for the whole heartbeat window with `pending_decisions` empty — the same zero-operator-signal shape as the exhausted wedge, but on a live-but-ineffective arm instead of a dead one.
+
+The loop detects this (`_check_arms_parked`, `event_loop/_loop.py`): every derivable spawn action is blocked `parked` or `exhausted` (at least one `parked`), no one-shot Job is in flight, and no agent-free progress ran this tick — a mixed parked+exhausted round is caught here rather than falling between the two detectors, since `_check_arms_exhausted`'s `all(== "exhausted")` predicate can't see it. Once per episode it fires the same two surfaces via the executor (`_handle_arms_parked`, `concurrent_executor.py`):
+
+- an `OVERSEER_ALERT` (anomaly `event-arms-parked`, priority `high`), and
+- a **persisted HITL decision** (context `event_arms_parked`) carrying each parked key's role/action and no-op streak (plus any co-blocking exhausted keys), with the same three resolution options as the exhausted decision except the first: **Retry arms (release no-op parks)** clears the parked keys on the pipeline's live event loop(s) (`event_loop.get_live_event_loops` → `reset_parked_arms` → `JobSupervisor.reset_noop_parks`) instead of resetting failure streaks.
+
+The wedge auto-clears the sticky latch and withdraws a pending decision (`_withdraw_arms_parked_hitl` / `_withdraw_arms_parked_decisions`) the same way the exhausted escalation does, with the same multi-slice guard via `arms_parked_escalated`.
+
 ## Agent-Level Restart
 
 Source: `orchestrator/container_spawner.py`, `orchestrator/routes/pipelines.py`
@@ -243,10 +254,15 @@ Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, `FAILE
 2. The orchestrator stops the existing container via `stop_agent_container()` and removes it via `remove_agent_container()`
 3. A new container is spawned via `spawn_agent_container()` with the **same role, phase, and environment** — the gateway's idempotent worktree creation rediscovers the existing worktree and mounts it into the new container
 4. Only after a successful spawn, the agent's consensus state is reset — `PeerConsensusTracker.remove_agent()` withdraws any proposals, ACKs, or confirmations. (The legacy `ConsensusEvaluator` in `orchestrator/consensus.py` was deleted in [#2777](https://github.com/jwbron/egg/issues/2777); BRC's `PeerConsensusTracker` is the only consensus path in production.) If spawn fails, consensus state is preserved so the pipeline remains in a consistent state. **The Redis message store (`pipeline:{id}:messages`) is NOT cleared** — it is the durable BRC message record and survives the restart boundary so the reseeded session can re-pull it via `/brc-transcript` + `read_peer_artifact` and re-derive deterministic anchors ([#3200](https://github.com/jwbron/egg/issues/3200)). The store is cleared only at phase transitions (`_clear_concurrent_state`) and pipeline create/delete, never on agent restart.
-5. If consensus reset fails after a successful spawn, a warning is logged but the restart is still considered successful — the restarted agent will re-enter consensus
-6. Recovery context is injected into the respawned agent (e.g., "You are being restarted after a stall. Resume from where your predecessor left off.")
-7. The pipeline's `PhaseExecution` state is updated with the new container/agent entries
-8. Restart count is tracked per agent per phase — configurable maximum (default: 2) prevents infinite restart loops
+5. The restarted role's event-loop arms are invalidated on every live loop for the slice (`invalidate_role_arms`, #3548) — dropped from `_live_keys`/`_key_meta` and retired in the supervisor. Without this the re-derived event carries the *same* dedupe key as before the restart, so the loop's dedupe branch (the key never left `_live_keys`) or a surviving exhaustion/no-op-park latch silently blocks the respawn — observed twice in the #3548 incident. This is a best-effort reach-in: failures are logged and never fail the restart.
+6. If consensus reset fails after a successful spawn, a warning is logged but the restart is still considered successful — the restarted agent will re-enter consensus
+7. Recovery context is injected into the respawned agent (e.g., "You are being restarted after a stall. Resume from where your predecessor left off.")
+8. The pipeline's `PhaseExecution` state is updated with the new container/agent entries
+9. Restart count is tracked per agent per phase — configurable maximum (default: 2) prevents infinite restart loops
+
+The response reports whether step 5 actually found a live loop to delegate the respawn to (`live_event_loop`, `arms_invalidated: <count>`) and adjusts the `respawn` field accordingly instead of unconditionally claiming success (#3548) — see the *Event-loop arm invalidation* deep-dive below for the exact `respawn` values and their conditions.
+
+**Event-loop arm invalidation (#3548).** The consensus reset in step 4 makes the event loop re-derive the role's next event, but with the *same* identity — and therefore the same dedupe key — as before the restart, so loop-local state silently blocked the respawn: the key stayed in the loop's live-key set (the route deletes the Job by label, and Job observation maps a missing Job to "still running"), and any exhaustion / no-op-park latch for the key survived untouched. `_restart_agent_body` (`orchestrator/routes/pipelines/_routes_restart.py`) now reaches into the live event loop for the restarted role's `(pipeline_id, slice_id)` and calls `invalidate_role_arms(agent_role)`, which drops the role's keys from the loop's live-key/metadata tracking and retires their supervisor state (unioning `_key_meta` with the supervisor's own parked/exhausted key reports, since a parked key has already been popped from `_key_meta`) so the next poll re-derives the key as fresh and actually spawns. The route's JSON response now reports `live_event_loop` (bool) and `arms_invalidated` (count), and the `respawn` field is honest about whether a live loop exists to honor the delegation: `"delegated to orchestrator event loop"` when one was found, `"driver thread relaunched; event loop will respawn the role"` when the pipeline was inactive, or `"no live event loop for this slice — no respawn will occur; restart the phase if the agent must re-run"` otherwise.
 
 ### Concurrency Safety
 
@@ -267,11 +283,13 @@ The `restart_agent_container()` method requires the `mode` parameter (gateway ne
 | Method | How |
 |--------|-----|
 | **CLI** | `egg-orch agent restart <role> [--reason "..."]` |
-| **API** | `POST /api/v1/pipelines/{id}/agents/{role}/restart` with optional `{"reason": "...", "slice_id": "slice-N"}` body (`slice_id` also accepted as a query param) |
-| **MCP tool** | `restart_agent(task_id, agent_role, reason?, slice_id?)` via the orchestrator MCP server |
+| **API** | `POST /api/v1/pipelines/{id}/agents/{role}/restart` with optional `{"reason": "...", "slice_id": "slice-N", "fresh_session": true}` body (`slice_id` also accepted as a query param) |
+| **MCP tool** | `restart_agent(task_id, agent_role, reason?, slice_id?, fresh_session?)` via the orchestrator MCP server |
 | **Overseer** | Automatic — after consecutive heartbeat failures or unresponsive nudges (see below) |
 
 For a per-slice agent in a multi-slice implement phase, `slice_id` scopes the restart to the slice's Job, worktree, and BRC tracker. When omitted, the route derives it from the phase's agent records: if exactly one slice has a non-complete record for the role, that slice is used; if the choice is ambiguous the request is rejected with HTTP 400 reason `slice_id_required` and a `details` object listing `known_slices` / `restart_candidates`. The scan is **scoped to `pipeline.current_phase`** — if the pipeline has already advanced past `implement` (e.g. to `pr` or a later iteration), no current-phase records will name the role, derivation falls through, and the operator should supply `slice_id` explicitly. This is **operator guidance, not a code-enforced precondition**: the fall-through branch still proceeds to a pipeline-level spawn, which would re-trigger the wedge mode below if a slice tracker is somehow still live past `implement` (in practice it is not — slice trackers are resolved by the time `current_phase` advances). This guards against a slice-mode restart silently spawning an unscoped agent — `EGG_SLICE_ID` unset — whose BRC signals route to the bare pipeline tracker instead of the slice's, wedging the slice's consensus ([#2759](https://github.com/jwbron/egg/issues/2759)).
+
+By default a restart preserves the role's durable warm-resume session record, so the respawned agent resumes its prior Claude session rather than cold-starting. When the restart's purpose is to change the agent's mind about the world (e.g. it is livelocked on a stale conclusion that plain consensus reset and worktree state can't reach), pass `fresh_session: true` to also evict that record — see [Cross-pod persistence](../architecture/context-discipline.md#cross-pod-persistence-3278) in the context-discipline doc ([#3537](https://github.com/jwbron/egg/issues/3537)).
 
 ### Worktree Preservation
 

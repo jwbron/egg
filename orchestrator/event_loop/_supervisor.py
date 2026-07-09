@@ -55,6 +55,13 @@ def record_success(self, dedupe_key: str, *, action: str = "", role: str = "") -
         dedupe_key,
         streak,
     )
+    if streak >= SUPERVISION_NOOP_STREAK_PARK:
+        # Record the arm labels for the parked key. ``_last_action`` is
+        # otherwise written only by ``record_abort``, so a key that parked
+        # without ever aborting would surface as an anonymous ``/`` row in
+        # ``noop_park_report()`` (#3548).
+        if action or role:
+            self._last_action[dedupe_key] = (action, role)
     if streak >= SUPERVISION_NOOP_STREAK_PARK and not self._alerted_noop.get(dedupe_key, False):
         self._alerted_noop[dedupe_key] = True
         fingerprint = self._probe_hitl_fingerprint()
@@ -70,7 +77,13 @@ def record_success(self, dedupe_key: str, *, action: str = "", role: str = "") -
             action,
             role,
         )
-        self._emit_noop_alert(dedupe_key, streak, action, role, fingerprint)
+        # #3520: with no gating contract decision visible, the role's own
+        # WAITING_ON_ROLE self-report decides the alert's severity — a
+        # dependent role no-oping while its live upstream producer works
+        # toward its first proposal is choreography, not a wedge. A visible
+        # cq-N keeps the original wedge hypothesis, so the probe is skipped.
+        waiting = None if fingerprint else self._probe_waiting_on(role)
+        self._emit_noop_alert(dedupe_key, streak, action, role, fingerprint, waiting)
 
 
 def retire(self, dedupe_key: str) -> None:
@@ -93,6 +106,7 @@ def retire(self, dedupe_key: str) -> None:
     self._noop_fingerprint.pop(dedupe_key, None)
     self._noop_brc_fingerprint.pop(dedupe_key, None)
     self._noop_last_probe.pop(dedupe_key, None)
+    self._noop_release_context.pop(dedupe_key, None)
     self._alerted_noop.pop(dedupe_key, None)
     logger.debug("JobSupervisor: retired key=%s — all supervision state dropped", dedupe_key)
 
@@ -375,6 +389,61 @@ def reset_exhausted(self) -> list[str]:
     return cleared
 
 
+def noop_park_report(self) -> list[dict[str, Any]]:
+    """Describe every no-op-parked key for operator surfacing (#3548).
+
+    Mirror of :meth:`exhausted_report` for the successful-no-op park
+    (#3425): one entry per key whose clean-completion streak reached
+    ``SUPERVISION_NOOP_STREAK_PARK`` — the arm it belongs to and the no-op
+    streak length. This is what the all-arms-parked HITL escalation embeds
+    so the operator can see WHICH arms keep running to no effect without
+    grepping pod logs. Sorted by (role, action) for stable rendering.
+    """
+    report = []
+    for key, streak in self._noop_streaks.items():
+        if streak < SUPERVISION_NOOP_STREAK_PARK:
+            continue
+        action, role = self._last_action.get(key, ("", ""))
+        report.append(
+            {
+                "dedupe_key": key,
+                "role": role,
+                "action": action,
+                "noop_streak": streak,
+            }
+        )
+    report.sort(key=lambda e: (e["role"], e["action"], e["dedupe_key"]))
+    return report
+
+
+def reset_noop_parks(self) -> list[str]:
+    """Forget ALL supervision state for every no-op-parked key (#3548).
+
+    The in-band recovery primitive behind the all-arms-parked HITL's
+    "Retry arms" resolution — the park twin of :meth:`reset_exhausted`.
+    A park does self-release (fingerprint movement / retry heartbeat),
+    but each release grants only a single probe spawn that re-parks on
+    the next no-op; an operator who has fixed the underlying wedge wants
+    the streaks gone so the arms run freely again. Full ``retire`` for
+    the same latch reasons as :meth:`reset_exhausted`.
+
+    Returns the cleared keys (sorted) so callers can report them.
+    """
+    cleared = sorted(
+        key for key, streak in self._noop_streaks.items() if streak >= SUPERVISION_NOOP_STREAK_PARK
+    )
+    for key in cleared:
+        self.retire(key)
+    if cleared:
+        logger.info(
+            "JobSupervisor: operator reset cleared %d no-op-parked key(s) — "
+            "fresh spawn budgets: %s",
+            len(cleared),
+            ", ".join(cleared),
+        )
+    return cleared
+
+
 def noop_parked(self, dedupe_key: str) -> bool:
     """Return True iff the key is parked on a successful-no-op streak (#3425).
 
@@ -414,6 +483,21 @@ def noop_parked(self, dedupe_key: str) -> bool:
     hitl_moved = current is not None and parked is not None and current != parked
     brc_moved = current_brc is not None and parked_brc is not None and current_brc != parked_brc
     if hitl_moved or brc_moved:
+        # #3537: record WHAT moved so the released probe spawn can be told.
+        # The park released precisely because the world changed, but the
+        # respawned pod re-derives an identical dedupe key + payload, so its
+        # prompt would otherwise be byte-identical to the one that parked -
+        # a warm-resumed session then replays its cached "still blocked"
+        # conclusion and the arm livelocks. The loop consumes this delta on
+        # the spawn path (consume_noop_release_context) and threads it into
+        # the event prompt. Computed BEFORE the anchors are refreshed below.
+        release_context: dict[str, Any] = {}
+        if hitl_moved:
+            release_context["resolved_decision_ids"] = sorted(parked - current)
+            release_context["newly_gating_decision_ids"] = sorted(current - parked)
+        if brc_moved:
+            release_context["brc_moved"] = True
+        self._noop_release_context[dedupe_key] = release_context
         # Refresh BOTH probe anchors on any release, not just the branch that
         # fired. If a single poll sees the contract-decision set AND the BRC
         # state move at once (the operator resolves a gating ``cq-N`` while
@@ -477,6 +561,26 @@ def noop_parked(self, dedupe_key: str) -> bool:
     return True
 
 
+def consume_noop_release_context(self, dedupe_key: str) -> dict[str, Any] | None:
+    """Pop and return the park-release delta recorded for ``dedupe_key`` (#3537).
+
+    Set only by a fingerprint-change release in :meth:`noop_parked`; a retry
+    heartbeat release records nothing (nothing observably changed, so there
+    is no delta to carry). The loop calls this once, immediately before
+    dispatching the spawn, so the delta rides exactly the probe spawn the
+    release granted and never leaks onto a later, unrelated spawn of the
+    same key. Keys:
+
+    * ``resolved_decision_ids`` - contract decisions unresolved at park time
+      that have since left the unresolved set (resolved, or removed).
+    * ``newly_gating_decision_ids`` - decisions that became unresolved since
+      park (a fresh wedge the probe should surface, not fight).
+    * ``brc_moved`` - the consensus-state digest moved (a peer proposal /
+      verdict / confirm progressed while this arm was parked).
+    """
+    return self._noop_release_context.pop(dedupe_key, None)
+
+
 def _probe_hitl_fingerprint(self) -> frozenset[str] | None:
     """Snapshot the unresolved contract-decision id set (best-effort).
 
@@ -497,6 +601,31 @@ def _probe_hitl_fingerprint(self) -> frozenset[str] | None:
     if result is None:
         return None
     return frozenset(result)
+
+
+def _probe_waiting_on(self, role: str) -> tuple[str, bool] | None:
+    """Snapshot ``role``'s latest WAITING_ON_ROLE self-report (best-effort, #3520).
+
+    Returns ``(waiting_on, waited_on_live)`` when the role's most recent
+    HEARTBEAT in the current phase self-reports ``WAITING_ON_ROLE``:
+    ``waiting_on`` names the waited-on role(s) as self-reported and
+    ``waited_on_live`` is True iff every waited-on role shows recent bus
+    activity. ``None`` means "no such self-report or unknown" (no probe
+    wired, probe failed, or the latest heartbeat is some other state) —
+    the caller then keeps the wedge-shaped high-priority alert.
+    """
+    if self._waiting_probe is None:
+        return None
+    try:
+        return self._waiting_probe(role)
+    except Exception as exc:  # noqa: BLE001 — probing is best-effort
+        logger.warning(
+            "JobSupervisor: waiting-on probe failed for role=%s — "
+            "treating self-report as unknown: %s",
+            role,
+            exc,
+        )
+        return None
 
 
 def _probe_brc_fingerprint(self) -> str | None:
@@ -543,6 +672,7 @@ def reconcile(self, live_dedupe_keys: Iterable[str]) -> None:
     self._noop_fingerprint.clear()
     self._noop_brc_fingerprint.clear()
     self._noop_last_probe.clear()
+    self._noop_release_context.clear()
     self._alerted_noop.clear()
     # Re-initialise live-key set if the caller provides it.
     # We only need to know which keys exist, not the full history.
@@ -582,6 +712,7 @@ def _emit_noop_alert(
     action: str,
     role: str,
     fingerprint: frozenset[str] | None,
+    waiting: tuple[str, bool] | None = None,
 ) -> None:
     """Emit a named, once-per-key alert for a successful-no-op park (#3425).
 
@@ -590,8 +721,63 @@ def _emit_noop_alert(
     respawn cannot resolve (typically an unresolved operator HITL
     ``cq-N``), so the message points the operator at the pending decision
     rather than at agent health.
+
+    #3520 severity split: ``waiting`` is the parked role's latest
+    WAITING_ON_ROLE self-report, probed by the caller only when no gating
+    contract decision was visible. A role waiting on a LIVE upstream
+    producer's first proposal is normal BRC choreography (the park still
+    saves the pod spawns; the arm un-parks on BRC movement), so that shape
+    emits a low-priority ``agent-parked-waiting-on-role`` notice — a
+    routine [high] would train operators to skim past the alert feed
+    (#3364). High priority is kept for the genuine wedges: a visible
+    gating ``cq-N``, a WAITING_ON_ROLE report whose waited-on role shows
+    no recent bus activity (a real stall — the parked role's own
+    escalation threshold can no longer fire once its pod stops spawning),
+    or a streak with no self-report at all (silent wedge).
     """
     if self._overseer_alert is None:
+        return
+    if not fingerprint and waiting is not None:
+        waited_on, waited_on_live = waiting
+        if waited_on_live:
+            self._overseer_alert(
+                anomaly="agent-parked-waiting-on-role",
+                priority="low",
+                summary=(f"agent parked waiting on {waited_on} (action={action}, streak={streak})"),
+                detail=(
+                    f"Event-pump for role={role} has had {streak} consecutive "
+                    f"one-shot invocations on action={action} with zero BRC "
+                    f"progress and is parked (dedupe key {dedupe_key}). Its "
+                    f"latest HEARTBEAT self-reports WAITING_ON_ROLE on "
+                    f"{waited_on}, which is live on the bus — this is normal "
+                    f"dependency choreography, not a wedge. The arm un-parks "
+                    f"as soon as the BRC state moves (e.g. {waited_on} "
+                    f"proposes); a probe spawn is retried every "
+                    f"{SUPERVISION_NOOP_PARK_RETRY_SECONDS}s as a backstop. "
+                    f"No operator action needed."
+                ),
+            )
+            return
+        self._overseer_alert(
+            anomaly="agent-invocation-noop-streak",
+            priority="high",
+            summary=(
+                f"agent parked waiting on {waited_on}, which shows no recent "
+                f"bus activity (action={action}, streak={streak})"
+            ),
+            detail=(
+                f"Event-pump for role={role} has had {streak} consecutive "
+                f"one-shot invocations on action={action} with zero BRC "
+                f"progress and is parked (dedupe key {dedupe_key}). Its "
+                f"latest HEARTBEAT self-reports WAITING_ON_ROLE on "
+                f"{waited_on}, but {waited_on} has emitted nothing on the "
+                f"bus recently — the waited-on producer looks stalled, and "
+                f"the parked role's own escalation threshold cannot fire "
+                f"while its pod no longer spawns. Check the {waited_on} "
+                f"arm's health (pod status, failure streaks) and the "
+                f"slice's BRC transcript."
+            ),
+        )
         return
     if fingerprint:
         gating = (

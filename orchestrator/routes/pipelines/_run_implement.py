@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import driver_heartbeat
 import routes.pipelines as _pkg  # noqa: E402,F401
 
 
@@ -545,10 +546,12 @@ def _run_implement_phase_slices(
         pipeline,
         worktree_repo_path=worktree_repo_path,
         repo=getattr(pipeline, "repo", None),
+        store=store,
     )
 
     try:
         while not scheduler.all_done():
+            driver_heartbeat.record_tick(pipeline_id)  # #3540 liveness tick
             # 1. Snapshot ready slices for this tick.
             ready_batch = list(scheduler.iter_ready())
             if not ready_batch:

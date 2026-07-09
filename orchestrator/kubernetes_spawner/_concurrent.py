@@ -110,6 +110,53 @@ def detect_uncommitted_changes(
     return None
 
 
+def _resolve_live_phase(
+    phase_resolver,
+    captured_phase: str | None,
+    pipeline_id: str,
+) -> str | None:
+    """Resolve the pipeline's CURRENT phase at spawn time (#3528).
+
+    ``create_concurrent_spawn_fn`` closure-captures ``phase`` at wiring
+    time, and the event-loop wiring that holds the resulting spawn callable
+    can outlive the phase it was wired for (a stale driver thread, or a
+    dual-role agent whose one-shot event spawns straddle a transition).
+    Every gateway session minted through such a callable then carries the
+    stale phase, and the gateway's commit gate denies the agent for the
+    rest of the pipeline, deadlocking consensus, since the blocked agent
+    is often the phase's sole remaining producer.
+
+    *phase_resolver* is the caller-supplied live-state read (the routes
+    layer already holds the pipeline's state store; the spawner must not
+    reach back into ``routes`` for it). Falls back to *captured_phase*
+    when no resolver is wired or on any resolver failure, so the spawn
+    itself never wedges on the resolution.
+    """
+    if phase_resolver is None:
+        return captured_phase
+    try:
+        live_phase = phase_resolver()
+    except Exception as e:  # noqa: BLE001 - resolution is best-effort
+        logger.warning(
+            "Spawn-time phase resolution failed; using wiring-time phase",
+            pipeline_id=pipeline_id,
+            captured_phase=captured_phase,
+            error=str(e),
+        )
+        return captured_phase
+    live_phase = getattr(live_phase, "value", live_phase)
+    if not live_phase:
+        return captured_phase
+    if captured_phase is not None and live_phase != captured_phase:
+        logger.info(
+            "Spawn-time phase differs from wiring-time phase; using live phase",
+            pipeline_id=pipeline_id,
+            captured_phase=captured_phase,
+            live_phase=live_phase,
+        )
+    return live_phase
+
+
 def create_concurrent_spawn_fn(
     self,
     pipeline_id: str,
@@ -125,6 +172,7 @@ def create_concurrent_spawn_fn(
     spawn_max_retries: int = DEFAULT_SPAWN_MAX_RETRIES,
     spawn_retry_initial_backoff_seconds: float = (DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS),
     slice_id: str | None = None,
+    phase_resolver=None,
 ):
     """Create a spawn callable compatible with ConcurrentPhaseExecutor.
 
@@ -137,10 +185,18 @@ def create_concurrent_spawn_fn(
         repo_volumes: Repo name to host path mappings.
         mode: Gateway mode (public/private/local).
         repos: Repositories for gateway session.
-        phase: Current pipeline phase.
+        phase: Pipeline phase at wiring time. Used as-is only when
+            ``phase_resolver`` is absent or fails.
         sandbox_env: Base environment variables.
         image: Container image override.
         base_branch: Branch to base worktrees on.
+        phase_resolver: Optional zero-arg callable returning the
+            pipeline's CURRENT phase (#3528). Consulted on every spawn so
+            wiring that outlives its phase (stale driver threads,
+            dual-role event arms straddling a transition) cannot mint
+            gateway sessions carrying the stale closure-captured
+            ``phase``; the gateway's commit gate would deny every commit
+            from such a session and deadlock consensus.
         slice_id: Optional slice scope (#2403). When supplied, every
             spawn (including ``spawn_specific_roles`` retries) is
             tagged with this slice so concurrent slices in the same
@@ -171,7 +227,11 @@ def create_concurrent_spawn_fn(
             "image": image,
             "extra_env": merged_env,
             "repos": repos,
-            "phase": phase,
+            # Resolved live at spawn time, NOT the closure-captured value:
+            # this callable can outlive the phase it was wired for, and a
+            # stale phase here mints gateway sessions whose commit gate
+            # denies the agent for the rest of the pipeline (#3528).
+            "phase": _pkg._resolve_live_phase(phase_resolver, phase, pipeline_id),
             "branch": branch,
             "base_branch": base_branch,
             "command": command,

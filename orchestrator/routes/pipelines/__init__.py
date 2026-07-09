@@ -1179,6 +1179,12 @@ from ._criteria import (  # noqa: E402,F401
     _human_companion_review_criteria,
     _read_shared_criteria,
 )
+from ._decision_candidates import (  # noqa: E402,F401
+    _build_deferred_candidates_section,
+    _find_deferred_plan_candidates,
+    _format_considered_candidates,
+    _persist_decision_ledger_summary,
+)
 from ._decisions import (  # noqa: E402,F401
     _cancel_consensus_timeout_decisions,
     _divergence_reconcile_hitl_question,
@@ -1188,6 +1194,7 @@ from ._decisions import (  # noqa: E402,F401
     _incomplete_consensus_decision_text,
     _persist_hitl_decision,
     _withdraw_arms_exhausted_decisions,
+    _withdraw_arms_parked_decisions,
 )
 
 # drafts helpers live in _drafts.py (#3312 slice-4); re-exported here.
@@ -1309,6 +1316,8 @@ from ._prompt_review import (  # noqa: E402,F401
     _build_role_context,
     _build_role_restrictions_section,
     _extract_plan_overview,
+    _list_changed_files_for_review,
+    _maybe_apply_evidence_prefix,
     _render_contract_tasks,
     _summarize_issue,
 )
@@ -1407,6 +1416,7 @@ from ._run_pipeline_setup import (  # noqa: E402,F401  # noqa: E402,F401  # noqa
 from ._run_pipeline_support import (  # noqa: E402,F401
     _health_monitor_poll_impl,
     _on_health_escalation_impl,
+    _sync_session_phases_best_effort,
 )
 from ._run_support import (  # noqa: E402,F401
     _clear_stale_impasses_for_producers,

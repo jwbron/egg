@@ -452,6 +452,43 @@ class KubernetesClient:
         except Exception as exc:
             raise JobOperationError(f"Failed to remove job {job_name}: {exc}") from exc
 
+    def read_job_log_snapshot(self, container_id: str, tail_lines: int = 2000) -> dict | None:
+        """Best-effort snapshot of a Job's pod logs plus identity labels (#3547).
+
+        Called by ``KubernetesSpawner.remove_agent_job`` immediately before Job
+        deletion so a one-shot agent's stdout survives the reap (persisted via
+        ``agent_log_store``). Returns the log tail together with the pod's
+        pipeline/role/slice labels and terminated exit code, or ``None`` on any
+        failure; capture must never block removal.
+        """
+        try:
+            job_name = self._resolve_job_name(container_id)
+            pod_name = self.get_pod_for_job(job_name, self.namespace)
+            pod = self.core_api.read_namespaced_pod(pod_name, self.namespace)
+            labels = (pod.metadata.labels or {}) if pod.metadata else {}
+            exit_code: int | None = None
+            if pod.status and pod.status.container_statuses:
+                cs = pod.status.container_statuses[0]
+                if cs.state and cs.state.terminated:
+                    exit_code = cs.state.terminated.exit_code
+            logs = self.get_pod_logs(pod_name, self.namespace, tail_lines=tail_lines)
+        except Exception as exc:
+            logger.debug(
+                "Job log snapshot unavailable",
+                container_id=container_id,
+                error=str(exc),
+            )
+            return None
+        return {
+            "job_name": job_name,
+            "pod_name": pod_name,
+            "pipeline_id": labels.get(LABEL_PIPELINE_ID),
+            "agent_role": labels.get(LABEL_AGENT_ROLE),
+            "slice_id": labels.get(LABEL_SLICE_ID),
+            "exit_code": exit_code,
+            "logs": logs,
+        }
+
     def get_container_info(self, container_id: str) -> ContainerInfo:
         """Get information about a Job's pod."""
         job_name = self._resolve_job_name(container_id)

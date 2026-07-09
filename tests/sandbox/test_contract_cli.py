@@ -526,9 +526,15 @@ class TestWithMockGateway:
             handler_class = create_mock_gateway_handler(responses)
             server = HTTPServer(("127.0.0.1", 0), handler_class)
             port = server.server_address[1]
-            thread = Thread(target=server.handle_request)
-            thread.daemon = True
-            thread.start()
+            # Several handler threads: task-mutating commands read the
+            # contract (id → index resolution, #3527) before POSTing the
+            # mutation, so one CLI invocation can issue multiple
+            # sequential requests (same pattern as
+            # mock_gateway_with_body_capture below).
+            for _ in range(5):
+                thread = Thread(target=server.handle_request)
+                thread.daemon = True
+                thread.start()
             servers.append(server)
             return f"http://127.0.0.1:{port}"
 
@@ -630,10 +636,18 @@ class TestWithMockGateway:
     def test_add_commit_success(self, mock_gateway_factory, capsys):
         """Test add-commit command with successful response."""
         responses = {
+            # The handler reads the contract first to resolve the task
+            # id to its list position (#3527).
+            ("GET", "/api/v1/contract/123"): {
+                "success": True,
+                "data": {
+                    "slices": [{"id": "phase-1", "tasks": [{"id": "task-1", "status": "pending"}]}]
+                },
+            },
             ("POST", "/api/v1/contract/mutate"): {
                 "success": True,
                 "message": "Mutation applied",
-            }
+            },
         }
         mock_gateway = mock_gateway_factory(responses)
 
@@ -702,10 +716,16 @@ class TestWithMockGateway:
     def test_add_commit_with_pipeline_id(self, mock_gateway_factory, capsys):
         """Test add-commit uses pipeline ID from environment."""
         responses = {
+            ("GET", "/api/v1/contract/PROJ-1191-full"): {
+                "success": True,
+                "data": {
+                    "slices": [{"id": "phase-1", "tasks": [{"id": "task-1", "status": "pending"}]}]
+                },
+            },
             ("POST", "/api/v1/contract/mutate"): {
                 "success": True,
                 "message": "Mutation applied",
-            }
+            },
         }
         mock_gateway = mock_gateway_factory(responses)
 
@@ -1272,7 +1292,14 @@ class TestContainerIdInGatewayRequests:
                             "data": {
                                 "issue": {"number": 123, "title": "Test"},
                                 "current_phase": "implement",
-                                "phases": [],
+                                # task-1 present so the add-commit tests'
+                                # id → index resolution (#3527) succeeds.
+                                "phases": [
+                                    {
+                                        "id": "phase-1",
+                                        "tasks": [{"id": "task-1", "status": "pending"}],
+                                    }
+                                ],
                                 "decisions": [],
                             },
                         }

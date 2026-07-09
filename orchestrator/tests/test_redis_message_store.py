@@ -1561,6 +1561,9 @@ class TestBlockingChunkCap:
             raise redis.TimeoutError("Timeout reading from socket")
 
         monkeypatch.setattr(redis_client, "xrange", timeout_xrange)
+        # The cursor-less non-blocking read goes through XREVRANGE since the
+        # #3548 tail-read fix; cover both non-blocking read shapes.
+        monkeypatch.setattr(redis_client, "xrevrange", timeout_xrange)
         store = RedisMessageStore(redis_client)
 
         # The idle-slice degradation is scoped to blocking reads only —
@@ -1739,3 +1742,65 @@ class TestRedisSliceAndFromRolesCombined:
         assert len(got[0]) == 1
         assert got[0][0].from_role == "orchestrator"
         assert got[0][0].message_type == MessageType.CONSENSUS_RE_REVIEW
+
+
+class TestCappedTailRead:
+    """Capped cursor-less reads return the NEWEST messages (#3548).
+
+    XRANGE from ``0-0`` with a count cap returned the OLDEST entries, so
+    once a stream outgrew the cap every "recent messages" surface (operator
+    views, snapshot recent_messages, consensus inference, reconstruction)
+    saw a frozen head-of-stream window — the #3548 incident's "no
+    CONSENSUS_ACK ever appears on the bus" misdiagnosis.
+    """
+
+    @staticmethod
+    def _add_n(store, n, *, subject_prefix="msg"):
+        for i in range(n):
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.PROGRESS,
+                    subject=f"{subject_prefix}-{i}",
+                    body=f"body {i}",
+                )
+            )
+
+    def test_capped_read_returns_newest_in_chronological_order(self, store):
+        self._add_n(store, 30)
+        messages = store.get_messages("test-pipeline", limit=10)
+        assert len(messages) == 10
+        assert [m.subject for m in messages] == [f"msg-{i}" for i in range(20, 30)]
+
+    def test_uncapped_read_unchanged(self, store):
+        self._add_n(store, 5)
+        messages = store.get_messages("test-pipeline", limit=100)
+        assert [m.subject for m in messages] == [f"msg-{i}" for i in range(5)]
+
+    def test_since_id_read_keeps_forward_semantics(self, store):
+        self._add_n(store, 30)
+        all_messages = store.get_messages("test-pipeline", limit=1000)
+        cursor = all_messages[4].id
+        after = store.get_messages("test-pipeline", since_id=cursor, limit=100)
+        # Forward from the cursor: everything strictly after it, oldest
+        # first — the tail-read flip must not touch cursor reads.
+        assert [m.subject for m in after] == [f"msg-{i}" for i in range(5, 30)]
+
+    def test_tail_read_applies_filters_then_truncates(self, store):
+        # Interleave to_role targeting so the role filter drops half.
+        for i in range(20):
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="coder",
+                    to_role="tester" if i % 2 == 0 else "reviewer_code",
+                    message_type=MessageType.PROGRESS,
+                    subject=f"msg-{i}",
+                    body=f"body {i}",
+                )
+            )
+        messages = store.get_messages("test-pipeline", role="tester", limit=5)
+        # Newest 5 messages addressed to tester (or all), chronological.
+        assert [m.subject for m in messages] == [f"msg-{i}" for i in (10, 12, 14, 16, 18)]

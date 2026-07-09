@@ -246,6 +246,245 @@ class TestGetContainerLogs:
         assert result["container_id"] == "new"
 
 
+class TestGetContainerLogsPersistedFallback:
+    """Post-reap capture fallback in get_container_logs (#3547)."""
+
+    _RECORD = {
+        "job_name": "egg-agent-issue-42-coder-abc",
+        "agent_role": "coder",
+        "slice_id": "slice-3",
+        "exit_code": 137,
+        "captured_at": "2026-07-07T21:00:00+00:00",
+        "truncated": False,
+        "logs": "captured stdout",
+    }
+
+    def test_no_live_container_for_role_uses_captures(self, handler):
+        """Live list has other roles but not the requested one; the reaped
+        role's capture is served instead of another role's live logs."""
+        containers_response = {
+            "data": {
+                "containers": [
+                    {
+                        "container_id": "c-tester",
+                        "status": "running",
+                        "agent_role": "tester",
+                        "started_at": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            }
+        }
+        index_response = {"data": {"records": [dict(self._RECORD, logs=None, log_bytes=15)]}}
+        record_response = {"data": dict(self._RECORD)}
+
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [containers_response, index_response, record_response]
+            result = handler.handle_tool_call(
+                "get_container_logs", {"task_id": "issue-42", "agent_role": "coder"}
+            )
+
+        assert result["source"] == "persisted"
+        assert result["logs"] == "captured stdout"
+        assert result["container_id"] == "egg-agent-issue-42-coder-abc"
+        assert result["agent_role"] == "coder"
+        assert result["exit_code"] == 137
+        assert result["status"] == "reaped"
+
+    def test_live_fetch_404_falls_back_to_exact_capture(self, handler):
+        from urllib.error import HTTPError
+
+        record_response = {"data": dict(self._RECORD)}
+
+        def _sequence(endpoint, **kwargs):
+            if endpoint.endswith("/logs?tail=100"):
+                raise HTTPError(endpoint, 404, "not found", None, None)
+            return record_response
+
+        with patch.object(handler, "_make_request", side_effect=_sequence):
+            result = handler.handle_tool_call(
+                "get_container_logs",
+                {"task_id": "issue-42", "container_id": "egg-agent-issue-42-coder-abc"},
+            )
+
+        assert result["source"] == "persisted"
+        assert result["logs"] == "captured stdout"
+
+    def test_no_containers_and_no_captures_errors(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {"data": {"containers": [], "records": []}}
+            result = handler.handle_tool_call("get_container_logs", {"task_id": "issue-42"})
+
+        assert "error" in result
+
+    def test_explicit_container_miss_no_role_does_not_serve_unrelated(self, handler):
+        """An explicit container_id that misses must not return newest-overall (#3566).
+
+        With no agent_role to re-narrow, guessing the newest capture would hand
+        the operator a *different* job's logs than the one they named. The index
+        endpoint must not even be consulted; the original fetch error surfaces.
+        """
+        from urllib.error import HTTPError
+
+        index_calls: list[str] = []
+
+        def _sequence(endpoint, **kwargs):
+            if endpoint.endswith("/logs?tail=100"):
+                raise HTTPError(endpoint, 404, "not found", None, None)
+            if "/agent-logs/" in endpoint:
+                return {"data": {}}  # exact-match miss for the requested id
+            if endpoint.endswith("/agent-logs"):
+                index_calls.append(endpoint)
+                # A sibling capture exists; it must NOT be substituted.
+                return {"data": {"records": [dict(self._RECORD)]}}
+            return {"data": {}}
+
+        with patch.object(handler, "_make_request", side_effect=_sequence):
+            result = handler.handle_tool_call(
+                "get_container_logs",
+                {"task_id": "issue-42", "container_id": "pod-uid-does-not-match"},
+            )
+
+        assert index_calls == []  # newest-overall lookup never attempted
+        assert result.get("logs") != "captured stdout"
+        assert "error" in result
+
+    def test_explicit_container_miss_with_role_falls_through_to_role_capture(self, handler):
+        """A role IS a legitimate re-narrowing: container_id miss + role serves
+        the newest capture for that role (#3566)."""
+        from urllib.error import HTTPError
+
+        def _sequence(endpoint, **kwargs):
+            if endpoint.endswith("/logs?tail=100"):
+                raise HTTPError(endpoint, 404, "not found", None, None)
+            if endpoint.endswith("/agent-logs/pod-uid-does-not-match"):
+                return {"data": {}}  # exact-match miss
+            if endpoint.endswith("/agent-logs"):
+                return {"data": {"records": [dict(self._RECORD, logs=None, log_bytes=15)]}}
+            return {"data": dict(self._RECORD)}  # full body for the role's job
+
+        with patch.object(handler, "_make_request", side_effect=_sequence):
+            result = handler.handle_tool_call(
+                "get_container_logs",
+                {
+                    "task_id": "issue-42",
+                    "container_id": "pod-uid-does-not-match",
+                    "agent_role": "coder",
+                },
+            )
+
+        assert result["source"] == "persisted"
+        assert result["logs"] == "captured stdout"
+        assert result["agent_role"] == "coder"
+
+    def test_auto_selected_container_forwards_role_to_fallback(self, handler):
+        """Auto-select picks a container, the live fetch loses the race, and the
+        selected UID misses the job-name-keyed exact lookup. The selected
+        container's role must be forwarded so role re-narrowing recovers the
+        capture instead of the miss-on-ambiguity guard giving up (#3566)."""
+        from urllib.error import HTTPError
+
+        containers_response = {
+            "data": {
+                "containers": [
+                    {
+                        "container_id": "pod-uid-not-a-job-name",
+                        "status": "running",
+                        "agent_role": "coder",
+                        "started_at": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            }
+        }
+
+        def _sequence(endpoint, **kwargs):
+            if endpoint.endswith("/logs?tail=100"):
+                raise HTTPError(endpoint, 404, "not found", None, None)
+            if "/containers?all=true" in endpoint:
+                return containers_response
+            if endpoint.endswith("/agent-logs/pod-uid-not-a-job-name"):
+                return {"data": {}}  # exact-match miss on the pod UID
+            if endpoint.endswith("/agent-logs"):
+                return {"data": {"records": [dict(self._RECORD, logs=None, log_bytes=15)]}}
+            return {"data": dict(self._RECORD)}  # full body for the role's job
+
+        with patch.object(handler, "_make_request", side_effect=_sequence):
+            # No container_id and no agent_role: pure auto-select path.
+            result = handler.handle_tool_call("get_container_logs", {"task_id": "issue-42"})
+
+        assert result["source"] == "persisted"
+        assert result["logs"] == "captured stdout"
+        assert result["agent_role"] == "coder"
+
+
+class TestGetAgentTranscript:
+    """Operator read path for session-state transcripts (#3547)."""
+
+    def test_returns_transcript_tail(self, handler):
+        transcript = "\n".join(f'{{"line": {i}}}' for i in range(10))
+        response = {
+            "success": True,
+            "found": True,
+            "data": {
+                "session_id": "sid-1",
+                "window_occupancy": 12345,
+                "transcript": transcript,
+            },
+        }
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = response
+            result = handler.handle_tool_call(
+                "get_agent_transcript",
+                {
+                    "task_id": "issue-42",
+                    "agent_role": "coder",
+                    "slice_id": "slice-3",
+                    "lines": 3,
+                },
+            )
+
+        mock_req.assert_called_once_with(
+            "/api/v1/pipelines/issue-42/session-state?role=coder&slice_id=slice-3"
+        )
+        assert result["found"] is True
+        assert result["session_id"] == "sid-1"
+        assert result["window_occupancy"] == 12345
+        assert result["total_transcript_lines"] == 10
+        assert result["lines_returned"] == 3
+        assert result["transcript_tail"].splitlines() == [
+            '{"line": 7}',
+            '{"line": 8}',
+            '{"line": 9}',
+        ]
+
+    def test_miss_returns_index(self, handler):
+        miss = {"success": True, "found": False}
+        index = {
+            "success": True,
+            "records": [
+                {"slice_id": "slice-3", "role": "coder", "session_id": "s", "transcript_bytes": 9}
+            ],
+        }
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [miss, index]
+            result = handler.handle_tool_call(
+                "get_agent_transcript", {"task_id": "issue-42", "agent_role": "documenter"}
+            )
+
+        assert result["found"] is False
+        assert result["available_transcripts"] == index["records"]
+        assert "hint" in result
+
+    def test_no_role_lists_available(self, handler):
+        index = {"success": True, "records": []}
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = index
+            result = handler.handle_tool_call("get_agent_transcript", {"task_id": "issue-42"})
+
+        mock_req.assert_called_once_with("/api/v1/pipelines/issue-42/session-state/index")
+        assert result["found"] is False
+        assert result["available_transcripts"] == []
+
+
 class TestSendMessage:
     def test_send_basic(self, handler):
         with patch.object(handler, "_make_request") as mock_req:
@@ -1097,6 +1336,8 @@ class TestToolRouting:
             "check_health",
             "list_containers",
             "get_container_logs",
+            # Session-transcript read path (#3547)
+            "get_agent_transcript",
             "send_message",
             "get_consensus_status",
             "get_phase",
@@ -3504,3 +3745,86 @@ class TestUpdatePipelineConfig:
 
         assert "error" in result
         mock_req.assert_not_called()
+
+
+class TestConsensusStatusVerdictPassThrough:
+    """get_consensus_status passes the compact verdict fields through (#3548)."""
+
+    def test_structured_consensus_includes_verdict_fields(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                {
+                    "data": {
+                        "pipeline": {
+                            "id": "issue-3548",
+                            "current_phase": "implement",
+                            "status": "running",
+                        }
+                    }
+                },
+                {
+                    "data": {
+                        "concurrent": {
+                            "consensus": {
+                                "is_complete": False,
+                                "blocking_agents": ["coder", "tester"],
+                                "has_unresolved_nacks": False,
+                                "unresolved_nacks": [],
+                                "agents": {
+                                    "documenter": {
+                                        "producer_phase": "PROPOSED",
+                                        "confirmed": False,
+                                    }
+                                },
+                                "proposal_versions": {"documenter": 1},
+                                "review_edges": [
+                                    {
+                                        "reviewer": "reviewer_code",
+                                        "producer": "documenter",
+                                        "state": "acked",
+                                        "version": 1,
+                                    }
+                                ],
+                                "zero_proposal_producers": ["coder", "tester"],
+                            }
+                        }
+                    }
+                },
+            ]
+            result = handler.handle_tool_call("get_consensus_status", {"task_id": "issue-3548"})
+
+        consensus = result["consensus"]
+        assert consensus["proposal_versions"] == {"documenter": 1}
+        assert consensus["review_edges"][0]["state"] == "acked"
+        assert consensus["zero_proposal_producers"] == ["coder", "tester"]
+
+    def test_fields_default_empty_for_older_blocks(self, handler):
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                {
+                    "data": {
+                        "pipeline": {
+                            "id": "issue-3548",
+                            "current_phase": "implement",
+                            "status": "running",
+                        }
+                    }
+                },
+                {
+                    "data": {
+                        "concurrent": {
+                            "consensus": {
+                                "is_complete": False,
+                                "blocking_agents": [],
+                                "agents": {"coder": {"producer_phase": "PROPOSED"}},
+                            }
+                        }
+                    }
+                },
+            ]
+            result = handler.handle_tool_call("get_consensus_status", {"task_id": "issue-3548"})
+
+        consensus = result["consensus"]
+        assert consensus["proposal_versions"] == {}
+        assert consensus["review_edges"] == []
+        assert consensus["zero_proposal_producers"] == []
