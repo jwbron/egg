@@ -123,9 +123,6 @@ def _get_pipeline_status_body(pipeline_id: str) -> tuple[_pkg.Response, int]:
                     "overseer_auto_file_issues_mode": getattr(
                         cfg, "overseer_auto_file_issues_mode", None
                     ),
-                    "overseer_owns_host_detection": getattr(
-                        cfg, "overseer_owns_host_detection", False
-                    ),
                     "overseer_stuck_phase_transition_seconds": getattr(
                         cfg, "overseer_stuck_phase_transition_seconds", 180
                     ),

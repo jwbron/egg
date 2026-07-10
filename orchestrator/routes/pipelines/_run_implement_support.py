@@ -355,6 +355,68 @@ def _contract_loader_impl(*, pipeline_id, worktree_repo_path) -> _pkg.Any:
         return None
 
 
+def _open_context_pr_safety_net_impl(*, pipeline_id, store) -> None:
+    """Defensive idempotent context-PR opener (#2777 cq-4).
+
+    The canonical advance_phase REST path enforces hard-required, but
+    the runner-driven entries (auto-advance, implement-entry,
+    HITL-resume, the slice-loop entry) must also fire it to avoid
+    silent strands on ``egg/<id>/work``. Soft-fail on transient
+    gateway errors here — the canonical site already enforces the
+    422 contract.
+    """
+    try:
+        # Pass the main repo path (``store.repo_path``) — not
+        # ``worktree_repo_path`` — so all four opener call sites of
+        # ``_open_context_pr_at_implement_start`` read identically.
+        # The opener rederives its own per-pipeline worktree internally
+        # via ``resolve_worktree_path(pipeline_id, store.repo_path)``.
+        _pkg._open_context_pr_at_implement_start(pipeline_id, repo_path=_pkg.Path(store.repo_path))
+    except _pkg.ContextPrCreationError as ctx_err:
+        _pkg.logger.warning(
+            "Context PR opener: slice-loop entry safety net failed "
+            "(continuing — hard-require enforced at advance_phase and "
+            "the implement-start plan pre-flight gate) (#2777, #3100)",
+            pipeline_id=pipeline_id,
+            reason=ctx_err.reason,
+            error=str(ctx_err),
+        )
+    except Exception as safety_err:  # noqa: BLE001
+        # Defence in depth: import / lookup failures must not strand
+        # the slice loop.
+        _pkg.logger.warning(
+            "Context PR opener: slice-loop entry safety net outer "
+            "wrapper raised (continuing) (#2777)",
+            pipeline_id=pipeline_id,
+            error=str(safety_err),
+        )
+
+
+def _build_slice_closed_emitter_impl(pipeline_id):
+    """Build the ``slice.closed`` emitter the run loop hands to the scheduler.
+
+    Wires the slice.closed emitter (issue #3364): the scheduler invokes it
+    OUTSIDE its lock from record_complete / record_failure, so a real slice
+    close publishes an allowlisted ``slice.closed`` event to the bus that a
+    long-haul monitor threads on. Guarded on the optional event-bus handle
+    and no-ops when it's unavailable — mirroring the CONSENSUS_TIMEOUT /
+    PIPELINE_FAILED emit sites in _alerts.py / _run_pipeline.py. The
+    ``outcome`` (``complete`` | ``failed``) distinguishes success from
+    failure so a consumer needs no second lookup.
+    """
+
+    def _emit_slice_closed(slice_id: str, outcome: str) -> None:
+        if _pkg._emit_event is None:
+            return
+        _pkg._emit_event(
+            _pkg.EventType.SLICE_CLOSED,
+            pipeline_id,
+            data={"slice_id": slice_id, "outcome": outcome},
+        )
+
+    return _emit_slice_closed
+
+
 def _slice_close_evidence_gate(
     pipeline_id,
     spawner,

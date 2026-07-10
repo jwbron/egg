@@ -610,6 +610,13 @@ class ConcurrentPhaseExecutor:
             # waiting on a live upstream producer is choreography, not a
             # wedge, so it must not fire at [high].
             waiting_probe=self._role_waiting_status,
+            # #3364 PR C: the transient rate-limit path reports its two
+            # transitions (cq-1 cumulative-wait threshold; deterministic-loop
+            # guard) here; the executor owns the OVERSEER_ALERT + the loop-guard
+            # halt (TASK-2-7). The paced retry itself runs through the normal
+            # respawn gate (``ready_to_respawn`` honours the per-key rate-limit
+            # backoff), so landed slices are never discarded.
+            rate_limited_notifier=self._handle_rate_limited,
         )
 
         # #3064 slice-5: convergence-stall notifier re-uses the same
@@ -1774,6 +1781,102 @@ class ConcurrentPhaseExecutor:
                 "Failed to tear down reused gateway session on streak exhaustion",
                 pipeline_id=self.pipeline.id,
                 role=agent_role.value,
+                error=str(exc),
+            )
+
+    def _handle_rate_limited(
+        self,
+        *,
+        role: str,
+        action: str,
+        dedupe_key: str,
+        retry_count: int,
+        cumulative_wait_seconds: float,
+        backoff_seconds: float,
+        threshold_crossed: bool,
+        deterministic_loop: bool,
+        fingerprint: Any,
+    ) -> None:
+        """React to a transient rate-limit outcome's reported transitions (#3364 PR C).
+
+        Wired as the :class:`JobSupervisor`'s ``rate_limited_notifier``. The
+        supervisor already PACED the respawn across the cap window (the paced
+        retry needs no action here — it runs through the normal respawn gate,
+        so completed slices are never discarded, AC-C3). This handler owns the
+        two operator-facing reactions the supervisor deliberately does not take
+        itself:
+
+        * ``threshold_crossed`` (cq-1, AC-C5): the cumulative paced wait crossed
+          the threshold. Emit an ``OVERSEER_ALERT`` so an attended operator is
+          informed WHILE auto-recovery continues — there is NO hard wall-clock
+          ceiling; the paced retry keeps going until the cap lifts.
+        * ``deterministic_loop`` (AC-C4): the identical failure fingerprint
+          reproduced at the same progression point past the loop-guard
+          threshold — a deterministic failure masquerading as a throttle. Emit
+          a distinct named alert and HALT the paced retry (mark the key
+          exhausted) so the loop stops and the arms-exhausted HITL takes over,
+          rather than looping forever. Orthogonal to the threshold alert.
+
+        Best-effort throughout: an alerting/halt failure must never wedge the
+        event loop (it fires from inside the supervisor's record path).
+        """
+        try:
+            if threshold_crossed:
+                self._emit_supervision_alert(
+                    anomaly="agent-rate-limited",
+                    priority="high",
+                    summary=(
+                        f"agent throttled — paced auto-retry continuing "
+                        f"(action={action}, role={role})"
+                    ),
+                    detail=(
+                        f"Event-pump for role={role} (action={action}) has been "
+                        f"paused by a transient rate-limit / cap wall for a "
+                        f"cumulative {int(cumulative_wait_seconds)}s across "
+                        f"{retry_count} paced retries (dedupe_key={dedupe_key}). "
+                        f"This is NOT a halt: the orchestrator keeps retrying on "
+                        f"a paced cadence (currently ~{int(backoff_seconds)}s) "
+                        f"until the cap lifts — a weekly/subscription cap can "
+                        f"stay shut for hours-to-days. Completed slices are "
+                        f"preserved. This alert fires once so an attended "
+                        f"operator knows the pipeline is waiting on a cap wall, "
+                        f"not stuck; no action is required for auto-recovery."
+                    ),
+                )
+            if deterministic_loop:
+                self._emit_supervision_alert(
+                    anomaly="rate-limit-deterministic-loop",
+                    priority="high",
+                    summary=(
+                        f"rate-limit paced retry reproducing an identical failure "
+                        f"— escalating (action={action}, role={role})"
+                    ),
+                    detail=(
+                        f"Event-pump for role={role} (action={action}) has "
+                        f"reproduced the IDENTICAL failure fingerprint at the "
+                        f"same progression point across {retry_count} paced "
+                        f"rate-limit retries (dedupe_key={dedupe_key}) with no "
+                        f"state advance. This is a deterministic failure "
+                        f"masquerading as a transient throttle, so the paced "
+                        f"retry is halted to stop an infinite loop; the "
+                        f"arms-exhausted HITL surfaces retry / restart-phase / "
+                        f"abort options (restart preserves work pushed to the "
+                        f"shared branch). Fingerprint: {fingerprint}."
+                    ),
+                )
+                # Halt the paced loop (the executor's decision, not the
+                # recorder's): mark the key exhausted so the loop stops
+                # respawning it and the arms-exhausted escalation takes over.
+                loop = self._event_loop
+                if loop is not None:
+                    loop.supervisor.halt_rate_limited(dedupe_key)
+        except Exception as exc:  # noqa: BLE001 — must never wedge the loop
+            logger.warning(
+                "Failed to handle rate-limit transition",
+                pipeline_id=self.pipeline.id,
+                role=role,
+                action=action,
+                dedupe_key=dedupe_key,
                 error=str(exc),
             )
 

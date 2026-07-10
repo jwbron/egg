@@ -302,7 +302,6 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `overseer_advisor_model` | `"opus"` | LLM model used by the Tier-2 advisor when Haiku flags an anomaly that intersects with a Tier-1 health alert. The default is the canonical `opus` alias so cost telemetry resolves correctly. See [Advisor Gate](#advisor-gate). |
 | `overseer_advisor_recent_log_bytes_cap` | `256000` | Byte cap for the `recent_log_lines` block in the advisor prompt (issue #2120). When the joined block exceeds the cap, the prompt-builder drops oldest lines first so the most-recent lines (highest signal) survive, and prepends a marker so the advisor knows truncation happened. Set to `0` to disable (not recommended — leaves the prompt open to pathological log payloads). |
 | `overseer_auto_file_issues_mode` | `"shadow"` | Auto-issue-filing mode: `shadow` surfaces the advisor's `recommendation=file_issue` as an `OVERSEER_ALERT` + HITL decision (the human approves before any `gh issue create` runs); `live` runs the same HITL flow but allows the CLI verb to file once approval lands. The HITL approval is *never* bypassed. To disable issue filing entirely, set `overseer_enabled=false`. |
-| `overseer_owns_host_detection` | `false` | Calibration-window flag for the host → overseer migration. While `false` (the default), the `/sdlc` host skill keeps its stall / silent-agent / NACK / long-running-phase / stuck-pipeline rescue detectors live. While `true`, those host detectors short-circuit and the overseer is the sole source of these alerts. See [Host Detector Migration](#host-detector-migration). |
 | `overseer_stuck_phase_transition_seconds` | `180` | Threshold (seconds) for the existing overseer `stuck-phase-transition` trigger (orchestrator-level signal). Raised from the previous hardcoded ~60s default per operator feedback during long phase transitions. |
 | `overseer_agent_stall_seconds` | `180` | Threshold (seconds) for the new `detect_agent_stall` detector migrated from `/sdlc` (per-agent elapsed-time signal). Distinct from `overseer_stuck_phase_transition_seconds` so the two anomalies can be tuned independently. |
 | `overseer_silent_agent_threshold_seconds` | `600` | Threshold (seconds) for the migrated `detect_agent_silent` detector (running agent with zero messages). Matches the previous `/sdlc` default. |
@@ -559,7 +558,7 @@ The CLI verb and gateway require an `owner/repo`-formatted `EGG_PIPELINE_REPO` e
 
 ### Host Detector Migration
 
-Issue [#1962](https://github.com/jwbron/egg/issues/1962) also migrates five host-side `/sdlc` skill detectors into the overseer:
+Issue [#1962](https://github.com/jwbron/egg/issues/1962) migrated five host-side `/sdlc` skill detectors into the overseer:
 
 | Detector | Threshold knob | Migrated trigger |
 |----------|----------------|------------------|
@@ -571,14 +570,7 @@ Issue [#1962](https://github.com/jwbron/egg/issues/1962) also migrates five host
 
 Per-agent timing state moves from `/sdlc`'s in-memory `{role: {phase, phase_entered_at, …}}` map into `.egg-state/oversight/agent-timing.json` (see `shared/egg_overseer/state.py::AgentTimingState`). Read/modify/write is guarded by an `fcntl.LOCK_EX` flock on its own per-state-file sentinel `.egg-state/oversight/agent-timing.json.lock` so concurrent overseer respawns at phase boundaries cannot clobber each other's updates. Per-anomaly suppression uses `AgentTimingEntry.alerted_anomalies` so each `(role, anomaly)` pair fires at most once per `2× threshold` window per phase.
 
-**Calibration-window flag semantics.** `overseer_owns_host_detection` defaults to `false` for the first release. The flag selects **one** active source of these alerts:
-
-- **`false` (default)** — the host's `/sdlc` detectors run; the overseer's `run_migrated_detectors` function (`sandbox/overseer_monitor.py`) early-returns `[]` so the overseer emits no migrated-detector alerts at all. Pipelines see today's behavior.
-- **`true`** — the host's `/sdlc` detection blocks short-circuit (gated on the same flag in `skills/sdlc/SKILL.md`); the overseer becomes the sole source.
-
-This is "host XOR overseer", not "host AND overseer" — the calibration window is **operator-driven**: an operator opts a pipeline into `true` to validate overseer parity, then opts back to `false` if needed. After a calibration window (≥ 2 weeks) of validating overseer-side detection, a follow-up PR flips the default to `true` and deletes the now-dormant host blocks. Running both in parallel for observability comparison is tracked as a follow-up enhancement (out of scope for this PR; would require the overseer to compute alerts but suppress emission while the flag is False).
-
-When `overseer_owns_host_detection=true` and the host sees no `OVERSEER_ALERT` from the overseer for `2 × overseer_agent_stall_seconds` while running agents are present, the host raises a single `AskUserQuestion` ("Overseer appears unresponsive; would you like to (a) check the overseer container logs, (b) restart the overseer, (c) continue with host detection only for this pipeline, (d) cancel?"). A sentinel file at `.egg-state/oversight/sdlc-fallback-fired-{pipeline_id}-{phase}.flag` ensures the fallback fires at most once per phase.
+**Migration concluded.** The calibration window has closed. Earlier releases gated this cutover behind a per-pipeline calibration flag — while off, the host's `/sdlc` detectors were the active source; while on, the host blocks short-circuited and the overseer was the sole source — running "host XOR overseer" during an operator-driven parity-validation window. That flag and the now-dormant host-side detector blocks (including the host's overseer-unresponsive fallback prompt) have since been removed: the overseer owns this detection and the `/sdlc` skill only surfaces the resulting `OVERSEER_ALERT`s.
 
 ### Sandbox CLI Verb: `egg-orch overseer consult-advisor`
 

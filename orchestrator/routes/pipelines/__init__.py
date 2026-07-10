@@ -410,6 +410,10 @@ _STATUS_WAIT_EVENT_TYPES = frozenset(
         "pipeline.completed",
         "pipeline.failed",
         "pipeline.cancelled",
+        # Slice-DAG close (issue #3364) — a long-haul monitor threads on
+        # slice completes/failures via ``/status/wait``, so the allowlist
+        # must let ``slice.closed`` through instead of filtering it out.
+        "slice.closed",
     }
 )
 
@@ -1389,9 +1393,11 @@ from ._run_implement import (  # noqa: E402,F401
 )
 from ._run_implement_support import (  # noqa: E402,F401
     _admission_base_ancestry_gate_impl,
+    _build_slice_closed_emitter_impl,
     _commit_and_push_slice_statefiles_impl,
     _contract_loader_impl,
     _fresh_contract_for_base_impl,
+    _open_context_pr_safety_net_impl,
     _parent_branch_probe_impl,
     _persist_slice_status_complete_impl,
     _slice_close_evidence_gate,

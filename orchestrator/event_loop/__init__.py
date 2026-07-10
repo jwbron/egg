@@ -108,6 +108,27 @@ SUPERVISION_FAILURE_STREAK_ALERT = _supervision_policy.SUPERVISION_FAILURE_STREA
 SUPERVISION_NOOP_STREAK_PARK = _supervision_policy.SUPERVISION_NOOP_STREAK_PARK
 SUPERVISION_NOOP_PARK_RETRY_SECONDS = _supervision_policy.SUPERVISION_NOOP_PARK_RETRY_SECONDS
 
+# #3364 PR C — transient rate-limit / cap-wall paced-retry policy (separate
+# from the abnormal SUPERVISION_BACKOFF_* / streak constants above; re-exported
+# here so ``_supervisor`` value-imports them through the barrel like its
+# siblings).
+SUPERVISION_RATE_LIMIT_BACKOFF_FACTOR = _supervision_policy.SUPERVISION_RATE_LIMIT_BACKOFF_FACTOR
+SUPERVISION_RATE_LIMIT_BACKOFF_CAP_SECONDS = (
+    _supervision_policy.SUPERVISION_RATE_LIMIT_BACKOFF_CAP_SECONDS
+)
+SUPERVISION_RATE_LIMIT_MAX_PACING_SECONDS = (
+    _supervision_policy.SUPERVISION_RATE_LIMIT_MAX_PACING_SECONDS
+)
+SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS = (
+    _supervision_policy.SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS
+)
+SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS = (
+    _supervision_policy.SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS
+)
+parse_rate_limit_reset_seconds = _supervision_policy.parse_rate_limit_reset_seconds
+rate_limit_backoff_seconds = _supervision_policy.rate_limit_backoff_seconds
+RateLimitFingerprint = _supervision_policy.RateLimitFingerprint
+
 # Verb partitioning — the single source of truth for the verb→lifecycle
 # mapping the loop enforces. ``confirm``/``complete`` run orchestrator-side
 # with no pod; ``wait`` (and any unknown verb) is a no-op.
@@ -140,11 +161,20 @@ AGENT_FREE_ACTIONS: frozenset[str] = frozenset({"confirm", "complete"})
 #                      the streak entirely — exhaust the key on the first
 #                      occurrence and raise a named, actionable alert. Retrying
 #                      only re-uses the same rejected credential.
+#   * ``rate_limited`` — the agent exited with the rate-limit code
+#                      (``egg_agent.auth_errors.EX_RATE_LIMITED``): a TRANSIENT
+#                      throttle / cap wall (bare 429 / "rate limit" /
+#                      "overloaded", #3364). Route to ``record_rate_limited``,
+#                      NOT ``record_abort`` — it leaves the abnormal streak
+#                      untouched (so the cap wall never trips the fail-streak
+#                      halt) and PACES the respawn across the rolling cap
+#                      window instead of hammering on the 30s backoff.
 JOB_OUTCOME_RUNNING = "running"
 JOB_OUTCOME_SUCCESS = "success"
 JOB_OUTCOME_LEGITIMATE = "legitimate"
 JOB_OUTCOME_ABNORMAL = "abnormal"
 JOB_OUTCOME_FATAL = "fatal"
+JOB_OUTCOME_RATE_LIMITED = "rate_limited"
 
 # Poll cadence (#3064 slice-2: "poll interval env-tunable (default 5s)").
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
@@ -393,10 +423,27 @@ class JobSupervisor:
         hitl_probe: Callable[[], Iterable[str] | None] | None = None,
         brc_probe: Callable[[], str | None] | None = None,
         waiting_probe: Callable[[str], tuple[str, bool] | None] | None = None,
+        rate_limited_notifier: Callable[..., Any] | None = None,
     ) -> None:
         self.clock = clock
         self._overseer_alert = overseer_alert
         self._agent_failed = agent_failed
+        # #3364 PR C: fired by ``record_rate_limited`` to REPORT the two
+        # rate-limit transitions the executor acts on (TASK-2-7) — the cq-1
+        # cumulative-wait threshold crossing (an OVERSEER_ALERT while the paced
+        # retry continues, no hard ceiling) and the deterministic-loop-guard
+        # trip. The guard trips ONLY on a failure whose signature has changed to
+        # a NON-throttle error (positive deterministic evidence); a genuine
+        # steady cap wall reproduces its throttle fingerprint forever WITHOUT
+        # tripping it, so ``deterministic_loop`` stays False on the bare-throttle
+        # production path and the arm paces indefinitely. ``record_rate_limited``
+        # only reports; the notifier owns the alert / HITL / halt. Called as
+        # ``rate_limited_notifier(role=, action=, dedupe_key=, retry_count=,
+        # cumulative_wait_seconds=, backoff_seconds=, threshold_crossed=,
+        # deterministic_loop=, fingerprint=)``; best-effort. ``None`` (unit
+        # tests / pod mode) leaves the paced retry running with no external
+        # surface.
+        self._rate_limited_notifier = rate_limited_notifier
         # #3425: best-effort probe returning the ids of unresolved
         # contract-resident decisions (``cq-N``). Resolving such a decision
         # writes only the contract file — never the BRC tracker — so a parked
@@ -495,6 +542,35 @@ class JobSupervisor:
         self._noop_release_context: dict[str, dict[str, Any]] = {}
         # Once-per-key sticky latch for the no-op park alert.
         self._alerted_noop: dict[str, bool] = {}
+        # #3364 PR C — transient rate-limit / cap-wall paced-retry state, per
+        # dedupe key. DELIBERATELY separate from the abnormal ``_streaks`` /
+        # ``_last_abort_time`` / ``_exhausted`` state so the throttle path can
+        # never feed the fail-streak halt (AC-C1) and the abnormal path is left
+        # byte-for-byte unchanged (AC-C6).
+        # Count of consecutive rate-limit outcomes for the key (drives the
+        # bounded backoff and the retry-attempt log).
+        self._rate_limit_count: dict[str, int] = {}
+        # Paced backoff (seconds) computed at the last rate-limit outcome — the
+        # window ``ready_to_respawn`` holds the respawn for (reset-time-paced
+        # when the error carried a hint, else the bounded rate-limit backoff).
+        self._rate_limit_backoff: dict[str, float] = {}
+        # ``clock()`` of the last rate-limit outcome — the anchor the paced
+        # window is measured from (the rate-limit analogue of
+        # ``_last_abort_time``, kept separate so the two never interact).
+        self._rate_limit_last_time: dict[str, float] = {}
+        # Cumulative paced wait for the key — the cq-1 threshold OVERSEER_ALERT
+        # fires once this crosses SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS.
+        self._rate_limit_wait_total: dict[str, float] = {}
+        # {dedupe_key: last RateLimitFingerprint} + consecutive-identical-repeat
+        # count — the deterministic-loop guard: an identical fingerprint at the
+        # same progression point reproduced past the guard threshold is a
+        # deterministic failure, not a transient throttle.
+        self._rate_limit_fingerprint: dict[str, RateLimitFingerprint | None] = {}
+        self._rate_limit_repeat: dict[str, int] = {}
+        # Once-per-key sticky latches: the cq-1 threshold alert and the
+        # loop-guard escalation each fire exactly once per key.
+        self._alerted_rate_limit: dict[str, bool] = {}
+        self._rate_limit_escalated: set[str] = set()
 
     # ------------------------------------------------------------------
     #  Public API (used by the orchestrator loop)
@@ -505,6 +581,9 @@ class JobSupervisor:
     record_legitimate_outcome = _supervisor.record_legitimate_outcome
     record_abort = _supervisor.record_abort
     record_fatal = _supervisor.record_fatal
+    record_rate_limited = _supervisor.record_rate_limited
+    halt_rate_limited = _supervisor.halt_rate_limited
+    _clear_rate_limit_state = _supervisor._clear_rate_limit_state
 
     @property
     def backoff_factor(self) -> int:

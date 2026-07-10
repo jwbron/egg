@@ -45,6 +45,8 @@ for _p in (_orchestrator_path, _shared_path):
 
 from egg_contracts.models import Contract, IssueInfo, Slice  # noqa: E402
 from slice_scheduler import (  # noqa: E402
+    SLICE_OUTCOME_COMPLETE,
+    SLICE_OUTCOME_FAILED,
     CascadeEvent,
     SchedulerSliceState,
     SliceScheduler,
@@ -279,6 +281,97 @@ class TestRecordCycle:
         sched = SliceScheduler(contract)
         assert sched.record_cycle("slice-99") is False
         assert sched.global_cycles == 0
+
+
+# ---------- slice.closed emitter (PR B, issue #3364) ----------
+
+
+class TestSliceClosedEmitter:
+    """The injected ``slice_closed_emitter`` seam fires once per terminal
+    slice outcome, outside the lock, distinguishing success from failure —
+    and never fires spuriously for an absent slice (task-1-2 / AC-B5)."""
+
+    def test_record_complete_emits_exactly_one_complete(self) -> None:
+        captured: list[tuple[str, str]] = []
+        contract = _contract_with(_slice("slice-1"))
+        sched = SliceScheduler(
+            contract,
+            slice_closed_emitter=lambda sid, outcome: captured.append((sid, outcome)),
+        )
+        sched.mark_spawned("slice-1")
+        sched.record_complete("slice-1")
+        assert captured == [("slice-1", SLICE_OUTCOME_COMPLETE)]
+        assert SLICE_OUTCOME_COMPLETE == "complete"
+
+    def test_record_failure_emits_exactly_one_failed(self) -> None:
+        captured: list[tuple[str, str]] = []
+        contract = _contract_with(_slice("slice-1"))
+        sched = SliceScheduler(
+            contract,
+            slice_closed_emitter=lambda sid, outcome: captured.append((sid, outcome)),
+        )
+        sched.record_failure("slice-1")
+        assert captured == [("slice-1", SLICE_OUTCOME_FAILED)]
+        assert SLICE_OUTCOME_FAILED == "failed"
+
+    def test_outcomes_are_distinguishable_across_both_sites(self) -> None:
+        # A completion and a failure on distinct slices produce two events
+        # the consumer can tell apart purely by the ``outcome`` field.
+        captured: list[tuple[str, str]] = []
+        contract = _contract_with(_slice("slice-1"), _slice("slice-2"))
+        sched = SliceScheduler(
+            contract,
+            slice_closed_emitter=lambda sid, outcome: captured.append((sid, outcome)),
+        )
+        sched.mark_spawned("slice-1")
+        sched.record_complete("slice-1")
+        sched.record_failure("slice-2")
+        assert captured == [
+            ("slice-1", SLICE_OUTCOME_COMPLETE),
+            ("slice-2", SLICE_OUTCOME_FAILED),
+        ]
+        assert SLICE_OUTCOME_COMPLETE != SLICE_OUTCOME_FAILED
+
+    def test_absent_slice_complete_does_not_emit(self) -> None:
+        captured: list[tuple[str, str]] = []
+        contract = _contract_with(_slice("slice-1"))
+        sched = SliceScheduler(
+            contract,
+            slice_closed_emitter=lambda sid, outcome: captured.append((sid, outcome)),
+        )
+        sched.record_complete("slice-99")  # unknown → early return, no emit
+        assert captured == []
+
+    def test_absent_slice_failure_does_not_emit(self) -> None:
+        captured: list[tuple[str, str]] = []
+        contract = _contract_with(_slice("slice-1"))
+        sched = SliceScheduler(
+            contract,
+            slice_closed_emitter=lambda sid, outcome: captured.append((sid, outcome)),
+        )
+        sched.record_failure("slice-99")  # unknown → early return, no emit
+        assert captured == []
+
+    def test_no_emitter_configured_is_silent_noop(self) -> None:
+        # Default (no emitter) path must not raise on either terminal site.
+        contract = _contract_with(_slice("slice-1"), _slice("slice-2"))
+        sched = SliceScheduler(contract)
+        sched.mark_spawned("slice-1")
+        sched.record_complete("slice-1")  # no raise
+        sched.record_failure("slice-2")  # no raise
+
+    def test_emitter_exception_does_not_propagate(self) -> None:
+        # A misbehaving consumer must not crash the scheduler — mirrors the
+        # hitl_escalator contract.
+        contract = _contract_with(_slice("slice-1"))
+        sched = SliceScheduler(
+            contract,
+            slice_closed_emitter=lambda *_: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        sched.mark_spawned("slice-1")
+        sched.record_complete("slice-1")  # should not raise
+        # And the slice still reached its terminal state despite the throw.
+        assert sched.get_slice_status("slice-1").state is SchedulerSliceState.COMPLETE
 
 
 # ---------- record_failure / poll_cascades / cancel_cascade ----------
