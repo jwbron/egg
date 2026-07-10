@@ -475,7 +475,15 @@ shape:
        branch via the gateway, calls
        `_run_concurrent_phase(slice_id=...)` to spawn the slice's
        agent team, awaits BRC consensus, and on consensus reach — after
-       the evidence-reachability gate (#3125) and the per-slice green
+       the evidence-reachability gate (#3125; cited SHAs that a
+       reconciled-push rebase rewrote are re-identified by
+       `git patch-id` against the integration branch and treated as
+       satisfied, [#3572](https://github.com/jwbron/egg/issues/3572),
+       `evidence_rescue.py`, kill switch
+       `EGG_EVIDENCE_PATCH_ID_RESCUE`; a slice that still fails the
+       gate lands an unresolved HITL `Decision` via
+       `_escalate_evidence_gate_to_hitl` instead of parking silently
+       after `record_failure`) and the per-slice green
        gate (`slice_green_gate.run_slice_green_gate`, #3398, which
        spawns a sandboxed one-shot check-runner Job to execute the
        repo's configured checks at the integration-branch tip and

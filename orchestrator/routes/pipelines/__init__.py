@@ -1391,6 +1391,7 @@ from ._run_implement_support import (  # noqa: E402,F401
     _commit_and_push_slice_statefiles_impl,
     _contract_loader_impl,
     _persist_slice_status_complete_impl,
+    _slice_close_evidence_gate,
 )
 from ._run_phase import (  # noqa: E402,F401
     _run_phase_execution,
@@ -1438,6 +1439,7 @@ from ._slice_state import (  # noqa: E402,F401
     _cross_repo_hold_resolution,
     _escalate_blocked_slice_to_hitl,
     _escalate_corrupt_slice_to_hitl,
+    _escalate_evidence_gate_to_hitl,
     _escalate_layer_c_hitl,
     _is_slice_dag_mode,
     _lookup_peer_consensus_tracker_or_none,
