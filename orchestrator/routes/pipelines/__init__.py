@@ -1388,8 +1388,11 @@ from ._run_implement import (  # noqa: E402,F401
     _run_implement_phase_slices,
 )
 from ._run_implement_support import (  # noqa: E402,F401
+    _admission_base_ancestry_gate_impl,
     _commit_and_push_slice_statefiles_impl,
     _contract_loader_impl,
+    _fresh_contract_for_base_impl,
+    _parent_branch_probe_impl,
     _persist_slice_status_complete_impl,
     _slice_close_evidence_gate,
 )
@@ -1433,6 +1436,7 @@ from ._slice_completion import (  # noqa: E402,F401
     _validate_slice_completion_basis,
 )
 from ._slice_state import (  # noqa: E402,F401
+    _check_slice_base_ancestry,
     _check_slice_evidence_reachability,
     _classify_non_complete_slice,
     _cross_repo_hold_marker,
@@ -1442,6 +1446,7 @@ from ._slice_state import (  # noqa: E402,F401
     _escalate_evidence_gate_to_hitl,
     _escalate_layer_c_hitl,
     _is_slice_dag_mode,
+    _latest_completed_chain_tip,
     _lookup_peer_consensus_tracker_or_none,
     _register_cross_repo_hold,
     _resolve_pipeline_worktree_path,
@@ -1449,6 +1454,7 @@ from ._slice_state import (  # noqa: E402,F401
     _resolve_slice_gate_repo,
     _resolve_slice_worktree_path,
     _slice_has_pending_decision,
+    _slice_linear_parent_id,
 )
 from ._stacked_pr import (  # noqa: E402,F401
     _start_stacked_pr_reconciler,

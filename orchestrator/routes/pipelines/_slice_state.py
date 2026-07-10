@@ -101,6 +101,144 @@ def _is_slice_dag_mode(contract) -> bool:
     return len(slices) > 1
 
 
+def _slice_linear_parent_id(
+    slice_record,
+    *,
+    issue_branch: str,
+    known_ids: set[str],
+) -> str | None:
+    """Return the slice id this slice's branch was actually forked from.
+
+    Prefers ``parent_branch_at_creation`` — under #3541 root
+    linearization a root slice's branch can fork from a chain outside
+    its declared ``dependencies`` — and maps the recorded branch name
+    (``{issue_branch}/{slice_id}``) back to a slice id. Falls back to
+    ``dependencies[0]`` (the declared DAG parent) when nothing usable
+    is recorded. Returns ``None`` for a true root forked from the
+    pipeline work branch.
+
+    ``known_ids`` bounds the branch-name mapping: a recorded parent
+    that does not correspond to a known slice (e.g. the pipeline work
+    branch itself, or a foreign branch) yields the declared-dependency
+    fallback rather than a phantom id.
+    """
+    recorded = getattr(slice_record, "parent_branch_at_creation", None) or ""
+    prefix = f"{issue_branch}/"
+    if recorded.startswith(prefix):
+        candidate = recorded[len(prefix) :]
+        if candidate in known_ids:
+            return candidate
+        if recorded == f"{issue_branch}/work":
+            # Forked from the pipeline work branch — a true root.
+            return None
+    deps = getattr(slice_record, "dependencies", None) or []
+    return deps[0] if deps else None
+
+
+def _latest_completed_chain_tip(
+    slices,
+    *,
+    slice_id: str,
+    issue_branch: str,
+    pipeline_id: str,
+    branch_exists: _pkg.Callable[[str], bool] | None = None,
+) -> str | None:
+    """Return the integration branch of the deepest COMPLETE slice chain (#3541).
+
+    Root-slice linearization support: during a run the pipeline work
+    branch only ever advances with bookkeeping commits (slice PRs are
+    human-merged after the pipeline finishes), so a root slice forked
+    from ``work`` after a sibling chain completed would exclude that
+    chain's reviewed code from itself and every descendant — the #3541
+    orphaning. The base resolver calls this to fork new roots from the
+    latest completed chain tip instead.
+
+    Selection: among slices whose contract status is COMPLETE
+    (excluding ``slice_id`` itself), a *tip* is a completed slice that
+    no other completed slice forked from (via
+    ``parent_branch_at_creation``, falling back to declared
+    ``dependencies``). Tips are ranked by completed-chain length, then
+    by contract declaration order, descending — under a single linear
+    serialized chain there is exactly one tip and its chain contains
+    every completed slice (a branching tree can have several tips, so
+    the ranking picks the deepest).
+
+    Liveness: each candidate tip's integration branch is probed via
+    ``branch_exists`` (same contract as the resolver's #2928 gate — a
+    raised probe is treated conservatively as "exists", failing loud at
+    branch creation rather than silently mis-basing). A definitively
+    absent branch means the chain's PR was merged into ``work`` and
+    cascade-deleted, so its content is already on the work branch; the
+    next tip is tried. Returns ``None`` when no completed tip with a
+    live branch remains — the caller falls back to the pipeline branch.
+    """
+    from egg_contracts.models import SliceStatus
+
+    completed = {
+        s.id: s
+        for s in slices
+        if s.id != slice_id and getattr(s, "status", None) == SliceStatus.COMPLETE
+    }
+    if not completed:
+        return None
+
+    completed_ids = set(completed)
+    referenced: set[str] = set()
+    for s in completed.values():
+        parent_id = _slice_linear_parent_id(s, issue_branch=issue_branch, known_ids=completed_ids)
+        if parent_id is not None:
+            referenced.add(parent_id)
+    tips = [s for sid, s in completed.items() if sid not in referenced]
+    if not tips:
+        # Unreachable for a validated forest (no cycles); bail rather
+        # than guess.
+        return None
+
+    def _chain_len(tip) -> int:
+        seen: set[str] = set()
+        cursor = tip
+        while cursor is not None and cursor.id not in seen:
+            seen.add(cursor.id)
+            parent_id = _slice_linear_parent_id(
+                cursor, issue_branch=issue_branch, known_ids=completed_ids
+            )
+            cursor = completed.get(parent_id) if parent_id else None
+        return len(seen)
+
+    declared_index = {s.id: i for i, s in enumerate(slices)}
+    tips.sort(
+        key=lambda s: (_chain_len(s), declared_index.get(s.id, -1)),
+        reverse=True,
+    )
+
+    for tip in tips:
+        candidate = f"{issue_branch}/{tip.id}"
+        if branch_exists is None:
+            return candidate
+        try:
+            exists = branch_exists(candidate)
+        except Exception as probe_err:  # noqa: BLE001
+            _pkg.logger.warning(
+                "Completed-tip branch probe raised; assuming tip exists "
+                "and chaining onto it (#3541)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                tip_branch=candidate,
+                error=str(probe_err),
+            )
+            return candidate
+        if exists:
+            return candidate
+        _pkg.logger.info(
+            "Completed-tip branch absent on origin (merged and "
+            "cascade-deleted); trying next tip (#3541)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            tip_branch=candidate,
+        )
+    return None
+
+
 def _resolve_slice_base_branch(
     contract,
     slice_id: str,
@@ -151,12 +289,19 @@ def _resolve_slice_base_branch(
        silently mis-basing fresh slices onto ``work`` whenever
        ``work`` had advanced ahead of the parent (the wedge in
        #2928).
-    3. **Final fallback** to ``pipeline_branch`` (``egg/<id>/work``)
-       when (a) no eager-persisted parent, (b) the slice is a root
-       (no dependencies), OR (c) the slice's dependency parent branch
-       is absent from origin. Root-targeted branches are never
-       deleted by the cascade so this is always a safe terminal
-       candidate.
+    3. **Root linearization (#3541)**. A root slice (no dependencies,
+       no recorded parent) forks from the latest COMPLETE chain tip
+       (see :func:`_latest_completed_chain_tip`) rather than the work
+       branch: during a run the work branch only advances with
+       bookkeeping commits, so basing a root there after a sibling
+       chain completed would orphan that chain's reviewed code from
+       every downstream slice.
+    4. **Final fallback** to ``pipeline_branch`` (``egg/<id>/work``)
+       when (a) no eager-persisted parent and the slice is a root
+       with no completed chain tip to linearize onto, OR (b) the
+       slice's dependency parent branch is absent from origin.
+       Root-targeted branches are never deleted by the cascade so
+       this is always a safe terminal candidate.
 
     **Orphan-reconciler mode (``extant_branches`` non-None)**: the
     stacked-PR reconciler at ``orchestrator/stacked_pr_reconciler.py``
@@ -258,17 +403,49 @@ def _resolve_slice_base_branch(
 
     deps = getattr(slice_record, "dependencies", None) or []
     parent_slice_id = deps[0] if deps else None
+    issue_branch = _pkg._slice_namespace_root(pipeline_branch)
 
     # (2) Root slice — under the new topology (cq-4), the context PR
-    # is ``egg/<id>/work → main`` so root slices stack directly on the
-    # work branch rather than a separate ``egg/<id>/context`` branch.
+    # is ``egg/<id>/work → main``, and root slices used to stack
+    # directly on the work branch. #3541: during a run the work branch
+    # only ever advances with bookkeeping commits (contract persists;
+    # slice PRs are human-merged after the pipeline finishes), so a
+    # root admitted after a sibling chain completed would fork a base
+    # that silently excludes that chain's reviewed, consensus-approved
+    # code — and every descendant inherits the gap. Chain the root
+    # onto the latest completed chain tip instead; the work branch
+    # remains the base for the first root (nothing completed yet) and
+    # the fallback when every completed tip's branch was merged and
+    # cascade-deleted (its content then already lives on ``work``).
+    #
+    # Orphan-reconciler mode keeps the old behaviour: a root whose
+    # recorded parent was filtered out by ``extant_branches`` was
+    # forked from a branch that has since been merged into ``work``,
+    # so ``pipeline_branch`` is the correct retarget — re-linearizing
+    # onto an unrelated live chain would rewrite the PR's diff.
     if parent_slice_id is None:
+        if extant_branches is not None:
+            return pipeline_branch
+        tip_branch = _latest_completed_chain_tip(
+            slices,
+            slice_id=slice_id,
+            issue_branch=issue_branch,
+            pipeline_id=pipeline_id,
+            branch_exists=parent_branch_exists,
+        )
+        if tip_branch is not None:
+            _pkg.logger.info(
+                "Root slice linearized onto completed chain tip (#3541)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                tip_branch=tip_branch,
+            )
+            return tip_branch
         return pipeline_branch
 
     # (3) Non-root slice — derive from the first dependency. Mirrors
     # the existing ``f"{issue_branch}/{parent_slice_id}"`` convention
     # at the legacy slice-loop call site.
-    issue_branch = _pkg._slice_namespace_root(pipeline_branch)
     derived_parent = f"{issue_branch}/{parent_slice_id}"
 
     # #2928: parent-existence gate. When eager-persist did not land
@@ -1201,4 +1378,160 @@ def _check_slice_evidence_reachability(
         f"{integration_branch}: {summary}. Cherry-pick (or push) the cited "
         f"commits onto {integration_branch}, then re-run the slice close; "
         f"set {cc.EVIDENCE_GATE_ENV_VAR}=off to bypass."
+    )
+
+
+def _check_slice_base_ancestry(
+    pipeline_id: str,
+    spawner: "ContainerSpawner",  # noqa: UP037
+    worktree_repo_path: _pkg.Path,
+    slice_id: str,
+    integration_branch: str,
+    *,
+    issue_branch: str,
+    gateway_mode: Literal["public", "private"] = "public",
+    contract: _pkg.Any | None = None,
+) -> str | None:
+    """Verify the new slice's base contains completed predecessors' commits (#3541).
+
+    Slice-admission counterpart of the slice-close evidence gate
+    (#3125). Runs right after ``create_slice_integration_branch`` — the
+    branch tip still equals the fork base, so probing the branch probes
+    the base — and before any agent is spawned. It asserts the
+    invariant the #3541 orphaning violated: every commit SHA the
+    contract records as evidence on already-COMPLETE slices that this
+    slice is supposed to build on must be an ancestor of the new
+    slice's base. A base that silently excludes reviewed,
+    consensus-approved work must fail loudly here, not surface as a
+    missing deliverable slices later (in pipeline issue-3523 it was
+    only caught by the slice-8 documenter, seven slices downstream).
+
+    Scope: the gate probes only the completed slices on this slice's
+    own fork chain, walked from the slice's recorded
+    ``parent_branch_at_creation`` (falling back to declared
+    ``dependencies``). That is exactly the set the base is supposed to
+    contain, and it is the correct scope for **every** topology and
+    concurrency setting — including serialized execution
+    (``max_parallel_slices == 1``). A branching (tree) DAG is a
+    first-class topology even under
+    ``max_parallel_slices == 1`` (``validate_forest`` caps parents at
+    ≤1 but places no limit on children), so a completed *sibling* chain
+    is legitimately not an ancestor of this slice's base; gating
+    against it would false-positive and spuriously fail admission. The
+    fork-chain walk still catches the original #3541 orphaning: a
+    linearized root records the completed chain tip it was re-based onto
+    as its ``parent_branch_at_creation`` (see
+    :func:`_resolve_slice_base_branch`), so the walk includes it.
+
+    Returns ``None`` when the slice may spawn, or a human-readable
+    failure string; the caller records the slice failure with it,
+    routing through the existing cascade + HITL escalation machinery.
+
+    Failure posture mirrors #3125: the gate degrades to ``None``
+    (spawn proceeds, warning logged) when the contract cannot be read
+    or the gateway reachability probe cannot be evaluated. Only a
+    definitive "this completed commit is not on the base" verdict
+    fails the admission. ``EGG_SLICE_BASE_ANCESTRY_GATE`` is the
+    operator kill switch (needed e.g. when an operator squash-merge
+    legitimately rewrote a completed slice's SHAs).
+    """
+    try:
+        import contract_completeness as cc
+    except ImportError:
+        from .. import contract_completeness as cc  # type: ignore[no-redef]
+
+    if not cc.base_ancestry_gate_enabled():
+        _pkg.logger.info(
+            "Base-ancestry gate disabled by kill switch (#3541)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+        )
+        return None
+
+    if contract is None:
+        from egg_contracts.loader import load_contract as _load_contract
+
+        try:
+            with _pkg.get_pipeline_state_lock(pipeline_id):
+                contract = _load_contract(pipeline_id, worktree_repo_path)
+        except Exception as load_err:  # noqa: BLE001
+            _pkg.logger.warning(
+                "Base-ancestry gate skipped: contract load failed (#3541)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                error=str(load_err),
+            )
+            return None
+
+    from egg_contracts.models import SliceStatus
+
+    slices = list(getattr(contract, "slices", []) or [])
+    all_ids = {s.id for s in slices}
+    completed = {
+        s.id: s
+        for s in slices
+        if s.id != slice_id and getattr(s, "status", None) == SliceStatus.COMPLETE
+    }
+    if not completed:
+        return None
+
+    # Scope to this slice's own fork chain (see docstring). Walk up
+    # ``parent_branch_at_creation`` / ``dependencies`` collecting the
+    # completed ancestors the base is supposed to contain. This is
+    # correct for every topology and concurrency setting: it never
+    # reaches a completed *sibling* chain (which a branching tree DAG
+    # produces even under ``max_parallel_slices == 1``), and it still
+    # includes a linearized root's re-based chain tip.
+    by_id = {s.id: s for s in slices}
+    predecessors = []
+    cursor = by_id.get(slice_id)
+    seen: set[str] = set()
+    while cursor is not None and cursor.id not in seen:
+        seen.add(cursor.id)
+        parent_id = _slice_linear_parent_id(cursor, issue_branch=issue_branch, known_ids=all_ids)
+        cursor = by_id.get(parent_id) if parent_id else None
+        if cursor is not None and cursor.id in completed:
+            predecessors.append(cursor)
+    if not predecessors:
+        return None
+
+    rows: list[dict[str, _pkg.Any]] = []
+    for predecessor in predecessors:
+        rows.extend(cc.evidence_commits(contract, predecessor.id) or [])
+    if not rows:
+        return None
+
+    probe_shas = list(dict.fromkeys(r["commit"] for r in rows))
+    unreachable_shas = spawner.gateway.find_unreachable_evidence_commits(
+        pipeline_id,
+        str(worktree_repo_path),
+        commit_shas=probe_shas,
+        integration_branch=integration_branch,
+        mode=gateway_mode,
+    )
+    if unreachable_shas is None:
+        # The probe itself could not be evaluated (gateway/network).
+        # find_unreachable_evidence_commits already logged the cause.
+        return None
+    if not unreachable_shas:
+        return None
+
+    lost = [r for r in rows if r["commit"] in set(unreachable_shas)]
+    summary = cc.format_evidence_rows(lost)
+    _pkg.logger.error(
+        "Slice admission blocked: base excludes commits recorded complete "
+        "on predecessor slices (#3541)",
+        pipeline_id=pipeline_id,
+        slice_id=slice_id,
+        integration_branch=integration_branch,
+        unreachable=summary,
+    )
+    return (
+        f"slice {slice_id}: base-ancestry gate failed (#3541) — the slice's "
+        f"integration branch {integration_branch} was forked from a base "
+        f"that does not contain commits the contract records as complete "
+        f"on predecessor slices: {summary}. The completed work would be "
+        f"orphaned from this slice and every descendant. Re-point the "
+        f"slice's base (or merge/cherry-pick the missing commits onto it), "
+        f"then respawn; set {cc.BASE_ANCESTRY_GATE_ENV_VAR}=off to bypass."
     )

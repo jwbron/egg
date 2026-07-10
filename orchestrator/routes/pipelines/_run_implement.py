@@ -173,6 +173,28 @@ def _run_implement_phase_slices(
         worktree_repo_path=worktree_repo_path,
         commit_and_push=_commit_and_push_slice_statefiles,
     )
+    _probe_parent_branch_exists = _pkg.functools.partial(
+        _pkg._parent_branch_probe_impl,
+        pipeline=pipeline,
+        spawner=spawner,
+        worktree_repo_path=worktree_repo_path,
+        pipeline_id=pipeline_id,
+        gateway_mode=gateway_mode,
+    )
+    _fresh_contract_for_base = _pkg.functools.partial(
+        _pkg._fresh_contract_for_base_impl,
+        pipeline_id=pipeline_id,
+        worktree_repo_path=worktree_repo_path,
+    )
+    _admission_base_ancestry_gate = _pkg.functools.partial(
+        _pkg._admission_base_ancestry_gate_impl,
+        pipeline_id=pipeline_id,
+        spawner=spawner,
+        worktree_repo_path=worktree_repo_path,
+        gateway_mode=gateway_mode,
+        issue_branch=issue_branch,
+        scheduler=scheduler,
+    )
 
     # Bootstrap reconciliation pass (#2549). Before the run loop ticks,
     # fold in two sources of "this slice is already done" state that
@@ -591,58 +613,15 @@ def _run_implement_phase_slices(
                 parent_slice_id: str | None,  # noqa: ARG001 — kept for caller compat; resolver reads contract
             ) -> tuple[int, str]:
                 # Resolve parent branch for stacking via
-                # :func:`_resolve_slice_base_branch` (#2777, cq-2 / cq-4 /
-                # cq-9 / cq-10). The helper handles both:
-                #
-                # * eager-persisted ``parent_branch_at_creation`` (the
-                #   primary path post-slice-4 TASK-4-2), and
-                # * fresh-pipeline derivation from
-                #   ``slice.dependencies[0]`` (the path #2777's slice-2
-                #   takes before slice-4 lands).
-                #
-                # The legacy ``egg/<id>/context`` branch was removed in
-                # cq-4 so slice-1 (the root) now stacks on
-                # ``pipeline_branch`` like every other root slice — the
-                # work-branch context PR's diff already encompasses the
-                # slice-1 integration branch via ancestry.
-                # #2928: wire a parent-branch-existence probe so the
-                # resolver can tell a FRESH non-root slice (whose
-                # dependency parent branch is still on origin → stack
-                # on it) apart from an orphaned one (parent merged
-                # into ``work`` and cascade-deleted → base on
-                # ``pipeline_branch``). This replaces the pre-#2928
-                # merge-base probe, which probed the slice's OWN
-                # integration branch — non-existent on a first run —
-                # and so mis-routed every fresh non-root slice onto
-                # ``work`` whenever ``work`` had advanced ahead of the
-                # parent. Repoless test scaffolds short-circuit to
-                # ``True`` (no origin to check; the derived parent is
-                # the correct DAG target), mirroring the resolver's
-                # conservative "assume parent exists" default.
-                #
-                # IMPORTANT: this wrapper calls the STRICT ls-remote
-                # variant (``ls_remote_branch_strict``) so a gateway /
-                # network / policy failure RAISES into the resolver's
-                # ``try/except`` instead of being collapsed to
-                # ``False``. The lenient ``ls_remote_branch`` /
-                # ``get_remote_branch_sha`` helpers swallow all
-                # exceptions and return ``False`` / ``None`` for both
-                # "branch absent" AND "gateway error" — using either
-                # here would silently route a real slice onto
-                # ``pipeline_branch`` on a flaky gateway, re-creating
-                # the #2928 wedge that this PR claims to fix.
-                def _probe_parent_branch_exists(parent_branch: str) -> bool:
-                    if not pipeline.repo:
-                        return True
-                    return spawner.gateway.ls_remote_branch_strict(
-                        pipeline_id,
-                        str(worktree_repo_path),
-                        f"refs/heads/{parent_branch}",
-                        mode=gateway_mode,  # type: ignore[arg-type]
-                    )
-
+                # :func:`_resolve_slice_base_branch` (#2777 / #2928 /
+                # #3541). The strict parent-existence probe lives in
+                # :func:`_parent_branch_probe_impl`; the resolver reads
+                # a FRESH contract snapshot
+                # (:func:`_fresh_contract_for_base_impl`) so root
+                # linearization sees sibling completions that flipped
+                # while this run loop iterated.
                 parent_branch = _pkg._resolve_slice_base_branch(
-                    contract,
+                    _fresh_contract_for_base(slice_id, fallback_contract=contract),
                     slice_id,
                     pipeline_id=pipeline_id,
                     pipeline_branch=pipeline_branch,
@@ -892,6 +871,15 @@ def _run_implement_phase_slices(
                                 integration_branch=integration_branch,
                                 error=str(base_err),
                             )
+
+                    # #3541: base-ancestry gate — fail the admission
+                    # loudly (recording the slice failure) when the
+                    # just-created branch's base excludes completed
+                    # predecessors' recorded commits. See
+                    # :func:`_admission_base_ancestry_gate_impl`.
+                    ancestry_failure = _admission_base_ancestry_gate(slice_id, integration_branch)
+                    if ancestry_failure is not None:
+                        return 1, ancestry_failure
 
                 _pkg.logger.info(
                     "Slice spawn",

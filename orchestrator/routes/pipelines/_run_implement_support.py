@@ -229,6 +229,119 @@ def _persist_slice_status_complete_impl(
         commit_and_push(f"Persist contract after slice {slice_id} completion (#3117)")
 
 
+def _parent_branch_probe_impl(
+    parent_branch: str,
+    *,
+    pipeline,
+    spawner,
+    worktree_repo_path,
+    pipeline_id,
+    gateway_mode,
+) -> bool:
+    """Strict parent-branch existence probe for the base resolver (#2928).
+
+    Wired into :func:`_resolve_slice_base_branch` so it can tell a
+    FRESH non-root slice (whose dependency parent branch is still on
+    origin → stack on it) apart from an orphaned one (parent merged
+    into ``work`` and cascade-deleted → base on ``pipeline_branch``).
+    This replaces the pre-#2928 merge-base probe, which probed the
+    slice's OWN integration branch — non-existent on a first run — and
+    so mis-routed every fresh non-root slice onto ``work`` whenever
+    ``work`` had advanced ahead of the parent. Repoless test scaffolds
+    short-circuit to ``True`` (no origin to check; the derived parent
+    is the correct DAG target), mirroring the resolver's conservative
+    "assume parent exists" default. #3541 reuses the same probe for
+    the root-linearization tip liveness check.
+
+    IMPORTANT: this wrapper calls the STRICT ls-remote variant
+    (``ls_remote_branch_strict``) so a gateway / network / policy
+    failure RAISES into the resolver's ``try/except`` instead of being
+    collapsed to ``False``. The lenient ``ls_remote_branch`` /
+    ``get_remote_branch_sha`` helpers swallow all exceptions and
+    return ``False`` / ``None`` for both "branch absent" AND "gateway
+    error" — using either here would silently route a real slice onto
+    ``pipeline_branch`` on a flaky gateway, re-creating the #2928
+    wedge.
+    """
+    if not pipeline.repo:
+        return True
+    return spawner.gateway.ls_remote_branch_strict(
+        pipeline_id,
+        str(worktree_repo_path),
+        f"refs/heads/{parent_branch}",
+        mode=gateway_mode,
+    )
+
+
+def _fresh_contract_for_base_impl(
+    slice_id: str,
+    *,
+    pipeline_id,
+    worktree_repo_path,
+    fallback_contract,
+) -> _pkg.Any:
+    """Fresh contract read for slice base resolution (#3541).
+
+    Root linearization keys off sibling slices' completion statuses,
+    which flip on the live contract while the slice run loop iterates;
+    the phase-start contract object never sees them. Falls back to
+    ``fallback_contract`` (the phase-start snapshot) on a read failure
+    — the resolver then behaves as before for roots.
+    """
+    from egg_contracts.loader import load_contract
+
+    try:
+        with _pkg.get_pipeline_state_lock(pipeline_id):
+            return load_contract(pipeline_id, worktree_repo_path)
+    except Exception as load_err:  # noqa: BLE001
+        # Contract load under the per-pipeline state lock — loader
+        # validation errors and file I/O failures. Best-effort.
+        _pkg.logger.warning(
+            "Slice base resolution: fresh contract read failed; using phase-start snapshot (#3541)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            error=str(load_err),
+        )
+        return fallback_contract
+
+
+def _admission_base_ancestry_gate_impl(
+    slice_id: str,
+    integration_branch: str,
+    *,
+    pipeline_id,
+    spawner,
+    worktree_repo_path,
+    gateway_mode,
+    issue_branch,
+    scheduler,
+) -> str | None:
+    """Run the slice-admission base-ancestry gate (#3541).
+
+    Thin wrapper around
+    :func:`routes.pipelines._check_slice_base_ancestry` that records a
+    definitive failure on the scheduler (arming the cascade machinery)
+    before handing the failure string back to the run loop. Runs right
+    after ``create_slice_integration_branch`` — the branch tip still
+    equals the fork base — and before any agent is spawned, so a base
+    that silently excludes completed predecessors' reviewed commits
+    fails loudly at admission instead of surfacing as a missing
+    deliverable slices later.
+    """
+    failure = _pkg._check_slice_base_ancestry(
+        pipeline_id,
+        spawner,
+        worktree_repo_path,
+        slice_id,
+        integration_branch,
+        issue_branch=issue_branch,
+        gateway_mode=gateway_mode,
+    )
+    if failure is not None:
+        scheduler.record_failure(slice_id)
+    return failure
+
+
 def _contract_loader_impl(*, pipeline_id, worktree_repo_path) -> _pkg.Any:
     from egg_contracts.loader import load_contract
 
