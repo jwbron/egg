@@ -374,22 +374,24 @@ _DECISION_ATTESTING_ROLES = frozenset({"refiner", "task_planner", "architect", "
 _DECISION_CITATION_SPECS = frozenset({"analysis-draft", "plan-draft"})
 
 
-def _extract_attested_decision_fields(payload: dict[str, Any]) -> tuple[Any, Any, Any]:
+def _extract_attested_decision_fields(payload: dict[str, Any]) -> tuple[Any, Any, Any, Any]:
     """Pull the raw decision-ledger fields off a proposal payload.
 
     Returns ``(decisions_registered, no_decisions_rationale,
-    candidates_considered)`` exactly as supplied (unvalidated; shape
-    validation is
+    candidates_considered, deferred_resolutions)`` exactly as supplied
+    (unvalidated; shape validation is
     :func:`egg_contracts.decisions.decision_attestation_errors`'s job).
-    A missing or non-dict ``attestation`` yields ``(None, None, None)``.
+    A missing or non-dict ``attestation`` yields ``(None, None, None,
+    None)``.
     """
     attestation = payload.get("attestation")
     if not isinstance(attestation, dict):
-        return None, None, None
+        return None, None, None, None
     return (
         attestation.get("decisions_registered"),
         attestation.get("no_decisions_rationale"),
         attestation.get("candidates_considered"),
+        attestation.get("deferred_resolutions"),
     )
 
 
@@ -417,14 +419,28 @@ def _validate_decision_attestation_shape(
     if phase not in _DECISION_ATTESTING_PHASES or agent_role not in _DECISION_ATTESTING_ROLES:
         return
 
-    registered, rationale, candidates = _extract_attested_decision_fields(payload)
+    registered, rationale, candidates, deferred_resolutions = _extract_attested_decision_fields(
+        payload
+    )
 
     try:
         from egg_contracts.decisions import decision_attestation_errors
     except ImportError:
         return
 
-    errors = decision_attestation_errors(registered, rationale, candidates)
+    errors = decision_attestation_errors(registered, rationale, candidates, deferred_resolutions)
+    if not errors and phase != "plan" and deferred_resolutions:
+        # ``deferred_resolutions`` echoes dq-ids the plan prompt surfaced
+        # (#3564); only plan producers ever receive those, so its presence
+        # on any other phase is a protocol misunderstanding worth failing
+        # loudly rather than silently ignoring.
+        errors = [
+            "deferred_resolutions is a plan-phase field (#3564): it echoes "
+            "the dq-<hash> ids of refine-deferred questions surfaced in the "
+            f"plan prompt, and a {phase} attestation has none to echo. To "
+            "defer a candidate to plan, disposition it 'deferred_to_plan' "
+            "in candidates_considered instead."
+        ]
     if not errors and phase == "plan" and isinstance(candidates, list):
         # Plan is the pipeline's last decision surface (#3526): a plan
         # producer cannot defer a candidate to itself. Anything still
@@ -457,6 +473,151 @@ def _validate_decision_attestation_shape(
             f"ledger must enumerate the candidates it considered). Register "
             f"decisions first via `egg-contract add-decision` / "
             f"`mcp__sdlc__register_open_question`, then re-propose."
+        )
+
+
+# Plan producers whose proposal must account for every refine-deferred
+# question (#3564). Mirrors the prompt injection exactly: the deferred
+# section (with its ``dq-`` ids) is rendered into the concurrent-mode
+# architect prompt and the single-agent plan prompt — task_planner and
+# risk_analyst never receive it, so requiring coverage from them would
+# NACK a producer for ids it was never shown.
+_DEFERRAL_COVERAGE_ROLES = frozenset({"architect"})
+
+
+def _validate_deferred_candidate_coverage(
+    pipeline_id: str,
+    payload: dict[str, Any],
+    *,
+    agent_role: str,
+    phase: str,
+) -> None:
+    """NACK a plan proposal that drops a refine-deferred question (#3564).
+
+    #3563 made refine's ``deferred_to_plan`` candidates a prompt-level
+    handoff; this is the deterministic propose-time gate that hard-closes
+    the leak. The plan prompt renders each deferred candidate with a
+    stable content-derived ``dq-<hash>`` id
+    (:func:`egg_contracts.decisions.deferred_question_id`); the producer
+    echoes each id in its attestation's ``deferred_resolutions`` (as
+    ``registered`` with the cq-N it became, or ``not_operator_grade``
+    with why the design dissolved it). This validator recomputes the ids
+    from the same message-store scan the prompt used
+    (``_find_deferred_plan_candidates``) and rejects the proposal when
+    any expected id is unaccounted, when an echoed id matches no deferred
+    question (a typo or hallucination), or when a ``registered`` echo
+    cites a cq-N absent from the attestation's own
+    ``decisions_registered`` (whose contract existence the ledger
+    cross-check enforces separately).
+
+    Exact-id matching is safe *because* identity rides on the id, not the
+    question text — the planner legitimately reframes deferred questions
+    as the design firms up, which is why #3564 rejected text matching.
+
+    Needs only the payload and the message store (no contract or commit
+    access), so ``_validate_producer_artifacts`` hoists it — with the
+    shape check — ahead of its branch-verification early return.
+    Graceful degradation: a message-store failure skips the check with a
+    warning (an orchestrator-side glitch, not a producer fault), matching
+    ``_find_deferred_plan_candidates``'s prompt-time behavior. The
+    asymmetric-outage case (store down at prompt-build time, up now)
+    still validates: the rejection message lists each missing question
+    verbatim, so a producer that never saw the prompt section can act on
+    the NACK alone.
+    """
+    if phase != "plan" or agent_role not in _DEFERRAL_COVERAGE_ROLES:
+        return
+
+    try:
+        from egg_contracts.decisions import deferred_question_id
+    except ImportError:
+        return
+
+    # Lazy import mirroring ``_pipeline_identifier`` below: keep the heavy
+    # ``routes.pipelines`` package out of signals import time.
+    try:
+        from routes.pipelines import _find_deferred_plan_candidates
+    except ImportError:
+        try:
+            from .pipelines import (  # type: ignore[no-redef]
+                _find_deferred_plan_candidates,
+            )
+        except ImportError:
+            return
+
+    try:
+        deferred = _find_deferred_plan_candidates(pipeline_id)
+    except Exception as exc:  # noqa: BLE001
+        _pkg.logger.warning(
+            "deferred-candidate coverage check skipped: scan failed (non-blocking)",
+            pipeline_id=pipeline_id,
+            role=agent_role,
+            error=str(exc),
+        )
+        return
+
+    expected: dict[str, str] = {}
+    for candidate in deferred:
+        if not isinstance(candidate, dict):
+            continue
+        question = str(candidate.get("question") or "").strip()
+        if question:
+            expected[deferred_question_id(question)] = question
+    if not expected:
+        return
+
+    registered, _rationale, _candidates, resolutions = _extract_attested_decision_fields(payload)
+    attested_cqs = {i for i in (registered or []) if isinstance(i, str)}
+
+    covered: set[str] = set()
+    problems: list[str] = []
+    for entry in resolutions if isinstance(resolutions, list) else []:
+        # Shape validity (ids well-formed, resolution kinds, cq/why
+        # payloads) is the shape validator's job and runs first; this
+        # loop re-guards defensively so a direct call cannot crash.
+        if not isinstance(entry, dict):
+            continue
+        deferred_id = entry.get("deferred_id")
+        if deferred_id not in expected:
+            problems.append(
+                f"`{deferred_id}` matches no refine-deferred question of this "
+                "pipeline — copy the dq- ids verbatim from the 'Deferred "
+                "from refine' section of your prompt"
+            )
+            continue
+        if entry.get("resolution") == "registered":
+            cq = entry.get("cq")
+            if cq not in attested_cqs:
+                problems.append(
+                    f"`{deferred_id}` claims to be registered as `{cq}`, but "
+                    f"`{cq}` is not in this attestation's decisions_registered "
+                    "— register it via `egg-contract add-decision` and attest "
+                    "the returned id"
+                )
+                continue
+        covered.add(deferred_id)
+
+    missing = [i for i in expected if i not in covered]
+    if problems or missing:
+        missing_lines = "; ".join(f"`{i}` ({expected[i]!r})" for i in missing)
+        detail = " ".join(problems)
+        if missing:
+            detail = (
+                f"unaccounted deferred question(s): {missing_lines}. {detail}"
+                if detail
+                else f"unaccounted deferred question(s): {missing_lines}."
+            )
+        raise ValueError(
+            f"{agent_role} proposal rejected: the refine phase deferred "
+            f"decision candidates to plan and your attestation does not "
+            f"account for all of them (#3564) — {detail} For EACH dq- id, "
+            f"either register the question (possibly reframed) via "
+            f"`egg-contract add-decision` and echo "
+            f'`--deferred "dq-<hash> :: registered :: cq-<N>"`, or dissolve '
+            f"it with "
+            f'`--deferred "dq-<hash> :: not_operator_grade :: <why>"`. '
+            f"A deferred question that silently disappears is the leak "
+            f"this gate exists to close; then re-propose."
         )
 
 
@@ -500,11 +661,12 @@ def _validate_decision_attestation(
     ledger claim itself is never skipped.
     """
     _validate_decision_attestation_shape(payload, agent_role=agent_role, phase=phase)
+    _validate_deferred_candidate_coverage(pipeline_id, payload, agent_role=agent_role, phase=phase)
 
     if phase not in _DECISION_ATTESTING_PHASES or agent_role not in _DECISION_ATTESTING_ROLES:
         return
 
-    registered, _rationale, _candidates = _extract_attested_decision_fields(payload)
+    registered, _rationale, _candidates, _deferred = _extract_attested_decision_fields(payload)
 
     attested_ids = list(registered or [])
     if not attested_ids:
@@ -583,7 +745,7 @@ def _validate_decision_citations(
     if phase not in _DECISION_ATTESTING_PHASES or agent_role not in _DECISION_ATTESTING_ROLES:
         return
 
-    registered, _rationale, _candidates = _extract_attested_decision_fields(payload)
+    registered, _rationale, _candidates, _deferred = _extract_attested_decision_fields(payload)
     if not isinstance(registered, list) or not registered:
         return
 
@@ -746,7 +908,12 @@ def _validate_producer_artifacts(
     # producer cannot reach consensus with a missing or malformed ledger
     # attestation even on the degraded-fetch path (non-shared object
     # store) that skips the presence loop and the contract cross-check.
+    # The deferred-coverage gate (#3564) is hoisted for the same reason:
+    # it needs only the payload and the message store.
     _pkg._validate_decision_attestation_shape(payload, agent_role=agent_role, phase=phase)
+    _pkg._validate_deferred_candidate_coverage(
+        pipeline_id, payload, agent_role=agent_role, phase=phase
+    )
 
     # Orchestrator-side commit verification was inconclusive — a non-zero
     # ``git show`` below could be "commit not in local object cache" rather

@@ -82,6 +82,29 @@ def _find_deferred_plan_candidates(pipeline_id: str) -> list[dict]:
     return []
 
 
+def _format_deferred_candidates_with_ids(candidates: list[dict]) -> str:
+    """Render deferred candidates as bullets carrying their ``dq-`` ids (#3564).
+
+    Like :func:`_format_considered_candidates` but prefixes each bullet
+    with the stable ``dq-<hash>`` identity the propose-time coverage gate
+    recomputes (``egg_contracts.decisions.deferred_question_id``). The id
+    is what the plan producer echoes back in its attestation's
+    ``deferred_resolutions``, so it must render verbatim and
+    copy-pastable. Malformed entries render best-effort — this surface
+    must never crash prompt assembly.
+    """
+    from egg_contracts.decisions import deferred_question_id
+
+    lines = []
+    for c in candidates:
+        if not isinstance(c, dict):
+            continue
+        question = str(c.get("question") or "?").strip()
+        why = str(c.get("why") or "").strip()
+        lines.append(f"- `{deferred_question_id(question)}` — **{question}**: {why}")
+    return "\n".join(lines)
+
+
 def _build_deferred_candidates_section(pipeline_id: str | None) -> list[str]:
     """Render refine's ``deferred_to_plan`` candidates for the plan prompt (#3526).
 
@@ -89,9 +112,13 @@ def _build_deferred_candidates_section(pipeline_id: str | None) -> list[str]:
     registrations fell after the slice/packaging carve-out while plan
     registrations never rose. This section makes deferral a handoff: the
     planner receives the refiner's named deferred candidates as pre-seeded
-    items it must register or explicitly disposition. Returns an empty
-    list (no section) when the pipeline has no deferred candidates or the
-    message store is unavailable, matching pre-#3526 behavior.
+    items it must register or explicitly disposition. Each candidate
+    carries a stable ``dq-<hash>`` id (#3564) that the producer must echo
+    in its attestation's ``deferred_resolutions`` — the propose-time gate
+    recomputes the ids and NACKs a plan proposal that leaves one
+    unaccounted. Returns an empty list (no section) when the pipeline has
+    no deferred candidates or the message store is unavailable, matching
+    pre-#3526 behavior.
     """
     if not pipeline_id:
         return []
@@ -106,7 +133,7 @@ def _build_deferred_candidates_section(pipeline_id: str | None) -> list[str]:
         return []
     if not deferred:
         return []
-    rendered = _pkg._format_considered_candidates(deferred)
+    rendered = _pkg._format_deferred_candidates_with_ids(deferred)
     if not rendered:
         return []
     return [
@@ -118,12 +145,20 @@ def _build_deferred_candidates_section(pipeline_id: str | None) -> list[str]:
         "",
         "For EACH candidate above, either register it via "
         "`egg-contract add-decision` once your design makes the options "
-        "concrete (put your recommended option first), or disposition it "
-        "`not_operator_grade` in your ledger attestation's "
-        "`candidates_considered` with a concrete why (e.g. the design "
-        "dissolved the choice). A deferred candidate you neither register "
-        "nor disposition is exactly the leak this section exists to "
-        "close.\n",
+        "concrete (put your recommended option first; reframing the "
+        "question as the design firms up is fine), or disposition it "
+        "`not_operator_grade` with a concrete why (e.g. the design "
+        "dissolved the choice).\n",
+        "Then, when you propose, echo EVERY `dq-` id above in your "
+        "attestation via repeated `--deferred` flags (#3564):\n",
+        "```bash",
+        'egg-orch consensus propose ... --deferred "dq-<hash> :: registered :: cq-<N>" \\',
+        '  --deferred "dq-<hash> :: not_operator_grade :: <why the design dissolved it>"',
+        "```",
+        "The orchestrator recomputes these ids from the refine attestation "
+        "and REJECTS your proposal if any deferred question is neither "
+        "registered nor dissolved — a deferred candidate that silently "
+        "disappears is exactly the leak this section exists to close.\n",
     ]
 
 

@@ -422,6 +422,23 @@ the producer weighed and dispositioned away, with `disposition` one of:
   attestation may not use `deferred_to_plan` at all (plan is the last
   decision surface).
 
+The handoff is coverage-gated at plan propose time (#3564). Each deferred
+candidate is rendered in the plan prompt with a stable `dq-<hash>` id
+(first 8 hex chars of the SHA-256 of the normalized question;
+`egg_contracts.decisions.deferred_question_id`). The plan producer that
+received the section (the architect in concurrent mode) must echo every id
+in its attestation's **`deferred_resolutions`**: `{deferred_id,
+resolution: "registered", cq: "cq-N"}` when the question was registered
+(reframing the text as the design firms up is fine — identity rides on the
+id, not the wording), or `{deferred_id, resolution: "not_operator_grade",
+why}` when the design dissolved it. The orchestrator recomputes the ids
+from refine's attestation and rejects the propose when any deferred
+question is unaccounted, when an echoed id matches nothing, or when a
+`registered` echo cites a cq-N absent from the attestation's own
+`decisions_registered`. CLI: repeatable `--deferred
+"<dq-id> :: registered :: <cq-N>"` / `--deferred
+"<dq-id> :: not_operator_grade :: <why>"`.
+
 A single free-form rationale paragraph proved trivially satisfiable; #3526's
 backfill showed refine-surfaced decisions collapsing from ~8 per pipeline to
 ~0 within weeks of the rationale form landing, with deferrals to plan never
@@ -439,11 +456,15 @@ when:
 
 - the attestation is missing or malformed (neither field, both fields, a
   non-`cq-N` id, an explicit-none with no candidates, a malformed candidate,
-  or a plan-phase `deferred_to_plan` disposition);
+  a malformed `deferred_resolutions` entry, a non-plan attestation carrying
+  `deferred_resolutions`, or a plan-phase `deferred_to_plan` disposition);
   `attestation_schemas.DecisionSurfacingAttestation` and
   `routes/signals/_validation.py::_validate_decision_attestation`, both built
   on the shared `egg_contracts.decisions.decision_attestation_errors` shape
   check;
+- a refine-deferred question is unaccounted in the plan producer's
+  `deferred_resolutions` (#3564, `_validate_deferred_candidate_coverage` —
+  see the handoff paragraph above);
 - an attested id is not registered on the contract, or is registered for a
   different phase (cross-check against `contract.decisions`);
 - the draft does not **cite** an attested `cq-N`
