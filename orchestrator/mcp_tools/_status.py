@@ -251,10 +251,9 @@ def _build_status_snapshot(self, raw_task_id: str) -> dict[str, Any]:
     # desync): reporting that as "no successor scheduled" sends the
     # operator hunting for a missing phase instead of looking at the
     # stalled slice. When the contract still has incomplete slices,
-    # report those
-    # under ``wedged_stalled_slices`` instead. Slices only drive the
-    # implement phase, so other phases (and any snapshot where the
-    # contract is unavailable) keep the ``wedged_no_successor`` shape.
+    # report those under ``wedged_stalled_slices`` instead. Slices only
+    # drive the implement phase, so other phases (and any snapshot where
+    # the contract is unavailable) keep the ``wedged_no_successor`` shape.
     if wedge_candidate:
         stalled = _incomplete_contract_slices(contract) if current_phase_key == "implement" else []
         if stalled:
@@ -321,10 +320,11 @@ def _pending_contract_decisions(
     """Return unresolved contract-resident HITL (``cq-N``) decisions.
 
     ``task_id`` must already be URL-quoted (the caller quotes it once).
-    Fetch-then-classify wrapper around ``_contract_pending_decisions``;
+    Fetch-then-classify wrapper around ``_contract_pending_decisions``.
     ``_build_status_snapshot`` fetches the contract once itself and calls
-    the classifier directly, so this entry point exists for callers that
-    do not already hold the contract.
+    the classifier directly, so no production caller reaches this wrapper
+    today; it is retained as a self-fetching entry point for callers (and
+    tests) that do not already hold the contract.
 
     Best-effort: returns ``[]`` on any failure (missing contract, request
     error) so a status snapshot is never broken by this enrichment.
