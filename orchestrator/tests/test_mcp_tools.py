@@ -2279,6 +2279,119 @@ class TestGetStatusWedgedNoSuccessor:
         assert 115 <= wedge["since_seconds"] <= 130
 
 
+class TestGetStatusWedgedStalledSlices:
+    """Slice-aware wedge classification (#3542).
+
+    A slice-DAG implement phase whose phase record reads COMPLETE while
+    the contract still carries incomplete slices is stalled mid-slice
+    (the issue-3523 phase-record desync), not awaiting a successor
+    phase. The wedge payload is then reported as
+    ``wedged_stalled_slices`` (with the incomplete slices listed)
+    instead of ``wedged_no_successor``.
+    """
+
+    def _pipeline_response(self, *, current_phase: str = "implement"):
+        """RUNNING pipeline whose current phase completed 120s ago."""
+        from datetime import UTC, datetime, timedelta
+
+        completed_at = (datetime.now(UTC) - timedelta(seconds=120)).isoformat()
+        return {
+            "data": {
+                "pipeline": {
+                    "id": "issue-42",
+                    "current_phase": current_phase,
+                    "status": "running",
+                    "repo": "org/repo",
+                    "issue_number": 42,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "phases": {
+                        current_phase: {
+                            "status": "complete",
+                            "completed_at": completed_at,
+                            "agents": [],
+                        }
+                    },
+                    "decisions": [],
+                }
+            }
+        }
+
+    def _messages_response(self):
+        return {"data": {"messages": []}}
+
+    def _contract_response(self, slices: list[dict]):
+        return {"data": {"slices": slices, "decisions": []}}
+
+    def _get_status(self, handler, pipeline_resp, contract_resp):
+        """Drive get_status with the snapshot's four-request sequence.
+
+        The fixture has no persisted agents, so the snapshot inserts the
+        ``/status`` live-agent backfill request (#3230) between the
+        pipeline and messages fetches.
+        """
+        live_status = {"data": {"concurrent": {"agents": []}}}
+        responses = [pipeline_resp, live_status, self._messages_response(), contract_resp]
+        with patch.object(handler, "_make_request", side_effect=responses):
+            return handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+    def test_incomplete_slice_reported_as_stalled_slices(self, handler):
+        """Implement wedge + in-flight slice → wedged_stalled_slices, not no-successor."""
+        contract = self._contract_response(
+            [
+                {"id": "slice-7", "name": "Slice 7", "status": "complete"},
+                {"id": "slice-8", "name": "Slice 8", "status": "in_progress"},
+            ]
+        )
+        result = self._get_status(handler, self._pipeline_response(), contract)
+
+        assert "wedged_no_successor" not in result
+        assert "wedged_stalled_slices" in result
+        wedge = result["wedged_stalled_slices"]
+        assert wedge["phase"] == "implement"
+        assert 115 <= wedge["since_seconds"] <= 130
+        assert wedge["slices"] == [{"id": "slice-8", "name": "Slice 8", "status": "in_progress"}]
+
+    def test_pending_and_blocked_slices_also_count(self, handler):
+        """Any non-complete slice status (pending/blocked) marks the wedge as stalled."""
+        contract = self._contract_response(
+            [
+                {"id": "slice-1", "name": "A", "status": "pending"},
+                {"id": "slice-2", "name": "B", "status": "blocked"},
+            ]
+        )
+        result = self._get_status(handler, self._pipeline_response(), contract)
+
+        assert [s["id"] for s in result["wedged_stalled_slices"]["slices"]] == [
+            "slice-1",
+            "slice-2",
+        ]
+
+    def test_all_slices_complete_keeps_no_successor(self, handler):
+        """Every slice complete → the phase legitimately awaits a successor."""
+        contract = self._contract_response([{"id": "slice-1", "name": "A", "status": "complete"}])
+        result = self._get_status(handler, self._pipeline_response(), contract)
+
+        assert "wedged_stalled_slices" not in result
+        assert "wedged_no_successor" in result
+
+    def test_contract_unavailable_falls_back_to_no_successor(self, handler):
+        """Contract fetch failure degrades to the pre-#3542 report, never hides the wedge."""
+        result = self._get_status(
+            handler, self._pipeline_response(), RuntimeError("contract store down")
+        )
+
+        assert "wedged_stalled_slices" not in result
+        assert "wedged_no_successor" in result
+
+    def test_non_implement_phase_ignores_slices(self, handler):
+        """Pending slices during a plan-phase wedge are future work, not a stall."""
+        contract = self._contract_response([{"id": "slice-1", "name": "A", "status": "pending"}])
+        result = self._get_status(handler, self._pipeline_response(current_phase="plan"), contract)
+
+        assert "wedged_stalled_slices" not in result
+        assert result["wedged_no_successor"]["phase"] == "plan"
+
+
 class TestGetStatusWait:
     """Tests for the async ``wait`` handling in ``mcp_server``.
 
