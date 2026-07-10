@@ -322,7 +322,7 @@
         {
           "id": "task-3-3",
           "description": "GATED on TASK-3-1. Remove overseer_owns_host_detection ENTIRELY\n(conclude the calibration window; do NOT flip the default): delete the\nField at orchestrator/models/_config.py:388 and both getattr\nreferences at orchestrator/routes/pipelines/_routes_status.py:126-127.\ngrep -rn overseer_owns_host_detection must be clean repo-wide (code +\nSKILL.md prose). Note: PR B (slice 1) also edits the routes/pipelines\npackage (__init__.py allowlist) \u2014 a different region from this\n_routes_status.py edit, but flag the shared package for merge-seam\nawareness.",
-          "status": "pending",
+          "status": "complete",
           "commit": "8082a83ae",
           "checkpoint_id": null,
           "notes": "",
@@ -1223,6 +1223,17 @@
       "old_value": null,
       "new_value": "8082a83ae",
       "reason": "Linked commit 8082a83 to task-3-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:49:41.588591Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-3 as complete",
       "checkpoint_id": null
     }
   ],
