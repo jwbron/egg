@@ -393,10 +393,14 @@ file-boundary allowlist in the gateway is therefore still enforced
 per-role even though every role in the slice shares one head ref.
 
 A helper `get_slice_integration_branch(slice_id)` returns the shared
-integration branch for a slice's BRC: `egg/issue-N/slice-M`. Roots base
-their integration branch off the pipeline branch directly
-(`egg/issue-N/work` since #2399); child slices base off their parent
-slice's integration branch. Slice integration branches live as siblings
+integration branch for a slice's BRC: `egg/issue-N/slice-M`. Child
+slices base off their parent slice's integration branch. Root slices
+base off the **latest completed chain tip** when one exists
+([#3541](https://github.com/jwbron/egg/issues/3541) — see "Root
+linearization & the base-ancestry gate" below), falling back to the
+pipeline branch directly (`egg/issue-N/work` since #2399) for the
+first root or when every completed tip's branch was merged and
+cascade-deleted. Slice integration branches live as siblings
 of the pipeline tip under `egg/issue-N/` — git rejects a leaf ref at
 `egg/issue-N` and children at `egg/issue-N/slice-M` simultaneously
 ("directory file conflict"), so the pipeline tip was moved to
@@ -441,6 +445,52 @@ orchestrator-side cascade emission and run-loop log lines are the always-on
 `pipeline_id`-scoped fallback so deadlocks remain visible at the pipeline
 level regardless.
 
+### Root linearization & the base-ancestry gate ([#3541](https://github.com/jwbron/egg/issues/3541))
+
+During a run the pipeline work branch only ever advances with
+bookkeeping commits (contract persists, statefiles) — slice PRs are
+human-merged after the pipeline finishes. In pipeline `issue-3523` that
+meant a root slice admitted after a sibling root's chain had completed
+forked from `work` and silently excluded the completed chain's
+reviewed, consensus-approved code; every downstream slice inherited the
+gap, while the contract kept marking the orphaned commits complete. Two
+mechanisms close this:
+
+- **Root linearization** (`_resolve_slice_base_branch` tier 3, via
+  `_latest_completed_chain_tip`): a root slice with no recorded parent
+  forks from the integration branch of the deepest COMPLETE chain tip
+  instead of the work branch. Under the default serialized execution
+  (`max_parallel_slices == 1`) this makes the git topology a single
+  linear chain in completion order — every slice's base transitively
+  contains all previously completed work, and the final chain tip is a
+  complete deliverable. Tips whose branch was merged and
+  cascade-deleted are skipped (their content already reached `work`);
+  with no live completed tip the root falls back to the pipeline
+  branch as before. With genuine slice concurrency (cap > 1),
+  in-flight chains are never chained onto — only COMPLETE tips — so
+  parallel waves keep their isolation. The resolver reads a **fresh
+  contract snapshot** at admission (not the phase-start object) so it
+  sees completion statuses flipped while the run loop iterates.
+- **Base-ancestry gate** (`_check_slice_base_ancestry`): the
+  admission-time counterpart of the slice-close evidence-reachability
+  gate (#3125). Right after `create_slice_integration_branch` (the
+  branch tip still equals the fork base) and before agents spawn, it
+  verifies every commit SHA the contract records as evidence on
+  completed predecessor slices is an ancestor of the new branch. Under
+  serialized execution the predecessor set is *every* COMPLETE slice;
+  under cap > 1 it narrows to the slice's own fork chain (walked via
+  `parent_branch_at_creation` / `dependencies`) — the set the topology
+  actually promises. A definitive miss fails the admission
+  (`record_failure` → cascade + HITL); contract-read or gateway-probe
+  failures degrade to a logged skip, mirroring #3125.
+  `EGG_SLICE_BASE_ANCESTRY_GATE=off` is the operator kill switch (e.g.
+  when an operator squash-merge legitimately rewrote completed SHAs).
+
+The planner prompt gained the matching plan-shape rule: a slice that
+*reads* another slice's output (documents, verifies, builds on it)
+must be its transitive DAG descendant even when their file sets are
+disjoint — file overlap is not the only ordering constraint.
+
 ## Implement-phase run loop
 
 `_run_implement_phase_slices` in `orchestrator/routes/pipelines.py` is
@@ -482,7 +532,8 @@ shape:
        blocks PR-open on a red verdict; staged rollout via
        `EGG_SLICE_GREEN_GATE`, fail-open on infra errors) — calls
        `GatewayClient.create_slice_pr` with `base` resolved from the
-       slice's DAG parent (root → pipeline branch; child → parent's
+       slice's DAG parent (root → latest completed chain tip, else the
+       pipeline branch (#3541); child → parent's
        integration branch). On failure the worker calls
        `scheduler.record_failure(slice_id)`, which arms the cascade
        timer.
