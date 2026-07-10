@@ -83,22 +83,7 @@ def _run_implement_phase_slices(
     # raises ``ValueError`` with the structured forest errors; surface
     # them to the operator via the existing return path so the run
     # loop can route to HITL escalation rather than wedge the pipeline.
-    # Wire the slice.closed emitter (issue #3364): the scheduler invokes this
-    # OUTSIDE its lock from record_complete / record_failure, so a real slice
-    # close publishes an allowlisted ``slice.closed`` event to the bus that a
-    # long-haul monitor threads on. Guarded on the optional event-bus handle
-    # and no-ops when it's unavailable — mirroring the CONSENSUS_TIMEOUT /
-    # PIPELINE_FAILED emit sites in _alerts.py / _run_pipeline.py. The
-    # ``outcome`` (``complete`` | ``failed``) distinguishes success from
-    # failure so a consumer needs no second lookup.
-    def _emit_slice_closed(slice_id: str, outcome: str) -> None:
-        if _pkg._emit_event is None:
-            return
-        _pkg._emit_event(
-            _pkg.EventType.SLICE_CLOSED,
-            pipeline_id,
-            data={"slice_id": slice_id, "outcome": outcome},
-        )
+    _emit_slice_closed = _pkg._build_slice_closed_emitter_impl(pipeline_id)
 
     try:
         scheduler = SliceScheduler(
@@ -114,38 +99,7 @@ def _run_implement_phase_slices(
         )
         return 1, f"slice scheduler validation failed: {exc}"
 
-    # Defensive idempotent context-PR opener (#2777 cq-4). The
-    # canonical advance_phase REST path enforces hard-required, but
-    # the runner-driven entries (auto-advance, implement-entry,
-    # HITL-resume, this slice-loop entry) must also fire it to avoid
-    # silent strands on ``egg/<id>/work``. Soft-fail on transient
-    # gateway errors here — the canonical site already enforces the
-    # 422 contract.
-    try:
-        # Pass the main repo path (``store.repo_path``) — not
-        # ``worktree_repo_path`` — so all four opener call sites of
-        # ``_open_context_pr_at_implement_start`` read identically.
-        # The opener rederives its own per-pipeline worktree internally
-        # via ``resolve_worktree_path(pipeline_id, store.repo_path)``.
-        _pkg._open_context_pr_at_implement_start(pipeline_id, repo_path=_pkg.Path(store.repo_path))
-    except _pkg.ContextPrCreationError as ctx_err:
-        _pkg.logger.warning(
-            "Context PR opener: slice-loop entry safety net failed "
-            "(continuing — hard-require enforced at advance_phase and "
-            "the implement-start plan pre-flight gate) (#2777, #3100)",
-            pipeline_id=pipeline_id,
-            reason=ctx_err.reason,
-            error=str(ctx_err),
-        )
-    except Exception as safety_err:  # noqa: BLE001
-        # Defence in depth: import / lookup failures must not strand
-        # the slice loop.
-        _pkg.logger.warning(
-            "Context PR opener: slice-loop entry safety net outer "
-            "wrapper raised (continuing) (#2777)",
-            pipeline_id=pipeline_id,
-            error=str(safety_err),
-        )
+    _pkg._open_context_pr_safety_net_impl(pipeline_id=pipeline_id, store=store)
 
     _contract_loader = _pkg.functools.partial(
         _pkg._contract_loader_impl,

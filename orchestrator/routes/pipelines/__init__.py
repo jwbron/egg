@@ -1391,8 +1391,10 @@ from ._run_implement import (  # noqa: E402,F401
     _run_implement_phase_slices,
 )
 from ._run_implement_support import (  # noqa: E402,F401
+    _build_slice_closed_emitter_impl,
     _commit_and_push_slice_statefiles_impl,
     _contract_loader_impl,
+    _open_context_pr_safety_net_impl,
     _persist_slice_status_complete_impl,
 )
 from ._run_phase import (  # noqa: E402,F401
