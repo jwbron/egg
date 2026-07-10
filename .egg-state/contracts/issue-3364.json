@@ -281,7 +281,7 @@
           "id": "task-3-1",
           "description": "GATE (hard predecessor of TASK-3-2 and TASK-3-3): produce the\ncoverage-map. For EACH of the five host-detector blocks in\nskills/sdlc/SKILL.md (Stall detection ~637, Silent agent detection\n~644, NACK escalation ~679, Long-Running Phase Detection ~722, and the\nhost-side detection TRIGGER of Stuck Pipeline Rescue ~750) name the\nconcrete overseer emitter (a deterministic _broadcast_alert(...)\nstructural check in orchestrator/overseer/monitor/ OR the classifier/\nadjudicator action:{action} path) and the OVERSEER_ALERT subject the\nskill ALREADY surfaces. Record the map in the PR body. This is REAL\nverification: the host vocab (agent-stall / agent-silent /\nagent-nack-unresolved / phase-long-running) exists in production only\nas a last-alert dedup map (shared/egg_overseer/state.py) and is\notherwise produced by the overseer Haiku classifier (LLM path), while\nthe live monitor emits a DIFFERENT deterministic vocab\n(post_consensus_stall / incomplete_consensus_stall / rerun_anomaly /\nstatus_inconsistency / hitl_propagation_failure /\ncross_phase_inconsistency / orchestrator_unreachable). Any block that\nmaps to NO confirmed emitter is raised as a HITL via\nmcp__sdlc__register_open_question at the point of discovery (carrying\nthe specific block + evidence) \u2014 NOT a silent delete into a dark gap.",
           "status": "complete",
-          "commit": null,
+          "commit": "96bb88f49dc53fa6520fd33e3d6f9c29e48fd21f",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- AC-D6: every one of the five blocks is mapped to a named overseer\n  emitter + the OVERSEER_ALERT subject the skill surfaces, recorded in\n  the PR; any unmapped block is escalated as a HITL rather than\n  deleted. No block is deleted without a confirmed emitter.",
@@ -1289,6 +1289,17 @@
       "old_value": "8082a83ae",
       "new_value": "96bb88f49",
       "reason": "Linked commit 96bb88f to task-3-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:54:05.336843Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": null,
+      "new_value": "96bb88f49dc53fa6520fd33e3d6f9c29e48fd21f",
+      "reason": "Linked commit 96bb88f to task-3-1",
       "checkpoint_id": null
     }
   ],
