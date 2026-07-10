@@ -1,0 +1,2814 @@
+[
+  {
+    "id": "033ff43d-8d66-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T20:59:25.893194+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "dabfbfd4-877e-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T20:59:26.991910+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1655bf67-ff65-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T20:59:33.352776+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c7492d3f-411d-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T20:59:36.022730+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ba5fe0d6-28bc-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from documenter",
+    "body": "Documenter has no work in slice-3 (PR D). All five slice-3 tasks (task-3-1 coverage-map gate, task-3-2 host-detector deletions, task-3-3 remove overseer_owns_host_detection, task-3-4 kept-surface verification, task-3-5 test verification) are owned by coder/tester. The sole artifact is skills/sdlc/SKILL.md (coder-owned prose edits) plus orchestrator config/route/test files; there is no separate documentation deliverable (no docs/ change, no changelog) for this slice. Assigned-task count for documenter is 0. Emitting a non-blocking no-op propose so consensus is not held on an empty producer.",
+    "metadata": {
+      "payload": {
+        "summary": "Documenter has no work in slice-3 (PR D). All five slice-3 tasks (task-3-1 coverage-map gate, task-3-2 host-detector deletions, task-3-3 remove overseer_owns_host_detection, task-3-4 kept-surface verification, task-3-5 test verification) are owned by coder/tester. The sole artifact is skills/sdlc/SKILL.md (coder-owned prose edits) plus orchestrator config/route/test files; there is no separate documentation deliverable (no docs/ change, no changelog) for this slice. Assigned-task count for documenter is 0. Emitting a non-blocking no-op propose so consensus is not held on an empty producer.",
+        "attestation": {},
+        "artifacts": [],
+        "risk_considered": "",
+        "commit_sha": "",
+        "files_changed": [],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": true,
+        "no_changes_reason": "Documenter has no assigned task in slice-3 (PR D). All tasks are coder/tester; the only touched artifact is SKILL.md prose plus orchestrator source, all coder-owned. No documentation deliverable is in scope for this slice."
+      },
+      "version": 1,
+      "commit_sha": "",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:00:33.027363+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1968c52e-de3e-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=73209 util=0.07 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:00:40.023475+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ce3aa589-ae2b-41",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:02:07.384013+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "055b54fa-c775-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:05:08.158153+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8e5c9525-e550-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:07:15.027396+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "387f98ca-0a31-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=179336 util=0.18 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:07:33.511064+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9a9b9ee1-9e94-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:07:41.931220+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "58e4b32c-8921-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:07:49.325707+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "932e0844-2215-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "coder blocked on HITL cq-4 (PR D coverage-map gate). task-3-1 verification complete + coverage-map recorded; task-3-2/3-3/3-4 gated on the operator's disposition of the Long-Running Phase Detection block. Not proposing until cq-4 resolves.",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:08:13.019706+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "08764659-4c04-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=192587 util=0.19 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:08:19.998980+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ea00dda9-7438-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:08:28.317075+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "19acf0e9-2a0f-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:08:33.792000+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4e7a8e0c-6f10-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=199386 util=0.20 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:08:44.267663+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a72a9ccd-9418-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:38:56.152172+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0cb8fd40-0dd3-41",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:39:02.083897+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1ae8f94a-8f34-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=206016 util=0.21 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T21:39:14.759981+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c4106fee-c3e6-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:02:32.698789+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "81a6e4e0-dcbc-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:02:33.625010+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0fc05848-8427-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:02:38.444547+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9818355b-0666-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:02:39.572507+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5b89f80c-8dfb-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=212717 util=0.21 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:03:00.711940+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "85fc9185-8f9d-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:03:11.092371+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2168244f-9566-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:03:18.067878+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "55d7285a-6826-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: PROPOSED",
+    "body": "Documenter no-op propose (v1) is in for slice-3; no documenter work in this deletion PR. Awaiting reviewer ACKs. No re-propose (would churn).",
+    "metadata": {
+      "state": "PROPOSED",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:03:40.154073+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "585c6a9d-2c13-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=83185 util=0.08 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:03:47.272717+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fd5b8d39-38bd-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=224648 util=0.22 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:03:47.927471+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4330e429-d0c9-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:03:54.214764+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1dce5a49-8c65-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:03:54.352168+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "13df1afa-deb2-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:04:00.523555+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ca716e6a-925e-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:04:01.127078+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3fb55e8d-0f87-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=231442 util=0.23 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:04:07.004157+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8b4edfe4-32d3-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=87295 util=0.09 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:04:35.389810+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a2261637-3299-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:04:42.752794+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3fcc148d-e198-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:05:08.666254+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c4c7992f-aba6-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:05:51.044400+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "be3ac512-93bc-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:06:05.150653+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e17d85f8-55b7-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:06:08.165568+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6a5fa956-dcd7-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:06:21.852056+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c27b1d80-0b0b-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:06:24.970591+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "34e5422b-1f6b-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:06:43.486254+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6d6b637f-b2d3-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:06:46.576706+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6096285f-768f-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:07:04.527391+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f75430c1-bcbb-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:07:07.552134+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f5fef6b0-8cd4-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:07:26.819538+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e9156a91-4d89-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:07:30.182129+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "45dfad58-3e1d-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:07:51.839500+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "00da3d8f-6e9f-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:07:54.689060+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "33a7d372-0ccb-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:08:19.837868+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e5e14ef0-c20e-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:08:22.887544+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fa0ddcc8-5cdb-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:08:52.001277+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6cd468b5-4d59-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:08:54.978693+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "97d9311b-770b-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:09:23.547028+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "18b97850-653f-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:09:26.957409+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1795ef6d-2ff1-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:34:21.913794+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "878fffb5-c1de-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T22:34:25.784028+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "49e2b575-aed7-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T23:04:25.109309+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "877efec2-e2c1-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T23:04:29.029153+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b8a94699-aaf6-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T23:34:29.530372+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6020c8d4-9821-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-09T23:34:33.100397+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8b43d96c-2fbb-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T01:21:30.370658+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c12cdcb4-d06c-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T01:22:36.157446+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "64e4d28f-a9f6-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=253906 util=0.25 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T01:23:51.925284+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0af7d53b-c938-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:37:11.374048+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "af50df43-ed7d-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:37:11.858839+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "af1452a9-5b6f-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:37:20.924169+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c252f6bb-947c-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:37:22.486106+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4ddcafa3-4aaf-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=128826 util=0.13 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:37:48.668299+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d95d330f-25e4-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:37:54.472798+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e62e1faa-efe1-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:38:00.858844+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d24b3609-2653-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=132817 util=0.13 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:38:05.240029+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4f670564-434b-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:38:15.428271+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "209719f5-6cbb-41",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:38:21.274534+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "439cc61a-a13c-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=136502 util=0.14 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:38:24.961498+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6e4b9d63-a539-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:40:31.659619+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "291ba044-4659-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:42:34.407508+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3f368dc4-d3d8-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:45:27.794737+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "503cc4a4-c0de-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:47:35.290484+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bce4a876-369c-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:49:38.250858+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c44b536b-d417-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:51:39.344668+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c2bc6e07-56b3-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:54:09.199170+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9aaeb020-a0f8-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from coder",
+    "body": "PR D (slice-3) \u2014 slim the /sdlc skill to run + report + HITL; conclude the host\u2192overseer detector migration by removing the calibration flag.\n\n## Coverage-map (task-3-1 GATE, AC-D6) \u2014 recorded (.egg-state/agent-outputs/coder/3364-coverage-map.md)\nThe skill's *Overseer Alert Detection* flow surfaces EVERY `OVERSEER_ALERT` generically. Each DELETED host detector maps to a confirmed overseer emitter:\n| Deleted host block | Overseer emitter (alert subject) |\n|---|---|\n| Stall detection | `incomplete_consensus_stall` (`_consensus_stall.py:382`) + `action:{action}` via `progress_stall` |\n| Silent agent | `action:{action}` via `heartbeat_timeout` \u2192 `_execute_action` (`_escalation.py:161`) |\n| NACK escalation | `incomplete_consensus_stall` (also `brc_confirmation_timeout`) |\n| Stuck-Pipeline-Rescue trigger | `post_consensus_stall` (`_consensus_stall.py:137`) |\n| **Long-Running Phase Detection** | **NONE \u2192 cq-4: RETAINED host-side** (phase-duration affordance, not an anomaly) |\n\n## Changes (commit 96bb88f49, 4 files)\n- **skills/sdlc/SKILL.md (task-3-2, AC-D1/D3/D4)**: deleted Host-detector-migration(#1962) section, Overseer-Absent Fallback, Stall/Silent-agent/Post-nudge/State-tracking blocks + short-flow Stall block. PRESERVED the *Unresolved NACK* render-on-alert flow (rewired onto `incomplete_consensus_stall`) and Stuck-Pipeline-Rescue Steps 1-3 (trigger rewired onto `post_consensus_stall`, user-initiated). KEPT Long-Running Phase Detection (cq-4). 1600\u21921483 lines.\n- **Last-resort debugging (task-3-4, AC-D5)**: short section with both backstop rules.\n- **overseer_owns_host_detection removed (task-3-3, AC-D2)**: Field in `orchestrator/models/_config.py` + both getattr refs in `orchestrator/routes/pipelines/_routes_status.py` + stale flag prose in coder-owned `sandbox/agent-config/rules/overseer.md`. `git grep` clean across code + SKILL.md + rules.\n\n## HANDOFF to documenter\n`docs/architecture/orchestrator.md`, `docs/architecture/overseer.md`, `docs/guides/pipeline-health-monitoring.md` also mention the flag but are documenter-owned (coder gateway-restricted from docs/). AC-D2 scope is \"(code + SKILL.md prose)\" which this satisfies; documenter should scrub those 3 docs.\n\n## Verification\nruff clean; AST valid; 211 orchestrator tests pass; `PipelineConfig()` constructs with the field gone.",
+    "metadata": {
+      "payload": {
+        "summary": "PR D (slice-3) \u2014 slim the /sdlc skill to run + report + HITL; conclude the host\u2192overseer detector migration by removing the calibration flag.\n\n## Coverage-map (task-3-1 GATE, AC-D6) \u2014 recorded (.egg-state/agent-outputs/coder/3364-coverage-map.md)\nThe skill's *Overseer Alert Detection* flow surfaces EVERY `OVERSEER_ALERT` generically. Each DELETED host detector maps to a confirmed overseer emitter:\n| Deleted host block | Overseer emitter (alert subject) |\n|---|---|\n| Stall detection | `incomplete_consensus_stall` (`_consensus_stall.py:382`) + `action:{action}` via `progress_stall` |\n| Silent agent | `action:{action}` via `heartbeat_timeout` \u2192 `_execute_action` (`_escalation.py:161`) |\n| NACK escalation | `incomplete_consensus_stall` (also `brc_confirmation_timeout`) |\n| Stuck-Pipeline-Rescue trigger | `post_consensus_stall` (`_consensus_stall.py:137`) |\n| **Long-Running Phase Detection** | **NONE \u2192 cq-4: RETAINED host-side** (phase-duration affordance, not an anomaly) |\n\n## Changes (commit 96bb88f49, 4 files)\n- **skills/sdlc/SKILL.md (task-3-2, AC-D1/D3/D4)**: deleted Host-detector-migration(#1962) section, Overseer-Absent Fallback, Stall/Silent-agent/Post-nudge/State-tracking blocks + short-flow Stall block. PRESERVED the *Unresolved NACK* render-on-alert flow (rewired onto `incomplete_consensus_stall`) and Stuck-Pipeline-Rescue Steps 1-3 (trigger rewired onto `post_consensus_stall`, user-initiated). KEPT Long-Running Phase Detection (cq-4). 1600\u21921483 lines.\n- **Last-resort debugging (task-3-4, AC-D5)**: short section with both backstop rules.\n- **overseer_owns_host_detection removed (task-3-3, AC-D2)**: Field in `orchestrator/models/_config.py` + both getattr refs in `orchestrator/routes/pipelines/_routes_status.py` + stale flag prose in coder-owned `sandbox/agent-config/rules/overseer.md`. `git grep` clean across code + SKILL.md + rules.\n\n## HANDOFF to documenter\n`docs/architecture/orchestrator.md`, `docs/architecture/overseer.md`, `docs/guides/pipeline-health-monitoring.md` also mention the flag but are documenter-owned (coder gateway-restricted from docs/). AC-D2 scope is \"(code + SKILL.md prose)\" which this satisfies; documenter should scrub those 3 docs.\n\n## Verification\nruff clean; AST valid; 211 orchestrator tests pass; `PipelineConfig()` constructs with the field gone.",
+        "attestation": {
+          "commit_shas": [
+            "96bb88f49dc53fa6520fd33e3d6f9c29e48fd21f"
+          ],
+          "files_changed": [
+            "skills/sdlc/SKILL.md",
+            "orchestrator/models/_config.py",
+            "orchestrator/routes/pipelines/_routes_status.py",
+            "sandbox/agent-config/rules/overseer.md"
+          ],
+          "files_reviewed": [
+            "skills/sdlc/SKILL.md",
+            "orchestrator/models/_config.py",
+            "orchestrator/routes/pipelines/_routes_status.py",
+            "sandbox/agent-config/rules/overseer.md"
+          ],
+          "tasks_completed": [
+            "task-3-1",
+            "task-3-2",
+            "task-3-3",
+            "task-3-4"
+          ],
+          "tests_pass": 211
+        },
+        "artifacts": [
+          "96bb88f49dc53fa6520fd33e3d6f9c29e48fd21f",
+          "skills/sdlc/SKILL.md",
+          "orchestrator/models/_config.py",
+          "orchestrator/routes/pipelines/_routes_status.py",
+          "sandbox/agent-config/rules/overseer.md"
+        ],
+        "risk_considered": "Deletion gated on the cq-4 coverage-map so no detector goes dark; NACK + Long-Running render flows preserved. Docs/ scrub deferred to documenter. Merge-seam with PR B on routes/pipelines package.",
+        "commit_sha": "96bb88f49dc53fa6520fd33e3d6f9c29e48fd21f",
+        "files_changed": [
+          "skills/sdlc/SKILL.md",
+          "orchestrator/models/_config.py",
+          "orchestrator/routes/pipelines/_routes_status.py",
+          "sandbox/agent-config/rules/overseer.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-3-1",
+          "task-3-2",
+          "task-3-3",
+          "task-3-4"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "96bb88f49dc53fa6520fd33e3d6f9c29e48fd21f",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:54:55.097348+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b7240d57-b70d-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:02.388369+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b7abc1ee-9b7e-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:02.396229+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "40403063-25c2-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:03.813161+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d0f200cd-a866-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:05.410130+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a75ac7e4-2690-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:07.018078+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ab0c2062-a753-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:08.592430+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f3cc508c-6404-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:09.341616+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "56d1c449-895c-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:09.811583+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b20d0137-b728-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:09.879264+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a3dc7bd0-9bab-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=410090 util=0.41 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:11.501107+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "55ad0987-9498-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:12.942488+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8f3d1d55-2348-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:13.753422+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f7ea4db3-46aa-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:15.457251+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "81a91523-2f35-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:19.114502+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "916df79d-8757-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:55:19.435221+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "76e70ef2-86b6-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_concurrency",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_concurrency for coder",
+    "body": "Concurrency review clean. Removing overseer_owns_host_detection AND deleting the five host-side anomaly detectors makes the overseer the sole detection source \u2014 this eliminates the double-detection/double-alert race the flag previously gated, rather than introducing one. Retained host affordances (duration-based Long-Running Phase; user-initiated Stuck Rescue) do not overlap any overseer emitter, so no double-fire. No dangling runtime references to the removed config field (git grep clean across code/SKILL.md/rules; status-body key removed with the field, so no KeyError for consumers). The TaskStop-before-rearm backstop (guards the two-live-Monitors independent-cursor double-emit race) is correctly preserved in the new Last-resort debugging section. No concurrency-critical code paths touched (supervision/event-loop/executor belong to the paused PR C).",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/models/_config.py",
+          "orchestrator/routes/pipelines/_routes_status.py",
+          "sandbox/agent-config/rules/overseer.md",
+          "skills/sdlc/SKILL.md"
+        ],
+        "reason": "Concurrency review clean. Removing overseer_owns_host_detection AND deleting the five host-side anomaly detectors makes the overseer the sole detection source \u2014 this eliminates the double-detection/double-alert race the flag previously gated, rather than introducing one. Retained host affordances (duration-based Long-Running Phase; user-initiated Stuck Rescue) do not overlap any overseer emitter, so no double-fire. No dangling runtime references to the removed config field (git grep clean across code/SKILL.md/rules; status-body key removed with the field, so no KeyError for consumers). The TaskStop-before-rearm backstop (guards the two-live-Monitors independent-cursor double-emit race) is correctly preserved in the new Last-resort debugging section. No concurrency-critical code paths touched (supervision/event-loop/executor belong to the paused PR C).",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:56:18.938750+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3517e660-5a7c-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_security",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_security for coder",
+    "body": "Security review clean. PR D delta (4 files) introduces no security-relevant risk: (1) removal of overseer_owns_host_detection is a benign calibration feature-flag, not a security control; clean removal with no dangling code/skill/rules refs (3 remaining refs are documenter-owned docs/ files, correctly deferred). (2) status-route change reduces read-only status exposure. (3) overseer.md is prose-only. (4) SKILL.md's new \"Last-resort debugging\" section is a net security POSITIVE \u2014 destructive OVERSEER_ALERT recommendations must route through human AskUserQuestion rather than auto-executing cancel_task/phase-restart/force-push, closing a prompt-injection auto-exec vector. No new attack surface, no credential/secret handling, no injection sinks, no auth/permission changes.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/models/_config.py",
+          "orchestrator/routes/pipelines/_routes_status.py",
+          "sandbox/agent-config/rules/overseer.md",
+          "skills/sdlc/SKILL.md"
+        ],
+        "reason": "Security review clean. PR D delta (4 files) introduces no security-relevant risk: (1) removal of overseer_owns_host_detection is a benign calibration feature-flag, not a security control; clean removal with no dangling code/skill/rules refs (3 remaining refs are documenter-owned docs/ files, correctly deferred). (2) status-route change reduces read-only status exposure. (3) overseer.md is prose-only. (4) SKILL.md's new \"Last-resort debugging\" section is a net security POSITIVE \u2014 destructive OVERSEER_ALERT recommendations must route through human AskUserQuestion rather than auto-executing cancel_task/phase-restart/force-push, closing a prompt-injection auto-exec vector. No new attack surface, no credential/secret handling, no injection sinks, no auth/permission changes.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:56:26.189899+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "256c0808-9660-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=72678 util=0.07 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:56:33.762037+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "591c77c4-9bb8-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=72785 util=0.07 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:56:47.037704+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3a8306ce-971d-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code_holistic for coder",
+    "body": "Holistic ACK of PR D v1. (1) overseer_owns_host_detection fully removed from both coder-writable code sites (_config.py field, _routes_status.py status-body ref) and the coder-owned overseer.md rules; ruff clean. (2) 3 remaining flag refs are docs/-only, which check_file_restriction confirms coder is role-blocked from (alternative_role=documenter) \u2014 documenter is an active producer in this same slice-3 round, so the doc scrub lands under the same consensus, not a cross-PR gap. (3) cq-4 honored: Long-Running Phase Detection retained host-side (reworded, not deleted); other four detector blocks deleted per plan. (4) Rewired references point at real overseer emitters (_check_incomplete_consensus_stall / _check_post_consensus_stall verified in orchestrator/overseer/monitor/); all deleted-section anchors have zero inbound links and retained anchors resolve \u2014 no dangling refs. (5) AC-D5 backstops (no blind destructive action; TaskStop prior Monitor before re-arm) present. Nothing goes dark; scope-faithful and internally coherent.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/models/_config.py",
+          "orchestrator/routes/pipelines/_routes_status.py",
+          "sandbox/agent-config/rules/overseer.md",
+          "skills/sdlc/SKILL.md"
+        ],
+        "reason": "Holistic ACK of PR D v1. (1) overseer_owns_host_detection fully removed from both coder-writable code sites (_config.py field, _routes_status.py status-body ref) and the coder-owned overseer.md rules; ruff clean. (2) 3 remaining flag refs are docs/-only, which check_file_restriction confirms coder is role-blocked from (alternative_role=documenter) \u2014 documenter is an active producer in this same slice-3 round, so the doc scrub lands under the same consensus, not a cross-PR gap. (3) cq-4 honored: Long-Running Phase Detection retained host-side (reworded, not deleted); other four detector blocks deleted per plan. (4) Rewired references point at real overseer emitters (_check_incomplete_consensus_stall / _check_post_consensus_stall verified in orchestrator/overseer/monitor/); all deleted-section anchors have zero inbound links and retained anchors resolve \u2014 no dangling refs. (5) AC-D5 backstops (no blind destructive action; TaskStop prior Monitor before re-arm) present. Nothing goes dark; scope-faithful and internally coherent.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:56:55.749144+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b020ee28-b253-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=85512 util=0.09 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:57:01.907536+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f3709674-6bca-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:57:19.427838+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0e82be28-a3ec-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for coder",
+    "body": "PR D (slice-3) conforms to the contract across all four coder tasks. task-3-1/AC-D6: coverage-map recorded (commit body); 4/5 detector blocks map to confirmed overseer emitters (Stall/NACK\u2192incomplete_consensus_stall, Silent\u2192heartbeat_timeout, Rescue-trigger\u2192post_consensus_stall); the unmapped 5th (Long-Running Phase) was raised as HITL cq-4 at point of discovery and operator-resolved to KEEP host-side \u2014 no block deleted without a confirmed replacement. task-3-2/AC-D1/D3: Host-detector-migration section, Overseer-Absent Fallback, Stall/Silent/Post-nudge/State-tracking + short-flow Stall blocks deleted; Unresolved NACK (rewired\u2192incomplete_consensus_stall), Long-Running Implement Phase (kept per cq-4), and Stuck-Rescue Steps 1-3 (rewired\u2192post_consensus_stall, user-initiated) all preserved. task-3-3/AC-D2: field removed from models/_config.py, both getattr refs removed from _routes_status.py; grep-clean across code + SKILL.md prose + coder-owned rules/overseer.md. task-3-4/AC-D4/D5: kept surface intact; Last-resort debugging section carries both backstop rules. Conditional ACK: 3 documenter-owned docs/ files still reference overseer_owns_host_detection and are outside coder's write boundary (verified: alternative_role=documenter) \u2014 see pre-merge condition.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "skills/sdlc/SKILL.md",
+          "orchestrator/models/_config.py",
+          "orchestrator/routes/pipelines/_routes_status.py",
+          "sandbox/agent-config/rules/overseer.md"
+        ],
+        "reason": "PR D (slice-3) conforms to the contract across all four coder tasks. task-3-1/AC-D6: coverage-map recorded (commit body); 4/5 detector blocks map to confirmed overseer emitters (Stall/NACK\u2192incomplete_consensus_stall, Silent\u2192heartbeat_timeout, Rescue-trigger\u2192post_consensus_stall); the unmapped 5th (Long-Running Phase) was raised as HITL cq-4 at point of discovery and operator-resolved to KEEP host-side \u2014 no block deleted without a confirmed replacement. task-3-2/AC-D1/D3: Host-detector-migration section, Overseer-Absent Fallback, Stall/Silent/Post-nudge/State-tracking + short-flow Stall blocks deleted; Unresolved NACK (rewired\u2192incomplete_consensus_stall), Long-Running Implement Phase (kept per cq-4), and Stuck-Rescue Steps 1-3 (rewired\u2192post_consensus_stall, user-initiated) all preserved. task-3-3/AC-D2: field removed from models/_config.py, both getattr refs removed from _routes_status.py; grep-clean across code + SKILL.md prose + coder-owned rules/overseer.md. task-3-4/AC-D4/D5: kept surface intact; Last-resort debugging section carries both backstop rules. Conditional ACK: 3 documenter-owned docs/ files still reference overseer_owns_host_detection and are outside coder's write boundary (verified: alternative_role=documenter) \u2014 see pre-merge condition.",
+        "ack_version": 1,
+        "attestation": {
+          "tasks_verified": [
+            "task-3-1",
+            "task-3-2",
+            "task-3-3",
+            "task-3-4"
+          ]
+        },
+        "pre_merge_condition": "Scrub `overseer_owns_host_detection` from the 3 documenter-owned docs files (docs/guides/pipeline-health-monitoring.md:304,572 and docs/architecture/overseer.md:260) for full repo-wide AC-D2 grep-cleanliness. Coder is role-blocked from these paths (alternative_role=documenter); no documenter task exists in slice-3, so this must be handled by a documenter pass before merge."
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:57:23.567764+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bd6e9b32-725f-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:57:23.892665+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c92c7983-a95e-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:57:24.014262+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "501b3259-fbf5-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:57:24.219777+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9223f0ad-ea38-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=101539 util=0.10 cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:57:36.400431+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "125fc945-787f-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for coder",
+    "body": "ACK v1. Clean removal of overseer_owns_host_detection: ruff + ast + 57 tests pass, git grep clean across full tree (incl docs). SKILL.md deletions match PR D scope with no dangling anchors and kept sections (Long-Running Phase per cq-4, Stuck Rescue Steps 1-3) intact. Coverage-map gate (cq-4) verified against live overseer emitters incomplete_consensus_stall (_consensus_stall.py:382), post_consensus_stall (:137), and action:{action} (_escalation.py:162) \u2014 no detection goes dark. Non-blocking: commit note claims a documenter docs handoff but docs are already grep-clean at the proposal SHA.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/models/_config.py",
+          "orchestrator/routes/pipelines/_routes_status.py",
+          "sandbox/agent-config/rules/overseer.md",
+          "skills/sdlc/SKILL.md"
+        ],
+        "reason": "ACK v1. Clean removal of overseer_owns_host_detection: ruff + ast + 57 tests pass, git grep clean across full tree (incl docs). SKILL.md deletions match PR D scope with no dangling anchors and kept sections (Long-Running Phase per cq-4, Stuck Rescue Steps 1-3) intact. Coverage-map gate (cq-4) verified against live overseer emitters incomplete_consensus_stall (_consensus_stall.py:382), post_consensus_stall (:137), and action:{action} (_escalation.py:162) \u2014 no detection goes dark. Non-blocking: commit note claims a documenter docs handoff but docs are already grep-clean at the proposal SHA.",
+        "ack_version": 1,
+        "attestation": {
+          "files_reviewed": [
+            "orchestrator/models/_config.py",
+            "orchestrator/routes/pipelines/_routes_status.py",
+            "sandbox/agent-config/rules/overseer.md",
+            "skills/sdlc/SKILL.md"
+          ],
+          "issues_found": 0,
+          "checks": [
+            "ruff clean on both .py files",
+            "ast parse OK",
+            "57 config/status/overseer_cleanup tests pass",
+            "git grep for overseer_owns_host_detection clean across entire proposal tree incl docs",
+            "coverage-map gate cq-4 verified: incomplete_consensus_stall + post_consensus_stall + action:{action} are real OVERSEER_ALERT emitters",
+            "no dangling anchors to deleted SKILL.md sections"
+          ]
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:57:59.819605+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8b07746e-1169-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=81831 util=0.08 cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:58:09.444494+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "769bf365-31b9-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:59:26.851464+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4eff7850-a5a4-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T02:59:31.856671+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "be7026c6-914a-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from tester",
+    "body": "PR D (slice-3) task-3-5 \u2014 verification tests pinning the overseer_owns_host_detection removal (AC-D2). Two new test files, 6 tests, all green.\n\n- orchestrator/tests/test_config_overseer_flag_removed.py: the calibration flag is GONE from PipelineConfig (absent from model_fields, no attr on a default instance), a stale persisted key deserializes but is dropped not resurrected (extra='ignore'), and the retained overseer threshold knobs (stuck_phase_transition/agent_stall/silent_agent/long_running_phase/nack_unresolved) survive \u2014 guarding against over-broad deletion.\n- orchestrator/tests/test_routes_status.py: drives the real GET /status route body and asserts the data[\"config\"] subset no longer advertises overseer_owns_host_detection while still surfacing the retained threshold knobs; nothing mocks the subset itself.\n\nOut-of-band verification (task-3-5 grep-clean + structural): overseer_owns_host_detection / run_migrated_detectors are clean across code + SKILL.md (remaining references are documenter-owned docs/ files, plus my own negative-assertion test strings); the removed detector headings (Host-detector-migration #1962, Overseer-Absent Fallback, Silent-agent/NACK/Stall blocks) are gone from SKILL.md; the preserved AskUserQuestion / Stuck-Pipeline-Rescue / OVERSEER_ALERT surfacing flows and the cq-4-retained Long-Running Phase Detection remain intact.\n\nChecks: ruff check + format clean on both files; bandit (-ll, pyproject config) no medium/high issues; targeted regression suite (test_models, test_update_pipeline_config, test_pipelines_status_wait_route + the two new files) = 180 passed. Note: `make test`/`make security` cannot fully run in this sandbox (venv re-sync needs network, cert-blocked) so .venv/bin/pytest + .venv/bin/bandit were invoked directly.",
+    "metadata": {
+      "payload": {
+        "summary": "PR D (slice-3) task-3-5 \u2014 verification tests pinning the overseer_owns_host_detection removal (AC-D2). Two new test files, 6 tests, all green.\n\n- orchestrator/tests/test_config_overseer_flag_removed.py: the calibration flag is GONE from PipelineConfig (absent from model_fields, no attr on a default instance), a stale persisted key deserializes but is dropped not resurrected (extra='ignore'), and the retained overseer threshold knobs (stuck_phase_transition/agent_stall/silent_agent/long_running_phase/nack_unresolved) survive \u2014 guarding against over-broad deletion.\n- orchestrator/tests/test_routes_status.py: drives the real GET /status route body and asserts the data[\"config\"] subset no longer advertises overseer_owns_host_detection while still surfacing the retained threshold knobs; nothing mocks the subset itself.\n\nOut-of-band verification (task-3-5 grep-clean + structural): overseer_owns_host_detection / run_migrated_detectors are clean across code + SKILL.md (remaining references are documenter-owned docs/ files, plus my own negative-assertion test strings); the removed detector headings (Host-detector-migration #1962, Overseer-Absent Fallback, Silent-agent/NACK/Stall blocks) are gone from SKILL.md; the preserved AskUserQuestion / Stuck-Pipeline-Rescue / OVERSEER_ALERT surfacing flows and the cq-4-retained Long-Running Phase Detection remain intact.\n\nChecks: ruff check + format clean on both files; bandit (-ll, pyproject config) no medium/high issues; targeted regression suite (test_models, test_update_pipeline_config, test_pipelines_status_wait_route + the two new files) = 180 passed. Note: `make test`/`make security` cannot fully run in this sandbox (venv re-sync needs network, cert-blocked) so .venv/bin/pytest + .venv/bin/bandit were invoked directly.",
+        "attestation": {
+          "tests_run": 6,
+          "checks_passed": [
+            "lint",
+            "test",
+            "security"
+          ],
+          "tests_execution_blocked": false
+        },
+        "artifacts": [
+          "4444378f0dd7cf5861fd92107a6819c977ca3f67",
+          "orchestrator/tests/test_config_overseer_flag_removed.py",
+          "orchestrator/tests/test_routes_status.py"
+        ],
+        "risk_considered": "Low risk: additive test-only files, no production code touched. Tests are negative assertions pinning a removal; they reference the removed name only as string literals (intentional). Verified the retained overseer threshold-knob surface is not accidentally covered by the deletion. The `except AttributeError, TypeError:` in _routes_status.py is valid Python 3.14 (PEP 758), not a defect.",
+        "commit_sha": "4444378f0dd7cf5861fd92107a6819c977ca3f67",
+        "files_changed": [
+          "orchestrator/tests/test_config_overseer_flag_removed.py",
+          "orchestrator/tests/test_routes_status.py"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-3-5"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "4444378f0dd7cf5861fd92107a6819c977ca3f67",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:00:57.901599+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "18e40174-5ce3-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:03.358536+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3c63389c-78c5-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:03.780275+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2b44d249-fb6a-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:04.627677+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5e7c8c4e-3ee3-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:05.357289+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f442adfa-89ad-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:05.963066+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "514ad708-b071-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:06.917722+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e6718169-7551-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:10.235852+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "66aabb41-b24a-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:10.560108+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ebf07448-8cda-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:11.396351+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d6a23853-1b48-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:11.414840+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "43bac06e-35f2-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:12.345559+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a084d5d1-6426-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:13.364160+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4043a12e-cb4d-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=126112 util=0.13 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:14.364828+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "16986656-fa4c-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:34.123088+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "16a2548c-a997-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_security",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_security for tester",
+    "body": "Security review clean. Delta is two new test-only files (test_config_overseer_flag_removed.py, test_routes_status.py) pinning the overseer_owns_host_detection removal (AC-D2). No production code, no credential/secret handling, no injection sinks, no external-input trust boundaries, no auth/permission changes \u2014 zero added attack surface. Tests drive the real PipelineConfig model and the real GET /status route body (subset not mocked), correctly asserting the removed key is gone and retained overseer threshold knobs survive. Nothing security-relevant to block.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_config_overseer_flag_removed.py",
+          "orchestrator/tests/test_routes_status.py"
+        ],
+        "reason": "Security review clean. Delta is two new test-only files (test_config_overseer_flag_removed.py, test_routes_status.py) pinning the overseer_owns_host_detection removal (AC-D2). No production code, no credential/secret handling, no injection sinks, no external-input trust boundaries, no auth/permission changes \u2014 zero added attack surface. Tests drive the real PipelineConfig model and the real GET /status route body (subset not mocked), correctly asserting the removed key is gone and retained overseer threshold knobs survive. Nothing security-relevant to block.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:38.477600+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "46e3d3f9-9139-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_concurrency",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_concurrency for tester",
+    "body": "Concurrency review clean; ran both suites locally, 6/6 pass. Tests are deterministic synchronous unit tests with no concurrency surface (no threads/async/shared mutable state/locks) \u2014 nothing to flag in test mechanics. The state-durability guard test_stale_persisted_flag_is_dropped_not_retained is well-aligned with the PR-D concurrency contract: it pins that a stale persisted config cannot resurrect the removed overseer_owns_host_detection flag (extra='ignore' drops it; model_dump does not re-emit), which is the flag that previously arbitrated host-vs-overseer detection ownership \u2014 closing off a stale-statefile path back to double-detection ambiguity. The route test drives the real /status body (only pipeline resolution/enrichers patched, not the config subset itself), so the AC-D2 payload contract is genuinely exercised.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_config_overseer_flag_removed.py",
+          "orchestrator/tests/test_routes_status.py"
+        ],
+        "reason": "Concurrency review clean; ran both suites locally, 6/6 pass. Tests are deterministic synchronous unit tests with no concurrency surface (no threads/async/shared mutable state/locks) \u2014 nothing to flag in test mechanics. The state-durability guard test_stale_persisted_flag_is_dropped_not_retained is well-aligned with the PR-D concurrency contract: it pins that a stale persisted config cannot resurrect the removed overseer_owns_host_detection flag (extra='ignore' drops it; model_dump does not re-emit), which is the flag that previously arbitrated host-vs-overseer detection ownership \u2014 closing off a stale-statefile path back to double-detection ambiguity. The route test drives the real /status body (only pipeline resolution/enrichers patched, not the config subset itself), so the AC-D2 payload contract is genuinely exercised.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:43.521348+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "03b5eb8d-8a3c-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=83050 util=0.08 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:44.049690+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b4b46d5a-2cec-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=82081 util=0.08 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:49.955812+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "074d82bc-08c5-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for tester",
+    "body": "ACK v1. Two new test files pin AC-D2 (task-3-5). test_config_overseer_flag_removed.py: 4 non-vacuous tests \u2014 flag gone from model_fields, no attr on default instance, stale persisted key dropped via extra='ignore' and omitted from model_dump, 5 retained overseer knobs intact. test_routes_status.py: 2 tests drive the real status route (patch only pipeline resolution/PR/concurrent enrichers, not the config subset) asserting removed key absent + retained knobs surfaced as ints. All 6 pass. Positive assertions on retained keys prevent vacuous passing. SKILL.md ACs appropriately verified grep-clean out-of-band since markdown is not unit-testable.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_config_overseer_flag_removed.py",
+          "orchestrator/tests/test_routes_status.py"
+        ],
+        "reason": "ACK v1. Two new test files pin AC-D2 (task-3-5). test_config_overseer_flag_removed.py: 4 non-vacuous tests \u2014 flag gone from model_fields, no attr on default instance, stale persisted key dropped via extra='ignore' and omitted from model_dump, 5 retained overseer knobs intact. test_routes_status.py: 2 tests drive the real status route (patch only pipeline resolution/PR/concurrent enrichers, not the config subset) asserting removed key absent + retained knobs surfaced as ints. All 6 pass. Positive assertions on retained keys prevent vacuous passing. SKILL.md ACs appropriately verified grep-clean out-of-band since markdown is not unit-testable.",
+        "ack_version": 1,
+        "attestation": {
+          "files_reviewed": [
+            "orchestrator/tests/test_config_overseer_flag_removed.py",
+            "orchestrator/tests/test_routes_status.py"
+          ],
+          "issues_found": 0,
+          "checks": [
+            "both test files pass (6/6)",
+            "config tests non-vacuous: field-absent, no-attr, stale-key-dropped + model_dump omits it, 5 retained knobs intact",
+            "routes test drives real status route body (only pipeline resolution/enrichers patched, not the config subset) \u2014 positive assertions on retained keys prove they surface",
+            "scope correct for task-3-5 / AC-D2"
+          ]
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:51.123699+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5f33c945-cd4a-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=92150 util=0.09 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:01:58.215277+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bddcb54a-eca8-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for tester",
+    "body": "task-3-5 (AC-D2 verification) conforms. Ran both files live: 6 passed. test_config_overseer_flag_removed.py pins the model-side removal \u2014 field absent from PipelineConfig.model_fields, no attr on a default instance, stale persisted key dropped (extra='ignore', not re-emitted in model_dump), and the 5 retained overseer threshold knobs intact (I confirmed all 5 field names actually exist in orchestrator/models/_config.py, so the guard is real, not a tautology). test_routes_status.py drives the REAL GET /status route with only the pipeline-resolution/PR/concurrent enrichers patched (the config subset itself is unmocked, so it exercises the production code path) and asserts the subset omits overseer_owns_host_detection while still surfacing the retained knobs as ints. Grep-cleanliness (AC-D2) verified out-of-band by the tester and consistent with my own coder-review finding, including the 3 documenter-owned docs/ references that remain the standing pre-merge obligation.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_config_overseer_flag_removed.py",
+          "orchestrator/tests/test_routes_status.py"
+        ],
+        "reason": "task-3-5 (AC-D2 verification) conforms. Ran both files live: 6 passed. test_config_overseer_flag_removed.py pins the model-side removal \u2014 field absent from PipelineConfig.model_fields, no attr on a default instance, stale persisted key dropped (extra='ignore', not re-emitted in model_dump), and the 5 retained overseer threshold knobs intact (I confirmed all 5 field names actually exist in orchestrator/models/_config.py, so the guard is real, not a tautology). test_routes_status.py drives the REAL GET /status route with only the pipeline-resolution/PR/concurrent enrichers patched (the config subset itself is unmocked, so it exercises the production code path) and asserts the subset omits overseer_owns_host_detection while still surfacing the retained knobs as ints. Grep-cleanliness (AC-D2) verified out-of-band by the tester and consistent with my own coder-review finding, including the 3 documenter-owned docs/ references that remain the standing pre-merge obligation.",
+        "ack_version": 1,
+        "attestation": {
+          "tasks_verified": [
+            "task-3-5"
+          ]
+        },
+        "pre_merge_condition": "Scrub `overseer_owns_host_detection` from the 3 documenter-owned docs files (docs/guides/pipeline-health-monitoring.md:304,572 and docs/architecture/overseer.md:260) for full repo-wide AC-D2 grep-cleanliness. Coder/tester are role-blocked from these paths (alternative_role=documenter); no documenter task exists in slice-3, so a documenter pass must handle it before merge."
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:21.675357+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5049442c-257c-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code_holistic for tester",
+    "body": "Holistic ACK of tester PR-D v1. Two new test files pin AC-D2 (overseer_owns_host_detection removal) from both the model and route sides, and I re-ran them: 6/6 pass. Non-vacuous & exercises production paths: (1) test_config_overseer_flag_removed.py asserts the field is absent from PipelineConfig.model_fields, a default instance exposes no such attr, a stale persisted key is dropped via extra='ignore' AND not re-emitted by model_dump (guards against silent statefile resurrection), and the 5 retained overseer_* threshold knobs remain (guards against over-broad deletion). (2) test_routes_status.py drives the REAL GET /status route with the config subset NOT mocked, asserting the subset omits the removed key while keeping the 5 retained knobs. I independently confirmed all 5 retained keys are genuinely surfaced in _routes_status.py:126-140, so the retained-knob assertions have real teeth. SKILL.md deletions (AC-D1/D3/D5) are markdown and appropriately verified out-of-band grep-clean rather than via pytest \u2014 consistent with what I confirmed in the coder review (no dangling anchors, Long-Running block retained per cq-4). Tests live in the tester-owned orchestrator/tests/ path; lint green.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/tests/test_config_overseer_flag_removed.py",
+          "orchestrator/tests/test_routes_status.py"
+        ],
+        "reason": "Holistic ACK of tester PR-D v1. Two new test files pin AC-D2 (overseer_owns_host_detection removal) from both the model and route sides, and I re-ran them: 6/6 pass. Non-vacuous & exercises production paths: (1) test_config_overseer_flag_removed.py asserts the field is absent from PipelineConfig.model_fields, a default instance exposes no such attr, a stale persisted key is dropped via extra='ignore' AND not re-emitted by model_dump (guards against silent statefile resurrection), and the 5 retained overseer_* threshold knobs remain (guards against over-broad deletion). (2) test_routes_status.py drives the REAL GET /status route with the config subset NOT mocked, asserting the subset omits the removed key while keeping the 5 retained knobs. I independently confirmed all 5 retained keys are genuinely surfaced in _routes_status.py:126-140, so the retained-knob assertions have real teeth. SKILL.md deletions (AC-D1/D3/D5) are markdown and appropriately verified out-of-band grep-clean rather than via pytest \u2014 consistent with what I confirmed in the coder review (no dangling anchors, Long-Running block retained per cq-4). Tests live in the tester-owned orchestrator/tests/ path; lint green.",
+        "ack_version": 1
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:25.940054+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bb94fe18-9c44-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from documenter",
+    "body": "Documenter artifact for slice-3 (PR D): conclude the #1962 host\u2192overseer detection migration in the docs. The coder's slice-3 change removes overseer_owns_host_detection (orchestrator/models/_config.py + routes/pipelines/_routes_status.py) and deletes the host-side detector blocks from skills/sdlc/SKILL.md; the tester's task-3-5 commit (4444378f0) pins that removal and its message explicitly notes 'remaining refs are documenter-owned docs/'. This proposal cleans exactly those docs/ refs so nothing stale ships. Changes (rebased onto tester tip 4444378f0): (1) docs/architecture/orchestrator.md \u2014 reframe the migration paragraph as concluded; drop the calibration-flag/run_migrated_detectors narrative; keep durable facts (agent-timing.json, threshold knobs). (2) docs/architecture/overseer.md \u2014 drop the flag ref from the legacy-LLM-monitor note. (3) docs/guides/pipeline-health-monitoring.md \u2014 delete the config-table row for the removed flag; replace the flag-semantics + overseer-unresponsive fallback prose with a concise 'migration concluded' note. Neither literal symbol (overseer_owns_host_detection, run_migrated_detectors) now appears anywhere in docs/; the only remaining code occurrences are the tester's removal-assertion tests, which intentionally name the removed symbol. The #host-detector-migration anchor + inbound links are preserved; wording is conservative and does NOT over-claim overseer detection parity (that is the coverage-map's concern per the task_description). Disjoint from the coder's files \u2014 no slice-3 merge collision.",
+    "metadata": {
+      "payload": {
+        "summary": "Documenter artifact for slice-3 (PR D): conclude the #1962 host\u2192overseer detection migration in the docs. The coder's slice-3 change removes overseer_owns_host_detection (orchestrator/models/_config.py + routes/pipelines/_routes_status.py) and deletes the host-side detector blocks from skills/sdlc/SKILL.md; the tester's task-3-5 commit (4444378f0) pins that removal and its message explicitly notes 'remaining refs are documenter-owned docs/'. This proposal cleans exactly those docs/ refs so nothing stale ships. Changes (rebased onto tester tip 4444378f0): (1) docs/architecture/orchestrator.md \u2014 reframe the migration paragraph as concluded; drop the calibration-flag/run_migrated_detectors narrative; keep durable facts (agent-timing.json, threshold knobs). (2) docs/architecture/overseer.md \u2014 drop the flag ref from the legacy-LLM-monitor note. (3) docs/guides/pipeline-health-monitoring.md \u2014 delete the config-table row for the removed flag; replace the flag-semantics + overseer-unresponsive fallback prose with a concise 'migration concluded' note. Neither literal symbol (overseer_owns_host_detection, run_migrated_detectors) now appears anywhere in docs/; the only remaining code occurrences are the tester's removal-assertion tests, which intentionally name the removed symbol. The #host-detector-migration anchor + inbound links are preserved; wording is conservative and does NOT over-claim overseer detection parity (that is the coverage-map's concern per the task_description). Disjoint from the coder's files \u2014 no slice-3 merge collision.",
+        "attestation": {},
+        "artifacts": [
+          "3cc38668109792252aefbbf029404f72b9f7aa51",
+          "docs/architecture/orchestrator.md",
+          "docs/architecture/overseer.md",
+          "docs/guides/pipeline-health-monitoring.md"
+        ],
+        "risk_considered": "Low: docs-only, disjoint from code/SKILL.md files, rebased cleanly onto the current slice-3 tip. Conservative wording avoids asserting unverified overseer parity. Section anchor preserved so cross-doc links do not break. Consistent with the tester's grep-clean note that scoped its assertion to code+SKILL.md and flagged docs/ as documenter-owned.",
+        "commit_sha": "3cc38668109792252aefbbf029404f72b9f7aa51",
+        "files_changed": [
+          "docs/architecture/orchestrator.md",
+          "docs/architecture/overseer.md",
+          "docs/guides/pipeline-health-monitoring.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-3-2",
+          "task-3-3"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "3cc38668109792252aefbbf029404f72b9f7aa51",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:27.667490+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "76632461-38c2-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code_holistic",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:30.282546+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "05f5bd36-c8d4-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=116235 util=0.12 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:30.603916+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5f03cf50-461e-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_security",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:30.941991+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "686529eb-d92b-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_concurrency",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:30.943193+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f6c6fd39-8440-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:31.442967+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "535af12f-5cd4-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code_holistic",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=98756 util=0.10 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:31.714715+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "76eb529c-7d05-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:31.974066+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6dc26213-dc5e-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "tester",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from tester for coder",
+    "body": "PR D verified from tester/verification lens. AC-D2 grep-clean confirmed: overseer_owns_host_detection is gone from all prod code (orchestrator/models/_config.py, orchestrator/routes/pipelines/_routes_status.py) and from overseer.md/SKILL.md \u2014 the only remaining refs are my own removal-assertion tests (by design) and 3 documenter-owned docs/ files (legitimate cross-role handoff; coder-restricted path). Tests green: test_config_overseer_flag_removed.py + test_routes_status.py = 6 passed against the coder tree (HEAD carries 96bb88f). cq-4 retention honored \u2014 Long-Running Phase Detection kept host-side. SKILL.md rewiring internally consistent: deleted detector blocks gone, NACK flow rewired to incomplete_consensus_stall, rescue trigger to post_consensus_stall, and internal anchors (#overseer-alert-detection, #long-running-phase-detection) resolve. No test blockers.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/models/_config.py",
+          "orchestrator/routes/pipelines/_routes_status.py",
+          "sandbox/agent-config/rules/overseer.md",
+          "skills/sdlc/SKILL.md",
+          "orchestrator/tests/test_config_overseer_flag_removed.py",
+          "orchestrator/tests/test_routes_status.py"
+        ],
+        "reason": "PR D verified from tester/verification lens. AC-D2 grep-clean confirmed: overseer_owns_host_detection is gone from all prod code (orchestrator/models/_config.py, orchestrator/routes/pipelines/_routes_status.py) and from overseer.md/SKILL.md \u2014 the only remaining refs are my own removal-assertion tests (by design) and 3 documenter-owned docs/ files (legitimate cross-role handoff; coder-restricted path). Tests green: test_config_overseer_flag_removed.py + test_routes_status.py = 6 passed against the coder tree (HEAD carries 96bb88f). cq-4 retention honored \u2014 Long-Running Phase Detection kept host-side. SKILL.md rewiring internally consistent: deleted detector blocks gone, NACK flow rewired to incomplete_consensus_stall, rescue trigger to post_consensus_stall, and internal anchors (#overseer-alert-detection, #long-running-phase-detection) resolve. No test blockers.",
+        "ack_version": 1,
+        "attestation": {
+          "tests_run": 6,
+          "checks_passed": [
+            "test_config_overseer_flag_removed.py",
+            "test_routes_status.py",
+            "grep-clean AC-D2",
+            "cq-4 retention",
+            "SKILL.md anchor integrity"
+          ]
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:37.897723+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "54df2032-92f9-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "tester",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:37.900374+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9ec39e2e-6a87-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "coder",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:37.900920+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "b47517c3-ecbe-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:38.950905+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "080d2d5a-c32c-41",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=slice-3)",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:40.687247+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5951cf74-4460-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by coder",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:41.578283+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3031969e-b422-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by tester",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:41.582624+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e7dc1daf-1077-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=79071 util=0.08 cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:02:46.136899+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "05cf5779-79f6-41",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=194133 util=0.19 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:03:02.356852+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f1c52ecf-4996-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "documenter",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for documenter",
+    "body": "Documenter @ 3cc38668 scrubs overseer_owns_host_detection + run_migrated_detectors from the 3 docs files (docs/architecture/orchestrator.md, docs/architecture/overseer.md, docs/guides/pipeline-health-monitoring.md) \u2014 exactly the pre-merge obligation I attached to the coder and tester ACKs. Verified live: repo-wide grep for overseer_owns_host_detection now matches ONLY the tester's own _REMOVED_KEY/_REMOVED_FIELD assertion constants (expected \u2014 those files exist to prove the removal, not stale refs); run_migrated_detectors is fully clean. Prose is reframed coherently as 'migration concluded' (config-table row deleted; XOR/calibration + overseer-unresponsive fallback prose replaced with a concluded note), and the #host-detector-migration anchor target still resolves (heading kept, past-tensed) so no dangling cross-link. Commit is scoped to exactly the 3 docs files. AC-D2's repo-wide grep-clean now holds. Attesting the AC-D2 spanning tasks since the documenter carries no dedicated slice-3 contract row.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "docs/architecture/orchestrator.md",
+          "docs/architecture/overseer.md",
+          "docs/guides/pipeline-health-monitoring.md"
+        ],
+        "reason": "Documenter @ 3cc38668 scrubs overseer_owns_host_detection + run_migrated_detectors from the 3 docs files (docs/architecture/orchestrator.md, docs/architecture/overseer.md, docs/guides/pipeline-health-monitoring.md) \u2014 exactly the pre-merge obligation I attached to the coder and tester ACKs. Verified live: repo-wide grep for overseer_owns_host_detection now matches ONLY the tester's own _REMOVED_KEY/_REMOVED_FIELD assertion constants (expected \u2014 those files exist to prove the removal, not stale refs); run_migrated_detectors is fully clean. Prose is reframed coherently as 'migration concluded' (config-table row deleted; XOR/calibration + overseer-unresponsive fallback prose replaced with a concluded note), and the #host-detector-migration anchor target still resolves (heading kept, past-tensed) so no dangling cross-link. Commit is scoped to exactly the 3 docs files. AC-D2's repo-wide grep-clean now holds. Attesting the AC-D2 spanning tasks since the documenter carries no dedicated slice-3 contract row.",
+        "ack_version": 1,
+        "attestation": {
+          "tasks_verified": [
+            "task-3-3",
+            "task-3-5"
+          ]
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:04:05.406839+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9bbf234d-400a-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "documenter",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:04:05.409339+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0cf3a48f-2892-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code",
+    "to_role": "documenter",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for documenter",
+    "body": "ACK v1. Docs scrub concludes the #1962 host->overseer migration. AC-D2 repo-wide grep-clean confirmed at proposal SHA (overseer_owns_host_detection + run_migrated_detectors both empty full-tree); removal is real (parent tester commit still carried the flag in orchestrator.md). Reframes are accurate (migration concluded / overseer owns detection / skill only surfaces OVERSEER_ALERTs), retained threshold knobs stay documented, and the orchestrator.md cross-link to #host-detector-migration still resolves to the kept heading. Residual 'gated'/'XOR' grep hits are unrelated (PR idempotency, EGG_BRC_MEMORY) or the intentional past-tense 'Migration concluded' paragraph. Closes the documenter-owned docs handoff flagged in the coder's commit.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "docs/architecture/orchestrator.md",
+          "docs/architecture/overseer.md",
+          "docs/guides/pipeline-health-monitoring.md"
+        ],
+        "reason": "ACK v1. Docs scrub concludes the #1962 host->overseer migration. AC-D2 repo-wide grep-clean confirmed at proposal SHA (overseer_owns_host_detection + run_migrated_detectors both empty full-tree); removal is real (parent tester commit still carried the flag in orchestrator.md). Reframes are accurate (migration concluded / overseer owns detection / skill only surfaces OVERSEER_ALERTs), retained threshold knobs stay documented, and the orchestrator.md cross-link to #host-detector-migration still resolves to the kept heading. Residual 'gated'/'XOR' grep hits are unrelated (PR idempotency, EGG_BRC_MEMORY) or the intentional past-tense 'Migration concluded' paragraph. Closes the documenter-owned docs handoff flagged in the coder's commit.",
+        "ack_version": 1,
+        "attestation": {
+          "files_reviewed": [
+            "docs/architecture/orchestrator.md",
+            "docs/architecture/overseer.md",
+            "docs/guides/pipeline-health-monitoring.md"
+          ],
+          "issues_found": 0,
+          "checks": [
+            "AC-D2 repo-wide grep-clean confirmed at proposal SHA for overseer_owns_host_detection + run_migrated_detectors",
+            "removal is real (parent 4444378 had flag in orchestrator.md per git show)",
+            "reframes factually accurate: migration concluded, overseer owns detection, /sdlc surfaces alerts",
+            "retained threshold knobs still documented",
+            "cross-link orchestrator.md -> pipeline-health-monitoring.md#host-detector-migration resolves (heading kept)",
+            "no stale migration narrative remains (residual grep hits unrelated or intentional past-tense)"
+          ]
+        }
+      },
+      "version": 1,
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:04:07.298840+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c783221f-ad31-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_OBLIGATION_RESOLVED",
+    "subject": "Obligation resolved: reviewer_contract -> coder by reviewer_contract",
+    "body": "Documenter @ 3cc38668 scrubbed overseer_owns_host_detection from all 3 documenter-owned docs files (orchestrator.md, overseer.md, pipeline-health-monitoring.md). AC-D2 repo-wide grep-clean now holds (only the tester's removal-assertion constants remain, which is the proof itself). Pre-merge obligation satisfied in-cycle.",
+    "metadata": {
+      "reviewer_role": "reviewer_contract",
+      "producer_role": "coder",
+      "resolver_role": "reviewer_contract",
+      "commit_sha": "3cc38668109792252aefbbf029404f72b9f7aa51",
+      "note": "Documenter @ 3cc38668 scrubbed overseer_owns_host_detection from all 3 documenter-owned docs files (orchestrator.md, overseer.md, pipeline-health-monitoring.md). AC-D2 repo-wide grep-clean now holds (only the tester's removal-assertion constants remain, which is the proof itself). Pre-merge obligation satisfied in-cycle.",
+      "version": 1,
+      "condition": "Scrub `overseer_owns_host_detection` from the 3 documenter-owned docs files (docs/guides/pipeline-health-monitoring.md:304,572 and docs/architecture/overseer.md:260) for full repo-wide AC-D2 grep-cleanliness. Coder is role-blocked from these paths (alternative_role=documenter); no documenter task exists in slice-3, so this must be handled by a documenter pass before merge.",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:04:08.799006+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1748638d-3ed1-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by documenter",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:04:09.742713+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e710b770-0b5b-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_code",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:04:09.744796+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "306c7e12-f446-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_contract",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:04:09.745847+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "61d905f4-44f8-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_security",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_security",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:04:09.746471+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ddbde15c-56c8-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_concurrency",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_concurrency",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:04:09.747031+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5f5c7937-1375-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "reviewer_contract",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_OBLIGATION_RESOLVED",
+    "subject": "Obligation resolved: reviewer_contract -> tester by reviewer_contract",
+    "body": "Documenter @ 3cc38668 scrubbed overseer_owns_host_detection from all 3 documenter-owned docs files. AC-D2 repo-wide grep-clean now holds. Same obligation as the coder edge, satisfied in-cycle.",
+    "metadata": {
+      "reviewer_role": "reviewer_contract",
+      "producer_role": "tester",
+      "resolver_role": "reviewer_contract",
+      "commit_sha": "3cc38668109792252aefbbf029404f72b9f7aa51",
+      "note": "Documenter @ 3cc38668 scrubbed overseer_owns_host_detection from all 3 documenter-owned docs files. AC-D2 repo-wide grep-clean now holds. Same obligation as the coder edge, satisfied in-cycle.",
+      "version": 1,
+      "condition": "Scrub `overseer_owns_host_detection` from the 3 documenter-owned docs files (docs/guides/pipeline-health-monitoring.md:304,572 and docs/architecture/overseer.md:260) for full repo-wide AC-D2 grep-cleanliness. Coder/tester are role-blocked from these paths (alternative_role=documenter); no documenter task exists in slice-3, so a documenter pass must handle it before merge.",
+      "slice_id": "slice-3"
+    },
+    "timestamp": "2026-07-10T03:04:10.627359+00:00",
+    "phase": "implement"
+  }
+]

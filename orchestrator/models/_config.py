@@ -394,17 +394,6 @@ class PipelineConfig(BaseModel):
             "overseer_enabled=False (per decision-10)."
         ),
     )
-    overseer_owns_host_detection: bool = Field(
-        default=False,
-        description=(
-            "Calibration-window flag. While False (the default), /sdlc keeps "
-            "running its host-side stall / silent-agent / NACK / long-run / "
-            "rescue detectors so the overseer's new detectors can be "
-            "calibrated side-by-side with no behavior regression. The "
-            "follow-up cleanup PR flips the default to True and deletes the "
-            "now-dormant /sdlc detection blocks."
-        ),
-    )
     overseer_stuck_phase_transition_seconds: int = Field(
         default=180,
         ge=10,
