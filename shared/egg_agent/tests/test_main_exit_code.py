@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import egg_agent.__main__ as cli
-from egg_agent.auth_errors import EX_AUTH_FATAL
+from egg_agent.auth_errors import EX_AUTH_FATAL, EX_RATE_LIMITED
 from egg_agent.result import AgentResult
 
 
@@ -48,6 +48,9 @@ def test_ordinary_failure_returns_agent_returncode(monkeypatch):
 
 
 def test_transient_failure_is_not_auth_fatal(monkeypatch):
+    # #3364 PR C: a bare throttle now exits EX_RATE_LIMITED so the
+    # orchestrator paces it across the cap window; the invariant under
+    # test is unchanged — it must never classify as auth-fatal.
     result = AgentResult(
         success=False,
         stdout="",
@@ -55,7 +58,9 @@ def test_transient_failure_is_not_auth_fatal(monkeypatch):
         returncode=1,
         error="rate limit exceeded, please retry",
     )
-    assert _run_with_result(monkeypatch, result) == 1
+    rc = _run_with_result(monkeypatch, result)
+    assert rc == EX_RATE_LIMITED
+    assert rc != EX_AUTH_FATAL
 
 
 def test_success_returns_zero(monkeypatch):
