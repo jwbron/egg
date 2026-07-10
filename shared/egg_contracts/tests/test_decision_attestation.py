@@ -134,3 +134,130 @@ class TestCandidateConsideredErrors:
         )
         assert len(errors) == 1
         assert "resolved_by_context" in errors[0]
+
+
+class TestDeferredQuestionId:
+    def test_stable_across_whitespace_and_case(self):
+        from egg_contracts.decisions import deferred_question_id
+
+        a = deferred_question_id("Should we support pagination?")
+        b = deferred_question_id("  should we   support\npagination?  ")
+        assert a == b
+
+    def test_shape_matches_pattern(self):
+        from egg_contracts.decisions import DQ_ID_PATTERN, deferred_question_id
+
+        assert DQ_ID_PATTERN.match(deferred_question_id("q?"))
+
+    def test_distinct_questions_distinct_ids(self):
+        from egg_contracts.decisions import deferred_question_id
+
+        assert deferred_question_id("q1?") != deferred_question_id("q2?")
+
+    def test_non_string_normalizes_like_empty(self):
+        from egg_contracts.decisions import deferred_question_id
+
+        assert deferred_question_id(None) == deferred_question_id("")
+
+
+class TestDeferredResolutionErrors:
+    @staticmethod
+    def _dq() -> str:
+        from egg_contracts.decisions import deferred_question_id
+
+        return deferred_question_id("Should we support pagination?")
+
+    def test_absent_is_valid(self):
+        from egg_contracts.decisions import deferred_resolution_errors
+
+        assert deferred_resolution_errors(None) == []
+
+    def test_registered_with_cq_valid(self):
+        from egg_contracts.decisions import deferred_resolution_errors
+
+        assert (
+            deferred_resolution_errors(
+                [{"deferred_id": self._dq(), "resolution": "registered", "cq": "cq-3"}]
+            )
+            == []
+        )
+
+    def test_not_operator_grade_with_why_valid(self):
+        from egg_contracts.decisions import deferred_resolution_errors
+
+        assert (
+            deferred_resolution_errors(
+                [
+                    {
+                        "deferred_id": self._dq(),
+                        "resolution": "not_operator_grade",
+                        "why": "the design dissolved it",
+                    }
+                ]
+            )
+            == []
+        )
+
+    def test_non_list_rejected(self):
+        from egg_contracts.decisions import deferred_resolution_errors
+
+        errors = deferred_resolution_errors("not a list")
+        assert len(errors) == 1
+        assert "must be a list" in errors[0]
+
+    def test_bad_id_rejected(self):
+        from egg_contracts.decisions import deferred_resolution_errors
+
+        errors = deferred_resolution_errors(
+            [{"deferred_id": "dq-XYZ", "resolution": "registered", "cq": "cq-1"}]
+        )
+        assert len(errors) == 1
+        assert "dq-" in errors[0]
+
+    def test_unknown_resolution_rejected(self):
+        from egg_contracts.decisions import deferred_resolution_errors
+
+        errors = deferred_resolution_errors(
+            [{"deferred_id": self._dq(), "resolution": "dropped", "why": "w"}]
+        )
+        assert len(errors) == 1
+        assert "dropped" in errors[0]
+
+    def test_registered_without_cq_rejected(self):
+        from egg_contracts.decisions import deferred_resolution_errors
+
+        errors = deferred_resolution_errors(
+            [{"deferred_id": self._dq(), "resolution": "registered"}]
+        )
+        assert len(errors) == 1
+        assert "cq" in errors[0]
+
+    def test_not_operator_grade_without_why_rejected(self):
+        from egg_contracts.decisions import deferred_resolution_errors
+
+        errors = deferred_resolution_errors(
+            [{"deferred_id": self._dq(), "resolution": "not_operator_grade", "why": "  "}]
+        )
+        assert len(errors) == 1
+        assert "why" in errors[0]
+
+    def test_attestation_errors_include_deferred_shape(self):
+        errors = decision_attestation_errors(
+            ["cq-1"],
+            None,
+            None,
+            [{"deferred_id": "bogus", "resolution": "registered", "cq": "cq-1"}],
+        )
+        assert len(errors) == 1
+        assert "deferred_resolutions[0]" in errors[0]
+
+    def test_attestation_errors_accept_valid_deferred(self):
+        assert (
+            decision_attestation_errors(
+                ["cq-1"],
+                None,
+                None,
+                [{"deferred_id": self._dq(), "resolution": "registered", "cq": "cq-1"}],
+            )
+            == []
+        )

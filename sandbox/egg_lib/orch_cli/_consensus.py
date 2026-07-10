@@ -101,6 +101,42 @@ def _parse_considered_args(values: list[str]) -> list[dict[str, str]]:
     return candidates
 
 
+_DEFERRED_RESOLUTIONS = ("registered", "not_operator_grade")
+
+
+def _parse_deferred_args(values: list[str]) -> list[dict[str, str]]:
+    """Parse repeated ``--deferred`` flags into resolution entries (#3564).
+
+    Each value is ``"<dq-id> :: registered :: <cq-N>"`` or
+    ``"<dq-id> :: not_operator_grade :: <why>"``. Raises ``ValueError``
+    with an actionable message on a malformed entry; the orchestrator
+    re-validates the structured form (and the dq-id coverage) on propose,
+    so this is a fast local check, not the authority.
+    """
+    resolutions: list[dict[str, str]] = []
+    for raw in values:
+        parts = [p.strip() for p in raw.split("::", 2)]
+        if len(parts) != 3 or not all(parts):
+            raise ValueError(
+                f"--deferred entry {raw!r} is malformed; expected "
+                '"<dq-id> :: registered :: <cq-N>" or '
+                '"<dq-id> :: not_operator_grade :: <why>" with all three '
+                "parts non-empty"
+            )
+        deferred_id, resolution, payload = parts
+        if resolution not in _DEFERRED_RESOLUTIONS:
+            raise ValueError(
+                f"--deferred resolution {resolution!r} is not one of {list(_DEFERRED_RESOLUTIONS)}"
+            )
+        entry = {"deferred_id": deferred_id, "resolution": resolution}
+        if resolution == "registered":
+            entry["cq"] = payload
+        else:
+            entry["why"] = payload
+        resolutions.append(entry)
+    return resolutions
+
+
 def cmd_consensus_propose(args: argparse.Namespace) -> int:
     """Send CONSENSUS_PROPOSE signal, optionally pushing code first.
 
@@ -206,6 +242,12 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
     if getattr(args, "considered", None):
         try:
             ledger_attestation["candidates_considered"] = _parse_considered_args(args.considered)
+        except ValueError as err:
+            print(f"Error: {err}", file=sys.stderr)
+            return 2
+    if getattr(args, "deferred", None):
+        try:
+            ledger_attestation["deferred_resolutions"] = _parse_deferred_args(args.deferred)
         except ValueError as err:
             print(f"Error: {err}", file=sys.stderr)
             return 2

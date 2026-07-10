@@ -3901,6 +3901,251 @@ class TestDecisionLedgerProposeValidation:
         mock_tracker.handle_propose.assert_not_called()
 
 
+class TestDeferredCandidateCoverageGate:
+    """Propose-time coverage gate for refine-deferred questions (#3564).
+
+    #3563 made refine's ``deferred_to_plan`` candidates a prompt-level
+    handoff; this gate hard-closes the leak: the plan producer that
+    received the deferred section (the architect) must echo every
+    ``dq-<hash>`` id in its attestation's ``deferred_resolutions``, and
+    the validator recomputes the ids from the refine attestation and
+    rejects any proposal that leaves one unaccounted.
+    """
+
+    _QUESTION = "Should we support pagination?"
+    _DEFERRED = [
+        {
+            "question": _QUESTION,
+            "disposition": "deferred_to_plan",
+            "why": "depends on the plan's storage design",
+        }
+    ]
+
+    @staticmethod
+    def _dq(question: str) -> str:
+        from egg_contracts.decisions import deferred_question_id
+
+        return deferred_question_id(question)
+
+    def _check(
+        self,
+        *,
+        attestation: dict | None,
+        deferred=None,
+        scan_error: Exception | None = None,
+        agent_role: str = "architect",
+        phase: str = "plan",
+    ):
+        from routes.signals import _validate_deferred_candidate_coverage
+
+        payload: dict = {"commit_sha": "abc1234"}
+        if attestation is not None:
+            payload["attestation"] = attestation
+        scan_patch = (
+            patch("routes.pipelines._find_deferred_plan_candidates", side_effect=scan_error)
+            if scan_error is not None
+            else patch(
+                "routes.pipelines._find_deferred_plan_candidates",
+                return_value=self._DEFERRED if deferred is None else deferred,
+            )
+        )
+        with scan_patch:
+            _validate_deferred_candidate_coverage(
+                "issue-42", payload, agent_role=agent_role, phase=phase
+            )
+
+    def test_uncovered_deferred_question_rejected(self):
+        with pytest.raises(ValueError, match=self._dq(self._QUESTION)):
+            self._check(attestation={"decisions_registered": ["cq-1"]})
+
+    def test_rejection_lists_question_text(self):
+        # The NACK must be actionable for a producer that never saw the
+        # prompt section (store outage at prompt-build time): it carries
+        # the deferred question verbatim, not just the opaque id.
+        with pytest.raises(ValueError, match="pagination"):
+            self._check(attestation={"decisions_registered": ["cq-1"]})
+
+    def test_registered_echo_accepted(self):
+        self._check(
+            attestation={
+                "decisions_registered": ["cq-3"],
+                "deferred_resolutions": [
+                    {
+                        "deferred_id": self._dq(self._QUESTION),
+                        "resolution": "registered",
+                        "cq": "cq-3",
+                    }
+                ],
+            }
+        )
+
+    def test_registered_echo_with_unattested_cq_rejected(self):
+        with pytest.raises(ValueError, match="not in this attestation's decisions_registered"):
+            self._check(
+                attestation={
+                    "decisions_registered": ["cq-1"],
+                    "deferred_resolutions": [
+                        {
+                            "deferred_id": self._dq(self._QUESTION),
+                            "resolution": "registered",
+                            "cq": "cq-9",
+                        }
+                    ],
+                }
+            )
+
+    def test_not_operator_grade_echo_accepted(self):
+        self._check(
+            attestation={
+                "no_decisions_rationale": "design dissolved the only fork",
+                "candidates_considered": [
+                    {
+                        "question": self._QUESTION,
+                        "disposition": "not_operator_grade",
+                        "why": "cursor pagination is forced by the storage design",
+                    }
+                ],
+                "deferred_resolutions": [
+                    {
+                        "deferred_id": self._dq(self._QUESTION),
+                        "resolution": "not_operator_grade",
+                        "why": "cursor pagination is forced by the storage design",
+                    }
+                ],
+            }
+        )
+
+    def test_unknown_dq_id_rejected(self):
+        with pytest.raises(ValueError, match="matches no refine-deferred question"):
+            self._check(
+                attestation={
+                    "decisions_registered": ["cq-3"],
+                    "deferred_resolutions": [
+                        {
+                            "deferred_id": self._dq(self._QUESTION),
+                            "resolution": "registered",
+                            "cq": "cq-3",
+                        },
+                        {
+                            "deferred_id": "dq-00000000",
+                            "resolution": "registered",
+                            "cq": "cq-3",
+                        },
+                    ],
+                }
+            )
+
+    def test_reframed_question_covered_by_id(self):
+        # The planner reframes the deferred question as a concrete cq-N;
+        # coverage matches on the echoed id, so the reframing is free.
+        self._check(
+            attestation={
+                "decisions_registered": ["cq-3"],
+                "deferred_resolutions": [
+                    {
+                        "deferred_id": self._dq(self._QUESTION),
+                        "resolution": "registered",
+                        "cq": "cq-3",
+                    }
+                ],
+            },
+        )
+
+    def test_no_deferred_candidates_noop(self):
+        self._check(attestation={"decisions_registered": ["cq-1"]}, deferred=[])
+
+    def test_non_architect_plan_roles_exempt(self):
+        # task_planner / risk_analyst never receive the deferred prompt
+        # section, so coverage is not required of them.
+        for role in ("task_planner", "risk_analyst"):
+            self._check(attestation={"decisions_registered": ["cq-1"]}, agent_role=role)
+
+    def test_refine_phase_exempt(self):
+        self._check(
+            attestation={"decisions_registered": ["cq-1"]},
+            agent_role="refiner",
+            phase="refine",
+        )
+
+    def test_scan_failure_skips_check(self):
+        # A message-store outage is an orchestrator-side glitch, not a
+        # producer fault: the check degrades with a warning, mirroring the
+        # prompt-side behavior of _find_deferred_plan_candidates.
+        self._check(
+            attestation={"decisions_registered": ["cq-1"]},
+            scan_error=RuntimeError("store down"),
+        )
+
+    def test_non_plan_attestation_with_deferred_resolutions_rejected(self):
+        # Shape-level guard: only plan producers have dq- ids to echo.
+        from routes.signals import _validate_decision_attestation_shape
+
+        with pytest.raises(ValueError, match="plan-phase field"):
+            _validate_decision_attestation_shape(
+                {
+                    "commit_sha": "abc1234",
+                    "attestation": {
+                        "decisions_registered": ["cq-1"],
+                        "deferred_resolutions": [
+                            {
+                                "deferred_id": self._dq(self._QUESTION),
+                                "resolution": "registered",
+                                "cq": "cq-1",
+                            }
+                        ],
+                    },
+                },
+                agent_role="refiner",
+                phase="refine",
+            )
+
+    def test_malformed_deferred_resolutions_rejected_at_shape(self):
+        from routes.signals import _validate_decision_attestation_shape
+
+        with pytest.raises(ValueError, match="deferred_resolutions"):
+            _validate_decision_attestation_shape(
+                {
+                    "commit_sha": "abc1234",
+                    "attestation": {
+                        "decisions_registered": ["cq-1"],
+                        "deferred_resolutions": [{"deferred_id": "bogus"}],
+                    },
+                },
+                agent_role="architect",
+                phase="plan",
+            )
+
+    def test_coverage_enforced_on_degraded_fetch_path(self):
+        # The coverage gate is hoisted with the shape check ahead of the
+        # branch-verification early return in _validate_producer_artifacts:
+        # a degraded fetch must not let an uncovered deferral through.
+        from routes.signals import _validate_producer_artifacts
+
+        pipeline = _pipeline_with_phase("plan")
+        with (
+            patch("routes.signals.subprocess.run", side_effect=_make_subprocess_router()),
+            patch("routes.signals._commit_object_resolvable", return_value=False),
+            patch(
+                "routes.pipelines._find_deferred_plan_candidates",
+                return_value=self._DEFERRED,
+            ),
+            pytest.raises(ValueError, match="does not account for all"),
+        ):
+            _validate_producer_artifacts(
+                "issue-42",
+                {
+                    "commit_sha": "abc1234",
+                    "attestation": {"decisions_registered": ["cq-1"]},
+                },
+                Path("/tmp/repo"),
+                agent_role="architect",
+                phase="plan",
+                pipeline_state=pipeline,
+                worktree_path=Path("/tmp/wt"),
+                branch_verified=None,
+            )
+
+
 class TestSimplifierSingleArtifactEnforcement:
     """Propose-time enforcement that the simplifier persists exactly ONE draft.
 
