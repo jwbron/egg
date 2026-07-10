@@ -236,6 +236,36 @@ class TestRescueUnreachableCommits:
         )
         assert rescued == {pruned_sha: rewritten}
 
+    def test_registry_fallback_normalizes_cited_sha_key(
+        self,
+        rebase_rewrite_repo: dict[str, object],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The registry keys its result by ``_validate_sha``-normalized
+        (stripped + lowercased) SHAs, so the rescue normalizes the cited
+        SHA at lookup (``recorded.get(sha.strip().lower())``). A cited SHA
+        that arrives uppercase / whitespace-padded must still match the
+        recorded patch-id and be returned keyed by its raw form.
+        """
+        repo = rebase_rewrite_repo["repo"]
+        rewritten = rebase_rewrite_repo["rewritten_sha"]
+        pid = evidence_rescue.patch_id_for_commit(repo, rewritten)
+        raw_cited = "  " + "A" * 40 + "\n"  # uppercase + whitespace, not in the odb
+
+        # The store normalizes its keys; mirror that in the fake registry.
+        monkeypatch.setattr(
+            evidence_rescue,
+            "_recorded_patch_ids",
+            lambda shas: {raw_cited.strip().lower(): pid},
+        )
+        rescued = evidence_rescue.rescue_unreachable_commits(
+            PIPELINE_ID,
+            repo,
+            unreachable_shas=[raw_cited],
+            integration_branch=BRANCH,
+        )
+        assert rescued == {raw_cited: rewritten}
+
     def test_registry_unavailable_degrades(
         self,
         rebase_rewrite_repo: dict[str, object],
