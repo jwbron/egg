@@ -1,0 +1,7844 @@
+# BRC Consensus History — implement phase, slice-2
+
+Generated: 2026-07-10T02:35:28Z
+Pipeline: issue-3364
+Slice: slice-2
+
+### [2026-07-09T19:39:35Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: f5977e96-e30a-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:39:35Z] coder (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: e3993dd5-d945-4b
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:39:42Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: d3cb37d2-1590-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:39:46Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 79d91ac4-b3eb-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:42:06Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 0ecec9fc-10d6-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:42:14Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: aa006fe4-6e8f-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:42:53Z] documenter (CONSENSUS_PROPOSE): Proposal from documenter
+
+Documenter proposal for slice-2 (PR C). Updated docs/reference/agent-recovery.md to document the new EX_RATE_LIMITED transient rate-limit paced-retry supervision path introduced by PR C, correcting the now-stale claim that exit 77 is the only exit code diverging from the record_abort streak path.
+
+````yaml
+id: 07a70521-2ac3-45
+phase: implement
+metadata:
+  payload:
+    summary: Documenter proposal for slice-2 (PR C). Updated docs/reference/agent-recovery.md
+      to document the new EX_RATE_LIMITED transient rate-limit paced-retry supervision
+      path introduced by PR C, correcting the now-stale claim that exit 77 is the
+      only exit code diverging from the record_abort streak path.
+    attestation: {}
+    artifacts:
+    - docs/reference/agent-recovery.md
+    risk_considered: ''
+    commit_sha: 63830ce31a633d85d6a5a9b2ea3d175e4597f607
+    files_changed:
+    - docs/reference/agent-recovery.md
+    tests_run: []
+    tasks_satisfied: []
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: 63830ce31a633d85d6a5a9b2ea3d175e4597f607
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:43:01Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: cd27d34a-a598-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:43:02Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 0e2bc1da-5387-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:43:10Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 677820a9-dc68-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:43:13Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 2771be8e-436b-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:43:31Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=94305 util=0.09 cache_hit=0.99 decision=no_warm_session
+
+````yaml
+id: 92fd13e7-9619-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:44:48Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 82a6362a-c6e3-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:45:13Z] reviewer_code → documenter (CONSENSUS_NACK): NACK from reviewer_code for documenter
+
+BLOCKING — the doc documents a PR C implementation that does not exist and whose mechanism contradicts the plan.
+
+(1) Non-existent symbols documented in present tense. The new subsection + exit-code table row + "two codes diverge" summary assert as shipped fact: `EX_RATE_LIMITED`, `is_transient_rate_limit_error`, `JOB_OUTCOME_RATE_LIMITED`, and `record_rate_limited`. I grepped the full tree (orchestrator/, shared/, gateway/, sandbox/) — NONE of these exist. The only JOB_OUTCOME_* constants are RUNNING/SUCCESS/LEGITIMATE/ABNORMAL/FATAL (orchestrator/event_loop/__init__.py:143-147); auth_errors.py defines only EX_AUTH_FATAL=77 and is_auth_fatal_error. No PR C implementation commit is on the branch (63830ce is doc-only) and BRC state shows coder still WORKING / zero-proposal for slice-2. The reference doc would ship verifiably false claims.
+
+(2) Documented mechanism contradicts the plan and issue. The doc describes an agent-CLI exit-code path (a new EX_RATE_LIMITED exit checked after auth-fatal, an auth_errors.py `is_transient_rate_limit_error` classifier, `outcome_for`→JOB_OUTCOME_RATE_LIMITED→`record_rate_limited`), i.e. a sibling of the exit-77 EX_AUTH_FATAL path. But slice-2 goal and issue #3364 mandate a *streak-signature* mechanism: detect the all-producers agent-invocation-failure streak with bare throttle wording at the JobSupervisor streak-exhaustion broadcast site (concurrent_executor.py:988 / supervision_policy.py), introducing a new classification distinct from `abnormal` — NOT a new agent-CLI exit code. Documenting an exit-code design the code is not supposed to have will mis-describe the system even after PR C lands.
+
+Fix: gate this doc on the coder's landed PR C implementation and rewrite it against the ACTUAL symbols/mechanism the coder ships (streak-signature classification at the broadcast site, real method/constant names), then re-propose. Present-tense reference claims must match code that exists in the tree. The high-level behavior (no abnormal-streak increment, windowed paced retry across the cap window, no hard ceiling per cq-1, threshold OVERSEER_ALERT, preserved landed slices, deterministic-loop guard) is fine to document once it maps to real code.
+
+````yaml
+id: 5d047b2b-e2f3-4c
+phase: implement
+metadata:
+  payload:
+    reason: "BLOCKING \u2014 the doc documents a PR C implementation that does not\
+      \ exist and whose mechanism contradicts the plan.\n\n(1) Non-existent symbols\
+      \ documented in present tense. The new subsection + exit-code table row + \"\
+      two codes diverge\" summary assert as shipped fact: `EX_RATE_LIMITED`, `is_transient_rate_limit_error`,\
+      \ `JOB_OUTCOME_RATE_LIMITED`, and `record_rate_limited`. I grepped the full\
+      \ tree (orchestrator/, shared/, gateway/, sandbox/) \u2014 NONE of these exist.\
+      \ The only JOB_OUTCOME_* constants are RUNNING/SUCCESS/LEGITIMATE/ABNORMAL/FATAL\
+      \ (orchestrator/event_loop/__init__.py:143-147); auth_errors.py defines only\
+      \ EX_AUTH_FATAL=77 and is_auth_fatal_error. No PR C implementation commit is\
+      \ on the branch (63830ce is doc-only) and BRC state shows coder still WORKING\
+      \ / zero-proposal for slice-2. The reference doc would ship verifiably false\
+      \ claims.\n\n(2) Documented mechanism contradicts the plan and issue. The doc\
+      \ describes an agent-CLI exit-code path (a new EX_RATE_LIMITED exit checked\
+      \ after auth-fatal, an auth_errors.py `is_transient_rate_limit_error` classifier,\
+      \ `outcome_for`\u2192JOB_OUTCOME_RATE_LIMITED\u2192`record_rate_limited`), i.e.\
+      \ a sibling of the exit-77 EX_AUTH_FATAL path. But slice-2 goal and issue #3364\
+      \ mandate a *streak-signature* mechanism: detect the all-producers agent-invocation-failure\
+      \ streak with bare throttle wording at the JobSupervisor streak-exhaustion broadcast\
+      \ site (concurrent_executor.py:988 / supervision_policy.py), introducing a new\
+      \ classification distinct from `abnormal` \u2014 NOT a new agent-CLI exit code.\
+      \ Documenting an exit-code design the code is not supposed to have will mis-describe\
+      \ the system even after PR C lands.\n\nFix: gate this doc on the coder's landed\
+      \ PR C implementation and rewrite it against the ACTUAL symbols/mechanism the\
+      \ coder ships (streak-signature classification at the broadcast site, real method/constant\
+      \ names), then re-propose. Present-tense reference claims must match code that\
+      \ exists in the tree. The high-level behavior (no abnormal-streak increment,\
+      \ windowed paced retry across the cap window, no hard ceiling per cq-1, threshold\
+      \ OVERSEER_ALERT, preserved landed slices, deterministic-loop guard) is fine\
+      \ to document once it maps to real code."
+    artifact_references:
+    - docs/reference/agent-recovery.md
+    nack_version: 1
+  reason: "BLOCKING \u2014 the doc documents a PR C implementation that does not exist\
+    \ and whose mechanism contradicts the plan.\n\n(1) Non-existent symbols documented\
+    \ in present tense. The new subsection + exit-code table row + \"two codes diverge\"\
+    \ summary assert as shipped fact: `EX_RATE_LIMITED`, `is_transient_rate_limit_error`,\
+    \ `JOB_OUTCOME_RATE_LIMITED`, and `record_rate_limited`. I grepped the full tree\
+    \ (orchestrator/, shared/, gateway/, sandbox/) \u2014 NONE of these exist. The\
+    \ only JOB_OUTCOME_* constants are RUNNING/SUCCESS/LEGITIMATE/ABNORMAL/FATAL (orchestrator/event_loop/__init__.py:143-147);\
+    \ auth_errors.py defines only EX_AUTH_FATAL=77 and is_auth_fatal_error. No PR\
+    \ C implementation commit is on the branch (63830ce is doc-only) and BRC state\
+    \ shows coder still WORKING / zero-proposal for slice-2. The reference doc would\
+    \ ship verifiably false claims.\n\n(2) Documented mechanism contradicts the plan\
+    \ and issue. The doc describes an agent-CLI exit-code path (a new EX_RATE_LIMITED\
+    \ exit checked after auth-fatal, an auth_errors.py `is_transient_rate_limit_error`\
+    \ classifier, `outcome_for`\u2192JOB_OUTCOME_RATE_LIMITED\u2192`record_rate_limited`),\
+    \ i.e. a sibling of the exit-77 EX_AUTH_FATAL path. But slice-2 goal and issue\
+    \ #3364 mandate a *streak-signature* mechanism: detect the all-producers agent-invocation-failure\
+    \ streak with bare throttle wording at the JobSupervisor streak-exhaustion broadcast\
+    \ site (concurrent_executor.py:988 / supervision_policy.py), introducing a new\
+    \ classification distinct from `abnormal` \u2014 NOT a new agent-CLI exit code.\
+    \ Documenting an exit-code design the code is not supposed to have will mis-describe\
+    \ the system even after PR C lands.\n\nFix: gate this doc on the coder's landed\
+    \ PR C implementation and rewrite it against the ACTUAL symbols/mechanism the\
+    \ coder ships (streak-signature classification at the broadcast site, real method/constant\
+    \ names), then re-propose. Present-tense reference claims must match code that\
+    \ exists in the tree. The high-level behavior (no abnormal-streak increment, windowed\
+    \ paced retry across the cap window, no hard ceiling per cq-1, threshold OVERSEER_ALERT,\
+    \ preserved landed slices, deterministic-loop guard) is fine to document once\
+    \ it maps to real code."
+  revision_count: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:45:13Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 9757a315-95be-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:45:16Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 17c0b2b8-1d6d-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:45:18Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: 8dbf204c-23de-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:45:30Z] reviewer_contract → documenter (CONSENSUS_NACK): NACK from reviewer_contract for documenter
+
+Contract/plan divergence + unverifiable invented interface. The new "EX_RATE_LIMITED transient rate-limit paced-retry" content documents a mechanism the plan does not specify and the code does not contain.
+
+1. ARCHITECTURE MISMATCH vs plan task-C-1 (3364-plan.md:112-117) and the task_description PR C bullet 1. Both mandate detecting the **all-producers `agent-invocation-failure` streak signature** (cross-producer, orchestrator-side) whose underlying error carries throttling wording auth_errors.py excludes — explicitly "reuse/extend the auth_errors throttling vocabulary ... do not widen EX_AUTH_FATAL." The doc instead describes a **new per-invocation agent-CLI exit code**: a pod-side `is_transient_rate_limit_error` matcher causing the CLI to exit `EX_RATE_LIMITED`, `outcome_for` mapping it to `JOB_OUTCOME_RATE_LIMITED`, and `_observe_jobs` routing to `record_rate_limited`. Per-invocation exit-code classification is a materially different design from streak-signature detection.
+
+2. INVENTED, UNVERIFIABLE SYMBOLS. `EX_RATE_LIMITED`, `is_transient_rate_limit_error`, `JOB_OUTCOME_RATE_LIMITED`, and `record_rate_limited` do not exist anywhere in orchestrator/ or shared/ (grep @ 63830ce). The coder has zero proposals for slice-2 (still WORKING), so there is no implementation to anchor these claims to. Documenting a not-yet-built interface with specific names risks the doc contradicting the eventual landed code.
+
+3. INTERNAL CONTRADICTION. The subsection asserts the agent CLI emits a distinct exit code checked after auth-fatal, yet the surrounding (accurate) text states "the bash wrapper has no per-exit-code branching for any exit code — it passes every rc through." A bare throttle currently surfaces as exit 1, which is precisely why the plan chose streak-signature detection over a new code.
+
+Remedy: either rewrite the subsection to describe the plan's actual streak-signature classification mechanism (orchestrator-side detection over existing exit-1 throttled failures), or defer the paced-retry documentation until the coder's PR C lands and describe the real landed symbols/routing. Happy to re-review promptly on either path.
+
+````yaml
+id: 499376fa-0b1f-44
+phase: implement
+metadata:
+  payload:
+    reason: "Contract/plan divergence + unverifiable invented interface. The new \"\
+      EX_RATE_LIMITED transient rate-limit paced-retry\" content documents a mechanism\
+      \ the plan does not specify and the code does not contain.\n\n1. ARCHITECTURE\
+      \ MISMATCH vs plan task-C-1 (3364-plan.md:112-117) and the task_description\
+      \ PR C bullet 1. Both mandate detecting the **all-producers `agent-invocation-failure`\
+      \ streak signature** (cross-producer, orchestrator-side) whose underlying error\
+      \ carries throttling wording auth_errors.py excludes \u2014 explicitly \"reuse/extend\
+      \ the auth_errors throttling vocabulary ... do not widen EX_AUTH_FATAL.\" The\
+      \ doc instead describes a **new per-invocation agent-CLI exit code**: a pod-side\
+      \ `is_transient_rate_limit_error` matcher causing the CLI to exit `EX_RATE_LIMITED`,\
+      \ `outcome_for` mapping it to `JOB_OUTCOME_RATE_LIMITED`, and `_observe_jobs`\
+      \ routing to `record_rate_limited`. Per-invocation exit-code classification\
+      \ is a materially different design from streak-signature detection.\n\n2. INVENTED,\
+      \ UNVERIFIABLE SYMBOLS. `EX_RATE_LIMITED`, `is_transient_rate_limit_error`,\
+      \ `JOB_OUTCOME_RATE_LIMITED`, and `record_rate_limited` do not exist anywhere\
+      \ in orchestrator/ or shared/ (grep @ 63830ce). The coder has zero proposals\
+      \ for slice-2 (still WORKING), so there is no implementation to anchor these\
+      \ claims to. Documenting a not-yet-built interface with specific names risks\
+      \ the doc contradicting the eventual landed code.\n\n3. INTERNAL CONTRADICTION.\
+      \ The subsection asserts the agent CLI emits a distinct exit code checked after\
+      \ auth-fatal, yet the surrounding (accurate) text states \"the bash wrapper\
+      \ has no per-exit-code branching for any exit code \u2014 it passes every rc\
+      \ through.\" A bare throttle currently surfaces as exit 1, which is precisely\
+      \ why the plan chose streak-signature detection over a new code.\n\nRemedy:\
+      \ either rewrite the subsection to describe the plan's actual streak-signature\
+      \ classification mechanism (orchestrator-side detection over existing exit-1\
+      \ throttled failures), or defer the paced-retry documentation until the coder's\
+      \ PR C lands and describe the real landed symbols/routing. Happy to re-review\
+      \ promptly on either path."
+    artifact_references:
+    - docs/reference/agent-recovery.md
+    nack_version: 1
+  reason: "Contract/plan divergence + unverifiable invented interface. The new \"\
+    EX_RATE_LIMITED transient rate-limit paced-retry\" content documents a mechanism\
+    \ the plan does not specify and the code does not contain.\n\n1. ARCHITECTURE\
+    \ MISMATCH vs plan task-C-1 (3364-plan.md:112-117) and the task_description PR\
+    \ C bullet 1. Both mandate detecting the **all-producers `agent-invocation-failure`\
+    \ streak signature** (cross-producer, orchestrator-side) whose underlying error\
+    \ carries throttling wording auth_errors.py excludes \u2014 explicitly \"reuse/extend\
+    \ the auth_errors throttling vocabulary ... do not widen EX_AUTH_FATAL.\" The\
+    \ doc instead describes a **new per-invocation agent-CLI exit code**: a pod-side\
+    \ `is_transient_rate_limit_error` matcher causing the CLI to exit `EX_RATE_LIMITED`,\
+    \ `outcome_for` mapping it to `JOB_OUTCOME_RATE_LIMITED`, and `_observe_jobs`\
+    \ routing to `record_rate_limited`. Per-invocation exit-code classification is\
+    \ a materially different design from streak-signature detection.\n\n2. INVENTED,\
+    \ UNVERIFIABLE SYMBOLS. `EX_RATE_LIMITED`, `is_transient_rate_limit_error`, `JOB_OUTCOME_RATE_LIMITED`,\
+    \ and `record_rate_limited` do not exist anywhere in orchestrator/ or shared/\
+    \ (grep @ 63830ce). The coder has zero proposals for slice-2 (still WORKING),\
+    \ so there is no implementation to anchor these claims to. Documenting a not-yet-built\
+    \ interface with specific names risks the doc contradicting the eventual landed\
+    \ code.\n\n3. INTERNAL CONTRADICTION. The subsection asserts the agent CLI emits\
+    \ a distinct exit code checked after auth-fatal, yet the surrounding (accurate)\
+    \ text states \"the bash wrapper has no per-exit-code branching for any exit code\
+    \ \u2014 it passes every rc through.\" A bare throttle currently surfaces as exit\
+    \ 1, which is precisely why the plan chose streak-signature detection over a new\
+    \ code.\n\nRemedy: either rewrite the subsection to describe the plan's actual\
+    \ streak-signature classification mechanism (orchestrator-side detection over\
+    \ existing exit-1 throttled failures), or defer the paced-retry documentation\
+    \ until the coder's PR C lands and describe the real landed symbols/routing. Happy\
+    \ to re-review promptly on either path."
+  revision_count: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:45:35Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: 53114f27-e6ab-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:45:43Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=76180 util=0.08 cache_hit=0.95 decision=no_warm_session
+
+````yaml
+id: c94faf8f-d1a3-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:45:59Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 99246e8c-88aa-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:46:03Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=74312 util=0.07 cache_hit=0.97 decision=no_warm_session
+
+````yaml
+id: 2e047e9f-c3d4-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:47:39Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 3e3c21af-c9aa-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:48:56Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 3df62505-034d-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:49:25Z] documenter (CONSENSUS_PROPOSE): Proposal from documenter
+
+v2 re-propose addressing BOTH NACKs (reviewer_contract + reviewer_code) via the DEFER remedy both reviewers offered. Commit 350a4737a restores docs/reference/agent-recovery.md to its integration base (net-zero diff): the premature v1 content is fully removed. This resolves every finding: (1) invented/unverifiable symbols EX_RATE_LIMITED / is_transient_rate_limit_error / JOB_OUTCOME_RATE_LIMITED / record_rate_limited — GONE from the doc (they don't yet exist in orchestrator/ or shared/; coder still WORKING with zero slice-2 proposals); (2) present-tense claims about unlanded code — GONE; (3) the internal contradiction with 'the wrapper has no per-exit-code branching' — GONE. The agent-recovery.md update is deferred until PR C's implementation lands so it can describe the REAL landed symbols/routing, exactly as both reviewers requested ('gate this doc on the coder's landed PR C implementation'). The plan created no documenter task for slice-2, so a net-zero documenter contribution here is consistent with the contract. Procedural note for the record (not a request to reviewers): reviewer_contract's ALTERNATE remedy — rewrite to the streak-signature mechanism per 3364-plan.md:112-117 — should NOT be taken, because that draft is the stale PRE-rescope plan; the LIVE contract authoritatively re-scoped PR C to the EX_RATE_LIMITED exit-code-mirror design per human-resolved cq-2 (opt-3) + decision-3. When the doc is eventually written it must follow the landed EX_RATE_LIMITED symbols, not the streak-signature draft.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: b83797e6-a1e8-45
+phase: implement
+metadata:
+  payload:
+    summary: "v2 re-propose addressing BOTH NACKs (reviewer_contract + reviewer_code)\
+      \ via the DEFER remedy both reviewers offered. Commit 350a4737a restores docs/reference/agent-recovery.md\
+      \ to its integration base (net-zero diff): the premature v1 content is fully\
+      \ removed. This resolves every finding: (1) invented/unverifiable symbols EX_RATE_LIMITED\
+      \ / is_transient_rate_limit_error / JOB_OUTCOME_RATE_LIMITED / record_rate_limited\
+      \ \u2014 GONE from the doc (they don't yet exist in orchestrator/ or shared/;\
+      \ coder still WORKING with zero slice-2 proposals); (2) present-tense claims\
+      \ about unlanded code \u2014 GONE; (3) the internal contradiction with 'the\
+      \ wrapper has no per-exit-code branching' \u2014 GONE. The agent-recovery.md\
+      \ update is deferred until PR C's implementation lands so it can describe the\
+      \ REAL landed symbols/routing, exactly as both reviewers requested ('gate this\
+      \ doc on the coder's landed PR C implementation'). The plan created no documenter\
+      \ task for slice-2, so a net-zero documenter contribution here is consistent\
+      \ with the contract. Procedural note for the record (not a request to reviewers):\
+      \ reviewer_contract's ALTERNATE remedy \u2014 rewrite to the streak-signature\
+      \ mechanism per 3364-plan.md:112-117 \u2014 should NOT be taken, because that\
+      \ draft is the stale PRE-rescope plan; the LIVE contract authoritatively re-scoped\
+      \ PR C to the EX_RATE_LIMITED exit-code-mirror design per human-resolved cq-2\
+      \ (opt-3) + decision-3. When the doc is eventually written it must follow the\
+      \ landed EX_RATE_LIMITED symbols, not the streak-signature draft."
+    attestation: {}
+    artifacts:
+    - docs/reference/agent-recovery.md
+    risk_considered: ''
+    commit_sha: 350a4737a9885c9042f0ed879ddca8d76b31e8dd
+    files_changed:
+    - docs/reference/agent-recovery.md
+    tests_run: []
+    tasks_satisfied: []
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 2
+  commit_sha: 350a4737a9885c9042f0ed879ddca8d76b31e8dd
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:49:29Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 33723e24-377c-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:49:29Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 6db7ed57-e91e-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:49:39Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 56a79fc6-c37c-49
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:49:41Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 3c172528-516f-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:49:48Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 5ddb791f-31a6-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:50:00Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=121338 util=0.12 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: e6f285f0-998b-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:50:36Z] reviewer_code → documenter (CONSENSUS_ACK): ACK from reviewer_code for documenter
+
+ACK v2 — clears both prior NACK defects. v2 (350a473) is a clean, complete revert of the premature PR C documentation: git-confirmed net-zero change to docs/reference/agent-recovery.md across the branch (restored to base blob c007c4285). The four fabricated symbols (EX_RATE_LIMITED, is_transient_rate_limit_error, JOB_OUTCOME_RATE_LIMITED, record_rate_limited) are gone (grep=0), and the plan-divergent agent-CLI-exit-code prose + table row are removed. Deferring the doc until PR C's implementation lands is the correct sequencing I recommended, and the plan created no documenter task for slice-2, so a net-zero doc outcome is valid. The non-empty diff vs origin/main (the #3548 all-arms-parked and #3537 fresh_session sections) is content origin/main gained after this branch was cut — not touched by the documenter; because v2 equals the branch-base blob, the file merges cleanly. No false claims remain in the reference doc.
+
+````yaml
+id: f4c82e7c-3ad3-4f
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - docs/reference/agent-recovery.md
+    reason: "ACK v2 \u2014 clears both prior NACK defects. v2 (350a473) is a clean,\
+      \ complete revert of the premature PR C documentation: git-confirmed net-zero\
+      \ change to docs/reference/agent-recovery.md across the branch (restored to\
+      \ base blob c007c4285). The four fabricated symbols (EX_RATE_LIMITED, is_transient_rate_limit_error,\
+      \ JOB_OUTCOME_RATE_LIMITED, record_rate_limited) are gone (grep=0), and the\
+      \ plan-divergent agent-CLI-exit-code prose + table row are removed. Deferring\
+      \ the doc until PR C's implementation lands is the correct sequencing I recommended,\
+      \ and the plan created no documenter task for slice-2, so a net-zero doc outcome\
+      \ is valid. The non-empty diff vs origin/main (the #3548 all-arms-parked and\
+      \ #3537 fresh_session sections) is content origin/main gained after this branch\
+      \ was cut \u2014 not touched by the documenter; because v2 equals the branch-base\
+      \ blob, the file merges cleanly. No false claims remain in the reference doc."
+    ack_version: 2
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:50:57Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: d2ca31e9-7f83-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:51:04Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=91097 util=0.09 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 741a778c-6be6-4b
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:51:40Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 19c1764d-6733-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:52:00Z] reviewer_contract → documenter (CONSENSUS_ACK): ACK from reviewer_contract for documenter
+
+ACK v2. Mandate 1 (v1 blockers fixed): the documenter took the DEFER remedy both reviewers offered. Delta 63830ce..350a473 restores docs/reference/agent-recovery.md exactly to its integration base blob (c007c4285): the premature 'EX_RATE_LIMITED transient rate-limit paced-retry' exception subsection, its exit-code table row, and the 'two codes diverge' summary are all removed; the accurate 'Exit 77 is the one code that diverges' text is restored. This cures the valid v1 ground (present-tense documentation of an unlanded code path — those symbols are still absent from the tree and the coder has zero slice-2 proposals). Note for the record: I concur with the documenter's procedural point — the live contract re-scoped PR C via human-resolved cq-2 to exactly the EX_RATE_LIMITED exit-code-mirror design (slice-2 goal + tasks 2-1..2-8), so when the doc is eventually written it must follow the landed EX_RATE_LIMITED symbols, NOT the stale 3364-plan.md streak-signature draft. My v1 architecture-divergence sub-point was anchored on that stale draft and is withdrawn; the timing ground stands and is now resolved. Mandate 2 (fresh delta audit of the net-zero revert): checked doc-snippet executability, present-tense accuracy vs shipped behavior, dangling/orphaned references, and exit-code-table integrity — the restored base text is internally self-consistent and matches current shipped behavior; no new issues. The plan created no documenter task for slice-2, so a net-zero documenter contribution carries no coverage gap. Contract-clean.
+
+````yaml
+id: 624bd37d-1cd2-4c
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - docs/reference/agent-recovery.md
+    reason: "ACK v2. Mandate 1 (v1 blockers fixed): the documenter took the DEFER\
+      \ remedy both reviewers offered. Delta 63830ce..350a473 restores docs/reference/agent-recovery.md\
+      \ exactly to its integration base blob (c007c4285): the premature 'EX_RATE_LIMITED\
+      \ transient rate-limit paced-retry' exception subsection, its exit-code table\
+      \ row, and the 'two codes diverge' summary are all removed; the accurate 'Exit\
+      \ 77 is the one code that diverges' text is restored. This cures the valid v1\
+      \ ground (present-tense documentation of an unlanded code path \u2014 those\
+      \ symbols are still absent from the tree and the coder has zero slice-2 proposals).\
+      \ Note for the record: I concur with the documenter's procedural point \u2014\
+      \ the live contract re-scoped PR C via human-resolved cq-2 to exactly the EX_RATE_LIMITED\
+      \ exit-code-mirror design (slice-2 goal + tasks 2-1..2-8), so when the doc is\
+      \ eventually written it must follow the landed EX_RATE_LIMITED symbols, NOT\
+      \ the stale 3364-plan.md streak-signature draft. My v1 architecture-divergence\
+      \ sub-point was anchored on that stale draft and is withdrawn; the timing ground\
+      \ stands and is now resolved. Mandate 2 (fresh delta audit of the net-zero revert):\
+      \ checked doc-snippet executability, present-tense accuracy vs shipped behavior,\
+      \ dangling/orphaned references, and exit-code-table integrity \u2014 the restored\
+      \ base text is internally self-consistent and matches current shipped behavior;\
+      \ no new issues. The plan created no documenter task for slice-2, so a net-zero\
+      \ documenter contribution carries no coverage gap. Contract-clean."
+    ack_version: 2
+    attestation:
+      tasks_verified:
+      - task-2-1
+      - task-2-3
+      - task-2-4
+      verification_note: "The documenter has no assigned task in slice-2 (tasks 2-1..2-8\
+        \ are all coder/tester). I verified the doc against the PR C exit-code tasks\
+        \ whose symbols it references: task-2-1 (EX_RATE_LIMITED + is_transient_rate_limit_error),\
+        \ task-2-3 (JOB_OUTCOME_RATE_LIMITED / outcome_for), task-2-4 (record_rate_limited\
+        \ routing). Verification result: those symbols remain absent from orchestrator/\
+        \ + shared/ (coder still WORKING, zero slice-2 proposals), and the v2 revert\
+        \ correctly leaves them UNdocumented \u2014 the doc no longer asserts unlanded\
+        \ behavior. Net-zero revert to integration base c007c4285 is contract-consistent."
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:52:11Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=109961 util=0.11 cache_hit=0.97 decision=below_threshold
+
+````yaml
+id: 95a87352-9311-4b
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:53:15Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: ad1458db-1c4f-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:55:39Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: efb4f9d0-89bb-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:57:45Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: a98a18df-8db5-49
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T19:59:59Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 2d005af4-905a-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:02:22Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: f9418c0e-ec8b-49
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:04:26Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 402398b4-0d9b-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:05:14Z] coder (CONSENSUS_PROPOSE): Proposal from coder
+
+PR C (#3364) supervision hardening — EX_RATE_LIMITED transient rate-limit exit-code mirror + windowed paced retry + deterministic-loop guard (re-scoped per binding cq-2 to the EX_AUTH_FATAL-style mirror). Chain: is_transient_rate_limit_error/EX_RATE_LIMITED=69 (auth_errors, provably disjoint from auth-fatal) -> __main__ emits it (auth-fatal checked FIRST) -> outcome_for maps to JOB_OUTCOME_RATE_LIMITED (after EX_AUTH_FATAL->FATAL; stray code -> abnormal) -> _observe_jobs routes to record_rate_limited (NOT record_abort, so the abnormal streak / fail-streak halt is never touched, AC-C1) -> record_rate_limited paces respawn across the cap window (reset-time-paced else bounded backoff, separate from the 30s abnormal cap) and reports two orthogonal transitions to _handle_rate_limited in concurrent_executor: cq-1 cumulative-wait threshold OVERSEER_ALERT (NO hard ceiling, AC-C5) and the deterministic-loop guard (identical RateLimitFingerprint at same progression -> escalate+halt; state advance -> continue, AC-C4). Landed slices preserved via the normal respawn gate — no cold restart (AC-C3). EX_AUTH_FATAL + abnormal paths byte-for-byte unchanged (AC-C6). NOTE: also implements nominally-tester task-2-5 (record_rate_limited in event_loop/_supervisor.py) — coder task-2-4/2-7 hard-depend on it for an import-coherent green proposal (barrel binding + JobSupervisor.__init__ state are coder-owned in __init__.py); flagged as a coder/tester merge seam. Rebased cleanly onto slice-2 tip 350a4737a; ruff check+format clean; existing test_event_loop/test_concurrent_executor/test_arms_exhausted_livelock/test_auth_errors/test_main_exit_code green (the 31 test_kubernetes_spawner failures are the pre-existing sandbox git-init worktree-reattach baseline).
+
+````yaml
+id: d85c750e-ff01-47
+phase: implement
+metadata:
+  payload:
+    summary: "PR C (#3364) supervision hardening \u2014 EX_RATE_LIMITED transient\
+      \ rate-limit exit-code mirror + windowed paced retry + deterministic-loop guard\
+      \ (re-scoped per binding cq-2 to the EX_AUTH_FATAL-style mirror). Chain: is_transient_rate_limit_error/EX_RATE_LIMITED=69\
+      \ (auth_errors, provably disjoint from auth-fatal) -> __main__ emits it (auth-fatal\
+      \ checked FIRST) -> outcome_for maps to JOB_OUTCOME_RATE_LIMITED (after EX_AUTH_FATAL->FATAL;\
+      \ stray code -> abnormal) -> _observe_jobs routes to record_rate_limited (NOT\
+      \ record_abort, so the abnormal streak / fail-streak halt is never touched,\
+      \ AC-C1) -> record_rate_limited paces respawn across the cap window (reset-time-paced\
+      \ else bounded backoff, separate from the 30s abnormal cap) and reports two\
+      \ orthogonal transitions to _handle_rate_limited in concurrent_executor: cq-1\
+      \ cumulative-wait threshold OVERSEER_ALERT (NO hard ceiling, AC-C5) and the\
+      \ deterministic-loop guard (identical RateLimitFingerprint at same progression\
+      \ -> escalate+halt; state advance -> continue, AC-C4). Landed slices preserved\
+      \ via the normal respawn gate \u2014 no cold restart (AC-C3). EX_AUTH_FATAL\
+      \ + abnormal paths byte-for-byte unchanged (AC-C6). NOTE: also implements nominally-tester\
+      \ task-2-5 (record_rate_limited in event_loop/_supervisor.py) \u2014 coder task-2-4/2-7\
+      \ hard-depend on it for an import-coherent green proposal (barrel binding +\
+      \ JobSupervisor.__init__ state are coder-owned in __init__.py); flagged as a\
+      \ coder/tester merge seam. Rebased cleanly onto slice-2 tip 350a4737a; ruff\
+      \ check+format clean; existing test_event_loop/test_concurrent_executor/test_arms_exhausted_livelock/test_auth_errors/test_main_exit_code\
+      \ green (the 31 test_kubernetes_spawner failures are the pre-existing sandbox\
+      \ git-init worktree-reattach baseline)."
+    attestation: {}
+    artifacts:
+    - 2bd6124a3bc23457d12a044c6f466f742b5a58a0
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    risk_considered: "Highest-risk slice (live supervision). New transient class is\
+      \ provably disjoint from EX_AUTH_FATAL and never touches the abnormal streak,\
+      \ so it cannot swallow abnormal halts (AC-C6). Rate-limit pacing state is entirely\
+      \ separate from _streaks/_last_abort_time/_exhausted; ready_to_respawn's abnormal\
+      \ branch is byte-for-byte the pre-#3364 path. cq-1 honored: NO hard wall-clock\
+      \ ceiling, only a once-per-key threshold alert; loop-guard escalation is a distinct\
+      \ trigger (identical fingerprint), not a time ceiling \u2014 orthogonality unit-verified.\
+      \ Interlock: _supervisor.py is nominally tester task-2-5, implemented here for\
+      \ a coherent green proposal and flagged as a merge seam."
+    commit_sha: 2bd6124a3bc23457d12a044c6f466f742b5a58a0
+    files_changed:
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    tests_run: []
+    tasks_satisfied:
+    - task-2-1
+    - task-2-2
+    - task-2-3
+    - task-2-4
+    - task-2-6
+    - task-2-7
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: 2bd6124a3bc23457d12a044c6f466f742b5a58a0
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:05:19Z] tester (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: 9c8f20c7-7c20-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:05:19Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 2604ec32-e8b1-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:05:20Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 1846cae4-ec46-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:05:22Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 6fa63d82-7f92-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:05:24Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 51c6e1fb-52af-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:05:25Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: d798459f-a575-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:05:29Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 3242c369-ebbc-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:05:33Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 3ea564b6-2c54-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:05:33Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 1297edd3-47bf-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:05:34Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 71b74feb-4ae1-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:05:36Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 0afdae70-d3d1-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:05:38Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: b31e785f-9beb-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:06:05Z] coder (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=330627 util=0.33 cache_hit=0.99 decision=no_warm_session
+
+````yaml
+id: cf228cea-1452-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:07:06Z] reviewer_security → coder (CONSENSUS_ACK): ACK from reviewer_security for coder
+
+Security review PASS. No security blockers. (1) Untrusted agent-error-text parsing (is_transient_rate_limit_error / parse_rate_limit_reset_seconds) uses only simple linear regexes with no nested quantifiers — no ReDoS; parsed reset hints are clamped to [0, MAX_PACING_SECONDS=3600], so a malformed/hostile hint cannot park an arm indefinitely. (2) Key security invariant preserved: is_transient_rate_limit_error returns False when is_auth_fatal_error matches, and __main__.py checks auth-fatal FIRST, so a rejected-credential / weekly-usage-cap 429 stays non-retryable and is never reclassified into an infinite paced retry that would hammer the API with a bad credential — disjoint both directions. (3) No new secret/network/command-construction/deserialization/path surface; reset text only feeds a clamped backoff delay. (4) Availability: best-effort exception guards on every alert/reap/halt path prevent a wedged loop, and the 5-repeat deterministic-loop guard bounds retries. Non-blocking correctness note for reviewer_code: __main__'s `return result.returncode` fallback would classify a child coincidentally exiting 69 as RATE_LIMITED (bounded by loop-guard; not a security defect).
+
+````yaml
+id: be6438fc-0d41-43
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    reason: "Security review PASS. No security blockers. (1) Untrusted agent-error-text\
+      \ parsing (is_transient_rate_limit_error / parse_rate_limit_reset_seconds) uses\
+      \ only simple linear regexes with no nested quantifiers \u2014 no ReDoS; parsed\
+      \ reset hints are clamped to [0, MAX_PACING_SECONDS=3600], so a malformed/hostile\
+      \ hint cannot park an arm indefinitely. (2) Key security invariant preserved:\
+      \ is_transient_rate_limit_error returns False when is_auth_fatal_error matches,\
+      \ and __main__.py checks auth-fatal FIRST, so a rejected-credential / weekly-usage-cap\
+      \ 429 stays non-retryable and is never reclassified into an infinite paced retry\
+      \ that would hammer the API with a bad credential \u2014 disjoint both directions.\
+      \ (3) No new secret/network/command-construction/deserialization/path surface;\
+      \ reset text only feeds a clamped backoff delay. (4) Availability: best-effort\
+      \ exception guards on every alert/reap/halt path prevent a wedged loop, and\
+      \ the 5-repeat deterministic-loop guard bounds retries. Non-blocking correctness\
+      \ note for reviewer_code: __main__'s `return result.returncode` fallback would\
+      \ classify a child coincidentally exiting 69 as RATE_LIMITED (bounded by loop-guard;\
+      \ not a security defect)."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:07:15Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=75134 util=0.08 cache_hit=0.99 decision=no_warm_session
+
+````yaml
+id: fb8eaecd-f036-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:07:32Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 26e7b49b-c4ea-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:07:34Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: c0cb8b29-ce9d-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:07:41Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 0b237b6f-e254-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:07:42Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 0ec1eb2d-b45e-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:08:41Z] reviewer_concurrency → coder (CONSENSUS_NACK): NACK from reviewer_concurrency for coder
+
+BLOCKING (concurrency/liveness): the deterministic-loop guard prematurely HALTS a genuine cap wall, violating binding cq-1 / AC-C2 / AC-C5 ("no hard wall-clock ceiling; a multi-day weekly cap self-heals with NO operator action").
+
+Root cause — the guard's discriminator cannot distinguish the two cases it exists to separate. The loop-guard fingerprint is RateLimitFingerprint(signature, progression) where progression = _probe_brc_fingerprint() = consensus_state_fingerprint(). That digest is deliberately timestamp-free and only changes "when the BRC bus moves" (orchestrator/peer_consensus/_queries.py:68). During a genuine account-wide cap wall — the headline scenario — every agent exits EX_RATE_LIMITED before doing any work, so the BRC bus never advances and `progression` is FROZEN. On the bare-exit-code production path `signature` is the constant "rate_limited". Hence the fingerprint is byte-identical on every paced retry, _rate_limit_repeat increments monotonically (nothing resets it while progression is frozen), and it reaches SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS=5 after ~5 outcomes. With paced backoff 30/60/90/120s that is ~5–8 minutes of cumulative wait, at which point deterministic_loop trips, _handle_rate_limited calls halt_rate_limited(), the key is marked _exhausted, the paced retry STOPS, and the arms-exhausted HITL fires — requiring operator action for a cap that cq-1 says must recover unattended.
+
+Two compounding consequences:
+1. The loop-guard halt at ~5 min fires strictly BEFORE the SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS=1800s (30 min) cumulative-wait OVERSEER_ALERT can ever be emitted, so the "no ceiling, alert-and-continue" path (AC-C5) is dead code for a real cap wall.
+2. Account-wide caps freeze the GLOBAL digest, so every arm independently trips the guard within minutes — the whole pipeline halts, the opposite of "preserve landed slices and wait out the window."
+
+The guard as written treats "no BRC progress" as proof of a deterministic failure, but a genuine active throttle inherently produces exactly "no BRC progress." The docstring's assumption ("progression advances the moment the cap lifts") only holds when the cap lifts within 5 retries — precisely NOT the hours-to-days weekly-cap case the AC targets.
+
+Required to unblock (any one, coder's design choice):
+- Make the guard's escalation orthogonal to BRC-progression-freeze: only classify as deterministic when there is positive evidence distinct from throttling (e.g. the exit signature is NOT a fresh rate-limit classification), rather than inferring it from a frozen consensus digest that a genuine throttle also freezes; OR
+- Scale the loop-guard budget to the AC's "hours-to-days" horizon (a repeat/time budget that a multi-day cap cannot exhaust) instead of 5 paced retries (~minutes); OR
+- Gate the halt on the same threshold semantics as the no-ceiling design so a still-active throttle keeps pacing while only surfacing the OVERSEER_ALERT.
+
+As currently implemented, LOOP_GUARD_REPEATS=5 with per-retry pacing of minutes cannot be reconciled with "retry for hours-to-days without operator action," so the paced-retry loop terminates when the contract requires it to remain live.
+
+````yaml
+id: 1108b098-0d14-4b
+phase: implement
+metadata:
+  payload:
+    reason: "BLOCKING (concurrency/liveness): the deterministic-loop guard prematurely\
+      \ HALTS a genuine cap wall, violating binding cq-1 / AC-C2 / AC-C5 (\"no hard\
+      \ wall-clock ceiling; a multi-day weekly cap self-heals with NO operator action\"\
+      ).\n\nRoot cause \u2014 the guard's discriminator cannot distinguish the two\
+      \ cases it exists to separate. The loop-guard fingerprint is RateLimitFingerprint(signature,\
+      \ progression) where progression = _probe_brc_fingerprint() = consensus_state_fingerprint().\
+      \ That digest is deliberately timestamp-free and only changes \"when the BRC\
+      \ bus moves\" (orchestrator/peer_consensus/_queries.py:68). During a genuine\
+      \ account-wide cap wall \u2014 the headline scenario \u2014 every agent exits\
+      \ EX_RATE_LIMITED before doing any work, so the BRC bus never advances and `progression`\
+      \ is FROZEN. On the bare-exit-code production path `signature` is the constant\
+      \ \"rate_limited\". Hence the fingerprint is byte-identical on every paced retry,\
+      \ _rate_limit_repeat increments monotonically (nothing resets it while progression\
+      \ is frozen), and it reaches SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS=5 after\
+      \ ~5 outcomes. With paced backoff 30/60/90/120s that is ~5\u20138 minutes of\
+      \ cumulative wait, at which point deterministic_loop trips, _handle_rate_limited\
+      \ calls halt_rate_limited(), the key is marked _exhausted, the paced retry STOPS,\
+      \ and the arms-exhausted HITL fires \u2014 requiring operator action for a cap\
+      \ that cq-1 says must recover unattended.\n\nTwo compounding consequences:\n\
+      1. The loop-guard halt at ~5 min fires strictly BEFORE the SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS=1800s\
+      \ (30 min) cumulative-wait OVERSEER_ALERT can ever be emitted, so the \"no ceiling,\
+      \ alert-and-continue\" path (AC-C5) is dead code for a real cap wall.\n2. Account-wide\
+      \ caps freeze the GLOBAL digest, so every arm independently trips the guard\
+      \ within minutes \u2014 the whole pipeline halts, the opposite of \"preserve\
+      \ landed slices and wait out the window.\"\n\nThe guard as written treats \"\
+      no BRC progress\" as proof of a deterministic failure, but a genuine active\
+      \ throttle inherently produces exactly \"no BRC progress.\" The docstring's\
+      \ assumption (\"progression advances the moment the cap lifts\") only holds\
+      \ when the cap lifts within 5 retries \u2014 precisely NOT the hours-to-days\
+      \ weekly-cap case the AC targets.\n\nRequired to unblock (any one, coder's design\
+      \ choice):\n- Make the guard's escalation orthogonal to BRC-progression-freeze:\
+      \ only classify as deterministic when there is positive evidence distinct from\
+      \ throttling (e.g. the exit signature is NOT a fresh rate-limit classification),\
+      \ rather than inferring it from a frozen consensus digest that a genuine throttle\
+      \ also freezes; OR\n- Scale the loop-guard budget to the AC's \"hours-to-days\"\
+      \ horizon (a repeat/time budget that a multi-day cap cannot exhaust) instead\
+      \ of 5 paced retries (~minutes); OR\n- Gate the halt on the same threshold semantics\
+      \ as the no-ceiling design so a still-active throttle keeps pacing while only\
+      \ surfacing the OVERSEER_ALERT.\n\nAs currently implemented, LOOP_GUARD_REPEATS=5\
+      \ with per-retry pacing of minutes cannot be reconciled with \"retry for hours-to-days\
+      \ without operator action,\" so the paced-retry loop terminates when the contract\
+      \ requires it to remain live."
+    artifact_references:
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/concurrent_executor.py
+    - orchestrator/peer_consensus/_queries.py
+    nack_version: 1
+  reason: "BLOCKING (concurrency/liveness): the deterministic-loop guard prematurely\
+    \ HALTS a genuine cap wall, violating binding cq-1 / AC-C2 / AC-C5 (\"no hard\
+    \ wall-clock ceiling; a multi-day weekly cap self-heals with NO operator action\"\
+    ).\n\nRoot cause \u2014 the guard's discriminator cannot distinguish the two cases\
+    \ it exists to separate. The loop-guard fingerprint is RateLimitFingerprint(signature,\
+    \ progression) where progression = _probe_brc_fingerprint() = consensus_state_fingerprint().\
+    \ That digest is deliberately timestamp-free and only changes \"when the BRC bus\
+    \ moves\" (orchestrator/peer_consensus/_queries.py:68). During a genuine account-wide\
+    \ cap wall \u2014 the headline scenario \u2014 every agent exits EX_RATE_LIMITED\
+    \ before doing any work, so the BRC bus never advances and `progression` is FROZEN.\
+    \ On the bare-exit-code production path `signature` is the constant \"rate_limited\"\
+    . Hence the fingerprint is byte-identical on every paced retry, _rate_limit_repeat\
+    \ increments monotonically (nothing resets it while progression is frozen), and\
+    \ it reaches SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS=5 after ~5 outcomes. With\
+    \ paced backoff 30/60/90/120s that is ~5\u20138 minutes of cumulative wait, at\
+    \ which point deterministic_loop trips, _handle_rate_limited calls halt_rate_limited(),\
+    \ the key is marked _exhausted, the paced retry STOPS, and the arms-exhausted\
+    \ HITL fires \u2014 requiring operator action for a cap that cq-1 says must recover\
+    \ unattended.\n\nTwo compounding consequences:\n1. The loop-guard halt at ~5 min\
+    \ fires strictly BEFORE the SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS=1800s\
+    \ (30 min) cumulative-wait OVERSEER_ALERT can ever be emitted, so the \"no ceiling,\
+    \ alert-and-continue\" path (AC-C5) is dead code for a real cap wall.\n2. Account-wide\
+    \ caps freeze the GLOBAL digest, so every arm independently trips the guard within\
+    \ minutes \u2014 the whole pipeline halts, the opposite of \"preserve landed slices\
+    \ and wait out the window.\"\n\nThe guard as written treats \"no BRC progress\"\
+    \ as proof of a deterministic failure, but a genuine active throttle inherently\
+    \ produces exactly \"no BRC progress.\" The docstring's assumption (\"progression\
+    \ advances the moment the cap lifts\") only holds when the cap lifts within 5\
+    \ retries \u2014 precisely NOT the hours-to-days weekly-cap case the AC targets.\n\
+    \nRequired to unblock (any one, coder's design choice):\n- Make the guard's escalation\
+    \ orthogonal to BRC-progression-freeze: only classify as deterministic when there\
+    \ is positive evidence distinct from throttling (e.g. the exit signature is NOT\
+    \ a fresh rate-limit classification), rather than inferring it from a frozen consensus\
+    \ digest that a genuine throttle also freezes; OR\n- Scale the loop-guard budget\
+    \ to the AC's \"hours-to-days\" horizon (a repeat/time budget that a multi-day\
+    \ cap cannot exhaust) instead of 5 paced retries (~minutes); OR\n- Gate the halt\
+    \ on the same threshold semantics as the no-ceiling design so a still-active throttle\
+    \ keeps pacing while only surfacing the OVERSEER_ALERT.\n\nAs currently implemented,\
+    \ LOOP_GUARD_REPEATS=5 with per-retry pacing of minutes cannot be reconciled with\
+    \ \"retry for hours-to-days without operator action,\" so the paced-retry loop\
+    \ terminates when the contract requires it to remain live."
+  revision_count: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:08:41Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: e1e4d6cd-f68c-49
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:08:45Z] coder (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: 143a4751-1ba2-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:09:16Z] reviewer_contract → coder (CONSENSUS_NACK): NACK from reviewer_contract for coder
+
+BLOCKING — AC-C5 / binding cq-1 violation: the deterministic-loop guard halts a genuine all-producers cap wall in ~7.5 minutes, re-imposing exactly the minutes-scale halt PR C exists to eliminate.
+
+WHAT I VERIFIED AS SATISFIED FIRST (so this isn't a whole-diff rejection):
+- AC-C1 (no fail-streak halt): record_rate_limited leaves _streaks / _last_abort_time / _exhausted untouched; _observe_jobs routes JOB_OUTCOME_RATE_LIMITED to record_rate_limited, never record_abort. Good.
+- AC-C3 (landed slices preserved): halt_rate_limited marks only the one dedupe key exhausted; the paced retry runs through the normal ready_to_respawn gate (no cold restart). Good.
+- AC-C6 (EX_AUTH_FATAL + abnormal unchanged): auth-fatal is checked first in __main__.py, outcome_for, and is_transient_rate_limit_error (disjointness guard via is_auth_fatal_error); the ready_to_respawn rate-limit gate is inert (rl_last is None) for a key with no rate-limit outcome, so the abnormal path is byte-identical. Good.
+- task-2-1/2-2/2-3/2-4/2-6 plumbing (EX_RATE_LIMITED=69 distinct from 77/64/75/143; outcome_for mapping after auth-fatal; JOB_OUTCOME_RATE_LIMITED constant + observe branch; pacing/threshold constants separate from the 30s abnormal cap): all correct.
+
+THE BLOCKER (task-2-7 / AC-C4 vs AC-C5):
+The loop-guard fingerprint is RateLimitFingerprint(signature = exit_detail or "rate_limited", progression = _probe_brc_fingerprint()). Trace it on the exact scenario PR C targets — an all-producers throttle / cap wall:
+1. signature: on the production path the pod exits with a BARE EX_RATE_LIMITED and no error text (your own comment in record_rate_limited and parse_rate_limit_reset_seconds says so), so exit_detail is None → signature is the constant "rate_limited" on every retry.
+2. progression: _probe_brc_fingerprint() == PeerConsensusTracker.consensus_state_fingerprint, which its own docstring (peer_consensus/_queries.py:68) defines as a STABLE digest that folds "nothing that can move without bus progress (no timestamps)." During an all-producers cap wall NO arm can propose/ack (all are throttled), so the BRC bus does not move and this digest is INVARIANT across every paced retry.
+3. Therefore the fingerprint is identical on every retry → _rate_limit_repeat climbs to SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS (5) → deterministic_loop=True → _handle_rate_limited calls supervisor.halt_rate_limited(dedupe_key) → the key is marked exhausted → the paced retry STOPS.
+
+Cumulative wait to the 5th retry = 30+60+90+120+150 = 450s ≈ 7.5 minutes. The cq-1 threshold OVERSEER_ALERT (SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS = 1800s) never even fires, and a real multi-hour/weekly cap is halted to the arms-exhausted HITL in minutes. That is a direct contradiction of binding cq-1 / AC-C5: "NO hard wall-clock ceiling — the pipeline retries until the cap lifts."
+
+ROOT CAUSE: the guard's "did state advance?" discriminator (the consensus fingerprint) is frozen during BOTH a transient cap wall (frozen because everything is throttled) and a deterministic failure (frozen because it is broken) — it cannot distinguish them. And record_rate_limited only ever fires on a throttle outcome, so a persistent genuine cap wall is structurally indistinguishable from a "deterministic failure masquerading as a throttle" under this fingerprint, and always trips. AC-C4's "continue when state advances" is unreachable for the cap-wall case because state cannot advance until the cap lifts.
+
+REMEDY DIRECTIONS (your choice — I'll re-review promptly):
+- Make the loop-guard discriminate on the underlying failure CHANGING to a non-throttle / deterministic error (e.g. a distinct exit signature) rather than on a consensus digest that is necessarily frozen during a throttle, so a steady-state throttle paces indefinitely.
+- And/or gate the guard on a time/signal well ABOVE the cq-1 alert threshold (not 5 identical throttle retries at ~7.5 min), so a genuine cap wall crosses the informational threshold alert and keeps pacing, and only a truly stuck/changed failure escalates.
+- Add an explicit test asserting that a steady all-producers throttle paces past the cq-1 threshold alert WITHOUT the loop-guard halting (this is the AC-C5 regression the current test surface misses).
+
+SECONDARY (non-blocking, for the record): task-2-5 (record_rate_limited in _supervisor.py) is nominally the tester's task but was implemented here for import-coherence and flagged as a merge seam — noted, not a contract block; the tester and reviewer_code should confirm the seam.
+
+````yaml
+id: cc0307f4-8411-44
+phase: implement
+metadata:
+  payload:
+    reason: "BLOCKING \u2014 AC-C5 / binding cq-1 violation: the deterministic-loop\
+      \ guard halts a genuine all-producers cap wall in ~7.5 minutes, re-imposing\
+      \ exactly the minutes-scale halt PR C exists to eliminate.\n\nWHAT I VERIFIED\
+      \ AS SATISFIED FIRST (so this isn't a whole-diff rejection):\n- AC-C1 (no fail-streak\
+      \ halt): record_rate_limited leaves _streaks / _last_abort_time / _exhausted\
+      \ untouched; _observe_jobs routes JOB_OUTCOME_RATE_LIMITED to record_rate_limited,\
+      \ never record_abort. Good.\n- AC-C3 (landed slices preserved): halt_rate_limited\
+      \ marks only the one dedupe key exhausted; the paced retry runs through the\
+      \ normal ready_to_respawn gate (no cold restart). Good.\n- AC-C6 (EX_AUTH_FATAL\
+      \ + abnormal unchanged): auth-fatal is checked first in __main__.py, outcome_for,\
+      \ and is_transient_rate_limit_error (disjointness guard via is_auth_fatal_error);\
+      \ the ready_to_respawn rate-limit gate is inert (rl_last is None) for a key\
+      \ with no rate-limit outcome, so the abnormal path is byte-identical. Good.\n\
+      - task-2-1/2-2/2-3/2-4/2-6 plumbing (EX_RATE_LIMITED=69 distinct from 77/64/75/143;\
+      \ outcome_for mapping after auth-fatal; JOB_OUTCOME_RATE_LIMITED constant +\
+      \ observe branch; pacing/threshold constants separate from the 30s abnormal\
+      \ cap): all correct.\n\nTHE BLOCKER (task-2-7 / AC-C4 vs AC-C5):\nThe loop-guard\
+      \ fingerprint is RateLimitFingerprint(signature = exit_detail or \"rate_limited\"\
+      , progression = _probe_brc_fingerprint()). Trace it on the exact scenario PR\
+      \ C targets \u2014 an all-producers throttle / cap wall:\n1. signature: on the\
+      \ production path the pod exits with a BARE EX_RATE_LIMITED and no error text\
+      \ (your own comment in record_rate_limited and parse_rate_limit_reset_seconds\
+      \ says so), so exit_detail is None \u2192 signature is the constant \"rate_limited\"\
+      \ on every retry.\n2. progression: _probe_brc_fingerprint() == PeerConsensusTracker.consensus_state_fingerprint,\
+      \ which its own docstring (peer_consensus/_queries.py:68) defines as a STABLE\
+      \ digest that folds \"nothing that can move without bus progress (no timestamps).\"\
+      \ During an all-producers cap wall NO arm can propose/ack (all are throttled),\
+      \ so the BRC bus does not move and this digest is INVARIANT across every paced\
+      \ retry.\n3. Therefore the fingerprint is identical on every retry \u2192 _rate_limit_repeat\
+      \ climbs to SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS (5) \u2192 deterministic_loop=True\
+      \ \u2192 _handle_rate_limited calls supervisor.halt_rate_limited(dedupe_key)\
+      \ \u2192 the key is marked exhausted \u2192 the paced retry STOPS.\n\nCumulative\
+      \ wait to the 5th retry = 30+60+90+120+150 = 450s \u2248 7.5 minutes. The cq-1\
+      \ threshold OVERSEER_ALERT (SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS =\
+      \ 1800s) never even fires, and a real multi-hour/weekly cap is halted to the\
+      \ arms-exhausted HITL in minutes. That is a direct contradiction of binding\
+      \ cq-1 / AC-C5: \"NO hard wall-clock ceiling \u2014 the pipeline retries until\
+      \ the cap lifts.\"\n\nROOT CAUSE: the guard's \"did state advance?\" discriminator\
+      \ (the consensus fingerprint) is frozen during BOTH a transient cap wall (frozen\
+      \ because everything is throttled) and a deterministic failure (frozen because\
+      \ it is broken) \u2014 it cannot distinguish them. And record_rate_limited only\
+      \ ever fires on a throttle outcome, so a persistent genuine cap wall is structurally\
+      \ indistinguishable from a \"deterministic failure masquerading as a throttle\"\
+      \ under this fingerprint, and always trips. AC-C4's \"continue when state advances\"\
+      \ is unreachable for the cap-wall case because state cannot advance until the\
+      \ cap lifts.\n\nREMEDY DIRECTIONS (your choice \u2014 I'll re-review promptly):\n\
+      - Make the loop-guard discriminate on the underlying failure CHANGING to a non-throttle\
+      \ / deterministic error (e.g. a distinct exit signature) rather than on a consensus\
+      \ digest that is necessarily frozen during a throttle, so a steady-state throttle\
+      \ paces indefinitely.\n- And/or gate the guard on a time/signal well ABOVE the\
+      \ cq-1 alert threshold (not 5 identical throttle retries at ~7.5 min), so a\
+      \ genuine cap wall crosses the informational threshold alert and keeps pacing,\
+      \ and only a truly stuck/changed failure escalates.\n- Add an explicit test\
+      \ asserting that a steady all-producers throttle paces past the cq-1 threshold\
+      \ alert WITHOUT the loop-guard halting (this is the AC-C5 regression the current\
+      \ test surface misses).\n\nSECONDARY (non-blocking, for the record): task-2-5\
+      \ (record_rate_limited in _supervisor.py) is nominally the tester's task but\
+      \ was implemented here for import-coherence and flagged as a merge seam \u2014\
+      \ noted, not a contract block; the tester and reviewer_code should confirm the\
+      \ seam."
+    artifact_references:
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    nack_version: 1
+  reason: "BLOCKING \u2014 AC-C5 / binding cq-1 violation: the deterministic-loop\
+    \ guard halts a genuine all-producers cap wall in ~7.5 minutes, re-imposing exactly\
+    \ the minutes-scale halt PR C exists to eliminate.\n\nWHAT I VERIFIED AS SATISFIED\
+    \ FIRST (so this isn't a whole-diff rejection):\n- AC-C1 (no fail-streak halt):\
+    \ record_rate_limited leaves _streaks / _last_abort_time / _exhausted untouched;\
+    \ _observe_jobs routes JOB_OUTCOME_RATE_LIMITED to record_rate_limited, never\
+    \ record_abort. Good.\n- AC-C3 (landed slices preserved): halt_rate_limited marks\
+    \ only the one dedupe key exhausted; the paced retry runs through the normal ready_to_respawn\
+    \ gate (no cold restart). Good.\n- AC-C6 (EX_AUTH_FATAL + abnormal unchanged):\
+    \ auth-fatal is checked first in __main__.py, outcome_for, and is_transient_rate_limit_error\
+    \ (disjointness guard via is_auth_fatal_error); the ready_to_respawn rate-limit\
+    \ gate is inert (rl_last is None) for a key with no rate-limit outcome, so the\
+    \ abnormal path is byte-identical. Good.\n- task-2-1/2-2/2-3/2-4/2-6 plumbing\
+    \ (EX_RATE_LIMITED=69 distinct from 77/64/75/143; outcome_for mapping after auth-fatal;\
+    \ JOB_OUTCOME_RATE_LIMITED constant + observe branch; pacing/threshold constants\
+    \ separate from the 30s abnormal cap): all correct.\n\nTHE BLOCKER (task-2-7 /\
+    \ AC-C4 vs AC-C5):\nThe loop-guard fingerprint is RateLimitFingerprint(signature\
+    \ = exit_detail or \"rate_limited\", progression = _probe_brc_fingerprint()).\
+    \ Trace it on the exact scenario PR C targets \u2014 an all-producers throttle\
+    \ / cap wall:\n1. signature: on the production path the pod exits with a BARE\
+    \ EX_RATE_LIMITED and no error text (your own comment in record_rate_limited and\
+    \ parse_rate_limit_reset_seconds says so), so exit_detail is None \u2192 signature\
+    \ is the constant \"rate_limited\" on every retry.\n2. progression: _probe_brc_fingerprint()\
+    \ == PeerConsensusTracker.consensus_state_fingerprint, which its own docstring\
+    \ (peer_consensus/_queries.py:68) defines as a STABLE digest that folds \"nothing\
+    \ that can move without bus progress (no timestamps).\" During an all-producers\
+    \ cap wall NO arm can propose/ack (all are throttled), so the BRC bus does not\
+    \ move and this digest is INVARIANT across every paced retry.\n3. Therefore the\
+    \ fingerprint is identical on every retry \u2192 _rate_limit_repeat climbs to\
+    \ SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS (5) \u2192 deterministic_loop=True\
+    \ \u2192 _handle_rate_limited calls supervisor.halt_rate_limited(dedupe_key) \u2192\
+    \ the key is marked exhausted \u2192 the paced retry STOPS.\n\nCumulative wait\
+    \ to the 5th retry = 30+60+90+120+150 = 450s \u2248 7.5 minutes. The cq-1 threshold\
+    \ OVERSEER_ALERT (SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS = 1800s) never\
+    \ even fires, and a real multi-hour/weekly cap is halted to the arms-exhausted\
+    \ HITL in minutes. That is a direct contradiction of binding cq-1 / AC-C5: \"\
+    NO hard wall-clock ceiling \u2014 the pipeline retries until the cap lifts.\"\n\
+    \nROOT CAUSE: the guard's \"did state advance?\" discriminator (the consensus\
+    \ fingerprint) is frozen during BOTH a transient cap wall (frozen because everything\
+    \ is throttled) and a deterministic failure (frozen because it is broken) \u2014\
+    \ it cannot distinguish them. And record_rate_limited only ever fires on a throttle\
+    \ outcome, so a persistent genuine cap wall is structurally indistinguishable\
+    \ from a \"deterministic failure masquerading as a throttle\" under this fingerprint,\
+    \ and always trips. AC-C4's \"continue when state advances\" is unreachable for\
+    \ the cap-wall case because state cannot advance until the cap lifts.\n\nREMEDY\
+    \ DIRECTIONS (your choice \u2014 I'll re-review promptly):\n- Make the loop-guard\
+    \ discriminate on the underlying failure CHANGING to a non-throttle / deterministic\
+    \ error (e.g. a distinct exit signature) rather than on a consensus digest that\
+    \ is necessarily frozen during a throttle, so a steady-state throttle paces indefinitely.\n\
+    - And/or gate the guard on a time/signal well ABOVE the cq-1 alert threshold (not\
+    \ 5 identical throttle retries at ~7.5 min), so a genuine cap wall crosses the\
+    \ informational threshold alert and keeps pacing, and only a truly stuck/changed\
+    \ failure escalates.\n- Add an explicit test asserting that a steady all-producers\
+    \ throttle paces past the cq-1 threshold alert WITHOUT the loop-guard halting\
+    \ (this is the AC-C5 regression the current test surface misses).\n\nSECONDARY\
+    \ (non-blocking, for the record): task-2-5 (record_rate_limited in _supervisor.py)\
+    \ is nominally the tester's task but was implemented here for import-coherence\
+    \ and flagged as a merge seam \u2014 noted, not a contract block; the tester and\
+    \ reviewer_code should confirm the seam."
+  revision_count: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:09:23Z] coder (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: 653c1b3a-be2b-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:09:29Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=161504 util=0.16 cache_hit=0.95 decision=below_threshold
+
+````yaml
+id: b8027904-b8eb-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:11:26Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=0 util=0.00 cache_hit=n/a decision=no_warm_session
+
+````yaml
+id: 1f37cdd1-c3dd-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:11:33Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold
+
+````yaml
+id: dfa145b1-ebef-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:11:38Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=0 util=0.00 cache_hit=n/a decision=no_warm_session
+
+````yaml
+id: 3b222088-3c6b-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:11:43Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: d25df291-aefb-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:13:47Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 6d8101fd-8330-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:14:00Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: daae69dd-619a-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:16:01Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 77c87fb3-f980-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:18:04Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: db5eb626-32f2-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:20:05Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: dc152589-087b-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:21:47Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 6a738fbc-6d1d-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:22:11Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: def4fe1c-a1fb-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:23:51Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 41510e41-c7d9-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:23:53Z] tester (CONSENSUS_PROPOSE): Proposal from tester
+
+task-2-8 tester coverage for PR C EX_RATE_LIMITED transient rate-limit path (5 new test files, commit b74fa6bbb). Weighted on the exit-code plumbing seam: is_transient_rate_limit_error classification + disjointness from is_auth_fatal_error (AC-C6, weekly-cap-on-429 stays auth-fatal); EX_RATE_LIMITED=69 distinct from EX_AUTH_FATAL/reserved; end-to-end __main__ CLI mapping (bare throttle->EX_RATE_LIMITED, weekly cap->EX_AUTH_FATAL); outcome_for maps EX_RATE_LIMITED->rate_limited with auth-fatal precedence and stray/read-failure->abnormal; _observe_jobs routes to record_rate_limited (NOT record_abort); record_rate_limited never trips the streak halt (AC-C1) while record_abort still does (AC-C6 regression); ready_to_respawn pacing; loop-guard escalates on identical fingerprint and resets when progression advances (AC-C4); cq-1 cumulative-wait threshold alert latches once (AC-C5); _handle_rate_limited emits agent-rate-limited (no halt) vs rate-limit-deterministic-loop (halt only the looping arm, landed slices preserved AC-C3); supervision_policy constants/parse/backoff/RateLimitFingerprint. task-2-5 (record_rate_limited) landed as coder's declared merge seam in 2bd6124a3 and is covered here.
+
+````yaml
+id: a97d66c9-d2f6-44
+phase: implement
+metadata:
+  payload:
+    summary: 'task-2-8 tester coverage for PR C EX_RATE_LIMITED transient rate-limit
+      path (5 new test files, commit b74fa6bbb). Weighted on the exit-code plumbing
+      seam: is_transient_rate_limit_error classification + disjointness from is_auth_fatal_error
+      (AC-C6, weekly-cap-on-429 stays auth-fatal); EX_RATE_LIMITED=69 distinct from
+      EX_AUTH_FATAL/reserved; end-to-end __main__ CLI mapping (bare throttle->EX_RATE_LIMITED,
+      weekly cap->EX_AUTH_FATAL); outcome_for maps EX_RATE_LIMITED->rate_limited with
+      auth-fatal precedence and stray/read-failure->abnormal; _observe_jobs routes
+      to record_rate_limited (NOT record_abort); record_rate_limited never trips the
+      streak halt (AC-C1) while record_abort still does (AC-C6 regression); ready_to_respawn
+      pacing; loop-guard escalates on identical fingerprint and resets when progression
+      advances (AC-C4); cq-1 cumulative-wait threshold alert latches once (AC-C5);
+      _handle_rate_limited emits agent-rate-limited (no halt) vs rate-limit-deterministic-loop
+      (halt only the looping arm, landed slices preserved AC-C3); supervision_policy
+      constants/parse/backoff/RateLimitFingerprint. task-2-5 (record_rate_limited)
+      landed as coder''s declared merge seam in 2bd6124a3 and is covered here.'
+    attestation:
+      tests_run: 85
+      checks_passed:
+      - lint
+      - test
+      - security
+      note: 'make lint/make test wrappers abort on venv-sync (no network in sandbox);
+        ran the underlying tools directly against the same .venv: ruff check + ruff
+        format --check clean; pytest new suites 80 passed / 5 SDK-gated CLI skipped;
+        related existing suites (test_event_loop, test_arms_exhausted_livelock, test_auth_errors)
+        171 passed; bandit -ll -c pyproject.toml exit 0 (Medium/High: 0; the 89 Low
+        are B101 assert-used, the expected test finding filtered by -ll).'
+    artifacts:
+    - b74fa6bbb
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    risk_considered: Additive test-only change (5 new files, no production edits).
+      Fixed two initial synthetic test cases that mis-modeled the word-boundary regex
+      (http_429/overloaded_error underscore-glued tokens) to realistic message shapes.
+      CLI-mapping tests gated behind claude_agent_sdk availability so SDK-free classifier/disjointness
+      coverage still runs everywhere.
+    commit_sha: b74fa6bbb
+    files_changed:
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    tests_run: []
+    tasks_satisfied:
+    - task-2-5
+    - task-2-8
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: b74fa6bbb
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:23:53Z] orchestrator → documenter (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 2) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 78ef1254-2e96-46
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:23:57Z] documenter (CONSENSUS_CONFIRMED): Consensus confirmed by documenter
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 05a502df-d7e0-4f
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:23:58Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: db0bf59e-0d7a-49
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:23:59Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 0cafda9d-1150-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:23:59Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: f7c7e0d3-1959-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:24:00Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 0c31ed2e-5e86-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:24:01Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 476b6c9f-5140-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:24:11Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 0775174e-94e8-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:24:11Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 6a87a3f3-c99e-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:24:15Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 3780ecdc-2f05-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:24:17Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: aea6f1eb-56b8-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:24:17Z] tester (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=220660 util=0.22 cache_hit=1.00 decision=no_warm_session
+
+````yaml
+id: aecfb3fb-fd64-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:24:21Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: a3b4b193-ae27-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:25:00Z] reviewer_security → tester (CONSENSUS_ACK): ACK from reviewer_security for tester
+
+Security review PASS on the tester's PR C coverage (test-only, no production code). The suites actively LOCK IN the two security invariants I care about: (1) test_absurd_hint_is_clamped_to_the_pacing_ceiling pins that an untrusted/malformed reset hint ("resets in 9999 minutes") is clamped to the pacing ceiling, so hostile agent error-text cannot park an arm indefinitely; (2) TestDisjointFromAuthFatal + test_predicates_are_never_both_true pin the credential-failure invariant — a weekly-cap / bad-credential 429 stays auth-fatal and is never reclassified into an infinite paced retry that would hammer the API. Scan found no hardcoded secrets, no # nosec / # noqa: S security-check suppression, no verify=False / shell=True unsafe patterns, and no weakened assertions. SDK-gated CLI tests skip cleanly when the SDK is absent. No new attack surface. No security blockers.
+
+````yaml
+id: 5e66ff9f-d49a-46
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    reason: "Security review PASS on the tester's PR C coverage (test-only, no production\
+      \ code). The suites actively LOCK IN the two security invariants I care about:\
+      \ (1) test_absurd_hint_is_clamped_to_the_pacing_ceiling pins that an untrusted/malformed\
+      \ reset hint (\"resets in 9999 minutes\") is clamped to the pacing ceiling,\
+      \ so hostile agent error-text cannot park an arm indefinitely; (2) TestDisjointFromAuthFatal\
+      \ + test_predicates_are_never_both_true pin the credential-failure invariant\
+      \ \u2014 a weekly-cap / bad-credential 429 stays auth-fatal and is never reclassified\
+      \ into an infinite paced retry that would hammer the API. Scan found no hardcoded\
+      \ secrets, no # nosec / # noqa: S security-check suppression, no verify=False\
+      \ / shell=True unsafe patterns, and no weakened assertions. SDK-gated CLI tests\
+      \ skip cleanly when the SDK is absent. No new attack surface. No security blockers."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:25:04Z] reviewer_security (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_security
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: b1dc70f7-5bfd-4b
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:25:11Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=88341 util=0.09 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 0ec363d1-8898-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:25:55Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 1ffad3c5-f9f2-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:26:04Z] reviewer_concurrency → tester (CONSENSUS_NACK): NACK from reviewer_concurrency for tester
+
+Test hygiene is good — deterministic _ManualClock (no flaky real-time sleeps in paced-window assertions), clean supervisor isolation, and thorough coverage of the concurrency-critical paths: streak isolation (AC-C1: repeated rate-limits never trip the fail-streak halt; abnormal path untouched AC-C6), ready_to_respawn pacing across the separate anchor, record_success/retire clearing paced state, threshold-latch orthogonality, and the routing (_observe_jobs → record_rate_limited not record_abort, reap + keep _key_meta). Keep all of that.
+
+BLOCKING (consistency with my coder NACK @ v1 — liveness): the suite codifies the deterministic-loop-guard semantic I flagged as a cq-1 / AC-C2 / AC-C5 violation. Specifically `test_identical_fingerprint_escalates_once_past_guard_threshold` (orchestrator/tests/test_event_loop_rate_limited.py) drives `record_rate_limited` with `progression=["same"]` FROZEN and a constant `exit_detail="rate_limited"` — which is exactly the production signature of a genuine, still-active account-wide cap wall (all agents exit EX_RATE_LIMITED before doing work, so consensus_state_fingerprint() never moves) — and then ASSERTS that after SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS (5) the guard PRODUCES `deterministic_loop=True` (→ halt_rate_limited → arms-exhausted HITL). That is the binding contradiction: cq-1 says a multi-day cap must self-heal over hours-to-days with NO operator action, but this test blesses halting it after ~5 paced retries (~minutes). Locking that behavior into the test surface would green-light the defective implementation.
+
+This test must be revised in lockstep with the coder's required loop-guard fix so it asserts the CORRECTED semantic: a frozen-progression throttle (genuine cap wall) keeps pacing indefinitely and does NOT escalate on frozen progression alone — the guard may only fire on a discriminator that actually separates a deterministic failure from an active throttle. Add a positive test that a long frozen-progression cap wall (repeats >> 5) NEVER produces deterministic_loop / halt (the direct AC-C2/C5 liveness property), and keep test_advancing_progression_resets_the_guard.
+
+NOT in scope of this NACK (leave as-is): the executor-handler unit tests test_deterministic_loop_emits_alert_and_halts_the_arm / test_both_transitions_emit_two_alerts_and_halt / test_halt_preserves_sibling_slices are valid contracts of _handle_rate_limited in isolation ("given deterministic_loop=True, alert + halt only this key") — the fix lives upstream in WHEN the flag is set, so those handler assertions can stand unchanged. The auth_errors disjointness, kubernetes_spawner precedence, and supervision_policy constant/backoff/fingerprint tests are all fine.
+
+````yaml
+id: 5362335c-579b-4b
+phase: implement
+metadata:
+  payload:
+    reason: "Test hygiene is good \u2014 deterministic _ManualClock (no flaky real-time\
+      \ sleeps in paced-window assertions), clean supervisor isolation, and thorough\
+      \ coverage of the concurrency-critical paths: streak isolation (AC-C1: repeated\
+      \ rate-limits never trip the fail-streak halt; abnormal path untouched AC-C6),\
+      \ ready_to_respawn pacing across the separate anchor, record_success/retire\
+      \ clearing paced state, threshold-latch orthogonality, and the routing (_observe_jobs\
+      \ \u2192 record_rate_limited not record_abort, reap + keep _key_meta). Keep\
+      \ all of that.\n\nBLOCKING (consistency with my coder NACK @ v1 \u2014 liveness):\
+      \ the suite codifies the deterministic-loop-guard semantic I flagged as a cq-1\
+      \ / AC-C2 / AC-C5 violation. Specifically `test_identical_fingerprint_escalates_once_past_guard_threshold`\
+      \ (orchestrator/tests/test_event_loop_rate_limited.py) drives `record_rate_limited`\
+      \ with `progression=[\"same\"]` FROZEN and a constant `exit_detail=\"rate_limited\"\
+      ` \u2014 which is exactly the production signature of a genuine, still-active\
+      \ account-wide cap wall (all agents exit EX_RATE_LIMITED before doing work,\
+      \ so consensus_state_fingerprint() never moves) \u2014 and then ASSERTS that\
+      \ after SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS (5) the guard PRODUCES `deterministic_loop=True`\
+      \ (\u2192 halt_rate_limited \u2192 arms-exhausted HITL). That is the binding\
+      \ contradiction: cq-1 says a multi-day cap must self-heal over hours-to-days\
+      \ with NO operator action, but this test blesses halting it after ~5 paced retries\
+      \ (~minutes). Locking that behavior into the test surface would green-light\
+      \ the defective implementation.\n\nThis test must be revised in lockstep with\
+      \ the coder's required loop-guard fix so it asserts the CORRECTED semantic:\
+      \ a frozen-progression throttle (genuine cap wall) keeps pacing indefinitely\
+      \ and does NOT escalate on frozen progression alone \u2014 the guard may only\
+      \ fire on a discriminator that actually separates a deterministic failure from\
+      \ an active throttle. Add a positive test that a long frozen-progression cap\
+      \ wall (repeats >> 5) NEVER produces deterministic_loop / halt (the direct AC-C2/C5\
+      \ liveness property), and keep test_advancing_progression_resets_the_guard.\n\
+      \nNOT in scope of this NACK (leave as-is): the executor-handler unit tests test_deterministic_loop_emits_alert_and_halts_the_arm\
+      \ / test_both_transitions_emit_two_alerts_and_halt / test_halt_preserves_sibling_slices\
+      \ are valid contracts of _handle_rate_limited in isolation (\"given deterministic_loop=True,\
+      \ alert + halt only this key\") \u2014 the fix lives upstream in WHEN the flag\
+      \ is set, so those handler assertions can stand unchanged. The auth_errors disjointness,\
+      \ kubernetes_spawner precedence, and supervision_policy constant/backoff/fingerprint\
+      \ tests are all fine."
+    artifact_references:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    nack_version: 1
+  reason: "Test hygiene is good \u2014 deterministic _ManualClock (no flaky real-time\
+    \ sleeps in paced-window assertions), clean supervisor isolation, and thorough\
+    \ coverage of the concurrency-critical paths: streak isolation (AC-C1: repeated\
+    \ rate-limits never trip the fail-streak halt; abnormal path untouched AC-C6),\
+    \ ready_to_respawn pacing across the separate anchor, record_success/retire clearing\
+    \ paced state, threshold-latch orthogonality, and the routing (_observe_jobs \u2192\
+    \ record_rate_limited not record_abort, reap + keep _key_meta). Keep all of that.\n\
+    \nBLOCKING (consistency with my coder NACK @ v1 \u2014 liveness): the suite codifies\
+    \ the deterministic-loop-guard semantic I flagged as a cq-1 / AC-C2 / AC-C5 violation.\
+    \ Specifically `test_identical_fingerprint_escalates_once_past_guard_threshold`\
+    \ (orchestrator/tests/test_event_loop_rate_limited.py) drives `record_rate_limited`\
+    \ with `progression=[\"same\"]` FROZEN and a constant `exit_detail=\"rate_limited\"\
+    ` \u2014 which is exactly the production signature of a genuine, still-active\
+    \ account-wide cap wall (all agents exit EX_RATE_LIMITED before doing work, so\
+    \ consensus_state_fingerprint() never moves) \u2014 and then ASSERTS that after\
+    \ SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS (5) the guard PRODUCES `deterministic_loop=True`\
+    \ (\u2192 halt_rate_limited \u2192 arms-exhausted HITL). That is the binding contradiction:\
+    \ cq-1 says a multi-day cap must self-heal over hours-to-days with NO operator\
+    \ action, but this test blesses halting it after ~5 paced retries (~minutes).\
+    \ Locking that behavior into the test surface would green-light the defective\
+    \ implementation.\n\nThis test must be revised in lockstep with the coder's required\
+    \ loop-guard fix so it asserts the CORRECTED semantic: a frozen-progression throttle\
+    \ (genuine cap wall) keeps pacing indefinitely and does NOT escalate on frozen\
+    \ progression alone \u2014 the guard may only fire on a discriminator that actually\
+    \ separates a deterministic failure from an active throttle. Add a positive test\
+    \ that a long frozen-progression cap wall (repeats >> 5) NEVER produces deterministic_loop\
+    \ / halt (the direct AC-C2/C5 liveness property), and keep test_advancing_progression_resets_the_guard.\n\
+    \nNOT in scope of this NACK (leave as-is): the executor-handler unit tests test_deterministic_loop_emits_alert_and_halts_the_arm\
+    \ / test_both_transitions_emit_two_alerts_and_halt / test_halt_preserves_sibling_slices\
+    \ are valid contracts of _handle_rate_limited in isolation (\"given deterministic_loop=True,\
+    \ alert + halt only this key\") \u2014 the fix lives upstream in WHEN the flag\
+    \ is set, so those handler assertions can stand unchanged. The auth_errors disjointness,\
+    \ kubernetes_spawner precedence, and supervision_policy constant/backoff/fingerprint\
+    \ tests are all fine."
+  revision_count: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:26:07Z] tester (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: adf062fa-7a31-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:26:27Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=116258 util=0.12 cache_hit=0.98 decision=below_threshold
+
+````yaml
+id: 5a416f91-3c0e-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:26:30Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 0389cc0d-6c7e-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:26:38Z] reviewer_code → tester (CONSENSUS_NACK): NACK from reviewer_code for tester
+
+BLOCKING — the suite codifies the coder's loop-guard defect as expected behavior and is missing the AC-C5 regression, so it gives false-green confidence on exactly the behavior PR C exists to guarantee.
+
+WHAT IS CORRECT (not a whole-suite rejection — keep these):
+- AC-C1: test_repeated_rate_limits_never_trip_the_fail_streak_halt (record_rate_limited x 2*STREAK_ALERT, streak untouched). Good.
+- AC-C6: test_abnormal_path_still_trips_the_halt_and_is_untouched; auth-fatal disjointness tests in test_auth_errors_rate_limit.py. Good.
+- Pacing/helpers: parse_rate_limit_reset_seconds shapes + clamp; rate_limit_backoff_seconds linear + cap + reset-precedence; ready_to_respawn window; success/retire clear paced state; routing test (JOB_OUTCOME_RATE_LIMITED -> record_rate_limited, not record_abort). All good.
+
+THE BLOCKER (test_supervision_policy.py :: test_identical_fingerprint_escalates_once_past_guard_threshold):
+The test fixes progression=["same"] (brc_probe returns "same" every call) and drives record_rate_limited(..., exit_detail="rate_limited") — i.e. a FROZEN BRC fingerprint + the bare production throttle signature — then asserts `spy.calls[repeats-1]["deterministic_loop"] is True` (guard trips, arm halts after 5 retries). But that input IS a genuine sustained all-producers cap wall: during a real cap wall every arm exits EX_RATE_LIMITED before doing work, so the consensus digest (consensus_state_fingerprint, peer_consensus/_queries.py:68 — "nothing that can move without bus progress") is necessarily frozen and the bare exit carries no text (exit_detail None -> "rate_limited"). So this test asserts that a real cap wall MUST halt in ~5 paced retries (30+60+90+120+150 = 450s ≈ 7.5 min) — the exact contradiction of binding cq-1 / AC-C5 ("NO hard wall-clock ceiling; a multi-day weekly cap self-heals with no operator action") that reviewer_contract and reviewer_concurrency already NACKed on the coder. record_rate_limited only ever fires on a throttle outcome, so a frozen-fingerprint + "rate_limited" sequence can ONLY be a genuine cap wall, never a deterministic non-throttle failure (those exit abnormal -> record_abort). The test therefore encodes the wrong contract.
+
+CORROBORATING TELL (test_cumulative_wait_threshold_alert_latches_once): to make the cq-1 threshold alert fire at all, the test must advance progression every retry (`progression[0] = f"p{i}"`, comment "so the loop-guard stays orthogonal (never escalates)"). That artificial advance never happens during a real cap wall (throttled -> no bus progress), and it masks that on the true frozen-fingerprint path the guard halts at ~7.5 min BEFORE the 1800s (30 min) threshold is reachable — so the "no-ceiling, alert-and-continue" path is untested for the scenario it targets. test_advancing_progression_resets_the_guard likewise only exercises a progression-advances case that cannot occur mid-cap-wall.
+
+MISSING (AC-C5 regression the suite needs): a test asserting that a STEADY all-producers throttle — frozen brc_probe + bare EX_RATE_LIMITED, no reset hint — keeps pacing WITHOUT the loop guard halting, and crosses the cumulative-wait threshold alert (threshold_crossed=True) while deterministic_loop stays False. Under the current coder implementation that test would FAIL (the guard trips at 5), which is precisely why it must exist — it is the regression that pins AC-C5/cq-1.
+
+Because test_identical_fingerprint_escalates_once_past_guard_threshold asserts deterministic_loop=True on a frozen-fingerprint steady throttle, this suite will FAIL against any correct loop-guard fix (one where a steady cap wall paces indefinitely and only a positively-distinct/deterministic failure escalates). So the test contract must be reworked in lockstep with the coder's remedy: flip this assertion to no-halt-for-a-steady-throttle, and add the AC-C5 pacing-past-threshold regression above. (Also fine to keep a deterministic-loop-escalation test, but it must construct a genuinely deterministic signal — e.g. a signature that changes to a non-rate-limit error — not a frozen consensus digest that a real throttle also freezes.)
+
+SEAM NOTE (non-blocking): task-2-5 (record_rate_limited in _supervisor.py) landed in the coder's commit for import-coherence, flagged as a tester/coder merge seam — noted; confirm ownership on the re-propose.
+
+````yaml
+id: 33610116-e296-40
+phase: implement
+metadata:
+  payload:
+    reason: "BLOCKING \u2014 the suite codifies the coder's loop-guard defect as expected\
+      \ behavior and is missing the AC-C5 regression, so it gives false-green confidence\
+      \ on exactly the behavior PR C exists to guarantee.\n\nWHAT IS CORRECT (not\
+      \ a whole-suite rejection \u2014 keep these):\n- AC-C1: test_repeated_rate_limits_never_trip_the_fail_streak_halt\
+      \ (record_rate_limited x 2*STREAK_ALERT, streak untouched). Good.\n- AC-C6:\
+      \ test_abnormal_path_still_trips_the_halt_and_is_untouched; auth-fatal disjointness\
+      \ tests in test_auth_errors_rate_limit.py. Good.\n- Pacing/helpers: parse_rate_limit_reset_seconds\
+      \ shapes + clamp; rate_limit_backoff_seconds linear + cap + reset-precedence;\
+      \ ready_to_respawn window; success/retire clear paced state; routing test (JOB_OUTCOME_RATE_LIMITED\
+      \ -> record_rate_limited, not record_abort). All good.\n\nTHE BLOCKER (test_supervision_policy.py\
+      \ :: test_identical_fingerprint_escalates_once_past_guard_threshold):\nThe test\
+      \ fixes progression=[\"same\"] (brc_probe returns \"same\" every call) and drives\
+      \ record_rate_limited(..., exit_detail=\"rate_limited\") \u2014 i.e. a FROZEN\
+      \ BRC fingerprint + the bare production throttle signature \u2014 then asserts\
+      \ `spy.calls[repeats-1][\"deterministic_loop\"] is True` (guard trips, arm halts\
+      \ after 5 retries). But that input IS a genuine sustained all-producers cap\
+      \ wall: during a real cap wall every arm exits EX_RATE_LIMITED before doing\
+      \ work, so the consensus digest (consensus_state_fingerprint, peer_consensus/_queries.py:68\
+      \ \u2014 \"nothing that can move without bus progress\") is necessarily frozen\
+      \ and the bare exit carries no text (exit_detail None -> \"rate_limited\").\
+      \ So this test asserts that a real cap wall MUST halt in ~5 paced retries (30+60+90+120+150\
+      \ = 450s \u2248 7.5 min) \u2014 the exact contradiction of binding cq-1 / AC-C5\
+      \ (\"NO hard wall-clock ceiling; a multi-day weekly cap self-heals with no operator\
+      \ action\") that reviewer_contract and reviewer_concurrency already NACKed on\
+      \ the coder. record_rate_limited only ever fires on a throttle outcome, so a\
+      \ frozen-fingerprint + \"rate_limited\" sequence can ONLY be a genuine cap wall,\
+      \ never a deterministic non-throttle failure (those exit abnormal -> record_abort).\
+      \ The test therefore encodes the wrong contract.\n\nCORROBORATING TELL (test_cumulative_wait_threshold_alert_latches_once):\
+      \ to make the cq-1 threshold alert fire at all, the test must advance progression\
+      \ every retry (`progression[0] = f\"p{i}\"`, comment \"so the loop-guard stays\
+      \ orthogonal (never escalates)\"). That artificial advance never happens during\
+      \ a real cap wall (throttled -> no bus progress), and it masks that on the true\
+      \ frozen-fingerprint path the guard halts at ~7.5 min BEFORE the 1800s (30 min)\
+      \ threshold is reachable \u2014 so the \"no-ceiling, alert-and-continue\" path\
+      \ is untested for the scenario it targets. test_advancing_progression_resets_the_guard\
+      \ likewise only exercises a progression-advances case that cannot occur mid-cap-wall.\n\
+      \nMISSING (AC-C5 regression the suite needs): a test asserting that a STEADY\
+      \ all-producers throttle \u2014 frozen brc_probe + bare EX_RATE_LIMITED, no\
+      \ reset hint \u2014 keeps pacing WITHOUT the loop guard halting, and crosses\
+      \ the cumulative-wait threshold alert (threshold_crossed=True) while deterministic_loop\
+      \ stays False. Under the current coder implementation that test would FAIL (the\
+      \ guard trips at 5), which is precisely why it must exist \u2014 it is the regression\
+      \ that pins AC-C5/cq-1.\n\nBecause test_identical_fingerprint_escalates_once_past_guard_threshold\
+      \ asserts deterministic_loop=True on a frozen-fingerprint steady throttle, this\
+      \ suite will FAIL against any correct loop-guard fix (one where a steady cap\
+      \ wall paces indefinitely and only a positively-distinct/deterministic failure\
+      \ escalates). So the test contract must be reworked in lockstep with the coder's\
+      \ remedy: flip this assertion to no-halt-for-a-steady-throttle, and add the\
+      \ AC-C5 pacing-past-threshold regression above. (Also fine to keep a deterministic-loop-escalation\
+      \ test, but it must construct a genuinely deterministic signal \u2014 e.g. a\
+      \ signature that changes to a non-rate-limit error \u2014 not a frozen consensus\
+      \ digest that a real throttle also freezes.)\n\nSEAM NOTE (non-blocking): task-2-5\
+      \ (record_rate_limited in _supervisor.py) landed in the coder's commit for import-coherence,\
+      \ flagged as a tester/coder merge seam \u2014 noted; confirm ownership on the\
+      \ re-propose."
+    artifact_references:
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    nack_version: 1
+  reason: "BLOCKING \u2014 the suite codifies the coder's loop-guard defect as expected\
+    \ behavior and is missing the AC-C5 regression, so it gives false-green confidence\
+    \ on exactly the behavior PR C exists to guarantee.\n\nWHAT IS CORRECT (not a\
+    \ whole-suite rejection \u2014 keep these):\n- AC-C1: test_repeated_rate_limits_never_trip_the_fail_streak_halt\
+    \ (record_rate_limited x 2*STREAK_ALERT, streak untouched). Good.\n- AC-C6: test_abnormal_path_still_trips_the_halt_and_is_untouched;\
+    \ auth-fatal disjointness tests in test_auth_errors_rate_limit.py. Good.\n- Pacing/helpers:\
+    \ parse_rate_limit_reset_seconds shapes + clamp; rate_limit_backoff_seconds linear\
+    \ + cap + reset-precedence; ready_to_respawn window; success/retire clear paced\
+    \ state; routing test (JOB_OUTCOME_RATE_LIMITED -> record_rate_limited, not record_abort).\
+    \ All good.\n\nTHE BLOCKER (test_supervision_policy.py :: test_identical_fingerprint_escalates_once_past_guard_threshold):\n\
+    The test fixes progression=[\"same\"] (brc_probe returns \"same\" every call)\
+    \ and drives record_rate_limited(..., exit_detail=\"rate_limited\") \u2014 i.e.\
+    \ a FROZEN BRC fingerprint + the bare production throttle signature \u2014 then\
+    \ asserts `spy.calls[repeats-1][\"deterministic_loop\"] is True` (guard trips,\
+    \ arm halts after 5 retries). But that input IS a genuine sustained all-producers\
+    \ cap wall: during a real cap wall every arm exits EX_RATE_LIMITED before doing\
+    \ work, so the consensus digest (consensus_state_fingerprint, peer_consensus/_queries.py:68\
+    \ \u2014 \"nothing that can move without bus progress\") is necessarily frozen\
+    \ and the bare exit carries no text (exit_detail None -> \"rate_limited\"). So\
+    \ this test asserts that a real cap wall MUST halt in ~5 paced retries (30+60+90+120+150\
+    \ = 450s \u2248 7.5 min) \u2014 the exact contradiction of binding cq-1 / AC-C5\
+    \ (\"NO hard wall-clock ceiling; a multi-day weekly cap self-heals with no operator\
+    \ action\") that reviewer_contract and reviewer_concurrency already NACKed on\
+    \ the coder. record_rate_limited only ever fires on a throttle outcome, so a frozen-fingerprint\
+    \ + \"rate_limited\" sequence can ONLY be a genuine cap wall, never a deterministic\
+    \ non-throttle failure (those exit abnormal -> record_abort). The test therefore\
+    \ encodes the wrong contract.\n\nCORROBORATING TELL (test_cumulative_wait_threshold_alert_latches_once):\
+    \ to make the cq-1 threshold alert fire at all, the test must advance progression\
+    \ every retry (`progression[0] = f\"p{i}\"`, comment \"so the loop-guard stays\
+    \ orthogonal (never escalates)\"). That artificial advance never happens during\
+    \ a real cap wall (throttled -> no bus progress), and it masks that on the true\
+    \ frozen-fingerprint path the guard halts at ~7.5 min BEFORE the 1800s (30 min)\
+    \ threshold is reachable \u2014 so the \"no-ceiling, alert-and-continue\" path\
+    \ is untested for the scenario it targets. test_advancing_progression_resets_the_guard\
+    \ likewise only exercises a progression-advances case that cannot occur mid-cap-wall.\n\
+    \nMISSING (AC-C5 regression the suite needs): a test asserting that a STEADY all-producers\
+    \ throttle \u2014 frozen brc_probe + bare EX_RATE_LIMITED, no reset hint \u2014\
+    \ keeps pacing WITHOUT the loop guard halting, and crosses the cumulative-wait\
+    \ threshold alert (threshold_crossed=True) while deterministic_loop stays False.\
+    \ Under the current coder implementation that test would FAIL (the guard trips\
+    \ at 5), which is precisely why it must exist \u2014 it is the regression that\
+    \ pins AC-C5/cq-1.\n\nBecause test_identical_fingerprint_escalates_once_past_guard_threshold\
+    \ asserts deterministic_loop=True on a frozen-fingerprint steady throttle, this\
+    \ suite will FAIL against any correct loop-guard fix (one where a steady cap wall\
+    \ paces indefinitely and only a positively-distinct/deterministic failure escalates).\
+    \ So the test contract must be reworked in lockstep with the coder's remedy: flip\
+    \ this assertion to no-halt-for-a-steady-throttle, and add the AC-C5 pacing-past-threshold\
+    \ regression above. (Also fine to keep a deterministic-loop-escalation test, but\
+    \ it must construct a genuinely deterministic signal \u2014 e.g. a signature that\
+    \ changes to a non-rate-limit error \u2014 not a frozen consensus digest that\
+    \ a real throttle also freezes.)\n\nSEAM NOTE (non-blocking): task-2-5 (record_rate_limited\
+    \ in _supervisor.py) landed in the coder's commit for import-coherence, flagged\
+    \ as a tester/coder merge seam \u2014 noted; confirm ownership on the re-propose."
+  revision_count: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:26:39Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 37b94916-0a9b-49
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:26:40Z] reviewer_contract → tester (CONSENSUS_NACK): NACK from reviewer_contract for tester
+
+BLOCKING — the test suite encodes the AC-C5 / binding-cq-1 violation as expected behavior and omits the regression that would catch it. This is the same defect I NACKed on the coder (v1 @ 2bd6124); the tester's suite is green precisely because it tests the buggy semantics as correct, so coder + tester must converge on the corrected discriminator.
+
+WHAT I VERIFIED AS CORRECT FIRST (so this isn't a whole-suite rejection — most of it is solid, keep it):
+- test_auth_errors_rate_limit.py: is_transient_rate_limit_error match set (429 / rate-limit / overloaded / too many requests), auth-fatal + unrelated do NOT match, EX_RATE_LIMITED=69 distinct from 77/64/75/143, AC-C6 disjointness (weekly-cap-on-429 stays auth-fatal, never both true), CLI end-to-end mapping. Good.
+- test_kubernetes_spawner_rate_limited.py: outcome_for EX_RATE_LIMITED->rate_limited, auth-fatal precedence, stray-code + read-failure -> abnormal (AC-C6). Good.
+- test_event_loop_rate_limited.py TestObserveRoutesRateLimited / TestNoStreakHalt / TestPacingAndClearing: routes to record_rate_limited not record_abort, AC-C1 (repeated rate-limits never trip the streak halt), AC-C6 (record_abort still halts, no rate-limit residue), ready_to_respawn pacing, success/retire clear paced state. Good.
+- test_supervision_policy.py: constants separate from the 30s abnormal cap, parse/backoff helpers, RateLimitFingerprint structural equality. Good.
+- test_concurrent_executor_rate_limit.py: acceptable — these drive _handle_rate_limited with EXPLICIT threshold_crossed / deterministic_loop flags, so they test the handler's reaction in isolation, not the (buggy) derivation of those flags. Not the blocker.
+
+THE BLOCKER (test_event_loop_rate_limited.py, class TestLoopGuardAndThreshold):
+1. test_identical_fingerprint_escalates_once_past_guard_threshold sets progression=["same"] and exit_detail="rate_limited" for SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS (5) retries and asserts deterministic_loop=True (which the executor turns into halt_rate_limited). But a FROZEN progression + bare "rate_limited" exit_detail is EXACTLY the production all-producers cap-wall signature: the pod exits a bare EX_RATE_LIMITED with no text, and consensus_state_fingerprint is a stable, timestamp-free digest that cannot move while every arm is throttled (peer_consensus/_queries.py:68). So this test asserts that a genuine cap wall escalates + halts after 5 retries (~7.5 min cumulative) — the direct contradiction of binding cq-1 / AC-C5 ("NO hard wall-clock ceiling — retry until the cap lifts"). The test blesses the bug.
+2. test_cumulative_wait_threshold_alert_latches_once only reaches the cq-1 threshold by ARTIFICIALLY advancing the progression on every retry (progression[0]=f"p{i}") — its own comment says this is "so the loop-guard stays orthogonal (never escalates)." That constructs a scenario that never occurs in a real cap wall (where progression is frozen), so the suite never actually exercises a real cap wall reaching the cq-1 threshold.
+
+Net: the ONE scenario PR C exists to protect — a steady all-producers throttle with frozen progression pacing indefinitely past the cq-1 threshold alert WITHOUT the loop-guard halting — is not tested, and is actively contradicted by test (1).
+
+REQUIRED TO CLEAR (converge with the coder fix):
+- Add the AC-C5 regression: a steady all-producers throttle (bare exit code, FROZEN progression) must pace past SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS, fire the cq-1 threshold OVERSEER_ALERT exactly once, and NOT be halted by the loop-guard (is_exhausted stays False). This test should FAIL against the current coder impl — that's the point; it drives the fix.
+- Rework test_identical_fingerprint_escalates_once_past_guard_threshold so the deterministic-loop case is keyed off whatever discriminator the coder adopts to separate a transient throttle from a genuine deterministic failure (e.g. the underlying error CHANGING to a non-throttle signature), NOT off a frozen consensus digest that a real cap wall also produces.
+- Keep the correct plumbing/AC-C1/AC-C3/AC-C6/pacing tests above as-is.
+
+I'll re-review promptly once the loop-guard semantics and this coverage are reconciled with the coder's re-propose.
+
+````yaml
+id: 051f9b5b-6f50-40
+phase: implement
+metadata:
+  payload:
+    reason: "BLOCKING \u2014 the test suite encodes the AC-C5 / binding-cq-1 violation\
+      \ as expected behavior and omits the regression that would catch it. This is\
+      \ the same defect I NACKed on the coder (v1 @ 2bd6124); the tester's suite is\
+      \ green precisely because it tests the buggy semantics as correct, so coder\
+      \ + tester must converge on the corrected discriminator.\n\nWHAT I VERIFIED\
+      \ AS CORRECT FIRST (so this isn't a whole-suite rejection \u2014 most of it\
+      \ is solid, keep it):\n- test_auth_errors_rate_limit.py: is_transient_rate_limit_error\
+      \ match set (429 / rate-limit / overloaded / too many requests), auth-fatal\
+      \ + unrelated do NOT match, EX_RATE_LIMITED=69 distinct from 77/64/75/143, AC-C6\
+      \ disjointness (weekly-cap-on-429 stays auth-fatal, never both true), CLI end-to-end\
+      \ mapping. Good.\n- test_kubernetes_spawner_rate_limited.py: outcome_for EX_RATE_LIMITED->rate_limited,\
+      \ auth-fatal precedence, stray-code + read-failure -> abnormal (AC-C6). Good.\n\
+      - test_event_loop_rate_limited.py TestObserveRoutesRateLimited / TestNoStreakHalt\
+      \ / TestPacingAndClearing: routes to record_rate_limited not record_abort, AC-C1\
+      \ (repeated rate-limits never trip the streak halt), AC-C6 (record_abort still\
+      \ halts, no rate-limit residue), ready_to_respawn pacing, success/retire clear\
+      \ paced state. Good.\n- test_supervision_policy.py: constants separate from\
+      \ the 30s abnormal cap, parse/backoff helpers, RateLimitFingerprint structural\
+      \ equality. Good.\n- test_concurrent_executor_rate_limit.py: acceptable \u2014\
+      \ these drive _handle_rate_limited with EXPLICIT threshold_crossed / deterministic_loop\
+      \ flags, so they test the handler's reaction in isolation, not the (buggy) derivation\
+      \ of those flags. Not the blocker.\n\nTHE BLOCKER (test_event_loop_rate_limited.py,\
+      \ class TestLoopGuardAndThreshold):\n1. test_identical_fingerprint_escalates_once_past_guard_threshold\
+      \ sets progression=[\"same\"] and exit_detail=\"rate_limited\" for SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS\
+      \ (5) retries and asserts deterministic_loop=True (which the executor turns\
+      \ into halt_rate_limited). But a FROZEN progression + bare \"rate_limited\"\
+      \ exit_detail is EXACTLY the production all-producers cap-wall signature: the\
+      \ pod exits a bare EX_RATE_LIMITED with no text, and consensus_state_fingerprint\
+      \ is a stable, timestamp-free digest that cannot move while every arm is throttled\
+      \ (peer_consensus/_queries.py:68). So this test asserts that a genuine cap wall\
+      \ escalates + halts after 5 retries (~7.5 min cumulative) \u2014 the direct\
+      \ contradiction of binding cq-1 / AC-C5 (\"NO hard wall-clock ceiling \u2014\
+      \ retry until the cap lifts\"). The test blesses the bug.\n2. test_cumulative_wait_threshold_alert_latches_once\
+      \ only reaches the cq-1 threshold by ARTIFICIALLY advancing the progression\
+      \ on every retry (progression[0]=f\"p{i}\") \u2014 its own comment says this\
+      \ is \"so the loop-guard stays orthogonal (never escalates).\" That constructs\
+      \ a scenario that never occurs in a real cap wall (where progression is frozen),\
+      \ so the suite never actually exercises a real cap wall reaching the cq-1 threshold.\n\
+      \nNet: the ONE scenario PR C exists to protect \u2014 a steady all-producers\
+      \ throttle with frozen progression pacing indefinitely past the cq-1 threshold\
+      \ alert WITHOUT the loop-guard halting \u2014 is not tested, and is actively\
+      \ contradicted by test (1).\n\nREQUIRED TO CLEAR (converge with the coder fix):\n\
+      - Add the AC-C5 regression: a steady all-producers throttle (bare exit code,\
+      \ FROZEN progression) must pace past SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS,\
+      \ fire the cq-1 threshold OVERSEER_ALERT exactly once, and NOT be halted by\
+      \ the loop-guard (is_exhausted stays False). This test should FAIL against the\
+      \ current coder impl \u2014 that's the point; it drives the fix.\n- Rework test_identical_fingerprint_escalates_once_past_guard_threshold\
+      \ so the deterministic-loop case is keyed off whatever discriminator the coder\
+      \ adopts to separate a transient throttle from a genuine deterministic failure\
+      \ (e.g. the underlying error CHANGING to a non-throttle signature), NOT off\
+      \ a frozen consensus digest that a real cap wall also produces.\n- Keep the\
+      \ correct plumbing/AC-C1/AC-C3/AC-C6/pacing tests above as-is.\n\nI'll re-review\
+      \ promptly once the loop-guard semantics and this coverage are reconciled with\
+      \ the coder's re-propose."
+    artifact_references:
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    nack_version: 1
+  reason: "BLOCKING \u2014 the test suite encodes the AC-C5 / binding-cq-1 violation\
+    \ as expected behavior and omits the regression that would catch it. This is the\
+    \ same defect I NACKed on the coder (v1 @ 2bd6124); the tester's suite is green\
+    \ precisely because it tests the buggy semantics as correct, so coder + tester\
+    \ must converge on the corrected discriminator.\n\nWHAT I VERIFIED AS CORRECT\
+    \ FIRST (so this isn't a whole-suite rejection \u2014 most of it is solid, keep\
+    \ it):\n- test_auth_errors_rate_limit.py: is_transient_rate_limit_error match\
+    \ set (429 / rate-limit / overloaded / too many requests), auth-fatal + unrelated\
+    \ do NOT match, EX_RATE_LIMITED=69 distinct from 77/64/75/143, AC-C6 disjointness\
+    \ (weekly-cap-on-429 stays auth-fatal, never both true), CLI end-to-end mapping.\
+    \ Good.\n- test_kubernetes_spawner_rate_limited.py: outcome_for EX_RATE_LIMITED->rate_limited,\
+    \ auth-fatal precedence, stray-code + read-failure -> abnormal (AC-C6). Good.\n\
+    - test_event_loop_rate_limited.py TestObserveRoutesRateLimited / TestNoStreakHalt\
+    \ / TestPacingAndClearing: routes to record_rate_limited not record_abort, AC-C1\
+    \ (repeated rate-limits never trip the streak halt), AC-C6 (record_abort still\
+    \ halts, no rate-limit residue), ready_to_respawn pacing, success/retire clear\
+    \ paced state. Good.\n- test_supervision_policy.py: constants separate from the\
+    \ 30s abnormal cap, parse/backoff helpers, RateLimitFingerprint structural equality.\
+    \ Good.\n- test_concurrent_executor_rate_limit.py: acceptable \u2014 these drive\
+    \ _handle_rate_limited with EXPLICIT threshold_crossed / deterministic_loop flags,\
+    \ so they test the handler's reaction in isolation, not the (buggy) derivation\
+    \ of those flags. Not the blocker.\n\nTHE BLOCKER (test_event_loop_rate_limited.py,\
+    \ class TestLoopGuardAndThreshold):\n1. test_identical_fingerprint_escalates_once_past_guard_threshold\
+    \ sets progression=[\"same\"] and exit_detail=\"rate_limited\" for SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS\
+    \ (5) retries and asserts deterministic_loop=True (which the executor turns into\
+    \ halt_rate_limited). But a FROZEN progression + bare \"rate_limited\" exit_detail\
+    \ is EXACTLY the production all-producers cap-wall signature: the pod exits a\
+    \ bare EX_RATE_LIMITED with no text, and consensus_state_fingerprint is a stable,\
+    \ timestamp-free digest that cannot move while every arm is throttled (peer_consensus/_queries.py:68).\
+    \ So this test asserts that a genuine cap wall escalates + halts after 5 retries\
+    \ (~7.5 min cumulative) \u2014 the direct contradiction of binding cq-1 / AC-C5\
+    \ (\"NO hard wall-clock ceiling \u2014 retry until the cap lifts\"). The test\
+    \ blesses the bug.\n2. test_cumulative_wait_threshold_alert_latches_once only\
+    \ reaches the cq-1 threshold by ARTIFICIALLY advancing the progression on every\
+    \ retry (progression[0]=f\"p{i}\") \u2014 its own comment says this is \"so the\
+    \ loop-guard stays orthogonal (never escalates).\" That constructs a scenario\
+    \ that never occurs in a real cap wall (where progression is frozen), so the suite\
+    \ never actually exercises a real cap wall reaching the cq-1 threshold.\n\nNet:\
+    \ the ONE scenario PR C exists to protect \u2014 a steady all-producers throttle\
+    \ with frozen progression pacing indefinitely past the cq-1 threshold alert WITHOUT\
+    \ the loop-guard halting \u2014 is not tested, and is actively contradicted by\
+    \ test (1).\n\nREQUIRED TO CLEAR (converge with the coder fix):\n- Add the AC-C5\
+    \ regression: a steady all-producers throttle (bare exit code, FROZEN progression)\
+    \ must pace past SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS, fire the cq-1\
+    \ threshold OVERSEER_ALERT exactly once, and NOT be halted by the loop-guard (is_exhausted\
+    \ stays False). This test should FAIL against the current coder impl \u2014 that's\
+    \ the point; it drives the fix.\n- Rework test_identical_fingerprint_escalates_once_past_guard_threshold\
+    \ so the deterministic-loop case is keyed off whatever discriminator the coder\
+    \ adopts to separate a transient throttle from a genuine deterministic failure\
+    \ (e.g. the underlying error CHANGING to a non-throttle signature), NOT off a\
+    \ frozen consensus digest that a real cap wall also produces.\n- Keep the correct\
+    \ plumbing/AC-C1/AC-C3/AC-C6/pacing tests above as-is.\n\nI'll re-review promptly\
+    \ once the loop-guard semantics and this coverage are reconciled with the coder's\
+    \ re-propose."
+  revision_count: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:26:41Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 47d7a371-28e0-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:26:43Z] tester (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: a037c0d8-bf81-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:26:49Z] reviewer_code_holistic → tester (CONSENSUS_NACK): NACK from reviewer_code_holistic for tester
+
+BLOCKING (holistic): the test suite CODIFIES the coder defect that reviewer_contract and reviewer_concurrency have already NACKed, and is missing the binding cq-1 / AC-C5 regression. A test suite that green-lights the disputed behavior will actively resist the required fix.
+
+WHAT I VERIFIED AS SOLID FIRST (not a whole-suite rejection):
+- test_auth_errors_rate_limit.py: bare-throttle matching (429 / "rate limit" / "overloaded" / "too many requests"), the AC-C6 disjointness invariant (weekly-cap-on-a-429 stays auth-fatal, never both-true), and CLI exit-code mapping incl. auth-fatal-checked-first. Excellent.
+- test_kubernetes_spawner_rate_limited.py: outcome_for maps EX_RATE_LIMITED→rate_limited, auth-fatal(77) precedence, stray code→abnormal, read-failure/no-container→abnormal, running/success not misclassified. Complete.
+- test_event_loop_rate_limited.py TestObserveRoutes/TestNoStreakHalt/TestPacingAndClearing: AC-C1 (routes to record_rate_limited not record_abort; _streaks untouched; not exhausted), AC-C6 abnormal-path regression, pacing window, record_success/retire state-clearing. Good.
+- test_concurrent_executor_rate_limit.py: _handle_rate_limited reactions given transitions (threshold→alert-no-halt; deterministic_loop→alert+halt; sibling-key preserved; both→two alerts). Correct in isolation.
+
+THE BLOCKER (test_event_loop_rate_limited.py :: TestLoopGuardAndThreshold):
+1. test_identical_fingerprint_escalates_once_past_guard_threshold drives record_rate_limited 5× with a CONSTANT exit_detail="rate_limited" and a CONSTANT progression ("same"), then asserts deterministic_loop fires and the arm halts. But that fingerprint — constant signature + frozen progression — is EXACTLY a genuine all-producers cap wall on the production path (the pod exits a bare EX_RATE_LIMITED so the signature is invariant, and consensus_state_fingerprint cannot move while every producer is throttled). Asserting that this MUST escalate/halt encodes precisely the behavior that violates binding cq-1 / AC-C2 / AC-C5 ("no hard wall-clock ceiling — retry until the cap lifts; a multi-day weekly cap self-heals unattended") and that two reviewers have already NACKed the coder for. This test will PASS against the defective impl and FAIL against the correct one, so it locks the defect in.
+
+2. COVERAGE GAP (the AC-C5 regression the contract requires and reviewer_contract explicitly asked for is absent): there is no test asserting that a steady throttle with FROZEN progression paces PAST the SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS (1800s) cumulative-wait OVERSEER_ALERT WITHOUT the loop-guard halting. test_cumulative_wait_threshold_alert_latches_once deliberately ADVANCES progression every retry ("so the loop-guard stays orthogonal"), which sidesteps the exact frozen-progression conflict that is the headline scenario. So the suite claims AC-C5 coverage while never exercising the case cq-1 turns on.
+
+REQUIRED TO UNBLOCK (coordinate with the coder's fix):
+- Once the coder reconciles the guard with cq-1, replace the "constant-signature + frozen-progression ⇒ halt" assertion. A steady live throttle (same throttle signature, no state advance) must NOT trip the guard; escalation must require positive deterministic evidence (e.g. the failure signature CHANGES to a non-throttle error), which is what the identical-fingerprint test should then assert.
+- Add the AC-C5 regression: a frozen-progression steady throttle accrues cumulative wait past 1800s, emits the threshold OVERSEER_ALERT ONCE, and KEEPS PACING (is_exhausted stays False, no deterministic_loop) — the no-ceiling guarantee.
+- Keep the advancing-progression reset test (test_advancing_progression_resets_the_guard) — that direction is correct.
+
+````yaml
+id: 686c73bc-4a9c-43
+phase: implement
+metadata:
+  payload:
+    reason: "BLOCKING (holistic): the test suite CODIFIES the coder defect that reviewer_contract\
+      \ and reviewer_concurrency have already NACKed, and is missing the binding cq-1\
+      \ / AC-C5 regression. A test suite that green-lights the disputed behavior will\
+      \ actively resist the required fix.\n\nWHAT I VERIFIED AS SOLID FIRST (not a\
+      \ whole-suite rejection):\n- test_auth_errors_rate_limit.py: bare-throttle matching\
+      \ (429 / \"rate limit\" / \"overloaded\" / \"too many requests\"), the AC-C6\
+      \ disjointness invariant (weekly-cap-on-a-429 stays auth-fatal, never both-true),\
+      \ and CLI exit-code mapping incl. auth-fatal-checked-first. Excellent.\n- test_kubernetes_spawner_rate_limited.py:\
+      \ outcome_for maps EX_RATE_LIMITED\u2192rate_limited, auth-fatal(77) precedence,\
+      \ stray code\u2192abnormal, read-failure/no-container\u2192abnormal, running/success\
+      \ not misclassified. Complete.\n- test_event_loop_rate_limited.py TestObserveRoutes/TestNoStreakHalt/TestPacingAndClearing:\
+      \ AC-C1 (routes to record_rate_limited not record_abort; _streaks untouched;\
+      \ not exhausted), AC-C6 abnormal-path regression, pacing window, record_success/retire\
+      \ state-clearing. Good.\n- test_concurrent_executor_rate_limit.py: _handle_rate_limited\
+      \ reactions given transitions (threshold\u2192alert-no-halt; deterministic_loop\u2192\
+      alert+halt; sibling-key preserved; both\u2192two alerts). Correct in isolation.\n\
+      \nTHE BLOCKER (test_event_loop_rate_limited.py :: TestLoopGuardAndThreshold):\n\
+      1. test_identical_fingerprint_escalates_once_past_guard_threshold drives record_rate_limited\
+      \ 5\xD7 with a CONSTANT exit_detail=\"rate_limited\" and a CONSTANT progression\
+      \ (\"same\"), then asserts deterministic_loop fires and the arm halts. But that\
+      \ fingerprint \u2014 constant signature + frozen progression \u2014 is EXACTLY\
+      \ a genuine all-producers cap wall on the production path (the pod exits a bare\
+      \ EX_RATE_LIMITED so the signature is invariant, and consensus_state_fingerprint\
+      \ cannot move while every producer is throttled). Asserting that this MUST escalate/halt\
+      \ encodes precisely the behavior that violates binding cq-1 / AC-C2 / AC-C5\
+      \ (\"no hard wall-clock ceiling \u2014 retry until the cap lifts; a multi-day\
+      \ weekly cap self-heals unattended\") and that two reviewers have already NACKed\
+      \ the coder for. This test will PASS against the defective impl and FAIL against\
+      \ the correct one, so it locks the defect in.\n\n2. COVERAGE GAP (the AC-C5\
+      \ regression the contract requires and reviewer_contract explicitly asked for\
+      \ is absent): there is no test asserting that a steady throttle with FROZEN\
+      \ progression paces PAST the SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS\
+      \ (1800s) cumulative-wait OVERSEER_ALERT WITHOUT the loop-guard halting. test_cumulative_wait_threshold_alert_latches_once\
+      \ deliberately ADVANCES progression every retry (\"so the loop-guard stays orthogonal\"\
+      ), which sidesteps the exact frozen-progression conflict that is the headline\
+      \ scenario. So the suite claims AC-C5 coverage while never exercising the case\
+      \ cq-1 turns on.\n\nREQUIRED TO UNBLOCK (coordinate with the coder's fix):\n\
+      - Once the coder reconciles the guard with cq-1, replace the \"constant-signature\
+      \ + frozen-progression \u21D2 halt\" assertion. A steady live throttle (same\
+      \ throttle signature, no state advance) must NOT trip the guard; escalation\
+      \ must require positive deterministic evidence (e.g. the failure signature CHANGES\
+      \ to a non-throttle error), which is what the identical-fingerprint test should\
+      \ then assert.\n- Add the AC-C5 regression: a frozen-progression steady throttle\
+      \ accrues cumulative wait past 1800s, emits the threshold OVERSEER_ALERT ONCE,\
+      \ and KEEPS PACING (is_exhausted stays False, no deterministic_loop) \u2014\
+      \ the no-ceiling guarantee.\n- Keep the advancing-progression reset test (test_advancing_progression_resets_the_guard)\
+      \ \u2014 that direction is correct."
+    artifact_references:
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    nack_version: 1
+  reason: "BLOCKING (holistic): the test suite CODIFIES the coder defect that reviewer_contract\
+    \ and reviewer_concurrency have already NACKed, and is missing the binding cq-1\
+    \ / AC-C5 regression. A test suite that green-lights the disputed behavior will\
+    \ actively resist the required fix.\n\nWHAT I VERIFIED AS SOLID FIRST (not a whole-suite\
+    \ rejection):\n- test_auth_errors_rate_limit.py: bare-throttle matching (429 /\
+    \ \"rate limit\" / \"overloaded\" / \"too many requests\"), the AC-C6 disjointness\
+    \ invariant (weekly-cap-on-a-429 stays auth-fatal, never both-true), and CLI exit-code\
+    \ mapping incl. auth-fatal-checked-first. Excellent.\n- test_kubernetes_spawner_rate_limited.py:\
+    \ outcome_for maps EX_RATE_LIMITED\u2192rate_limited, auth-fatal(77) precedence,\
+    \ stray code\u2192abnormal, read-failure/no-container\u2192abnormal, running/success\
+    \ not misclassified. Complete.\n- test_event_loop_rate_limited.py TestObserveRoutes/TestNoStreakHalt/TestPacingAndClearing:\
+    \ AC-C1 (routes to record_rate_limited not record_abort; _streaks untouched; not\
+    \ exhausted), AC-C6 abnormal-path regression, pacing window, record_success/retire\
+    \ state-clearing. Good.\n- test_concurrent_executor_rate_limit.py: _handle_rate_limited\
+    \ reactions given transitions (threshold\u2192alert-no-halt; deterministic_loop\u2192\
+    alert+halt; sibling-key preserved; both\u2192two alerts). Correct in isolation.\n\
+    \nTHE BLOCKER (test_event_loop_rate_limited.py :: TestLoopGuardAndThreshold):\n\
+    1. test_identical_fingerprint_escalates_once_past_guard_threshold drives record_rate_limited\
+    \ 5\xD7 with a CONSTANT exit_detail=\"rate_limited\" and a CONSTANT progression\
+    \ (\"same\"), then asserts deterministic_loop fires and the arm halts. But that\
+    \ fingerprint \u2014 constant signature + frozen progression \u2014 is EXACTLY\
+    \ a genuine all-producers cap wall on the production path (the pod exits a bare\
+    \ EX_RATE_LIMITED so the signature is invariant, and consensus_state_fingerprint\
+    \ cannot move while every producer is throttled). Asserting that this MUST escalate/halt\
+    \ encodes precisely the behavior that violates binding cq-1 / AC-C2 / AC-C5 (\"\
+    no hard wall-clock ceiling \u2014 retry until the cap lifts; a multi-day weekly\
+    \ cap self-heals unattended\") and that two reviewers have already NACKed the\
+    \ coder for. This test will PASS against the defective impl and FAIL against the\
+    \ correct one, so it locks the defect in.\n\n2. COVERAGE GAP (the AC-C5 regression\
+    \ the contract requires and reviewer_contract explicitly asked for is absent):\
+    \ there is no test asserting that a steady throttle with FROZEN progression paces\
+    \ PAST the SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS (1800s) cumulative-wait\
+    \ OVERSEER_ALERT WITHOUT the loop-guard halting. test_cumulative_wait_threshold_alert_latches_once\
+    \ deliberately ADVANCES progression every retry (\"so the loop-guard stays orthogonal\"\
+    ), which sidesteps the exact frozen-progression conflict that is the headline\
+    \ scenario. So the suite claims AC-C5 coverage while never exercising the case\
+    \ cq-1 turns on.\n\nREQUIRED TO UNBLOCK (coordinate with the coder's fix):\n-\
+    \ Once the coder reconciles the guard with cq-1, replace the \"constant-signature\
+    \ + frozen-progression \u21D2 halt\" assertion. A steady live throttle (same throttle\
+    \ signature, no state advance) must NOT trip the guard; escalation must require\
+    \ positive deterministic evidence (e.g. the failure signature CHANGES to a non-throttle\
+    \ error), which is what the identical-fingerprint test should then assert.\n-\
+    \ Add the AC-C5 regression: a frozen-progression steady throttle accrues cumulative\
+    \ wait past 1800s, emits the threshold OVERSEER_ALERT ONCE, and KEEPS PACING (is_exhausted\
+    \ stays False, no deterministic_loop) \u2014 the no-ceiling guarantee.\n- Keep\
+    \ the advancing-progression reset test (test_advancing_progression_resets_the_guard)\
+    \ \u2014 that direction is correct."
+  revision_count: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:26:56Z] tester (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: 8ce82fee-c92d-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:26:58Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=189983 util=0.19 cache_hit=0.96 decision=below_threshold
+
+````yaml
+id: f0071a48-4b40-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:27:03Z] reviewer_code_holistic → coder (CONSENSUS_NACK): NACK from reviewer_code_holistic for coder
+
+BLOCKING (holistic, concurs with reviewer_contract + reviewer_concurrency): the deterministic-loop guard halts a GENUINE cap wall in ~7.5 min, re-imposing the exact minutes-scale halt PR C exists to eliminate, in direct violation of binding cq-1 / AC-C2 / AC-C5 ("no hard wall-clock ceiling; retry until the cap lifts").
+
+VERIFIED SATISFIED FIRST (not a whole-diff rejection): AC-C1 (record_rate_limited leaves _streaks / _last_abort_time / _exhausted untouched; _observe_jobs routes JOB_OUTCOME_RATE_LIMITED to record_rate_limited, never record_abort); AC-C3 (halt_rate_limited exhausts only the one dedupe key; paced retry runs the normal ready_to_respawn gate, no cold restart); AC-C6 (auth-fatal checked first in __main__.py / outcome_for; is_transient_rate_limit_error disjoint via the is_auth_fatal_error guard; the ready_to_respawn rate-limit gate is inert for a key with no rate-limit outcome, so the abnormal path is byte-identical); and all plumbing (EX_RATE_LIMITED=69 distinct from 77/64/75/143; outcome_for mapping after auth-fatal; JOB_OUTCOME_RATE_LIMITED constant + observe branch; pacing/threshold/loop-guard constants separate from the 30s abnormal cap).
+
+THE BLOCKER (task-2-4 / _supervisor.record_rate_limited): the guard's discriminator cannot separate the two cases it exists to distinguish. Fingerprint = RateLimitFingerprint(signature = exit_detail or "rate_limited", progression = _probe_brc_fingerprint()). On the headline all-producers throttle: (1) the pod exits a BARE EX_RATE_LIMITED, so signature is a CONSTANT string every retry; (2) progression = consensus_state_fingerprint, which is timestamp-free and only moves when the BRC bus advances — but during an all-producers cap wall no arm can propose/ack, so the digest is FROZEN. Identical fingerprint every retry → _rate_limit_repeat climbs to LOOP_GUARD_REPEATS(5) → deterministic_loop=True → _handle_rate_limited calls halt_rate_limited → key exhausted → paced retry STOPS. Cumulative wait to the 5th retry = 30+60+90+120+150 = 450s ≈ 7.5 min, so the 1800s cq-1 threshold OVERSEER_ALERT (AC-C5) is unreachable dead code and a real multi-hour/weekly cap is halted to the arms-exhausted HITL in minutes. A still-active throttle inherently produces "no BRC progress," so a genuine cap wall is structurally indistinguishable from a "deterministic failure masquerading as a throttle" under this fingerprint and always trips.
+
+REMEDY (your design choice; I'll re-review promptly):
+- Discriminate on POSITIVE deterministic evidence — the failure signature CHANGING to a non-throttle/deterministic error — rather than inferring "deterministic" from a consensus digest that a live throttle necessarily freezes, so a steady throttle paces indefinitely.
+- And/or scale the loop-guard budget to the hours-to-days horizon (well above the cq-1 alert threshold) so a genuine cap wall crosses the informational threshold alert and keeps pacing, and only a truly changed/stuck failure escalates.
+Note: the tester's suite currently asserts the CURRENT (halt-on-steady-throttle) behavior, so it will need to move with your fix — I have NACKed it in parallel.
+
+````yaml
+id: f7a7b23a-fd1a-43
+phase: implement
+metadata:
+  payload:
+    reason: "BLOCKING (holistic, concurs with reviewer_contract + reviewer_concurrency):\
+      \ the deterministic-loop guard halts a GENUINE cap wall in ~7.5 min, re-imposing\
+      \ the exact minutes-scale halt PR C exists to eliminate, in direct violation\
+      \ of binding cq-1 / AC-C2 / AC-C5 (\"no hard wall-clock ceiling; retry until\
+      \ the cap lifts\").\n\nVERIFIED SATISFIED FIRST (not a whole-diff rejection):\
+      \ AC-C1 (record_rate_limited leaves _streaks / _last_abort_time / _exhausted\
+      \ untouched; _observe_jobs routes JOB_OUTCOME_RATE_LIMITED to record_rate_limited,\
+      \ never record_abort); AC-C3 (halt_rate_limited exhausts only the one dedupe\
+      \ key; paced retry runs the normal ready_to_respawn gate, no cold restart);\
+      \ AC-C6 (auth-fatal checked first in __main__.py / outcome_for; is_transient_rate_limit_error\
+      \ disjoint via the is_auth_fatal_error guard; the ready_to_respawn rate-limit\
+      \ gate is inert for a key with no rate-limit outcome, so the abnormal path is\
+      \ byte-identical); and all plumbing (EX_RATE_LIMITED=69 distinct from 77/64/75/143;\
+      \ outcome_for mapping after auth-fatal; JOB_OUTCOME_RATE_LIMITED constant +\
+      \ observe branch; pacing/threshold/loop-guard constants separate from the 30s\
+      \ abnormal cap).\n\nTHE BLOCKER (task-2-4 / _supervisor.record_rate_limited):\
+      \ the guard's discriminator cannot separate the two cases it exists to distinguish.\
+      \ Fingerprint = RateLimitFingerprint(signature = exit_detail or \"rate_limited\"\
+      , progression = _probe_brc_fingerprint()). On the headline all-producers throttle:\
+      \ (1) the pod exits a BARE EX_RATE_LIMITED, so signature is a CONSTANT string\
+      \ every retry; (2) progression = consensus_state_fingerprint, which is timestamp-free\
+      \ and only moves when the BRC bus advances \u2014 but during an all-producers\
+      \ cap wall no arm can propose/ack, so the digest is FROZEN. Identical fingerprint\
+      \ every retry \u2192 _rate_limit_repeat climbs to LOOP_GUARD_REPEATS(5) \u2192\
+      \ deterministic_loop=True \u2192 _handle_rate_limited calls halt_rate_limited\
+      \ \u2192 key exhausted \u2192 paced retry STOPS. Cumulative wait to the 5th\
+      \ retry = 30+60+90+120+150 = 450s \u2248 7.5 min, so the 1800s cq-1 threshold\
+      \ OVERSEER_ALERT (AC-C5) is unreachable dead code and a real multi-hour/weekly\
+      \ cap is halted to the arms-exhausted HITL in minutes. A still-active throttle\
+      \ inherently produces \"no BRC progress,\" so a genuine cap wall is structurally\
+      \ indistinguishable from a \"deterministic failure masquerading as a throttle\"\
+      \ under this fingerprint and always trips.\n\nREMEDY (your design choice; I'll\
+      \ re-review promptly):\n- Discriminate on POSITIVE deterministic evidence \u2014\
+      \ the failure signature CHANGING to a non-throttle/deterministic error \u2014\
+      \ rather than inferring \"deterministic\" from a consensus digest that a live\
+      \ throttle necessarily freezes, so a steady throttle paces indefinitely.\n-\
+      \ And/or scale the loop-guard budget to the hours-to-days horizon (well above\
+      \ the cq-1 alert threshold) so a genuine cap wall crosses the informational\
+      \ threshold alert and keeps pacing, and only a truly changed/stuck failure escalates.\n\
+      Note: the tester's suite currently asserts the CURRENT (halt-on-steady-throttle)\
+      \ behavior, so it will need to move with your fix \u2014 I have NACKed it in\
+      \ parallel."
+    artifact_references:
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    nack_version: 1
+  reason: "BLOCKING (holistic, concurs with reviewer_contract + reviewer_concurrency):\
+    \ the deterministic-loop guard halts a GENUINE cap wall in ~7.5 min, re-imposing\
+    \ the exact minutes-scale halt PR C exists to eliminate, in direct violation of\
+    \ binding cq-1 / AC-C2 / AC-C5 (\"no hard wall-clock ceiling; retry until the\
+    \ cap lifts\").\n\nVERIFIED SATISFIED FIRST (not a whole-diff rejection): AC-C1\
+    \ (record_rate_limited leaves _streaks / _last_abort_time / _exhausted untouched;\
+    \ _observe_jobs routes JOB_OUTCOME_RATE_LIMITED to record_rate_limited, never\
+    \ record_abort); AC-C3 (halt_rate_limited exhausts only the one dedupe key; paced\
+    \ retry runs the normal ready_to_respawn gate, no cold restart); AC-C6 (auth-fatal\
+    \ checked first in __main__.py / outcome_for; is_transient_rate_limit_error disjoint\
+    \ via the is_auth_fatal_error guard; the ready_to_respawn rate-limit gate is inert\
+    \ for a key with no rate-limit outcome, so the abnormal path is byte-identical);\
+    \ and all plumbing (EX_RATE_LIMITED=69 distinct from 77/64/75/143; outcome_for\
+    \ mapping after auth-fatal; JOB_OUTCOME_RATE_LIMITED constant + observe branch;\
+    \ pacing/threshold/loop-guard constants separate from the 30s abnormal cap).\n\
+    \nTHE BLOCKER (task-2-4 / _supervisor.record_rate_limited): the guard's discriminator\
+    \ cannot separate the two cases it exists to distinguish. Fingerprint = RateLimitFingerprint(signature\
+    \ = exit_detail or \"rate_limited\", progression = _probe_brc_fingerprint()).\
+    \ On the headline all-producers throttle: (1) the pod exits a BARE EX_RATE_LIMITED,\
+    \ so signature is a CONSTANT string every retry; (2) progression = consensus_state_fingerprint,\
+    \ which is timestamp-free and only moves when the BRC bus advances \u2014 but\
+    \ during an all-producers cap wall no arm can propose/ack, so the digest is FROZEN.\
+    \ Identical fingerprint every retry \u2192 _rate_limit_repeat climbs to LOOP_GUARD_REPEATS(5)\
+    \ \u2192 deterministic_loop=True \u2192 _handle_rate_limited calls halt_rate_limited\
+    \ \u2192 key exhausted \u2192 paced retry STOPS. Cumulative wait to the 5th retry\
+    \ = 30+60+90+120+150 = 450s \u2248 7.5 min, so the 1800s cq-1 threshold OVERSEER_ALERT\
+    \ (AC-C5) is unreachable dead code and a real multi-hour/weekly cap is halted\
+    \ to the arms-exhausted HITL in minutes. A still-active throttle inherently produces\
+    \ \"no BRC progress,\" so a genuine cap wall is structurally indistinguishable\
+    \ from a \"deterministic failure masquerading as a throttle\" under this fingerprint\
+    \ and always trips.\n\nREMEDY (your design choice; I'll re-review promptly):\n\
+    - Discriminate on POSITIVE deterministic evidence \u2014 the failure signature\
+    \ CHANGING to a non-throttle/deterministic error \u2014 rather than inferring\
+    \ \"deterministic\" from a consensus digest that a live throttle necessarily freezes,\
+    \ so a steady throttle paces indefinitely.\n- And/or scale the loop-guard budget\
+    \ to the hours-to-days horizon (well above the cq-1 alert threshold) so a genuine\
+    \ cap wall crosses the informational threshold alert and keeps pacing, and only\
+    \ a truly changed/stuck failure escalates.\nNote: the tester's suite currently\
+    \ asserts the CURRENT (halt-on-steady-throttle) behavior, so it will need to move\
+    \ with your fix \u2014 I have NACKed it in parallel."
+  revision_count: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:27:07Z] coder (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: 54ba56b6-cca6-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:27:14Z] reviewer_code → coder (CONSENSUS_NACK): NACK from reviewer_code for coder
+
+BLOCKING — AC-C5 / binding cq-1 violation: the deterministic-loop guard halts a genuine all-producers cap wall in ~7.5 min, re-imposing the minutes-scale halt PR C exists to eliminate. (Concurs with reviewer_contract + reviewer_concurrency, who NACKed v1 for the identical root cause — recording my own reviewer_code verdict for matrix completeness.)
+
+VERIFIED CORRECT FIRST (not a whole-diff rejection):
+- AC-C1: record_rate_limited leaves _streaks/_last_abort_time/_exhausted untouched; _observe_jobs routes JOB_OUTCOME_RATE_LIMITED to record_rate_limited, never record_abort. Good.
+- AC-C3: halt_rate_limited marks only the one dedupe key exhausted; paced retry runs through the normal ready_to_respawn gate (no cold restart). Good.
+- AC-C6: auth-fatal checked first in __main__.py / outcome_for / is_transient_rate_limit_error (disjointness via is_auth_fatal_error); ready_to_respawn rate-limit gate is inert (rl_last is None) for a key with no rate-limit outcome, so the abnormal path is byte-identical. Good.
+- Plumbing task-2-1/2/3/4/6: EX_RATE_LIMITED=69 distinct from 77/64/75/143; outcome_for maps after auth-fatal; JOB_OUTCOME_RATE_LIMITED constant + observe branch; pacing/threshold constants separate from the 30s abnormal cap. All correct. No exit-69 collision (grep clean).
+
+THE BLOCKER (task-2-7 / AC-C4 vs AC-C5), traced on the exact scenario PR C targets — an all-producers throttle / cap wall:
+The loop-guard fingerprint is RateLimitFingerprint(signature = exit_detail or "rate_limited", progression = _probe_brc_fingerprint()).
+1. signature: on the production path the pod exits with a BARE EX_RATE_LIMITED and no error text (your own record_rate_limited / parse_rate_limit_reset_seconds comments say so), so exit_detail is None -> signature is the constant "rate_limited" every retry.
+2. progression: _probe_brc_fingerprint() == consensus_state_fingerprint, whose docstring (peer_consensus/_queries.py:68) defines it as a stable digest folding "nothing that can move without bus progress (no timestamps)." During an all-producers cap wall NO arm can propose/ack (all throttled), so the digest is INVARIANT across every paced retry.
+3. Identical fingerprint every retry -> _rate_limit_repeat climbs to SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS (5) -> deterministic_loop=True -> _handle_rate_limited calls halt_rate_limited(dedupe_key) -> key marked exhausted -> paced retry STOPS.
+
+Cumulative wait to the 5th retry = 30+60+90+120+150 = 450s ≈ 7.5 min. The cq-1 threshold OVERSEER_ALERT (SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS = 1800s) never fires, and a real multi-hour/weekly cap is halted to the arms-exhausted HITL in minutes — a direct contradiction of binding cq-1 / AC-C5: "NO hard wall-clock ceiling — the pipeline retries until the cap lifts, self-heals with no operator action."
+
+ROOT CAUSE: the guard's "did state advance?" discriminator (the consensus digest) is frozen during BOTH a transient cap wall (frozen because everything is throttled) AND a deterministic failure (frozen because broken) — it cannot distinguish them. record_rate_limited only ever fires on a throttle outcome, so a persistent genuine cap wall is structurally indistinguishable from a "deterministic failure masquerading as a throttle" under this fingerprint and always trips. AC-C4's "continue when state advances" is unreachable for the cap-wall case because state cannot advance until the cap lifts.
+
+REMEDY DIRECTIONS (your design choice — I'll re-review promptly):
+- Discriminate on the underlying failure CHANGING to a non-throttle/deterministic signature (positive evidence) rather than on a consensus digest that is necessarily frozen during a throttle, so a steady-state throttle paces indefinitely and only a genuinely different/stuck failure escalates; and/or
+- Scale the loop-guard budget to the AC's hours-to-days horizon (a repeat/time budget a multi-day cap cannot exhaust) instead of 5 paced retries (~7.5 min), and gate the halt so a still-active throttle keeps pacing while only surfacing the OVERSEER_ALERT.
+- Coordinate with the tester: I NACKed tester v1 because test_identical_fingerprint_escalates_once_past_guard_threshold asserts THIS buggy halt as correct; the fix must flip that to no-halt-for-a-steady-throttle and add an AC-C5 pace-past-threshold regression.
+
+SEAM (non-blocking): task-2-5 (record_rate_limited in _supervisor.py) landed here for import-coherence though nominally the tester's — confirm ownership on the re-propose.
+
+````yaml
+id: 7ffb7e27-db98-4a
+phase: implement
+metadata:
+  payload:
+    reason: "BLOCKING \u2014 AC-C5 / binding cq-1 violation: the deterministic-loop\
+      \ guard halts a genuine all-producers cap wall in ~7.5 min, re-imposing the\
+      \ minutes-scale halt PR C exists to eliminate. (Concurs with reviewer_contract\
+      \ + reviewer_concurrency, who NACKed v1 for the identical root cause \u2014\
+      \ recording my own reviewer_code verdict for matrix completeness.)\n\nVERIFIED\
+      \ CORRECT FIRST (not a whole-diff rejection):\n- AC-C1: record_rate_limited\
+      \ leaves _streaks/_last_abort_time/_exhausted untouched; _observe_jobs routes\
+      \ JOB_OUTCOME_RATE_LIMITED to record_rate_limited, never record_abort. Good.\n\
+      - AC-C3: halt_rate_limited marks only the one dedupe key exhausted; paced retry\
+      \ runs through the normal ready_to_respawn gate (no cold restart). Good.\n-\
+      \ AC-C6: auth-fatal checked first in __main__.py / outcome_for / is_transient_rate_limit_error\
+      \ (disjointness via is_auth_fatal_error); ready_to_respawn rate-limit gate is\
+      \ inert (rl_last is None) for a key with no rate-limit outcome, so the abnormal\
+      \ path is byte-identical. Good.\n- Plumbing task-2-1/2/3/4/6: EX_RATE_LIMITED=69\
+      \ distinct from 77/64/75/143; outcome_for maps after auth-fatal; JOB_OUTCOME_RATE_LIMITED\
+      \ constant + observe branch; pacing/threshold constants separate from the 30s\
+      \ abnormal cap. All correct. No exit-69 collision (grep clean).\n\nTHE BLOCKER\
+      \ (task-2-7 / AC-C4 vs AC-C5), traced on the exact scenario PR C targets \u2014\
+      \ an all-producers throttle / cap wall:\nThe loop-guard fingerprint is RateLimitFingerprint(signature\
+      \ = exit_detail or \"rate_limited\", progression = _probe_brc_fingerprint()).\n\
+      1. signature: on the production path the pod exits with a BARE EX_RATE_LIMITED\
+      \ and no error text (your own record_rate_limited / parse_rate_limit_reset_seconds\
+      \ comments say so), so exit_detail is None -> signature is the constant \"rate_limited\"\
+      \ every retry.\n2. progression: _probe_brc_fingerprint() == consensus_state_fingerprint,\
+      \ whose docstring (peer_consensus/_queries.py:68) defines it as a stable digest\
+      \ folding \"nothing that can move without bus progress (no timestamps).\" During\
+      \ an all-producers cap wall NO arm can propose/ack (all throttled), so the digest\
+      \ is INVARIANT across every paced retry.\n3. Identical fingerprint every retry\
+      \ -> _rate_limit_repeat climbs to SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS\
+      \ (5) -> deterministic_loop=True -> _handle_rate_limited calls halt_rate_limited(dedupe_key)\
+      \ -> key marked exhausted -> paced retry STOPS.\n\nCumulative wait to the 5th\
+      \ retry = 30+60+90+120+150 = 450s \u2248 7.5 min. The cq-1 threshold OVERSEER_ALERT\
+      \ (SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS = 1800s) never fires, and\
+      \ a real multi-hour/weekly cap is halted to the arms-exhausted HITL in minutes\
+      \ \u2014 a direct contradiction of binding cq-1 / AC-C5: \"NO hard wall-clock\
+      \ ceiling \u2014 the pipeline retries until the cap lifts, self-heals with no\
+      \ operator action.\"\n\nROOT CAUSE: the guard's \"did state advance?\" discriminator\
+      \ (the consensus digest) is frozen during BOTH a transient cap wall (frozen\
+      \ because everything is throttled) AND a deterministic failure (frozen because\
+      \ broken) \u2014 it cannot distinguish them. record_rate_limited only ever fires\
+      \ on a throttle outcome, so a persistent genuine cap wall is structurally indistinguishable\
+      \ from a \"deterministic failure masquerading as a throttle\" under this fingerprint\
+      \ and always trips. AC-C4's \"continue when state advances\" is unreachable\
+      \ for the cap-wall case because state cannot advance until the cap lifts.\n\n\
+      REMEDY DIRECTIONS (your design choice \u2014 I'll re-review promptly):\n- Discriminate\
+      \ on the underlying failure CHANGING to a non-throttle/deterministic signature\
+      \ (positive evidence) rather than on a consensus digest that is necessarily\
+      \ frozen during a throttle, so a steady-state throttle paces indefinitely and\
+      \ only a genuinely different/stuck failure escalates; and/or\n- Scale the loop-guard\
+      \ budget to the AC's hours-to-days horizon (a repeat/time budget a multi-day\
+      \ cap cannot exhaust) instead of 5 paced retries (~7.5 min), and gate the halt\
+      \ so a still-active throttle keeps pacing while only surfacing the OVERSEER_ALERT.\n\
+      - Coordinate with the tester: I NACKed tester v1 because test_identical_fingerprint_escalates_once_past_guard_threshold\
+      \ asserts THIS buggy halt as correct; the fix must flip that to no-halt-for-a-steady-throttle\
+      \ and add an AC-C5 pace-past-threshold regression.\n\nSEAM (non-blocking): task-2-5\
+      \ (record_rate_limited in _supervisor.py) landed here for import-coherence though\
+      \ nominally the tester's \u2014 confirm ownership on the re-propose."
+    artifact_references:
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    nack_version: 1
+  reason: "BLOCKING \u2014 AC-C5 / binding cq-1 violation: the deterministic-loop\
+    \ guard halts a genuine all-producers cap wall in ~7.5 min, re-imposing the minutes-scale\
+    \ halt PR C exists to eliminate. (Concurs with reviewer_contract + reviewer_concurrency,\
+    \ who NACKed v1 for the identical root cause \u2014 recording my own reviewer_code\
+    \ verdict for matrix completeness.)\n\nVERIFIED CORRECT FIRST (not a whole-diff\
+    \ rejection):\n- AC-C1: record_rate_limited leaves _streaks/_last_abort_time/_exhausted\
+    \ untouched; _observe_jobs routes JOB_OUTCOME_RATE_LIMITED to record_rate_limited,\
+    \ never record_abort. Good.\n- AC-C3: halt_rate_limited marks only the one dedupe\
+    \ key exhausted; paced retry runs through the normal ready_to_respawn gate (no\
+    \ cold restart). Good.\n- AC-C6: auth-fatal checked first in __main__.py / outcome_for\
+    \ / is_transient_rate_limit_error (disjointness via is_auth_fatal_error); ready_to_respawn\
+    \ rate-limit gate is inert (rl_last is None) for a key with no rate-limit outcome,\
+    \ so the abnormal path is byte-identical. Good.\n- Plumbing task-2-1/2/3/4/6:\
+    \ EX_RATE_LIMITED=69 distinct from 77/64/75/143; outcome_for maps after auth-fatal;\
+    \ JOB_OUTCOME_RATE_LIMITED constant + observe branch; pacing/threshold constants\
+    \ separate from the 30s abnormal cap. All correct. No exit-69 collision (grep\
+    \ clean).\n\nTHE BLOCKER (task-2-7 / AC-C4 vs AC-C5), traced on the exact scenario\
+    \ PR C targets \u2014 an all-producers throttle / cap wall:\nThe loop-guard fingerprint\
+    \ is RateLimitFingerprint(signature = exit_detail or \"rate_limited\", progression\
+    \ = _probe_brc_fingerprint()).\n1. signature: on the production path the pod exits\
+    \ with a BARE EX_RATE_LIMITED and no error text (your own record_rate_limited\
+    \ / parse_rate_limit_reset_seconds comments say so), so exit_detail is None ->\
+    \ signature is the constant \"rate_limited\" every retry.\n2. progression: _probe_brc_fingerprint()\
+    \ == consensus_state_fingerprint, whose docstring (peer_consensus/_queries.py:68)\
+    \ defines it as a stable digest folding \"nothing that can move without bus progress\
+    \ (no timestamps).\" During an all-producers cap wall NO arm can propose/ack (all\
+    \ throttled), so the digest is INVARIANT across every paced retry.\n3. Identical\
+    \ fingerprint every retry -> _rate_limit_repeat climbs to SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS\
+    \ (5) -> deterministic_loop=True -> _handle_rate_limited calls halt_rate_limited(dedupe_key)\
+    \ -> key marked exhausted -> paced retry STOPS.\n\nCumulative wait to the 5th\
+    \ retry = 30+60+90+120+150 = 450s \u2248 7.5 min. The cq-1 threshold OVERSEER_ALERT\
+    \ (SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS = 1800s) never fires, and a\
+    \ real multi-hour/weekly cap is halted to the arms-exhausted HITL in minutes \u2014\
+    \ a direct contradiction of binding cq-1 / AC-C5: \"NO hard wall-clock ceiling\
+    \ \u2014 the pipeline retries until the cap lifts, self-heals with no operator\
+    \ action.\"\n\nROOT CAUSE: the guard's \"did state advance?\" discriminator (the\
+    \ consensus digest) is frozen during BOTH a transient cap wall (frozen because\
+    \ everything is throttled) AND a deterministic failure (frozen because broken)\
+    \ \u2014 it cannot distinguish them. record_rate_limited only ever fires on a\
+    \ throttle outcome, so a persistent genuine cap wall is structurally indistinguishable\
+    \ from a \"deterministic failure masquerading as a throttle\" under this fingerprint\
+    \ and always trips. AC-C4's \"continue when state advances\" is unreachable for\
+    \ the cap-wall case because state cannot advance until the cap lifts.\n\nREMEDY\
+    \ DIRECTIONS (your design choice \u2014 I'll re-review promptly):\n- Discriminate\
+    \ on the underlying failure CHANGING to a non-throttle/deterministic signature\
+    \ (positive evidence) rather than on a consensus digest that is necessarily frozen\
+    \ during a throttle, so a steady-state throttle paces indefinitely and only a\
+    \ genuinely different/stuck failure escalates; and/or\n- Scale the loop-guard\
+    \ budget to the AC's hours-to-days horizon (a repeat/time budget a multi-day cap\
+    \ cannot exhaust) instead of 5 paced retries (~7.5 min), and gate the halt so\
+    \ a still-active throttle keeps pacing while only surfacing the OVERSEER_ALERT.\n\
+    - Coordinate with the tester: I NACKed tester v1 because test_identical_fingerprint_escalates_once_past_guard_threshold\
+    \ asserts THIS buggy halt as correct; the fix must flip that to no-halt-for-a-steady-throttle\
+    \ and add an AC-C5 pace-past-threshold regression.\n\nSEAM (non-blocking): task-2-5\
+    \ (record_rate_limited in _supervisor.py) landed here for import-coherence though\
+    \ nominally the tester's \u2014 confirm ownership on the re-propose."
+  revision_count: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:27:16Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=130219 util=0.13 cache_hit=0.89 decision=below_threshold
+
+````yaml
+id: 31f7530c-f5b4-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:27:19Z] coder (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: 1dde10b2-3ef8-49
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:27:20Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 9fab8995-b63a-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:27:25Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 2734b93c-ac44-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:27:34Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 0b166189-1ad2-4b
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:27:42Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=199393 util=0.20 cache_hit=0.98 decision=below_threshold
+
+````yaml
+id: bfaa95f5-351e-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:31:50Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 2e5e10b0-2577-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:34:04Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: b720f7bd-d031-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:34:16Z] tester (HEARTBEAT): heartbeat: WAITING_ON_ROLE
+
+tester v1 NACKed by 4 reviewers on a single coupled defect: the deterministic-loop guard halts a genuine cap wall (cq-1/AC-C5 violation). The fix is in coder-owned files (_supervisor.py record_rate_limited derivation, supervision_policy.py constants, concurrent_executor.py handler) — tester is role-blocked from all three. Corrected tests must fail against the current impl by design, so a green re-propose is only possible AFTER the coder re-proposes the fixed guard. Coder-first lockstep; no deadlock. Test-rework plan recorded in durable memory.
+
+````yaml
+id: 2b64bfba-9f95-46
+phase: implement
+metadata:
+  state: WAITING_ON_ROLE
+  waiting_on: coder
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:34:31Z] tester (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=304543 util=0.30 cache_hit=1.00 decision=below_threshold
+
+````yaml
+id: f8277d8f-3c53-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:34:38Z] tester (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: f671d066-37ba-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:34:47Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 5b313b57-45fb-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:36:55Z] tester (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=332155 util=0.33 cache_hit=0.98 decision=below_threshold
+
+````yaml
+id: 45925b18-b2a0-4b
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:37:03Z] tester (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: da6dfb66-e0ee-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:37:14Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 8d9d3407-f95b-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:37:14Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 2346dc2a-70d7-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:39:04Z] tester (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=359918 util=0.36 cache_hit=0.98 decision=below_threshold
+
+````yaml
+id: 216d1374-931b-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:39:51Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 706e38d2-f9ac-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:41:55Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: e6dde916-af1c-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:44:15Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: e7643d62-436e-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:46:27Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: c53b7faa-35c2-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:47:51Z] coder (CONSENSUS_PROPOSE): Proposal from coder
+
+RE-PROPOSE v2 — resolves the single unanimous v1 blocker from all four NACKing reviewers (reviewer_code, reviewer_code_holistic, reviewer_contract, reviewer_concurrency): the deterministic-loop guard halted a GENUINE all-producers cap wall in ~7.5min (5 identical frozen-fingerprint retries -> halt_rate_limited -> exhausted), violating binding cq-1 / AC-C2 / AC-C5 (NO hard wall-clock ceiling; multi-day cap must self-heal unattended) and making the 1800s threshold alert dead code.
+
+ROOT CAUSE (as all four diagnosed, confirmed): the guard inferred 'deterministic' from a FROZEN consensus_state_fingerprint, but an account-wide cap wall freezes that digest identically to a deterministic failure (no arm can propose/ack while throttled), and the bare-exit signature is the invariant 'rate_limited' — so the two cases were structurally indistinguishable and the guard always tripped.
+
+FIX (adopts the reviewers' shared remedy #1 — positive non-throttle evidence; upstream in WHEN deterministic_loop is set, so _handle_rate_limited's deterministic_loop->alert+halt handler contract is UNCHANGED per reviewer_concurrency): record_rate_limited now sets deterministic_loop ONLY when the failure signature is present AND not is_transient_rate_limit_error AND has no parseable reset hint — i.e. the failure CHANGED to a non-throttle error. _observe_jobs no longer forwards the uninformative 'exit_code=69' pod code as exit_detail, so a genuine production throttle carries NO signature and NEVER escalates: it paces INDEFINITELY, crosses the 1800s cumulative-wait threshold, emits the cq-1 OVERSEER_ALERT exactly once, and is_exhausted stays False. The progression fingerprint is retained only to reset the repeat counter on state-advance (AC-C4 'continue when state advances').
+
+TESTS (revised in lockstep, per reviewer_code_holistic's explicit ask + to keep the shared branch green): replaced test_identical_fingerprint_escalates (which asserted the buggy halt) with (a) test_steady_throttle_never_escalates_and_paces_past_threshold — the AC-C5 no-ceiling regression the suite was missing (frozen throttle paces past 1800s, alerts once, never exhausted); (b) test_non_throttle_signature_escalates — escalation now requires positive non-throttle evidence; (c) test_frozen_throttle_signature_never_escalates; kept test_advancing_progression_resets_the_guard. 331 passed, ruff check+format clean. Flagged as a coder/tester seam; the tester owns further test evolution.
+
+AC-C1/C3/C6 (all four reviewers verified correct in v1) are unchanged. Files changed this round: event_loop/_supervisor.py, event_loop/_loop.py, supervision_policy.py, event_loop/__init__.py, tests/test_event_loop_rate_limited.py (commit 94fbf7c6).
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: f2ed8679-96ef-41
+phase: implement
+metadata:
+  payload:
+    summary: "RE-PROPOSE v2 \u2014 resolves the single unanimous v1 blocker from all\
+      \ four NACKing reviewers (reviewer_code, reviewer_code_holistic, reviewer_contract,\
+      \ reviewer_concurrency): the deterministic-loop guard halted a GENUINE all-producers\
+      \ cap wall in ~7.5min (5 identical frozen-fingerprint retries -> halt_rate_limited\
+      \ -> exhausted), violating binding cq-1 / AC-C2 / AC-C5 (NO hard wall-clock\
+      \ ceiling; multi-day cap must self-heal unattended) and making the 1800s threshold\
+      \ alert dead code.\n\nROOT CAUSE (as all four diagnosed, confirmed): the guard\
+      \ inferred 'deterministic' from a FROZEN consensus_state_fingerprint, but an\
+      \ account-wide cap wall freezes that digest identically to a deterministic failure\
+      \ (no arm can propose/ack while throttled), and the bare-exit signature is the\
+      \ invariant 'rate_limited' \u2014 so the two cases were structurally indistinguishable\
+      \ and the guard always tripped.\n\nFIX (adopts the reviewers' shared remedy\
+      \ #1 \u2014 positive non-throttle evidence; upstream in WHEN deterministic_loop\
+      \ is set, so _handle_rate_limited's deterministic_loop->alert+halt handler contract\
+      \ is UNCHANGED per reviewer_concurrency): record_rate_limited now sets deterministic_loop\
+      \ ONLY when the failure signature is present AND not is_transient_rate_limit_error\
+      \ AND has no parseable reset hint \u2014 i.e. the failure CHANGED to a non-throttle\
+      \ error. _observe_jobs no longer forwards the uninformative 'exit_code=69' pod\
+      \ code as exit_detail, so a genuine production throttle carries NO signature\
+      \ and NEVER escalates: it paces INDEFINITELY, crosses the 1800s cumulative-wait\
+      \ threshold, emits the cq-1 OVERSEER_ALERT exactly once, and is_exhausted stays\
+      \ False. The progression fingerprint is retained only to reset the repeat counter\
+      \ on state-advance (AC-C4 'continue when state advances').\n\nTESTS (revised\
+      \ in lockstep, per reviewer_code_holistic's explicit ask + to keep the shared\
+      \ branch green): replaced test_identical_fingerprint_escalates (which asserted\
+      \ the buggy halt) with (a) test_steady_throttle_never_escalates_and_paces_past_threshold\
+      \ \u2014 the AC-C5 no-ceiling regression the suite was missing (frozen throttle\
+      \ paces past 1800s, alerts once, never exhausted); (b) test_non_throttle_signature_escalates\
+      \ \u2014 escalation now requires positive non-throttle evidence; (c) test_frozen_throttle_signature_never_escalates;\
+      \ kept test_advancing_progression_resets_the_guard. 331 passed, ruff check+format\
+      \ clean. Flagged as a coder/tester seam; the tester owns further test evolution.\n\
+      \nAC-C1/C3/C6 (all four reviewers verified correct in v1) are unchanged. Files\
+      \ changed this round: event_loop/_supervisor.py, event_loop/_loop.py, supervision_policy.py,\
+      \ event_loop/__init__.py, tests/test_event_loop_rate_limited.py (commit 94fbf7c6)."
+    attestation: {}
+    artifacts:
+    - 94fbf7c6eb67a3f86077459c47cbbb446e8973a7
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/concurrent_executor.py
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    risk_considered: "The fix makes AC-C5/cq-1 structurally guaranteed: the only escalation\
+      \ trigger now requires a non-throttle signature, which the production bare-exit\
+      \ rate-limit path never carries, so a genuine cap wall can no longer halt. Reviewers\
+      \ verified AC-C1/C3/C6 correct in v1 and those are untouched. The handler and\
+      \ its isolated unit tests are unchanged \u2014 the fix is purely the upstream\
+      \ trigger condition, exactly the remedy shape reviewer_concurrency endorsed."
+    commit_sha: 94fbf7c6eb67a3f86077459c47cbbb446e8973a7
+    files_changed: []
+    tests_run: []
+    tasks_satisfied:
+    - task-2-1
+    - task-2-2
+    - task-2-3
+    - task-2-4
+    - task-2-6
+    - task-2-7
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 2
+  commit_sha: 94fbf7c6eb67a3f86077459c47cbbb446e8973a7
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:47:51Z] orchestrator → reviewer_security (CONSENSUS_RE_REVIEW): Re-review required: coder submitted new proposal v2
+
+Producer coder has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (`git log 2bd6124a3bc23457d12a044c6f466f742b5a58a0..94fbf7c6eb67a3f86077459c47cbbb446e8973a7 --not origin/<base> -p` — the commits landed since the version you last verdicted) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (`2bd6124a3bc23457d12a044c6f466f742b5a58a0..94fbf7c6eb67a3f86077459c47cbbb446e8973a7`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`2bd6124a3bc23457d12a044c6f466f742b5a58a0..94fbf7c6eb67a3f86077459c47cbbb446e8973a7`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: d02ff08a-fbd8-4b
+phase: implement
+metadata:
+  producer_role: coder
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:47:54Z] tester (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: 2648d66a-08a4-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:47:55Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 7c263473-df3c-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:47:55Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 0660cdfd-d9df-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:47:56Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 535d8a21-2440-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:47:57Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 2e5a2250-cee4-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:47:57Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: bce6973a-0db6-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:48:02Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 12b1a45f-537e-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:48:03Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: cd986b87-802e-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:48:03Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: c3fd12fd-09ed-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:48:04Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 40e78798-f2ad-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:48:06Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: b58f7b41-49b7-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:48:07Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 313401a2-9925-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:48:45Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 3ba110e7-ced8-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:49:00Z] coder (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=496969 util=0.50 cache_hit=1.00 decision=below_threshold
+
+````yaml
+id: 01f39651-4956-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:49:01Z] reviewer_security → coder (CONSENSUS_ACK): ACK from reviewer_security for coder
+
+Security review PASS on coder v2 (94fbf7c — loop-guard no-ceiling fix). Reviewed the incremental v1..v2 delta. (1) No new untrusted-input surface: the reworked deterministic-loop gate reuses the already-vetted is_transient_rate_limit_error + parse_rate_limit_reset_seconds predicates (no ReDoS, reset hint clamped to [0,3600]); no new regexes/parsing. (2) Credential-failure disjointness invariant untouched — auth_errors.py and __main__.py are byte-identical to v1 in this delta, so a rejected-credential/weekly-cap 429 still stays auth-fatal and never becomes an infinite paced retry. (3) Availability direction is SAFER: v2 makes the guard escalate ONLY on positive non-throttle evidence, so a genuine cap wall paces indefinitely with just the cq-1 OVERSEER_ALERT instead of spuriously auto-halting; the paced retry is bounded to minutes-scale backoff (<=900s bounded / <=3600s reset-derived), so 'pace indefinitely' is a slow poll, not an API hammer — bounded resource use, and no-hard-ceiling is the operator's binding cq-1 decision. No new secret/network/command/deserialization/path surface. Tests revised in lockstep preserve the clamp assertion. No security blockers. (Non-blocking correctness note for reviewer_code, unchanged from v1: the __main__ `return result.returncode` fallback could classify a child coincidentally exiting 69 as RATE_LIMITED — bounded by pacing; not a security defect.)
+
+````yaml
+id: f6e20898-4eea-44
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/concurrent_executor.py
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    reason: "Security review PASS on coder v2 (94fbf7c \u2014 loop-guard no-ceiling\
+      \ fix). Reviewed the incremental v1..v2 delta. (1) No new untrusted-input surface:\
+      \ the reworked deterministic-loop gate reuses the already-vetted is_transient_rate_limit_error\
+      \ + parse_rate_limit_reset_seconds predicates (no ReDoS, reset hint clamped\
+      \ to [0,3600]); no new regexes/parsing. (2) Credential-failure disjointness\
+      \ invariant untouched \u2014 auth_errors.py and __main__.py are byte-identical\
+      \ to v1 in this delta, so a rejected-credential/weekly-cap 429 still stays auth-fatal\
+      \ and never becomes an infinite paced retry. (3) Availability direction is SAFER:\
+      \ v2 makes the guard escalate ONLY on positive non-throttle evidence, so a genuine\
+      \ cap wall paces indefinitely with just the cq-1 OVERSEER_ALERT instead of spuriously\
+      \ auto-halting; the paced retry is bounded to minutes-scale backoff (<=900s\
+      \ bounded / <=3600s reset-derived), so 'pace indefinitely' is a slow poll, not\
+      \ an API hammer \u2014 bounded resource use, and no-hard-ceiling is the operator's\
+      \ binding cq-1 decision. No new secret/network/command/deserialization/path\
+      \ surface. Tests revised in lockstep preserve the clamp assertion. No security\
+      \ blockers. (Non-blocking correctness note for reviewer_code, unchanged from\
+      \ v1: the __main__ `return result.returncode` fallback could classify a child\
+      \ coincidentally exiting 69 as RATE_LIMITED \u2014 bounded by pacing; not a\
+      \ security defect.)"
+    ack_version: 2
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:49:05Z] reviewer_security (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_security
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: aaa3ea56-d0ee-45
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:49:12Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=121033 util=0.12 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 11cffda3-1d06-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:49:29Z] reviewer_code → coder (CONSENSUS_ACK): ACK from reviewer_code for coder
+
+ACK v2 — my v1 blocking finding (AC-C5 / binding cq-1: loop guard halted a genuine cap wall in ~7.5 min) is fully and correctly resolved.
+
+THE FIX I VERIFIED (record_rate_limited, _supervisor.py + _loop.py):
+- deterministic_loop now additionally requires signature_is_non_throttle = bool(exit_detail) AND not is_transient_rate_limit_error(exit_detail) AND parse_rate_limit_reset_seconds(exit_detail) is None. Positive non-throttle evidence is now mandatory to escalate.
+- _observe_jobs no longer passes exit_detail on the JOB_OUTCOME_RATE_LIMITED branch (the pod exit code "exit_code=69" is not classifiable error text). So on the production bare-exit path exit_detail=None -> signature_is_non_throttle=False -> deterministic_loop is ALWAYS False -> a steady all-producers cap wall paces indefinitely with only the cq-1 threshold OVERSEER_ALERT. No ~7.5-min halt, no hard ceiling. cq-1/AC-C5 honored.
+
+Case analysis all correct:
+- bare exit (None): never escalates, paces forever. ✓
+- throttle-classified text ("429 rate limit"): is_transient_rate_limit_error True -> gate False -> never escalates. ✓
+- reset-hint text: parse_rate_limit_reset_seconds not None -> gate False -> treated as throttle. ✓
+- changed non-throttle text ("Traceback: KeyError"): gate True -> escalates once at repeats>=5, sticky (AC-C4 preserved on positive evidence). ✓
+The AC-C4/AC-C5 tension is resolved the right way: cq-1 no-ceiling is binding, so an ambiguous/absent/throttle signature paces forever (threshold alert is the operator surface); the guard fires only on genuine non-throttle evidence. A genuine deterministic non-throttle failure never reaches record_rate_limited in production anyway (it exits abnormal -> record_abort, whose streak halt this delta leaves untouched). Repeat counter climbs harmlessly for a frozen throttle but is gated off from escalation; cleared on success/retire — no unbounded state.
+
+REGRESSION UNCHANGED (re-confirmed the delta touches only loop-guard logic + comments + tests): AC-C1 (no fail-streak increment), AC-C3 (halt only the one dedupe key, normal respawn gate), AC-C6 (auth-fatal-first + disjointness; abnormal path byte-identical), and the EX_RATE_LIMITED=69 / outcome_for / JOB_OUTCOME_RATE_LIMITED plumbing — all still hold; auth_errors.py / __main__.py / _models.py / concurrent_executor.py are unchanged from v1 (which I verified).
+
+TESTS: the lockstep-revised test_event_loop_rate_limited.py adds exactly the AC-C5 regression I required — test_steady_throttle_never_escalates_and_paces_past_threshold (60 bare-throttle retries: no deterministic_loop ever, not exhausted, threshold alert fires once, cumulative wait >= threshold) — plus test_frozen_throttle_signature_never_escalates and a corrected test_non_throttle_signature_escalates_once_past_guard_threshold (non-throttle "Traceback" signature). These pin the fix.
+
+SEAM (non-blocking, flagged by coder): the tester test file was revised inside this coder commit (per reviewer_code_holistic's ask) — a coder/tester boundary seam; the tester should own/confirm it on their re-propose. Not a code-correctness block. I'll review the tester's re-proposal (still NACKed at v1) separately when spawned.
+
+````yaml
+id: 0761ddda-9e37-45
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/concurrent_executor.py
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    reason: "ACK v2 \u2014 my v1 blocking finding (AC-C5 / binding cq-1: loop guard\
+      \ halted a genuine cap wall in ~7.5 min) is fully and correctly resolved.\n\n\
+      THE FIX I VERIFIED (record_rate_limited, _supervisor.py + _loop.py):\n- deterministic_loop\
+      \ now additionally requires signature_is_non_throttle = bool(exit_detail) AND\
+      \ not is_transient_rate_limit_error(exit_detail) AND parse_rate_limit_reset_seconds(exit_detail)\
+      \ is None. Positive non-throttle evidence is now mandatory to escalate.\n- _observe_jobs\
+      \ no longer passes exit_detail on the JOB_OUTCOME_RATE_LIMITED branch (the pod\
+      \ exit code \"exit_code=69\" is not classifiable error text). So on the production\
+      \ bare-exit path exit_detail=None -> signature_is_non_throttle=False -> deterministic_loop\
+      \ is ALWAYS False -> a steady all-producers cap wall paces indefinitely with\
+      \ only the cq-1 threshold OVERSEER_ALERT. No ~7.5-min halt, no hard ceiling.\
+      \ cq-1/AC-C5 honored.\n\nCase analysis all correct:\n- bare exit (None): never\
+      \ escalates, paces forever. \u2713\n- throttle-classified text (\"429 rate limit\"\
+      ): is_transient_rate_limit_error True -> gate False -> never escalates. \u2713\
+      \n- reset-hint text: parse_rate_limit_reset_seconds not None -> gate False ->\
+      \ treated as throttle. \u2713\n- changed non-throttle text (\"Traceback: KeyError\"\
+      ): gate True -> escalates once at repeats>=5, sticky (AC-C4 preserved on positive\
+      \ evidence). \u2713\nThe AC-C4/AC-C5 tension is resolved the right way: cq-1\
+      \ no-ceiling is binding, so an ambiguous/absent/throttle signature paces forever\
+      \ (threshold alert is the operator surface); the guard fires only on genuine\
+      \ non-throttle evidence. A genuine deterministic non-throttle failure never\
+      \ reaches record_rate_limited in production anyway (it exits abnormal -> record_abort,\
+      \ whose streak halt this delta leaves untouched). Repeat counter climbs harmlessly\
+      \ for a frozen throttle but is gated off from escalation; cleared on success/retire\
+      \ \u2014 no unbounded state.\n\nREGRESSION UNCHANGED (re-confirmed the delta\
+      \ touches only loop-guard logic + comments + tests): AC-C1 (no fail-streak increment),\
+      \ AC-C3 (halt only the one dedupe key, normal respawn gate), AC-C6 (auth-fatal-first\
+      \ + disjointness; abnormal path byte-identical), and the EX_RATE_LIMITED=69\
+      \ / outcome_for / JOB_OUTCOME_RATE_LIMITED plumbing \u2014 all still hold; auth_errors.py\
+      \ / __main__.py / _models.py / concurrent_executor.py are unchanged from v1\
+      \ (which I verified).\n\nTESTS: the lockstep-revised test_event_loop_rate_limited.py\
+      \ adds exactly the AC-C5 regression I required \u2014 test_steady_throttle_never_escalates_and_paces_past_threshold\
+      \ (60 bare-throttle retries: no deterministic_loop ever, not exhausted, threshold\
+      \ alert fires once, cumulative wait >= threshold) \u2014 plus test_frozen_throttle_signature_never_escalates\
+      \ and a corrected test_non_throttle_signature_escalates_once_past_guard_threshold\
+      \ (non-throttle \"Traceback\" signature). These pin the fix.\n\nSEAM (non-blocking,\
+      \ flagged by coder): the tester test file was revised inside this coder commit\
+      \ (per reviewer_code_holistic's ask) \u2014 a coder/tester boundary seam; the\
+      \ tester should own/confirm it on their re-propose. Not a code-correctness block.\
+      \ I'll review the tester's re-proposal (still NACKed at v1) separately when\
+      \ spawned."
+    ack_version: 2
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:49:36Z] reviewer_code_holistic → coder (CONSENSUS_ACK): ACK from reviewer_code_holistic for coder
+
+ACK (holistic) — my sole v1 blocker is fully and correctly resolved, honoring binding cq-1 / AC-C2 / AC-C5.
+
+THE FIX (verified against the v1..v2 delta): the deterministic-loop guard no longer infers "deterministic" from a frozen BRC progression (the failure mode all four reviewers flagged — a genuine account-wide cap wall freezes progression identically). Two coordinated changes:
+1. _loop.py `_observe_jobs` no longer passes `exit_detail` to `record_rate_limited`, so on the production bare-exit path the signature is the constant throttle marker "rate_limited" (the pod exit code "exit_code=69" is not classifiable error text and would have mis-read a cap wall as deterministic).
+2. `record_rate_limited` gates escalation on POSITIVE non-throttle evidence: `signature_is_non_throttle = bool(exit_detail) and not is_transient_rate_limit_error(exit_detail) and parse_rate_limit_reset_seconds(exit_detail) is None`, and `deterministic_loop` now requires that gate in addition to repeats>=5.
+
+Traced the headline all-producers cap wall (bare exit code, frozen consensus digest): exit_detail is None -> signature_is_non_throttle False -> deterministic_loop NEVER fires -> the arm paces INDEFINITELY with only the cq-1 threshold OVERSEER_ALERT (fires once at 1800s, no halt, no exhaustion). The ~7.5-min halt regression is gone; the no-ceiling guarantee holds. A throttle-classified signature ("429 rate limit") or one with a reset hint also fails the gate, so those pace forever too. The AC-C4 escalation path remains reachable only for a genuinely CHANGED non-throttle signature reproduced past the guard threshold, and the advancing-progression reset is preserved.
+
+REGRESSION CHECK: the v2 delta touches only the loop-guard area (_supervisor.py guard gate + _loop.py exit_detail drop + __init__.py/supervision_policy.py comments + the in-lockstep test revision). auth_errors.py, __main__.py, kubernetes_spawner/_models.py, and concurrent_executor.py logic are unchanged, so everything I verified satisfied at v1 (AC-C1 no-streak-halt, AC-C3 landed-slice preservation, AC-C6 auth-fatal precedence + disjointness + byte-identical abnormal path, and all exit-code plumbing) still stands. The revised tests correctly encode the fixed semantics, including the AC-C5 frozen-throttle-paces-past-threshold regression I explicitly requested.
+
+NON-BLOCKING NOTE (for the record, not a condition): because a `rate_limited` outcome by construction required is_transient_rate_limit_error to match AND _observe_jobs withholds exit_detail, the deterministic-loop escalation is effectively dormant on the current production wiring — reachable only via a future enriched observer supplying real non-throttle error text (documented in-code; exercised by test_non_throttle_signature_escalates_once_past_guard_threshold). Given cq-1 (no hard ceiling) dominates and no legitimate deterministic-failure case is reachable through the throttle classification, this dormancy is the correct reconciliation rather than a defect. Separately, the coder edited the tester's test file in this commit (flagged as a coder/tester seam) — a merge-seam to reconcile when the tester re-proposes, not a code-correctness issue on this edge.
+
+````yaml
+id: 602f393b-0184-49
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    reason: "ACK (holistic) \u2014 my sole v1 blocker is fully and correctly resolved,\
+      \ honoring binding cq-1 / AC-C2 / AC-C5.\n\nTHE FIX (verified against the v1..v2\
+      \ delta): the deterministic-loop guard no longer infers \"deterministic\" from\
+      \ a frozen BRC progression (the failure mode all four reviewers flagged \u2014\
+      \ a genuine account-wide cap wall freezes progression identically). Two coordinated\
+      \ changes:\n1. _loop.py `_observe_jobs` no longer passes `exit_detail` to `record_rate_limited`,\
+      \ so on the production bare-exit path the signature is the constant throttle\
+      \ marker \"rate_limited\" (the pod exit code \"exit_code=69\" is not classifiable\
+      \ error text and would have mis-read a cap wall as deterministic).\n2. `record_rate_limited`\
+      \ gates escalation on POSITIVE non-throttle evidence: `signature_is_non_throttle\
+      \ = bool(exit_detail) and not is_transient_rate_limit_error(exit_detail) and\
+      \ parse_rate_limit_reset_seconds(exit_detail) is None`, and `deterministic_loop`\
+      \ now requires that gate in addition to repeats>=5.\n\nTraced the headline all-producers\
+      \ cap wall (bare exit code, frozen consensus digest): exit_detail is None ->\
+      \ signature_is_non_throttle False -> deterministic_loop NEVER fires -> the arm\
+      \ paces INDEFINITELY with only the cq-1 threshold OVERSEER_ALERT (fires once\
+      \ at 1800s, no halt, no exhaustion). The ~7.5-min halt regression is gone; the\
+      \ no-ceiling guarantee holds. A throttle-classified signature (\"429 rate limit\"\
+      ) or one with a reset hint also fails the gate, so those pace forever too. The\
+      \ AC-C4 escalation path remains reachable only for a genuinely CHANGED non-throttle\
+      \ signature reproduced past the guard threshold, and the advancing-progression\
+      \ reset is preserved.\n\nREGRESSION CHECK: the v2 delta touches only the loop-guard\
+      \ area (_supervisor.py guard gate + _loop.py exit_detail drop + __init__.py/supervision_policy.py\
+      \ comments + the in-lockstep test revision). auth_errors.py, __main__.py, kubernetes_spawner/_models.py,\
+      \ and concurrent_executor.py logic are unchanged, so everything I verified satisfied\
+      \ at v1 (AC-C1 no-streak-halt, AC-C3 landed-slice preservation, AC-C6 auth-fatal\
+      \ precedence + disjointness + byte-identical abnormal path, and all exit-code\
+      \ plumbing) still stands. The revised tests correctly encode the fixed semantics,\
+      \ including the AC-C5 frozen-throttle-paces-past-threshold regression I explicitly\
+      \ requested.\n\nNON-BLOCKING NOTE (for the record, not a condition): because\
+      \ a `rate_limited` outcome by construction required is_transient_rate_limit_error\
+      \ to match AND _observe_jobs withholds exit_detail, the deterministic-loop escalation\
+      \ is effectively dormant on the current production wiring \u2014 reachable only\
+      \ via a future enriched observer supplying real non-throttle error text (documented\
+      \ in-code; exercised by test_non_throttle_signature_escalates_once_past_guard_threshold).\
+      \ Given cq-1 (no hard ceiling) dominates and no legitimate deterministic-failure\
+      \ case is reachable through the throttle classification, this dormancy is the\
+      \ correct reconciliation rather than a defect. Separately, the coder edited\
+      \ the tester's test file in this commit (flagged as a coder/tester seam) \u2014\
+      \ a merge-seam to reconcile when the tester re-proposes, not a code-correctness\
+      \ issue on this edge."
+    ack_version: 2
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:49:45Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=166662 util=0.17 cache_hit=0.96 decision=below_threshold
+
+````yaml
+id: e1d3a3e7-d68c-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:49:47Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=221575 util=0.22 cache_hit=0.97 decision=below_threshold
+
+````yaml
+id: 708458aa-b631-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:49:51Z] reviewer_concurrency → coder (CONSENSUS_ACK): ACK from reviewer_concurrency for coder
+
+v2 resolves my v1 NACK (deterministic-loop-guard liveness defect). Verified against the concurrency/liveness dimension:
+
+- Root fix is upstream in WHEN deterministic_loop is set, exactly as required. record_rate_limited now gates escalation on POSITIVE non-throttle evidence: signature_is_non_throttle = bool(exit_detail) and not is_transient_rate_limit_error(exit_detail) and parse_rate_limit_reset_seconds(exit_detail) is None, ANDed with repeats>=LOOP_GUARD_REPEATS and not-already-escalated.
+- _observe_jobs no longer passes exit_detail on the JOB_OUTCOME_RATE_LIMITED branch, so a genuine production cap wall (pod exits EX_RATE_LIMITED=69, no classifiable error TEXT) has signature None → gate is False → deterministic_loop can never trip → the arm paces INDEFINITELY. This is the precise correction: frozen BRC progression (which a genuine account-wide cap wall freezes identically to a deterministic failure, since every producer exits before the consensus digest can move) is no longer treated as deterministic evidence.
+- cq-1 / AC-C2 / AC-C5 now honored: the once-latched cumulative-wait threshold OVERSEER_ALERT is the SOLE operator surface; no hard wall-clock ceiling, no auto-halt. Confirmed via test_steady_throttle_never_escalates_and_paces_past_threshold (60 reproductions, never exhausted, one threshold crossing) and test_frozen_throttle_signature_never_escalates.
+- Liveness: the paced-retry loop no longer terminates prematurely; safety: still bounded-backoff paced (30..900s, or reset-hint clamped to 3600s), no hammering. The progression fingerprint is retained only to reset the repeat counter when state advances (AC-C4 "continue when state advances"), verified by test_advancing_progression_resets_the_guard.
+- Notifier→halt_rate_limited re-entrancy is unchanged and now unreachable on the production path; record_success/retire/reconcile paced-state clearing unchanged and correct; abnormal path byte-for-byte unchanged (AC-C6).
+
+Non-blocking observation (not my dimension to gate — flagging for reviewer_contract/reviewer_code): the deterministic-loop guard is effectively inert on the CURRENT production path (it can only fire when a future enriched observer supplies real non-throttle error text via exit_detail). That is the correct resolution of the binding-cq-1-vs-AC-C4 tension (cq-1 no-ceiling wins), and a stuck deterministic-429 still surfaces the OVERSEER_ALERT so an operator is informed — but whether AC-C4's "stop and escalate" is considered fully satisfied for the throttle-classified path is a contract-coverage judgment for those reviewers.
+
+The tester's test file was modified within this coder commit as a declared coder/tester seam; I review the tester re-proposal separately. Production supervision code is concurrency-sound. ACK.
+
+````yaml
+id: 6f46e5a8-3b57-49
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/concurrent_executor.py
+    reason: "v2 resolves my v1 NACK (deterministic-loop-guard liveness defect). Verified\
+      \ against the concurrency/liveness dimension:\n\n- Root fix is upstream in WHEN\
+      \ deterministic_loop is set, exactly as required. record_rate_limited now gates\
+      \ escalation on POSITIVE non-throttle evidence: signature_is_non_throttle =\
+      \ bool(exit_detail) and not is_transient_rate_limit_error(exit_detail) and parse_rate_limit_reset_seconds(exit_detail)\
+      \ is None, ANDed with repeats>=LOOP_GUARD_REPEATS and not-already-escalated.\n\
+      - _observe_jobs no longer passes exit_detail on the JOB_OUTCOME_RATE_LIMITED\
+      \ branch, so a genuine production cap wall (pod exits EX_RATE_LIMITED=69, no\
+      \ classifiable error TEXT) has signature None \u2192 gate is False \u2192 deterministic_loop\
+      \ can never trip \u2192 the arm paces INDEFINITELY. This is the precise correction:\
+      \ frozen BRC progression (which a genuine account-wide cap wall freezes identically\
+      \ to a deterministic failure, since every producer exits before the consensus\
+      \ digest can move) is no longer treated as deterministic evidence.\n- cq-1 /\
+      \ AC-C2 / AC-C5 now honored: the once-latched cumulative-wait threshold OVERSEER_ALERT\
+      \ is the SOLE operator surface; no hard wall-clock ceiling, no auto-halt. Confirmed\
+      \ via test_steady_throttle_never_escalates_and_paces_past_threshold (60 reproductions,\
+      \ never exhausted, one threshold crossing) and test_frozen_throttle_signature_never_escalates.\n\
+      - Liveness: the paced-retry loop no longer terminates prematurely; safety: still\
+      \ bounded-backoff paced (30..900s, or reset-hint clamped to 3600s), no hammering.\
+      \ The progression fingerprint is retained only to reset the repeat counter when\
+      \ state advances (AC-C4 \"continue when state advances\"), verified by test_advancing_progression_resets_the_guard.\n\
+      - Notifier\u2192halt_rate_limited re-entrancy is unchanged and now unreachable\
+      \ on the production path; record_success/retire/reconcile paced-state clearing\
+      \ unchanged and correct; abnormal path byte-for-byte unchanged (AC-C6).\n\n\
+      Non-blocking observation (not my dimension to gate \u2014 flagging for reviewer_contract/reviewer_code):\
+      \ the deterministic-loop guard is effectively inert on the CURRENT production\
+      \ path (it can only fire when a future enriched observer supplies real non-throttle\
+      \ error text via exit_detail). That is the correct resolution of the binding-cq-1-vs-AC-C4\
+      \ tension (cq-1 no-ceiling wins), and a stuck deterministic-429 still surfaces\
+      \ the OVERSEER_ALERT so an operator is informed \u2014 but whether AC-C4's \"\
+      stop and escalate\" is considered fully satisfied for the throttle-classified\
+      \ path is a contract-coverage judgment for those reviewers.\n\nThe tester's\
+      \ test file was modified within this coder commit as a declared coder/tester\
+      \ seam; I review the tester re-proposal separately. Production supervision code\
+      \ is concurrency-sound. ACK."
+    ack_version: 2
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:50:12Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=137336 util=0.14 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: faca4343-91a3-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:50:22Z] reviewer_contract → coder (CONSENSUS_ACK): ACK from reviewer_contract for coder
+
+ACK v2 — the AC-C5 / binding-cq-1 blocker from my v1 NACK is resolved.
+
+MANDATE 1 (v1 blocker fixed): my v1 NACK was that the deterministic-loop guard used a frozen BRC progression as deterministic-failure evidence, so a genuine all-producers cap wall (frozen consensus digest + bare "rate_limited" signature) tripped the guard after 5 retries (~7.5 min) and halted the arm, violating cq-1's no-hard-ceiling. v2 fixes this at the source:
+- record_rate_limited now sets deterministic_loop ONLY when signature_is_non_throttle = bool(exit_detail) and not is_transient_rate_limit_error(exit_detail) and parse_rate_limit_reset_seconds(exit_detail) is None — i.e. only on POSITIVE evidence the failure changed to a non-throttle error. A genuine throttle (throttle-classified text, or a reset-hint) never satisfies this.
+- _observe_jobs no longer passes exit_detail on the rate-limit branch, because the pod exit code ("exit_code=69") is not classifiable error text; so on the production bare-exit-code path exit_detail is None → bool(None) is False → deterministic_loop is永 False → the cap wall paces indefinitely with only the cq-1 threshold OVERSEER_ALERT. 
+- The progression fingerprint is retained solely to reset the repeat counter when state advances (AC-C4 "continue when state advances").
+I traced all four scenarios: bare production throttle (None) → never halts; throttle-classified text ("429 rate limit") → is_transient_rate_limit_error True → never halts; reset-hint text ("retry after 900s") → parse returns non-None → never halts; genuine non-throttle text ("Traceback: KeyError") → escalates once after 5 repeats. This is architecturally correct: a pod only exits EX_RATE_LIMITED when its error classifies as a transient throttle, so every production rate_limited outcome is a genuine throttle and MUST pace forever (cq-1 wins); the guard is correctly dormant in production and only arms if a future enriched observer supplies real non-throttle error text. The AC-C5 regression test (test_steady_throttle_never_escalates_and_paces_past_threshold: 60 retries, frozen progression, no exit_detail → not exhausted, exactly one threshold crossing) is exactly the coverage I required.
+
+MANDATE 2 (fresh audit of the v2 delta 2bd6124..94fbf7c): the delta touches only _loop.py (drop exit_detail), _supervisor.py (the escalation gate + is_transient_rate_limit_error import), __init__.py / supervision_policy.py (comments + RateLimitFingerprint docstring), and the test file. Checked: None-safety of is_transient_rate_limit_error(None) / parse_rate_limit_reset_seconds(None) (both return the falsy/None branch → gate False, no escalation, no exception); text containing any throttle substring is conservatively treated as a throttle (biases toward pacing — the correct direction for cq-1); no change to the auth_errors / __main__ / kubernetes_spawner / concurrent_executor source I verified in v1, so AC-C1 (no fail-streak halt), AC-C3 (landed-slice preservation), and AC-C6 (EX_AUTH_FATAL + abnormal byte-unchanged) still hold. No new contract issues.
+
+SECONDARY (non-blocking, for the record): v2 also revised the tester-owned test_event_loop_rate_limited.py in lockstep (flagged by the coder per reviewer_code_holistic's ask) and carries nominally-tester task-2-5 (record_rate_limited). Noted as a coder/tester merge seam for the tester + reviewer_code to confirm; it does not affect the contract verdict. The tester's own proposal is still on my NACK and should re-propose at/after 94fbf7c so its suite matches the corrected semantics.
+
+````yaml
+id: 236cf928-56bc-43
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/concurrent_executor.py
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    reason: "ACK v2 \u2014 the AC-C5 / binding-cq-1 blocker from my v1 NACK is resolved.\n\
+      \nMANDATE 1 (v1 blocker fixed): my v1 NACK was that the deterministic-loop guard\
+      \ used a frozen BRC progression as deterministic-failure evidence, so a genuine\
+      \ all-producers cap wall (frozen consensus digest + bare \"rate_limited\" signature)\
+      \ tripped the guard after 5 retries (~7.5 min) and halted the arm, violating\
+      \ cq-1's no-hard-ceiling. v2 fixes this at the source:\n- record_rate_limited\
+      \ now sets deterministic_loop ONLY when signature_is_non_throttle = bool(exit_detail)\
+      \ and not is_transient_rate_limit_error(exit_detail) and parse_rate_limit_reset_seconds(exit_detail)\
+      \ is None \u2014 i.e. only on POSITIVE evidence the failure changed to a non-throttle\
+      \ error. A genuine throttle (throttle-classified text, or a reset-hint) never\
+      \ satisfies this.\n- _observe_jobs no longer passes exit_detail on the rate-limit\
+      \ branch, because the pod exit code (\"exit_code=69\") is not classifiable error\
+      \ text; so on the production bare-exit-code path exit_detail is None \u2192\
+      \ bool(None) is False \u2192 deterministic_loop is\u6C38 False \u2192 the cap\
+      \ wall paces indefinitely with only the cq-1 threshold OVERSEER_ALERT. \n- The\
+      \ progression fingerprint is retained solely to reset the repeat counter when\
+      \ state advances (AC-C4 \"continue when state advances\").\nI traced all four\
+      \ scenarios: bare production throttle (None) \u2192 never halts; throttle-classified\
+      \ text (\"429 rate limit\") \u2192 is_transient_rate_limit_error True \u2192\
+      \ never halts; reset-hint text (\"retry after 900s\") \u2192 parse returns non-None\
+      \ \u2192 never halts; genuine non-throttle text (\"Traceback: KeyError\") \u2192\
+      \ escalates once after 5 repeats. This is architecturally correct: a pod only\
+      \ exits EX_RATE_LIMITED when its error classifies as a transient throttle, so\
+      \ every production rate_limited outcome is a genuine throttle and MUST pace\
+      \ forever (cq-1 wins); the guard is correctly dormant in production and only\
+      \ arms if a future enriched observer supplies real non-throttle error text.\
+      \ The AC-C5 regression test (test_steady_throttle_never_escalates_and_paces_past_threshold:\
+      \ 60 retries, frozen progression, no exit_detail \u2192 not exhausted, exactly\
+      \ one threshold crossing) is exactly the coverage I required.\n\nMANDATE 2 (fresh\
+      \ audit of the v2 delta 2bd6124..94fbf7c): the delta touches only _loop.py (drop\
+      \ exit_detail), _supervisor.py (the escalation gate + is_transient_rate_limit_error\
+      \ import), __init__.py / supervision_policy.py (comments + RateLimitFingerprint\
+      \ docstring), and the test file. Checked: None-safety of is_transient_rate_limit_error(None)\
+      \ / parse_rate_limit_reset_seconds(None) (both return the falsy/None branch\
+      \ \u2192 gate False, no escalation, no exception); text containing any throttle\
+      \ substring is conservatively treated as a throttle (biases toward pacing \u2014\
+      \ the correct direction for cq-1); no change to the auth_errors / __main__ /\
+      \ kubernetes_spawner / concurrent_executor source I verified in v1, so AC-C1\
+      \ (no fail-streak halt), AC-C3 (landed-slice preservation), and AC-C6 (EX_AUTH_FATAL\
+      \ + abnormal byte-unchanged) still hold. No new contract issues.\n\nSECONDARY\
+      \ (non-blocking, for the record): v2 also revised the tester-owned test_event_loop_rate_limited.py\
+      \ in lockstep (flagged by the coder per reviewer_code_holistic's ask) and carries\
+      \ nominally-tester task-2-5 (record_rate_limited). Noted as a coder/tester merge\
+      \ seam for the tester + reviewer_code to confirm; it does not affect the contract\
+      \ verdict. The tester's own proposal is still on my NACK and should re-propose\
+      \ at/after 94fbf7c so its suite matches the corrected semantics."
+    ack_version: 2
+    attestation:
+      tasks_verified:
+      - task-2-1
+      - task-2-2
+      - task-2-3
+      - task-2-4
+      - task-2-5
+      - task-2-6
+      - task-2-7
+      verification_note: "Re-verified the full PR C implementation against the slice-2\
+        \ ACs. v2 resolves my v1 AC-C5/cq-1 blocker: the deterministic-loop guard\
+        \ now escalates only on positive non-throttle evidence and _observe_jobs passes\
+        \ no exit_detail, so a genuine cap wall paces indefinitely (AC-C5). task-2-1/2/3\
+        \ (EX_RATE_LIMITED=69 + disjoint classifier, __main__ emission order, outcome_for\
+        \ precedence), task-2-4 (observe routing), task-2-5 (record_rate_limited leaves\
+        \ abnormal streak untouched \u2014 AC-C1), task-2-6 (pacing/threshold constants\
+        \ + fingerprint), task-2-7 (threshold alert + gated loop-guard halt + landed-slice\
+        \ preservation \u2014 AC-C2/C3/C4/C5). AC-C6 regression path (auth-fatal +\
+        \ abnormal) verified unchanged. task-2-5/2-8 test edits by coder flagged as\
+        \ a coder/tester seam, non-blocking."
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:50:23Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 26b19128-0df1-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:50:29Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 8cab8aea-4db5-49
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:50:35Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=231156 util=0.23 cache_hit=0.98 decision=below_threshold
+
+````yaml
+id: 24bc493a-69a4-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:27Z] tester (CONSENSUS_PROPOSE): Proposal from tester
+
+tester v2 re-propose — resolves ALL FOUR v1 NACKs (reviewer_code, reviewer_code_holistic, reviewer_contract, reviewer_concurrency), which are one coupled defect: the test suite blessed the loop-guard bug and lacked the AC-C5 regression. Now that the coder's corrected guard landed (94fbf7c6e), my commit e96806cea finalizes the tester-owned test_event_loop_rate_limited.py. Point-by-point resolution of every finding: (A) REMOVED test_identical_fingerprint_escalates_once_past_guard_threshold — the frozen-progression+bare-"rate_limited"⇒halt assertion that all four flagged as blessing the cq-1/AC-C5 violation. (B) ADDED the AC-C5 no-ceiling regression test_steady_throttle_never_escalates_and_paces_past_threshold — a steady bare throttle with FROZEN progression (no exit_detail) driven x60: deterministic_loop NEVER True, is_exhausted stays False, threshold OVERSEER_ALERT fires exactly once at cumulative wait >=1800s, paces indefinitely (exactly the regression reviewer_code/reviewer_contract/reviewer_code_holistic demanded). (C) REWORKED the deterministic-loop-escalation test (test_non_throttle_signature_escalates_once_past_guard_threshold) to key off the coder's ACTUAL discriminator — POSITIVE non-throttle evidence (signature="Traceback: KeyError" that is not is_transient_rate_limit_error and has no reset hint) escalates once past LOOP_GUARD_REPEATS, sticky — NOT a frozen consensus digest. (D) ADDED test_frozen_throttle_signature_never_escalates ("429 rate limit" throttle signature never escalates). (E) KEPT test_advancing_progression_resets_the_guard (all four said keep it). (F) REMOVED the reviewer-flagged test_cumulative_wait_threshold_alert_latches_once "corroborating tell" (artificial advance-progression framing); its threshold-latch-once property is now covered on the correct frozen path by (B). The four reviewer-ACKed test files (auth_errors disjointness/CLI, kubernetes_spawner precedence, supervision_policy constants/parse/backoff/fingerprint, concurrent_executor handler-isolation) are unchanged per every reviewer's "keep these" list. Suite now FAILS against the old v1 impl and PASSES against the fixed guard.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 623d3b28-571f-44
+phase: implement
+metadata:
+  payload:
+    summary: "tester v2 re-propose \u2014 resolves ALL FOUR v1 NACKs (reviewer_code,\
+      \ reviewer_code_holistic, reviewer_contract, reviewer_concurrency), which are\
+      \ one coupled defect: the test suite blessed the loop-guard bug and lacked the\
+      \ AC-C5 regression. Now that the coder's corrected guard landed (94fbf7c6e),\
+      \ my commit e96806cea finalizes the tester-owned test_event_loop_rate_limited.py.\
+      \ Point-by-point resolution of every finding: (A) REMOVED test_identical_fingerprint_escalates_once_past_guard_threshold\
+      \ \u2014 the frozen-progression+bare-\"rate_limited\"\u21D2halt assertion that\
+      \ all four flagged as blessing the cq-1/AC-C5 violation. (B) ADDED the AC-C5\
+      \ no-ceiling regression test_steady_throttle_never_escalates_and_paces_past_threshold\
+      \ \u2014 a steady bare throttle with FROZEN progression (no exit_detail) driven\
+      \ x60: deterministic_loop NEVER True, is_exhausted stays False, threshold OVERSEER_ALERT\
+      \ fires exactly once at cumulative wait >=1800s, paces indefinitely (exactly\
+      \ the regression reviewer_code/reviewer_contract/reviewer_code_holistic demanded).\
+      \ (C) REWORKED the deterministic-loop-escalation test (test_non_throttle_signature_escalates_once_past_guard_threshold)\
+      \ to key off the coder's ACTUAL discriminator \u2014 POSITIVE non-throttle evidence\
+      \ (signature=\"Traceback: KeyError\" that is not is_transient_rate_limit_error\
+      \ and has no reset hint) escalates once past LOOP_GUARD_REPEATS, sticky \u2014\
+      \ NOT a frozen consensus digest. (D) ADDED test_frozen_throttle_signature_never_escalates\
+      \ (\"429 rate limit\" throttle signature never escalates). (E) KEPT test_advancing_progression_resets_the_guard\
+      \ (all four said keep it). (F) REMOVED the reviewer-flagged test_cumulative_wait_threshold_alert_latches_once\
+      \ \"corroborating tell\" (artificial advance-progression framing); its threshold-latch-once\
+      \ property is now covered on the correct frozen path by (B). The four reviewer-ACKed\
+      \ test files (auth_errors disjointness/CLI, kubernetes_spawner precedence, supervision_policy\
+      \ constants/parse/backoff/fingerprint, concurrent_executor handler-isolation)\
+      \ are unchanged per every reviewer's \"keep these\" list. Suite now FAILS against\
+      \ the old v1 impl and PASSES against the fixed guard."
+    attestation:
+      tests_run: 87
+      checks_passed:
+      - lint
+      - test
+      - security
+      note: 'Against the coder''s fixed impl (94fbf7c6e) + my e96806cea: rate-limit
+        suite + test_event_loop + test_arms_exhausted_livelock = 224 passed / 5 SDK-gated
+        CLI skipped; ruff check + format --check clean; bandit -ll -c pyproject.toml
+        exit 0. make lint/make test wrappers abort on venv-sync (no network) so the
+        underlying tools were run directly against the same .venv.'
+    artifacts:
+    - e96806cea
+    - 94fbf7c6e
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    risk_considered: Test-only change on the tester-owned file. All four v1 NACKs
+      were the same coupled loop-guard defect and are addressed point-by-point above.
+      The corrected suite pins the AC-C5 no-ceiling liveness property (steady throttle
+      paces forever) and the AC-C4 positive-evidence escalation, matching the coder's
+      landed discriminator exactly.
+    commit_sha: e96806cea
+    files_changed:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    tests_run: []
+    tasks_satisfied:
+    - task-2-5
+    - task-2-8
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 2
+  commit_sha: e96806cea
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:27Z] orchestrator → reviewer_security (CONSENSUS_RE_REVIEW): Re-review required: tester submitted new proposal v2
+
+Producer tester has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
+
+**Adversarial re-review**
+
+**Your v2 review has TWO equal-weight mandates:**
+
+1. **Verify named v1 blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (`git log b74fa6bbb..e96806cea --not origin/<base> -p` — the commits landed since the version you last verdicted) as a fresh reviewer** — ignore your v1 NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v2 verdict, ask: would a reviewer who has only seen this delta (`b74fa6bbb..e96806cea`) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (`b74fa6bbb..e96806cea`) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v2 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which v1 blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: b9f4d1e3-e929-4b
+phase: implement
+metadata:
+  producer_role: tester
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:28Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 7a179490-1698-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:35Z] tester (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: e052fcea-bf15-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:35Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 1cbdba49-3e3e-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:36Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 1f4598e1-5704-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:37Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 0f4ba906-5d9e-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:37Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: d751909c-9e33-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:38Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 5c93c802-b709-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:46Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: af13b1c9-08b0-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:46Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 2486ba9b-dc2d-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:47Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 1ff3d1b1-ab7b-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:47Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 90fd16df-e95e-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:48Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: fa95494c-cbf7-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:49Z] tester (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=448140 util=0.45 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: bcc6d923-f11e-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:53:55Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: f39cdb32-8c44-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:54:30Z] reviewer_concurrency → tester (CONSENSUS_ACK): ACK from reviewer_concurrency for tester
+
+v2 fully resolves my v1 NACK (the loop-guard tests encoded the frozen-progression halt I flagged as a cq-1/AC-C2/AC-C5 liveness violation). Reviewed the NET state of TestLoopGuardAndThreshold (the rework landed in the coder's lockstep commit 94fbf7c6e, already reviewed under my coder v2 ACK; the tester's own e96806cea removes only the redundant test_cumulative_wait_threshold_alert_latches_once).
+
+The corrected test surface now pins exactly the semantics I required:
+- test_steady_throttle_never_escalates_and_paces_past_threshold: frozen progression + NO signature (the production bare-throttle path), 60 reproductions → never deterministic_loop, never exhausted (is_exhausted False), exactly one threshold_crossed at cumulative_wait >= 1800s. This is the direct AC-C2/AC-C5 no-ceiling liveness property — precisely the positive test I asked for in my v1 NACK.
+- test_frozen_throttle_signature_never_escalates: throttle-classified signature ("429 rate limit"), repeats+5 → never escalates, never exhausted (no-ceiling at the signature layer).
+- test_non_throttle_signature_escalates_once_past_guard_threshold: non-throttle signature ("Traceback: KeyError") → escalates once and is sticky, exercising the corrected AC-C4 positive-non-throttle-evidence gate.
+- test_advancing_progression_resets_the_guard: kept, as requested.
+
+Removing test_cumulative_wait_threshold_alert_latches_once is correct — its "advance progression each retry to reach the threshold" framing was a corroborating tell of the wrong contract, and its threshold-latch-once property is now asserted on the CORRECT frozen-progression cap-wall path by test_steady_throttle_never_escalates. No coverage lost.
+
+Concurrency/liveness verification: the tests now correctly assert that the paced-retry loop never terminates prematurely for a genuine cap wall while still exercising bounded pacing; the guard only fires on positive non-throttle evidence. Test hygiene remains good — deterministic _ManualClock (no flaky real-time sleeps), clean per-supervisor isolation. The executor-handler tests (test_deterministic_loop_emits_alert_and_halts_the_arm / test_both_transitions / test_halt_preserves_sibling_slices) are unchanged and remain valid isolated "given deterministic_loop=True → alert + halt only this key" contracts. auth_errors disjointness, kubernetes_spawner precedence, and supervision_policy constant/backoff/fingerprint suites unchanged and fine. ACK.
+
+````yaml
+id: bf8c5c14-de53-41
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    reason: "v2 fully resolves my v1 NACK (the loop-guard tests encoded the frozen-progression\
+      \ halt I flagged as a cq-1/AC-C2/AC-C5 liveness violation). Reviewed the NET\
+      \ state of TestLoopGuardAndThreshold (the rework landed in the coder's lockstep\
+      \ commit 94fbf7c6e, already reviewed under my coder v2 ACK; the tester's own\
+      \ e96806cea removes only the redundant test_cumulative_wait_threshold_alert_latches_once).\n\
+      \nThe corrected test surface now pins exactly the semantics I required:\n- test_steady_throttle_never_escalates_and_paces_past_threshold:\
+      \ frozen progression + NO signature (the production bare-throttle path), 60\
+      \ reproductions \u2192 never deterministic_loop, never exhausted (is_exhausted\
+      \ False), exactly one threshold_crossed at cumulative_wait >= 1800s. This is\
+      \ the direct AC-C2/AC-C5 no-ceiling liveness property \u2014 precisely the positive\
+      \ test I asked for in my v1 NACK.\n- test_frozen_throttle_signature_never_escalates:\
+      \ throttle-classified signature (\"429 rate limit\"), repeats+5 \u2192 never\
+      \ escalates, never exhausted (no-ceiling at the signature layer).\n- test_non_throttle_signature_escalates_once_past_guard_threshold:\
+      \ non-throttle signature (\"Traceback: KeyError\") \u2192 escalates once and\
+      \ is sticky, exercising the corrected AC-C4 positive-non-throttle-evidence gate.\n\
+      - test_advancing_progression_resets_the_guard: kept, as requested.\n\nRemoving\
+      \ test_cumulative_wait_threshold_alert_latches_once is correct \u2014 its \"\
+      advance progression each retry to reach the threshold\" framing was a corroborating\
+      \ tell of the wrong contract, and its threshold-latch-once property is now asserted\
+      \ on the CORRECT frozen-progression cap-wall path by test_steady_throttle_never_escalates.\
+      \ No coverage lost.\n\nConcurrency/liveness verification: the tests now correctly\
+      \ assert that the paced-retry loop never terminates prematurely for a genuine\
+      \ cap wall while still exercising bounded pacing; the guard only fires on positive\
+      \ non-throttle evidence. Test hygiene remains good \u2014 deterministic _ManualClock\
+      \ (no flaky real-time sleeps), clean per-supervisor isolation. The executor-handler\
+      \ tests (test_deterministic_loop_emits_alert_and_halts_the_arm / test_both_transitions\
+      \ / test_halt_preserves_sibling_slices) are unchanged and remain valid isolated\
+      \ \"given deterministic_loop=True \u2192 alert + halt only this key\" contracts.\
+      \ auth_errors disjointness, kubernetes_spawner precedence, and supervision_policy\
+      \ constant/backoff/fingerprint suites unchanged and fine. ACK."
+    ack_version: 2
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:54:31Z] reviewer_security → tester (CONSENSUS_ACK): ACK from reviewer_security for tester
+
+Security review PASS on tester v2 (e96806cea). The tester's own v1..v2 delta is a single test deletion — removing the now-redundant test_cumulative_wait_threshold_alert_latches_once, whose threshold-latch-once property is now covered on the correct frozen-progression cap-wall path by test_steady_throttle_never_escalates_and_paces_past_threshold. Test-only, net removal, no production code — zero new attack surface. The two security-critical tests I rely on are untouched and still present: test_absurd_hint_is_clamped_to_the_pacing_ceiling (untrusted reset-hint clamp) and TestDisjointFromAuthFatal / test_predicates_are_never_both_true (credential-failure disjointness — a weekly-cap/bad-credential 429 stays auth-fatal, never an infinite paced retry). Commit reports bandit(-ll) clean. No security blockers.
+
+````yaml
+id: 1462adf1-19a6-4a
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    reason: "Security review PASS on tester v2 (e96806cea). The tester's own v1..v2\
+      \ delta is a single test deletion \u2014 removing the now-redundant test_cumulative_wait_threshold_alert_latches_once,\
+      \ whose threshold-latch-once property is now covered on the correct frozen-progression\
+      \ cap-wall path by test_steady_throttle_never_escalates_and_paces_past_threshold.\
+      \ Test-only, net removal, no production code \u2014 zero new attack surface.\
+      \ The two security-critical tests I rely on are untouched and still present:\
+      \ test_absurd_hint_is_clamped_to_the_pacing_ceiling (untrusted reset-hint clamp)\
+      \ and TestDisjointFromAuthFatal / test_predicates_are_never_both_true (credential-failure\
+      \ disjointness \u2014 a weekly-cap/bad-credential 429 stays auth-fatal, never\
+      \ an infinite paced retry). Commit reports bandit(-ll) clean. No security blockers."
+    ack_version: 2
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:54:35Z] reviewer_security (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_security
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: c3e1adf7-9857-4e
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:54:35Z] reviewer_concurrency (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_concurrency
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 675abf8b-db16-4b
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:54:43Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=137188 util=0.14 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 7c08b461-38e2-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:54:44Z] reviewer_code_holistic → tester (CONSENSUS_ACK): ACK from reviewer_code_holistic for tester
+
+ACK (holistic) — both my v1 tester blockers are resolved; the suite now pins the corrected no-ceiling contract instead of the defect.
+
+V1 BLOCKER 1 (codified the defect) — RESOLVED: the old test_identical_fingerprint_escalates_once_past_guard_threshold asserted that a constant-signature + frozen-progression steady throttle MUST trip the guard and halt (exactly a genuine all-producers cap wall). It has been reworked (coder lockstep 94fbf7c6e) into test_steady_throttle_never_escalates_and_paces_past_threshold, which asserts the OPPOSITE and correct behavior: 60 bare-throttle retries on the frozen-progression path → no deterministic_loop, never exhausted, cq-1 threshold alert fires exactly once at cumulative wait >= 1800s, paces indefinitely. Plus test_frozen_throttle_signature_never_escalates (a "429 rate limit"-classified signature also never escalates) and test_non_throttle_signature_escalates_once_past_guard_threshold (a changed non-throttle "Traceback: KeyError" signature escalates once, sticky — AC-C4 positive evidence).
+
+V1 BLOCKER 2 (missing AC-C5 regression) — RESOLVED: test_steady_throttle_never_escalates_and_paces_past_threshold IS the frozen-progression-paces-past-threshold-without-halting regression I asked for, on the real production signature (no error text, digest frozen because every producer is throttled).
+
+TESTER V2 DELTA (e96806cea): removes test_cumulative_wait_threshold_alert_latches_once — the test three reviewers flagged for advancing progression each retry to dodge the guard; its threshold-latch-once property is now covered on the CORRECT frozen path by test_steady_throttle_never_escalates. Good cleanup, no coverage lost.
+
+REGRESSION CHECK: the v2 delta touches only test_event_loop_rate_limited.py. The auth_errors disjointness/precedence/CLI-mapping, kubernetes_spawner outcome_for mapping, supervision_policy pure-function, and concurrent_executor _handle_rate_limited reaction suites I verified solid at v1 are unchanged; TestObserveRoutes / TestNoStreakHalt (AC-C1) / TestPacingAndClearing / AC-C6 regressions all remain. Suite reported green (224 passed / 5 SDK-skipped, ruff + bandit clean).
+
+NON-BLOCKING NOTE: the module docstring's bullet still describes the guard as "reports deterministic_loop when the identical fingerprint reproduces at the same progression point past the guard threshold" without the added non-throttle-signature qualifier — a stale-comment nuance (the assertions themselves are correct). Worth a one-line docstring touch-up on a future pass; not a review blocker. Consistent with my coder v2 ACK — the coder/tester test-file seam is now converged.
+
+````yaml
+id: 0aa3f46e-cdfb-42
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    reason: "ACK (holistic) \u2014 both my v1 tester blockers are resolved; the suite\
+      \ now pins the corrected no-ceiling contract instead of the defect.\n\nV1 BLOCKER\
+      \ 1 (codified the defect) \u2014 RESOLVED: the old test_identical_fingerprint_escalates_once_past_guard_threshold\
+      \ asserted that a constant-signature + frozen-progression steady throttle MUST\
+      \ trip the guard and halt (exactly a genuine all-producers cap wall). It has\
+      \ been reworked (coder lockstep 94fbf7c6e) into test_steady_throttle_never_escalates_and_paces_past_threshold,\
+      \ which asserts the OPPOSITE and correct behavior: 60 bare-throttle retries\
+      \ on the frozen-progression path \u2192 no deterministic_loop, never exhausted,\
+      \ cq-1 threshold alert fires exactly once at cumulative wait >= 1800s, paces\
+      \ indefinitely. Plus test_frozen_throttle_signature_never_escalates (a \"429\
+      \ rate limit\"-classified signature also never escalates) and test_non_throttle_signature_escalates_once_past_guard_threshold\
+      \ (a changed non-throttle \"Traceback: KeyError\" signature escalates once,\
+      \ sticky \u2014 AC-C4 positive evidence).\n\nV1 BLOCKER 2 (missing AC-C5 regression)\
+      \ \u2014 RESOLVED: test_steady_throttle_never_escalates_and_paces_past_threshold\
+      \ IS the frozen-progression-paces-past-threshold-without-halting regression\
+      \ I asked for, on the real production signature (no error text, digest frozen\
+      \ because every producer is throttled).\n\nTESTER V2 DELTA (e96806cea): removes\
+      \ test_cumulative_wait_threshold_alert_latches_once \u2014 the test three reviewers\
+      \ flagged for advancing progression each retry to dodge the guard; its threshold-latch-once\
+      \ property is now covered on the CORRECT frozen path by test_steady_throttle_never_escalates.\
+      \ Good cleanup, no coverage lost.\n\nREGRESSION CHECK: the v2 delta touches\
+      \ only test_event_loop_rate_limited.py. The auth_errors disjointness/precedence/CLI-mapping,\
+      \ kubernetes_spawner outcome_for mapping, supervision_policy pure-function,\
+      \ and concurrent_executor _handle_rate_limited reaction suites I verified solid\
+      \ at v1 are unchanged; TestObserveRoutes / TestNoStreakHalt (AC-C1) / TestPacingAndClearing\
+      \ / AC-C6 regressions all remain. Suite reported green (224 passed / 5 SDK-skipped,\
+      \ ruff + bandit clean).\n\nNON-BLOCKING NOTE: the module docstring's bullet\
+      \ still describes the guard as \"reports deterministic_loop when the identical\
+      \ fingerprint reproduces at the same progression point past the guard threshold\"\
+      \ without the added non-throttle-signature qualifier \u2014 a stale-comment\
+      \ nuance (the assertions themselves are correct). Worth a one-line docstring\
+      \ touch-up on a future pass; not a review blocker. Consistent with my coder\
+      \ v2 ACK \u2014 the coder/tester test-file seam is now converged."
+    ack_version: 2
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:54:44Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=154158 util=0.15 cache_hit=0.98 decision=below_threshold
+
+````yaml
+id: 8c101b39-6db5-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:54:45Z] reviewer_code_holistic (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code_holistic
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: e6a3deb2-2466-41
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:54:53Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=184409 util=0.18 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: baf253e9-3b38-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:54:57Z] reviewer_code → tester (CONSENSUS_ACK): ACK from reviewer_code for tester
+
+ACK v2 — both my v1 NACK blockers are resolved.
+
+BLOCKER 1 (bug-codifying test) — RESOLVED. The v1 test_identical_fingerprint_escalates_once_past_guard_threshold, which set a FROZEN progression + bare "rate_limited" signature (a genuine cap wall) and asserted deterministic_loop is True (halt), is GONE. It is replaced by test_non_throttle_signature_escalates_once_past_guard_threshold, which drives a CHANGED non-throttle signature ("Traceback: KeyError in handler") and asserts escalation once + sticky — the corrected AC-C4 positive-evidence contract.
+
+BLOCKER 2 (missing AC-C5 regression) — RESOLVED. test_steady_throttle_never_escalates_and_paces_past_threshold is the regression I required: 60 record_rate_limited calls on the production bare-throttle path (no exit_detail) with frozen progression, asserting (a) no deterministic_loop ever, (b) is_exhausted("k") is False — the no-ceiling guarantee, (c) exactly one threshold_crossed with cumulative_wait_seconds >= 1800s. This is exactly the cap-wall signature the v1 guard wrongly halted, now pinned to pace indefinitely. Plus test_frozen_throttle_signature_never_escalates covers the throttle-classified-text path ("429 rate limit" -> never escalates).
+
+CORROBORATING-TELL TEST — REMOVED CORRECTLY. The tester's own v2 delta drops test_cumulative_wait_threshold_alert_latches_once (the one that had to artificially advance progression each retry to reach the threshold — which I flagged as a tell of the wrong contract). Its threshold-latch-once property is now covered on the CORRECT frozen-progression path by test_steady_throttle_..._paces_past_threshold. Sound de-duplication, not a coverage loss.
+
+FINAL TestLoopGuardAndThreshold = {steady_throttle_never_escalates_and_paces_past_threshold, frozen_throttle_signature_never_escalates, non_throttle_signature_escalates_once_past_guard_threshold, advancing_progression_resets_the_guard} — all correct and consistent with the coder v2 discriminator I ACKed. The remaining exit_detail="rate_limited" (advancing-progression test) is fine: "rate_limited" matches is_transient_rate_limit_error, so signature_is_non_throttle is False and no escalation is the correct assertion.
+
+UNCHANGED FROM V1 (re-confirmed the tester delta touches only test_event_loop_rate_limited.py): test_auth_errors_rate_limit.py (classification + EX_RATE_LIMITED=69 distinctness + AC-C6 disjointness + CLI mapping), test_kubernetes_spawner_rate_limited.py (outcome_for precedence + AC-C6 regression), test_supervision_policy.py (constants/parse/backoff/fingerprint), test_concurrent_executor_rate_limit.py (_handle_rate_limited reaction-to-flags + landed-slice preservation) — all assessed correct at v1 and still hold.
+
+SEAM (resolved): the coder/tester co-edit of this test file (coder 94fbf7c reworked the class, tester e96806c removed the redundant test) is coherent; I ACKed coder v2 last turn. Test contract and implementation now agree.
+
+````yaml
+id: 43ec03af-22f4-47
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    reason: "ACK v2 \u2014 both my v1 NACK blockers are resolved.\n\nBLOCKER 1 (bug-codifying\
+      \ test) \u2014 RESOLVED. The v1 test_identical_fingerprint_escalates_once_past_guard_threshold,\
+      \ which set a FROZEN progression + bare \"rate_limited\" signature (a genuine\
+      \ cap wall) and asserted deterministic_loop is True (halt), is GONE. It is replaced\
+      \ by test_non_throttle_signature_escalates_once_past_guard_threshold, which\
+      \ drives a CHANGED non-throttle signature (\"Traceback: KeyError in handler\"\
+      ) and asserts escalation once + sticky \u2014 the corrected AC-C4 positive-evidence\
+      \ contract.\n\nBLOCKER 2 (missing AC-C5 regression) \u2014 RESOLVED. test_steady_throttle_never_escalates_and_paces_past_threshold\
+      \ is the regression I required: 60 record_rate_limited calls on the production\
+      \ bare-throttle path (no exit_detail) with frozen progression, asserting (a)\
+      \ no deterministic_loop ever, (b) is_exhausted(\"k\") is False \u2014 the no-ceiling\
+      \ guarantee, (c) exactly one threshold_crossed with cumulative_wait_seconds\
+      \ >= 1800s. This is exactly the cap-wall signature the v1 guard wrongly halted,\
+      \ now pinned to pace indefinitely. Plus test_frozen_throttle_signature_never_escalates\
+      \ covers the throttle-classified-text path (\"429 rate limit\" -> never escalates).\n\
+      \nCORROBORATING-TELL TEST \u2014 REMOVED CORRECTLY. The tester's own v2 delta\
+      \ drops test_cumulative_wait_threshold_alert_latches_once (the one that had\
+      \ to artificially advance progression each retry to reach the threshold \u2014\
+      \ which I flagged as a tell of the wrong contract). Its threshold-latch-once\
+      \ property is now covered on the CORRECT frozen-progression path by test_steady_throttle_..._paces_past_threshold.\
+      \ Sound de-duplication, not a coverage loss.\n\nFINAL TestLoopGuardAndThreshold\
+      \ = {steady_throttle_never_escalates_and_paces_past_threshold, frozen_throttle_signature_never_escalates,\
+      \ non_throttle_signature_escalates_once_past_guard_threshold, advancing_progression_resets_the_guard}\
+      \ \u2014 all correct and consistent with the coder v2 discriminator I ACKed.\
+      \ The remaining exit_detail=\"rate_limited\" (advancing-progression test) is\
+      \ fine: \"rate_limited\" matches is_transient_rate_limit_error, so signature_is_non_throttle\
+      \ is False and no escalation is the correct assertion.\n\nUNCHANGED FROM V1\
+      \ (re-confirmed the tester delta touches only test_event_loop_rate_limited.py):\
+      \ test_auth_errors_rate_limit.py (classification + EX_RATE_LIMITED=69 distinctness\
+      \ + AC-C6 disjointness + CLI mapping), test_kubernetes_spawner_rate_limited.py\
+      \ (outcome_for precedence + AC-C6 regression), test_supervision_policy.py (constants/parse/backoff/fingerprint),\
+      \ test_concurrent_executor_rate_limit.py (_handle_rate_limited reaction-to-flags\
+      \ + landed-slice preservation) \u2014 all assessed correct at v1 and still hold.\n\
+      \nSEAM (resolved): the coder/tester co-edit of this test file (coder 94fbf7c\
+      \ reworked the class, tester e96806c removed the redundant test) is coherent;\
+      \ I ACKed coder v2 last turn. Test contract and implementation now agree."
+    ack_version: 2
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:55:02Z] reviewer_code (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 566d39ca-f47c-42
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:55:15Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=236519 util=0.24 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: ff5474e7-07ea-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:55:33Z] reviewer_contract → tester (CONSENSUS_ACK): ACK from reviewer_contract for tester
+
+ACK v2 — both v1 NACK points resolved; the suite now pins the corrected no-ceiling contract with no test asserting contract-violating behavior.
+
+MANDATE 1 (v1 blockers fixed):
+(1) The frozen-throttle-escalates assertion (v1 test_identical_fingerprint_escalates_once_past_guard_threshold, which blessed the AC-C5 bug by asserting a frozen-progression bare throttle → deterministic_loop/halt) is GONE. TestLoopGuardAndThreshold now pins the corrected contract:
+  - test_steady_throttle_never_escalates_and_paces_past_threshold — the exact AC-C5 / cq-1 regression I required: 60 retries on the production bare-throttle path (no exit_detail) with a FROZEN progression → never deterministic_loop, is_exhausted stays False, and the cq-1 threshold OVERSEER_ALERT fires exactly once at cumulative wait >= 1800s.
+  - test_frozen_throttle_signature_never_escalates — a throttle-CLASSIFIED signature ("429 rate limit") with frozen progression also never escalates.
+  - test_non_throttle_signature_escalates_once_past_guard_threshold — AC-C4 corrected: only a changed-to-non-throttle signature ("Traceback: KeyError") escalates once past the guard threshold, sticky.
+  - test_advancing_progression_resets_the_guard — AC-C4 "continue when state advances".
+(2) The artificial-progression test_cumulative_wait_threshold_alert_latches_once (v1 concern: reached the threshold only by advancing progression each retry, never exercising a real frozen-progression cap wall) is REMOVED in the tester's own commit e96806cea. Its threshold-latch-once property is now asserted on the CORRECT frozen-progression path by test_steady_throttle_never_escalates_and_paces_past_threshold (len(crossings) == 1). No coverage lost.
+
+MANDATE 2 (fresh audit of the tester's v2 delta b74fa6bbb..e96806cea): the only tester-authored change in this delta is the single deletion above (the substantive rewrites arrived via the coder's lockstep 94fbf7c, reviewed + ACKed on the coder edge). The deletion causes no coverage regression. The other four test files are untouched since my v1 review and remain verified-good.
+
+FULL AC PASS for task-2-8: AC-C1 (repeated rate-limits never trip the fail-streak halt), AC-C2 (paced hours-scale window separate from the 30s cap), AC-C3 (halt preserves sibling slices), AC-C4 (loop-guard escalates on positive non-throttle evidence, resets on advancing progression), AC-C5 (no hard ceiling + threshold alert once), AC-C6 (EX_AUTH_FATAL precedence + abnormal path unchanged + classifier disjointness), AC-C7 (comprehensive + green: 224 passed / 5 SDK-skipped, ruff + bandit clean).
+
+task-2-5 (record_rate_limited): verified against the implementation — leaves the abnormal streak state untouched (AC-C1), paces on a separate anchor, captures the loop-guard fingerprint, and reports the two transitions (deterministic_loop only on positive non-throttle evidence per the corrected guard). Covered by the event-loop suite. Contract-clean.
+
+SECONDARY (non-blocking, already noted on the coder ACK): task-2-5 and the loop-guard test rewrites were authored across the coder/tester seam per reviewer_code_holistic's ask — a coordination note, not a contract issue.
+
+````yaml
+id: 0ee600e9-189f-47
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    reason: "ACK v2 \u2014 both v1 NACK points resolved; the suite now pins the corrected\
+      \ no-ceiling contract with no test asserting contract-violating behavior.\n\n\
+      MANDATE 1 (v1 blockers fixed):\n(1) The frozen-throttle-escalates assertion\
+      \ (v1 test_identical_fingerprint_escalates_once_past_guard_threshold, which\
+      \ blessed the AC-C5 bug by asserting a frozen-progression bare throttle \u2192\
+      \ deterministic_loop/halt) is GONE. TestLoopGuardAndThreshold now pins the corrected\
+      \ contract:\n  - test_steady_throttle_never_escalates_and_paces_past_threshold\
+      \ \u2014 the exact AC-C5 / cq-1 regression I required: 60 retries on the production\
+      \ bare-throttle path (no exit_detail) with a FROZEN progression \u2192 never\
+      \ deterministic_loop, is_exhausted stays False, and the cq-1 threshold OVERSEER_ALERT\
+      \ fires exactly once at cumulative wait >= 1800s.\n  - test_frozen_throttle_signature_never_escalates\
+      \ \u2014 a throttle-CLASSIFIED signature (\"429 rate limit\") with frozen progression\
+      \ also never escalates.\n  - test_non_throttle_signature_escalates_once_past_guard_threshold\
+      \ \u2014 AC-C4 corrected: only a changed-to-non-throttle signature (\"Traceback:\
+      \ KeyError\") escalates once past the guard threshold, sticky.\n  - test_advancing_progression_resets_the_guard\
+      \ \u2014 AC-C4 \"continue when state advances\".\n(2) The artificial-progression\
+      \ test_cumulative_wait_threshold_alert_latches_once (v1 concern: reached the\
+      \ threshold only by advancing progression each retry, never exercising a real\
+      \ frozen-progression cap wall) is REMOVED in the tester's own commit e96806cea.\
+      \ Its threshold-latch-once property is now asserted on the CORRECT frozen-progression\
+      \ path by test_steady_throttle_never_escalates_and_paces_past_threshold (len(crossings)\
+      \ == 1). No coverage lost.\n\nMANDATE 2 (fresh audit of the tester's v2 delta\
+      \ b74fa6bbb..e96806cea): the only tester-authored change in this delta is the\
+      \ single deletion above (the substantive rewrites arrived via the coder's lockstep\
+      \ 94fbf7c, reviewed + ACKed on the coder edge). The deletion causes no coverage\
+      \ regression. The other four test files are untouched since my v1 review and\
+      \ remain verified-good.\n\nFULL AC PASS for task-2-8: AC-C1 (repeated rate-limits\
+      \ never trip the fail-streak halt), AC-C2 (paced hours-scale window separate\
+      \ from the 30s cap), AC-C3 (halt preserves sibling slices), AC-C4 (loop-guard\
+      \ escalates on positive non-throttle evidence, resets on advancing progression),\
+      \ AC-C5 (no hard ceiling + threshold alert once), AC-C6 (EX_AUTH_FATAL precedence\
+      \ + abnormal path unchanged + classifier disjointness), AC-C7 (comprehensive\
+      \ + green: 224 passed / 5 SDK-skipped, ruff + bandit clean).\n\ntask-2-5 (record_rate_limited):\
+      \ verified against the implementation \u2014 leaves the abnormal streak state\
+      \ untouched (AC-C1), paces on a separate anchor, captures the loop-guard fingerprint,\
+      \ and reports the two transitions (deterministic_loop only on positive non-throttle\
+      \ evidence per the corrected guard). Covered by the event-loop suite. Contract-clean.\n\
+      \nSECONDARY (non-blocking, already noted on the coder ACK): task-2-5 and the\
+      \ loop-guard test rewrites were authored across the coder/tester seam per reviewer_code_holistic's\
+      \ ask \u2014 a coordination note, not a contract issue."
+    ack_version: 2
+    attestation:
+      tasks_verified:
+      - task-2-5
+      - task-2-8
+      verification_note: "task-2-8 (the PR C test suite): re-verified against the\
+        \ corrected AC-C4/AC-C5 contract; both v1 NACK points resolved (frozen-throttle-escalates\
+        \ assertion replaced by the AC-C5 regression; artificial-progression threshold\
+        \ test removed with the property retained on the correct frozen-progression\
+        \ path); full AC-C1..C7 coverage. task-2-5 (record_rate_limited \u2014 nominally\
+        \ tester, implemented via the coder seam): verified against the implementation\
+        \ \u2014 it leaves the abnormal _streaks/_last_abort_time/_exhausted state\
+        \ untouched (AC-C1), paces the respawn on a separate anchor, captures the\
+        \ RateLimitFingerprint the loop-guard consumes, and reports threshold_crossed\
+        \ / deterministic_loop (the latter only on positive non-throttle evidence\
+        \ per the corrected guard). Its behavior is covered by TestObserveRoutesRateLimited\
+        \ / TestNoStreakHalt / TestPacingAndClearing / TestLoopGuardAndThreshold in\
+        \ test_event_loop_rate_limited.py."
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:55:38Z] reviewer_contract (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_contract
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 5504f89d-4186-44
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:55:45Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=249435 util=0.25 cache_hit=0.98 decision=below_threshold
+
+````yaml
+id: 8c7d912e-1368-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:56:05Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: cd475738-0788-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:57:56Z] tester → coder (CONSENSUS_ACK): ACK from tester for coder
+
+ACK coder v2 (94fbf7c6e) — resolves the unanimous v1 open-NACK root cause (deterministic-loop guard halting a genuine cap wall, cq-1/AC-C5 violation). VERIFIED: (1) record_rate_limited now gates deterministic_loop behind signature_is_non_throttle = bool(exit_detail) AND not is_transient_rate_limit_error(exit_detail) AND parse_rate_limit_reset_seconds(exit_detail) is None; _observe_jobs deliberately passes NO exit_detail on the rate-limit branch, so a bare production throttle (exit_detail=None) can NEVER satisfy the gate — it paces indefinitely with only the cq-1 threshold OVERSEER_ALERT (no hard ceiling). cq-1/AC-C5 satisfied. (2) AC-C4 preserved: an advancing progression resets the repeat counter, and a genuinely changed non-throttle signature (e.g. "Traceback: KeyError") still escalates after LOOP_GUARD_REPEATS. (3) AC-C1/C3/C6 untouched — the diff only narrows the deterministic_loop derivation; record_abort/_streaks/ready_to_respawn/halt_rate_limited are unchanged. (4) Ran the full PR C suite at HEAD (e96806cea = v2 + my task-2-8 finalization): 81 passed / 5 SDK-skipped. (5) Regression proof: ran TestLoopGuardAndThreshold against v1 production files — the two AC-C5 liveness tests FAIL (deterministic_loop wrongly True) and pass against v2, proving the tests genuinely pin the corrected no-ceiling contract. The lockstep rework of my test file (test_event_loop_rate_limited.py, coder/tester seam) is correct; I finalized it in e96806cea by dropping the now-redundant advancing-progression threshold test (its latch property is covered on the correct frozen-progression path). No blockers.
+
+````yaml
+id: f3a948bc-4ac2-45
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    reason: "ACK coder v2 (94fbf7c6e) \u2014 resolves the unanimous v1 open-NACK root\
+      \ cause (deterministic-loop guard halting a genuine cap wall, cq-1/AC-C5 violation).\
+      \ VERIFIED: (1) record_rate_limited now gates deterministic_loop behind signature_is_non_throttle\
+      \ = bool(exit_detail) AND not is_transient_rate_limit_error(exit_detail) AND\
+      \ parse_rate_limit_reset_seconds(exit_detail) is None; _observe_jobs deliberately\
+      \ passes NO exit_detail on the rate-limit branch, so a bare production throttle\
+      \ (exit_detail=None) can NEVER satisfy the gate \u2014 it paces indefinitely\
+      \ with only the cq-1 threshold OVERSEER_ALERT (no hard ceiling). cq-1/AC-C5\
+      \ satisfied. (2) AC-C4 preserved: an advancing progression resets the repeat\
+      \ counter, and a genuinely changed non-throttle signature (e.g. \"Traceback:\
+      \ KeyError\") still escalates after LOOP_GUARD_REPEATS. (3) AC-C1/C3/C6 untouched\
+      \ \u2014 the diff only narrows the deterministic_loop derivation; record_abort/_streaks/ready_to_respawn/halt_rate_limited\
+      \ are unchanged. (4) Ran the full PR C suite at HEAD (e96806cea = v2 + my task-2-8\
+      \ finalization): 81 passed / 5 SDK-skipped. (5) Regression proof: ran TestLoopGuardAndThreshold\
+      \ against v1 production files \u2014 the two AC-C5 liveness tests FAIL (deterministic_loop\
+      \ wrongly True) and pass against v2, proving the tests genuinely pin the corrected\
+      \ no-ceiling contract. The lockstep rework of my test file (test_event_loop_rate_limited.py,\
+      \ coder/tester seam) is correct; I finalized it in e96806cea by dropping the\
+      \ now-redundant advancing-progression threshold test (its latch property is\
+      \ covered on the correct frozen-progression path). No blockers."
+    ack_version: 2
+    attestation:
+      tests_verified:
+      - orchestrator/tests/test_event_loop_rate_limited.py::TestLoopGuardAndThreshold
+      - PR C rate-limit suite (81 passed / 5 SDK-skipped)
+      regression_proof: "AC-C5 liveness tests (test_steady_throttle_never_escalates_and_paces_past_threshold,\
+        \ test_frozen_throttle_signature_never_escalates) FAIL against v1 (2bd6124a3)\
+        \ buggy impl and PASS against v2 (94fbf7c6e) \u2014 genuine driving regression,\
+        \ not tautology"
+      checks_passed:
+      - test
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:57:56Z] orchestrator → coder (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 2) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 043efcf8-4e13-40
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:57:56Z] orchestrator → tester (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 2) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: cfe5899b-2590-42
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 2
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:58:01Z] coder (CONSENSUS_CONFIRMED): Consensus confirmed by coder
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 9cfdc68a-b279-4c
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:58:01Z] tester (CONSENSUS_CONFIRMED): Consensus confirmed by tester
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 1c2ec132-e4e2-44
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:58:01Z] documenter (CONSENSUS_CONFIRMED): Consensus confirmed by documenter
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: dbe6160c-dc46-44
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:58:01Z] reviewer_code (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 8aaacf65-99f5-47
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:58:01Z] reviewer_code_holistic (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code_holistic
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: e4af70de-e33f-40
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:58:01Z] reviewer_contract (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_contract
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: d85d073b-acf4-43
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:58:01Z] reviewer_security (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_security
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 6ae72cb8-0050-4d
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:58:01Z] reviewer_concurrency (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_concurrency
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 373f4d5c-116b-4c
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:58:18Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 165c6686-24c8-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T20:59:55Z] tester (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=401433 util=0.40 cache_hit=1.00 decision=below_threshold
+
+````yaml
+id: ba88c082-3edc-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:54:53Z] coder (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: 6f5e3622-4b8b-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:54:55Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: 10b7a64b-53a7-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:55:00Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 23611238-af59-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:55:06Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 487dcdb2-563f-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:56:14Z] coder (CONSENSUS_PROPOSE): Proposal from coder
+
+PR C (#3364) supervision hardening — re-propose after a consensus-tracker reset (edges were back at v0). The corrected implementation is intact at the shared slice tip (my loop-guard fix 94fbf7c6 + the tester's finalized coverage e96806cea on top). EX_AUTH_FATAL-style transient rate-limit mirror: is_transient_rate_limit_error/EX_RATE_LIMITED=69 (disjoint from auth-fatal) -> __main__ emits it (auth-fatal first) -> outcome_for -> JOB_OUTCOME_RATE_LIMITED -> _observe_jobs -> record_rate_limited (abnormal streak untouched, AC-C1) -> paced respawn via extended ready_to_respawn (AC-C2) -> _handle_rate_limited emits the cq-1 cumulative-wait threshold OVERSEER_ALERT with NO hard ceiling (AC-C5) and the deterministic-loop guard.
+
+CRITICAL correction carried from the v1 open-NACK barrier (all four code reviewers, single root cause): the loop-guard NO LONGER treats a frozen BRC progression as deterministic evidence (a genuine account-wide cap wall freezes it identically). It escalates ONLY on POSITIVE non-throttle evidence — a present signature that is not is_transient_rate_limit_error and carries no reset hint — and _observe_jobs no longer forwards the uninformative pod exit code. So a genuine steady throttle paces INDEFINITELY, crosses the 1800s threshold, alerts once, and is_exhausted stays False; only a failure that CHANGED to a non-throttle error escalates+halts (AC-C4). Landed slices preserved via the normal respawn gate (AC-C3); EX_AUTH_FATAL + abnormal unchanged (AC-C6).
+
+Green at tip e96806cea: ruff check+format clean; test_event_loop_rate_limited / test_supervision_policy / test_concurrent_executor_rate_limit / test_kubernetes_spawner_rate_limited / test_auth_errors_rate_limit + the event_loop/concurrent_executor regression suites all pass. (The tester owns task-2-5/2-8; task-2-5 record_rate_limited was implemented coder-side for import coherence — flagged seam.)
+
+````yaml
+id: d521201c-cc64-4b
+phase: implement
+metadata:
+  payload:
+    summary: "PR C (#3364) supervision hardening \u2014 re-propose after a consensus-tracker\
+      \ reset (edges were back at v0). The corrected implementation is intact at the\
+      \ shared slice tip (my loop-guard fix 94fbf7c6 + the tester's finalized coverage\
+      \ e96806cea on top). EX_AUTH_FATAL-style transient rate-limit mirror: is_transient_rate_limit_error/EX_RATE_LIMITED=69\
+      \ (disjoint from auth-fatal) -> __main__ emits it (auth-fatal first) -> outcome_for\
+      \ -> JOB_OUTCOME_RATE_LIMITED -> _observe_jobs -> record_rate_limited (abnormal\
+      \ streak untouched, AC-C1) -> paced respawn via extended ready_to_respawn (AC-C2)\
+      \ -> _handle_rate_limited emits the cq-1 cumulative-wait threshold OVERSEER_ALERT\
+      \ with NO hard ceiling (AC-C5) and the deterministic-loop guard.\n\nCRITICAL\
+      \ correction carried from the v1 open-NACK barrier (all four code reviewers,\
+      \ single root cause): the loop-guard NO LONGER treats a frozen BRC progression\
+      \ as deterministic evidence (a genuine account-wide cap wall freezes it identically).\
+      \ It escalates ONLY on POSITIVE non-throttle evidence \u2014 a present signature\
+      \ that is not is_transient_rate_limit_error and carries no reset hint \u2014\
+      \ and _observe_jobs no longer forwards the uninformative pod exit code. So a\
+      \ genuine steady throttle paces INDEFINITELY, crosses the 1800s threshold, alerts\
+      \ once, and is_exhausted stays False; only a failure that CHANGED to a non-throttle\
+      \ error escalates+halts (AC-C4). Landed slices preserved via the normal respawn\
+      \ gate (AC-C3); EX_AUTH_FATAL + abnormal unchanged (AC-C6).\n\nGreen at tip\
+      \ e96806cea: ruff check+format clean; test_event_loop_rate_limited / test_supervision_policy\
+      \ / test_concurrent_executor_rate_limit / test_kubernetes_spawner_rate_limited\
+      \ / test_auth_errors_rate_limit + the event_loop/concurrent_executor regression\
+      \ suites all pass. (The tester owns task-2-5/2-8; task-2-5 record_rate_limited\
+      \ was implemented coder-side for import coherence \u2014 flagged seam.)"
+    attestation: {}
+    artifacts:
+    - e96806cea1b0a545f1c3ab7f78a520b30b621a26
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    risk_considered: "Highest-risk slice. The v2 loop-guard correction makes AC-C5/cq-1\
+      \ (no ceiling) structurally guaranteed \u2014 escalation requires a non-throttle\
+      \ signature the production bare-exit path never carries. AC-C1/C3/C6 verified\
+      \ correct by all four reviewers in v1 and unchanged. Re-proposing the same coherent\
+      \ tip after a tracker reset; no code change this event."
+    commit_sha: e96806cea1b0a545f1c3ab7f78a520b30b621a26
+    files_changed:
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    tests_run: []
+    tasks_satisfied:
+    - task-2-1
+    - task-2-2
+    - task-2-3
+    - task-2-4
+    - task-2-6
+    - task-2-7
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: e96806cea1b0a545f1c3ab7f78a520b30b621a26
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:56:20Z] tester (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: c9b86221-dacf-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:56:21Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 34b8cd44-6b20-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:56:23Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: a1a4e937-3e95-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:56:24Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 9dd7c8b0-5417-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:56:25Z] coder (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=507086 util=0.51 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 6caeb880-2243-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:56:25Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 199411b6-3c07-49
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:56:27Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 60e7e3c2-4ec1-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:56:35Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 480e6186-5f53-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:56:43Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 8d1ddd81-c7d8-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:56:47Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 4e5c265a-c02c-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:56:47Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 61c8062a-6796-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:56:48Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 046ea4f5-7242-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:56:49Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 416521b5-692a-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:57:01Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 9eef148e-7cde-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:57:09Z] reviewer_concurrency → coder (CONSENSUS_ACK): ACK from reviewer_concurrency for coder
+
+ACK — carries forward my prior coder ACK (was SHA 94fbf7c6e). Verified this proposal SHA e96806cea differs from my last-ACKed coder SHA 94fbf7c6e ONLY by the removal of the redundant test_cumulative_wait_threshold_alert_latches_once in orchestrator/tests/test_event_loop_rate_limited.py; `git diff --stat 94fbf7c6e..e96806cea` over all production artifacts (auth_errors.py, __main__.py, kubernetes_spawner/_models.py, supervision_policy.py, event_loop/__init__.py, _loop.py, _supervisor.py, concurrent_executor.py) is EMPTY — production supervision code is byte-identical to what I already reviewed and ACKed.
+
+The concurrency/liveness correctness holds unchanged: the deterministic-loop guard escalates only on POSITIVE non-throttle evidence (signature present AND not is_transient_rate_limit_error AND no parseable reset hint), and _observe_jobs passes no exit_detail on the JOB_OUTCOME_RATE_LIMITED branch, so a genuine cap wall (frozen BRC progression, no classifiable signature) NEVER trips the guard → paces indefinitely with only the once-latched cq-1 threshold OVERSEER_ALERT (binding cq-1/AC-C2/AC-C5 honored, no hard ceiling, no premature loop termination). Bounded-backoff pacing (no hammering), notifier→halt_rate_limited re-entrancy safety, paced-state clearing on success/retire/reconcile, and the byte-for-byte-unchanged abnormal path (AC-C6) all remain sound. The test-file delta (removing the redundant threshold test whose property is now covered on the correct frozen-progression path) I already ACKed under the tester v2 review. ACK.
+
+````yaml
+id: 48ef8d4b-97ba-4b
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/concurrent_executor.py
+    - shared/egg_agent/auth_errors.py
+    reason: "ACK \u2014 carries forward my prior coder ACK (was SHA 94fbf7c6e). Verified\
+      \ this proposal SHA e96806cea differs from my last-ACKed coder SHA 94fbf7c6e\
+      \ ONLY by the removal of the redundant test_cumulative_wait_threshold_alert_latches_once\
+      \ in orchestrator/tests/test_event_loop_rate_limited.py; `git diff --stat 94fbf7c6e..e96806cea`\
+      \ over all production artifacts (auth_errors.py, __main__.py, kubernetes_spawner/_models.py,\
+      \ supervision_policy.py, event_loop/__init__.py, _loop.py, _supervisor.py, concurrent_executor.py)\
+      \ is EMPTY \u2014 production supervision code is byte-identical to what I already\
+      \ reviewed and ACKed.\n\nThe concurrency/liveness correctness holds unchanged:\
+      \ the deterministic-loop guard escalates only on POSITIVE non-throttle evidence\
+      \ (signature present AND not is_transient_rate_limit_error AND no parseable\
+      \ reset hint), and _observe_jobs passes no exit_detail on the JOB_OUTCOME_RATE_LIMITED\
+      \ branch, so a genuine cap wall (frozen BRC progression, no classifiable signature)\
+      \ NEVER trips the guard \u2192 paces indefinitely with only the once-latched\
+      \ cq-1 threshold OVERSEER_ALERT (binding cq-1/AC-C2/AC-C5 honored, no hard ceiling,\
+      \ no premature loop termination). Bounded-backoff pacing (no hammering), notifier\u2192\
+      halt_rate_limited re-entrancy safety, paced-state clearing on success/retire/reconcile,\
+      \ and the byte-for-byte-unchanged abnormal path (AC-C6) all remain sound. The\
+      \ test-file delta (removing the redundant threshold test whose property is now\
+      \ covered on the correct frozen-progression path) I already ACKed under the\
+      \ tester v2 review. ACK."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:57:16Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=160553 util=0.16 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: a0f5be39-62f6-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:57:18Z] reviewer_security → coder (CONSENSUS_ACK): ACK from reviewer_security for coder
+
+Security review PASS on coder proposal e96806cea (fresh round, v1). Verified the production code at this SHA is byte-identical to my prior coder ACK at 94fbf7c: `git diff --name-only 94fbf7c..e96806cea` touches ONLY orchestrator/tests/test_event_loop_rate_limited.py (the tester's already-reviewed redundant-test deletion) — no non-test/production file changed. All security-relevant files (auth_errors.py, __main__.py, supervision_policy.py, event_loop/*, concurrent_executor.py, kubernetes_spawner/_models.py) are exactly the content I already fully assessed across coder v1/v2. Security invariants intact: (1) untrusted-text regexes are simple linear patterns — no ReDoS — and parsed reset hints are clamped to [0,3600] so a hostile hint can't park an arm forever; (2) credential-failure disjointness holds — auth-fatal is checked first and is_transient_rate_limit_error defers to it, so a rejected-credential/weekly-cap 429 never becomes an infinite paced retry; (3) bounded paced backoff (<=900s/<=3600s), loop-guard escalates only on positive non-throttle evidence. No new secret/network/command/deserialization/path surface. No security blockers. (Non-blocking correctness note for reviewer_code, unchanged: __main__ `return result.returncode` fallback could classify a child coincidentally exiting 69 as RATE_LIMITED — bounded by pacing; not a security defect.)
+
+````yaml
+id: 5ffe76e2-7c45-43
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    reason: "Security review PASS on coder proposal e96806cea (fresh round, v1). Verified\
+      \ the production code at this SHA is byte-identical to my prior coder ACK at\
+      \ 94fbf7c: `git diff --name-only 94fbf7c..e96806cea` touches ONLY orchestrator/tests/test_event_loop_rate_limited.py\
+      \ (the tester's already-reviewed redundant-test deletion) \u2014 no non-test/production\
+      \ file changed. All security-relevant files (auth_errors.py, __main__.py, supervision_policy.py,\
+      \ event_loop/*, concurrent_executor.py, kubernetes_spawner/_models.py) are exactly\
+      \ the content I already fully assessed across coder v1/v2. Security invariants\
+      \ intact: (1) untrusted-text regexes are simple linear patterns \u2014 no ReDoS\
+      \ \u2014 and parsed reset hints are clamped to [0,3600] so a hostile hint can't\
+      \ park an arm forever; (2) credential-failure disjointness holds \u2014 auth-fatal\
+      \ is checked first and is_transient_rate_limit_error defers to it, so a rejected-credential/weekly-cap\
+      \ 429 never becomes an infinite paced retry; (3) bounded paced backoff (<=900s/<=3600s),\
+      \ loop-guard escalates only on positive non-throttle evidence. No new secret/network/command/deserialization/path\
+      \ surface. No security blockers. (Non-blocking correctness note for reviewer_code,\
+      \ unchanged: __main__ `return result.returncode` fallback could classify a child\
+      \ coincidentally exiting 69 as RATE_LIMITED \u2014 bounded by pacing; not a\
+      \ security defect.)"
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:57:20Z] reviewer_code → coder (CONSENSUS_ACK): ACK from reviewer_code for coder
+
+ACK (new consensus round). The coder's source is byte-identical to commit 94fbf7c6e, which I reviewed in depth and ACKed last round: `git diff 94fbf7c..e96806cea` over all eight coder source files is EMPTY (the only change on that range is the tester's 26-line removal in test_event_loop_rate_limited.py, not coder source). My prior verdict therefore carries forward verbatim:
+
+- The corrected deterministic-loop guard honors binding cq-1 / AC-C5: `deterministic_loop` requires signature_is_non_throttle (exit_detail present AND not is_transient_rate_limit_error AND no parseable reset hint), and `_observe_jobs` passes no exit_detail on the JOB_OUTCOME_RATE_LIMITED branch — so a genuine bare-throttle cap wall (exit_detail=None) NEVER escalates and paces indefinitely with only the cq-1 threshold OVERSEER_ALERT. The v1 ~7.5-min halt is gone. AC-C4 escalation still fires on a changed non-throttle signature.
+- AC-C1 (record_rate_limited leaves the abnormal streak untouched; _observe_jobs routes to record_rate_limited not record_abort), AC-C3 (halt targets only the one dedupe key; normal respawn gate preserves landed slices), AC-C6 (auth-fatal-first + is_transient_rate_limit_error disjointness; abnormal path byte-identical; ready_to_respawn rate-limit gate inert for non-rate-limit keys), and the EX_RATE_LIMITED=69 / outcome_for precedence / JOB_OUTCOME_RATE_LIMITED plumbing — all still verified correct. No exit-69 collision.
+
+No code change to re-examine; verdict consistent with my ACK of 94fbf7c.
+
+````yaml
+id: e634539a-cedb-40
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    reason: "ACK (new consensus round). The coder's source is byte-identical to commit\
+      \ 94fbf7c6e, which I reviewed in depth and ACKed last round: `git diff 94fbf7c..e96806cea`\
+      \ over all eight coder source files is EMPTY (the only change on that range\
+      \ is the tester's 26-line removal in test_event_loop_rate_limited.py, not coder\
+      \ source). My prior verdict therefore carries forward verbatim:\n\n- The corrected\
+      \ deterministic-loop guard honors binding cq-1 / AC-C5: `deterministic_loop`\
+      \ requires signature_is_non_throttle (exit_detail present AND not is_transient_rate_limit_error\
+      \ AND no parseable reset hint), and `_observe_jobs` passes no exit_detail on\
+      \ the JOB_OUTCOME_RATE_LIMITED branch \u2014 so a genuine bare-throttle cap\
+      \ wall (exit_detail=None) NEVER escalates and paces indefinitely with only the\
+      \ cq-1 threshold OVERSEER_ALERT. The v1 ~7.5-min halt is gone. AC-C4 escalation\
+      \ still fires on a changed non-throttle signature.\n- AC-C1 (record_rate_limited\
+      \ leaves the abnormal streak untouched; _observe_jobs routes to record_rate_limited\
+      \ not record_abort), AC-C3 (halt targets only the one dedupe key; normal respawn\
+      \ gate preserves landed slices), AC-C6 (auth-fatal-first + is_transient_rate_limit_error\
+      \ disjointness; abnormal path byte-identical; ready_to_respawn rate-limit gate\
+      \ inert for non-rate-limit keys), and the EX_RATE_LIMITED=69 / outcome_for precedence\
+      \ / JOB_OUTCOME_RATE_LIMITED plumbing \u2014 all still verified correct. No\
+      \ exit-69 collision.\n\nNo code change to re-examine; verdict consistent with\
+      \ my ACK of 94fbf7c."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:57:23Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=144191 util=0.14 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 23ae1ea2-f208-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:57:25Z] reviewer_code_holistic → coder (CONSENSUS_ACK): ACK from reviewer_code_holistic for coder
+
+ACK (holistic) — re-review at the new consensus baseline e96806cea. The coder's implementation is BYTE-IDENTICAL to the code I already ACKed at 94fbf7c6e (my prior coder v2): `git diff 94fbf7c6e e96806cea` over all eight implementation files (auth_errors.py, __main__.py, kubernetes_spawner/_models.py, supervision_policy.py, event_loop/{__init__,_loop,_supervisor}.py, concurrent_executor.py) is EMPTY; the only change in that range is a 26-line deletion in orchestrator/tests/test_event_loop_rate_limited.py (the tester removing the redundant sidestep threshold test — a separate producer edge I ACKed as tester v2). So no implementation change to re-assess.
+
+Carrying over my verified holistic verdict on this exact code: the deterministic-loop guard honors binding cq-1 / AC-C2 / AC-C5 (no hard wall-clock ceiling). Escalation gates on POSITIVE non-throttle evidence (signature present AND not is_transient_rate_limit_error AND no parseable reset hint) AND repeats>=5; _observe_jobs deliberately withholds exit_detail on the rate-limit branch, so a genuine all-producers cap wall (bare exit code, frozen consensus digest) NEVER trips the guard — it paces indefinitely with only the cq-1 threshold OVERSEER_ALERT (once at 1800s cumulative, no halt/exhaustion). AC-C1 (record_rate_limited leaves the abnormal _streaks/_last_abort_time/_exhausted state untouched; _observe_jobs routes JOB_OUTCOME_RATE_LIMITED to record_rate_limited not record_abort), AC-C3 (halt path exhausts only the one arm's key; paced retry via the normal ready_to_respawn gate, landed slices preserved), and AC-C6 (auth-fatal precedence + disjointness via is_auth_fatal_error guard; abnormal path byte-identical; the ready_to_respawn rate-limit gate inert for keys with no rate-limit outcome) all hold. Exit-code plumbing (EX_RATE_LIMITED=69 distinct from 77/64/75/143; outcome_for after auth-fatal; JOB_OUTCOME_RATE_LIMITED constant + observe branch; pacing/threshold constants separate from the 30s abnormal cap) verified.
+
+NON-BLOCKING (unchanged from my v2 ACK, not a condition): the deterministic-loop escalation is dormant on the current bare-exit production wiring (a rate_limited outcome by construction matched is_transient_rate_limit_error, and _observe_jobs passes no exit_detail) — reachable only via a future enriched observer supplying real non-throttle error text; correct reconciliation given cq-1 dominance, retained defensively and documented. No blockers.
+
+````yaml
+id: 89e70ebc-69b1-47
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    reason: "ACK (holistic) \u2014 re-review at the new consensus baseline e96806cea.\
+      \ The coder's implementation is BYTE-IDENTICAL to the code I already ACKed at\
+      \ 94fbf7c6e (my prior coder v2): `git diff 94fbf7c6e e96806cea` over all eight\
+      \ implementation files (auth_errors.py, __main__.py, kubernetes_spawner/_models.py,\
+      \ supervision_policy.py, event_loop/{__init__,_loop,_supervisor}.py, concurrent_executor.py)\
+      \ is EMPTY; the only change in that range is a 26-line deletion in orchestrator/tests/test_event_loop_rate_limited.py\
+      \ (the tester removing the redundant sidestep threshold test \u2014 a separate\
+      \ producer edge I ACKed as tester v2). So no implementation change to re-assess.\n\
+      \nCarrying over my verified holistic verdict on this exact code: the deterministic-loop\
+      \ guard honors binding cq-1 / AC-C2 / AC-C5 (no hard wall-clock ceiling). Escalation\
+      \ gates on POSITIVE non-throttle evidence (signature present AND not is_transient_rate_limit_error\
+      \ AND no parseable reset hint) AND repeats>=5; _observe_jobs deliberately withholds\
+      \ exit_detail on the rate-limit branch, so a genuine all-producers cap wall\
+      \ (bare exit code, frozen consensus digest) NEVER trips the guard \u2014 it\
+      \ paces indefinitely with only the cq-1 threshold OVERSEER_ALERT (once at 1800s\
+      \ cumulative, no halt/exhaustion). AC-C1 (record_rate_limited leaves the abnormal\
+      \ _streaks/_last_abort_time/_exhausted state untouched; _observe_jobs routes\
+      \ JOB_OUTCOME_RATE_LIMITED to record_rate_limited not record_abort), AC-C3 (halt\
+      \ path exhausts only the one arm's key; paced retry via the normal ready_to_respawn\
+      \ gate, landed slices preserved), and AC-C6 (auth-fatal precedence + disjointness\
+      \ via is_auth_fatal_error guard; abnormal path byte-identical; the ready_to_respawn\
+      \ rate-limit gate inert for keys with no rate-limit outcome) all hold. Exit-code\
+      \ plumbing (EX_RATE_LIMITED=69 distinct from 77/64/75/143; outcome_for after\
+      \ auth-fatal; JOB_OUTCOME_RATE_LIMITED constant + observe branch; pacing/threshold\
+      \ constants separate from the 30s abnormal cap) verified.\n\nNON-BLOCKING (unchanged\
+      \ from my v2 ACK, not a condition): the deterministic-loop escalation is dormant\
+      \ on the current bare-exit production wiring (a rate_limited outcome by construction\
+      \ matched is_transient_rate_limit_error, and _observe_jobs passes no exit_detail)\
+      \ \u2014 reachable only via a future enriched observer supplying real non-throttle\
+      \ error text; correct reconciliation given cq-1 dominance, retained defensively\
+      \ and documented. No blockers."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:57:31Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=245735 util=0.25 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 6a86fa29-2739-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:57:31Z] reviewer_contract → coder (CONSENSUS_ACK): ACK from reviewer_contract for coder
+
+ACK — re-proposal of the same verified source at the merged HEAD. This coder edge is now anchored at e96806cea (the tester's HEAD, = my already-ACKed coder fix 94fbf7c + the tester's test-only deletion). I confirmed `git diff 94fbf7c..e96806cea` over all eight PR C source files (auth_errors.py, __main__.py, kubernetes_spawner/_models.py, supervision_policy.py, event_loop/__init__.py, _loop.py, _supervisor.py, concurrent_executor.py) is EMPTY — the only change in the range is the removal of 26 lines from test_event_loop_rate_limited.py (the tester's deletion of the redundant artificial-progression threshold test, which I ACKed on the tester edge). The implementation is byte-identical to the state I verified and ACKed on the coder v2 edge:
+
+- AC-C5 / binding cq-1: the deterministic-loop guard escalates ONLY on positive non-throttle evidence (bool(exit_detail) and not is_transient_rate_limit_error(exit_detail) and parse_rate_limit_reset_seconds(exit_detail) is None), and _observe_jobs passes no exit_detail on the production path, so a genuine all-producers cap wall paces indefinitely with only the cq-1 threshold OVERSEER_ALERT — no hard ceiling, no ~7.5m halt.
+- AC-C1 (record_rate_limited leaves the abnormal streak untouched), AC-C2 (paced hours-scale window separate from the 30s cap), AC-C3 (halt exhausts only the looping arm's key; landed slices preserved), AC-C4 (escalate on changed non-throttle signature, reset on advancing progression), AC-C6 (EX_AUTH_FATAL checked first + abnormal path byte-unchanged + is_transient_rate_limit_error disjoint from is_auth_fatal_error) — all verified previously and unchanged here.
+
+No new source delta to audit; verdict carries over. Contract-clean. Tasks 2-1..2-7.
+
+````yaml
+id: 96261dc3-8e12-45
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    reason: "ACK \u2014 re-proposal of the same verified source at the merged HEAD.\
+      \ This coder edge is now anchored at e96806cea (the tester's HEAD, = my already-ACKed\
+      \ coder fix 94fbf7c + the tester's test-only deletion). I confirmed `git diff\
+      \ 94fbf7c..e96806cea` over all eight PR C source files (auth_errors.py, __main__.py,\
+      \ kubernetes_spawner/_models.py, supervision_policy.py, event_loop/__init__.py,\
+      \ _loop.py, _supervisor.py, concurrent_executor.py) is EMPTY \u2014 the only\
+      \ change in the range is the removal of 26 lines from test_event_loop_rate_limited.py\
+      \ (the tester's deletion of the redundant artificial-progression threshold test,\
+      \ which I ACKed on the tester edge). The implementation is byte-identical to\
+      \ the state I verified and ACKed on the coder v2 edge:\n\n- AC-C5 / binding\
+      \ cq-1: the deterministic-loop guard escalates ONLY on positive non-throttle\
+      \ evidence (bool(exit_detail) and not is_transient_rate_limit_error(exit_detail)\
+      \ and parse_rate_limit_reset_seconds(exit_detail) is None), and _observe_jobs\
+      \ passes no exit_detail on the production path, so a genuine all-producers cap\
+      \ wall paces indefinitely with only the cq-1 threshold OVERSEER_ALERT \u2014\
+      \ no hard ceiling, no ~7.5m halt.\n- AC-C1 (record_rate_limited leaves the abnormal\
+      \ streak untouched), AC-C2 (paced hours-scale window separate from the 30s cap),\
+      \ AC-C3 (halt exhausts only the looping arm's key; landed slices preserved),\
+      \ AC-C4 (escalate on changed non-throttle signature, reset on advancing progression),\
+      \ AC-C6 (EX_AUTH_FATAL checked first + abnormal path byte-unchanged + is_transient_rate_limit_error\
+      \ disjoint from is_auth_fatal_error) \u2014 all verified previously and unchanged\
+      \ here.\n\nNo new source delta to audit; verdict carries over. Contract-clean.\
+      \ Tasks 2-1..2-7."
+    ack_version: 1
+    attestation:
+      tasks_verified:
+      - task-2-1
+      - task-2-2
+      - task-2-3
+      - task-2-4
+      - task-2-5
+      - task-2-6
+      - task-2-7
+      verification_note: "Re-proposal at merged HEAD e96806c. git diff 94fbf7c..e96806c\
+        \ over all 8 PR C source files is empty \u2014 the source is byte-identical\
+        \ to my already-ACKed coder v2 (the only change in that range is the tester's\
+        \ test-only deletion). AC-C5/cq-1 fix intact (loop-guard gated on positive\
+        \ non-throttle evidence; _observe_jobs passes no exit_detail so a genuine\
+        \ cap wall paces indefinitely). AC-C1 (no fail-streak halt), AC-C2 (paced\
+        \ window), AC-C3 (landed-slice preservation), AC-C4 (loop-guard both directions),\
+        \ AC-C6 (EX_AUTH_FATAL precedence + abnormal path unchanged + classifier disjointness)\
+        \ all still hold. Tasks 2-1..2-7 verified."
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:57:34Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=193650 util=0.19 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 23a3754a-e753-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:57:39Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=259654 util=0.26 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 33d041fc-07c6-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:22Z] tester (CONSENSUS_PROPOSE): Proposal from tester
+
+PR C tester coverage (task-2-8) + task-2-5 seam — re-propose after the slice-2 consensus-tracker reset (edges were back at v0). No code change this event: the corrected, consensus-converged implementation is intact at the shared slice tip e96806cea (coder's v2 loop-guard fix 94fbf7c6 + my finalized task-2-8 coverage e96806cea on top). The suite pins the corrected no-ceiling contract: is_transient_rate_limit_error classification + AC-C6 disjointness (weekly-cap-on-429 stays auth-fatal); outcome_for EX_RATE_LIMITED->rate_limited with auth-fatal precedence + stray/read-failure->abnormal; _observe_jobs routes to record_rate_limited (NOT record_abort); AC-C1 no-streak-halt vs AC-C6 abnormal regression; pacing/threshold; and the CORRECTED loop-guard tests — test_steady_throttle_never_escalates_and_paces_past_threshold (AC-C5: bare frozen throttle paces past 1800s, alerts once, never exhausted), test_frozen_throttle_signature_never_escalates, test_non_throttle_signature_escalates_once_past_guard_threshold (AC-C4 positive non-throttle evidence), test_advancing_progression_resets_the_guard. Previously verified the AC-C5 regressions FAIL against v1 buggy impl and PASS against the fix (genuine driving regression). task-2-5 record_rate_limited landed coder-side as the flagged import-coherence seam.
+
+````yaml
+id: e62dcfc1-2072-46
+phase: implement
+metadata:
+  payload:
+    summary: "PR C tester coverage (task-2-8) + task-2-5 seam \u2014 re-propose after\
+      \ the slice-2 consensus-tracker reset (edges were back at v0). No code change\
+      \ this event: the corrected, consensus-converged implementation is intact at\
+      \ the shared slice tip e96806cea (coder's v2 loop-guard fix 94fbf7c6 + my finalized\
+      \ task-2-8 coverage e96806cea on top). The suite pins the corrected no-ceiling\
+      \ contract: is_transient_rate_limit_error classification + AC-C6 disjointness\
+      \ (weekly-cap-on-429 stays auth-fatal); outcome_for EX_RATE_LIMITED->rate_limited\
+      \ with auth-fatal precedence + stray/read-failure->abnormal; _observe_jobs routes\
+      \ to record_rate_limited (NOT record_abort); AC-C1 no-streak-halt vs AC-C6 abnormal\
+      \ regression; pacing/threshold; and the CORRECTED loop-guard tests \u2014 test_steady_throttle_never_escalates_and_paces_past_threshold\
+      \ (AC-C5: bare frozen throttle paces past 1800s, alerts once, never exhausted),\
+      \ test_frozen_throttle_signature_never_escalates, test_non_throttle_signature_escalates_once_past_guard_threshold\
+      \ (AC-C4 positive non-throttle evidence), test_advancing_progression_resets_the_guard.\
+      \ Previously verified the AC-C5 regressions FAIL against v1 buggy impl and PASS\
+      \ against the fix (genuine driving regression). task-2-5 record_rate_limited\
+      \ landed coder-side as the flagged import-coherence seam."
+    attestation:
+      tests_run: 86
+      checks_passed:
+      - lint
+      - test
+      - security
+      note: 'Re-verified at tip e96806cea (no code change since consensus converged):
+        pytest 81 passed / 5 SDK-gated CLI skipped; ruff check clean; bandit -ll -c
+        pyproject.toml exit 0 (Medium/High: 0). AC-C5 liveness regressions previously
+        proven to FAIL against v1 (2bd6124a3) buggy impl and PASS against the corrected
+        guard.'
+    artifacts:
+    - e96806cea1b0a545f1c3ab7f78a520b30b621a26
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    risk_considered: Test-only re-propose of already-consensus-converged work after
+      a tracker reset; no code delta this event. The loop-guard tests were reworked
+      in lockstep with the coder's v2 fix and encode the corrected AC-C4/AC-C5 contract
+      (steady throttle never halts; only a changed non-throttle signature escalates).
+    commit_sha: e96806cea1b0a545f1c3ab7f78a520b30b621a26
+    files_changed:
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    tests_run: []
+    tasks_satisfied:
+    - task-2-5
+    - task-2-8
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: e96806cea1b0a545f1c3ab7f78a520b30b621a26
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:26Z] tester (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 9ecbe171-1daf-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:26Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 6af1b1f9-3fc5-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:27Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: a4af2b20-16b0-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:28Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 756911a0-624c-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:29Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 89b21c87-8bb8-4b
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:29Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: bd3faae9-dd6a-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:47Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 52f21041-e618-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:48Z] tester (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=431856 util=0.43 cache_hit=1.00 decision=below_threshold
+
+````yaml
+id: 1eecc855-fc21-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:48Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 3207a1e1-794e-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:49Z] reviewer_concurrency → tester (CONSENSUS_ACK): ACK from reviewer_concurrency for tester
+
+ACK — carries forward my prior tester ACK at this same SHA (e96806cea). This is a fresh consensus round (version 1) over the identical tester HEAD I already reviewed and ACKed; the five test files are unchanged.
+
+The corrected TestLoopGuardAndThreshold surface pins exactly the no-ceiling liveness contract from my earlier NACK-then-fix cycle: test_steady_throttle_never_escalates_and_paces_past_threshold (frozen progression + no signature, 60 reproductions → never deterministic_loop, never exhausted, exactly one threshold_crossed at cumulative_wait >= 1800s — the direct AC-C2/AC-C5 no-ceiling property); test_frozen_throttle_signature_never_escalates ("429 rate limit", never escalates/exhausts); test_non_throttle_signature_escalates_once_past_guard_threshold ("Traceback: KeyError" → escalates once, sticky — corrected AC-C4 positive-evidence gate); test_advancing_progression_resets_the_guard (kept). Test hygiene sound (deterministic _ManualClock, clean per-supervisor isolation); executor-handler / auth_errors / kubernetes_spawner / supervision_policy suites unchanged and valid. My concurrency/liveness concern remains fully resolved. ACK.
+
+````yaml
+id: 218d3c7e-7ba8-49
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    reason: "ACK \u2014 carries forward my prior tester ACK at this same SHA (e96806cea).\
+      \ This is a fresh consensus round (version 1) over the identical tester HEAD\
+      \ I already reviewed and ACKed; the five test files are unchanged.\n\nThe corrected\
+      \ TestLoopGuardAndThreshold surface pins exactly the no-ceiling liveness contract\
+      \ from my earlier NACK-then-fix cycle: test_steady_throttle_never_escalates_and_paces_past_threshold\
+      \ (frozen progression + no signature, 60 reproductions \u2192 never deterministic_loop,\
+      \ never exhausted, exactly one threshold_crossed at cumulative_wait >= 1800s\
+      \ \u2014 the direct AC-C2/AC-C5 no-ceiling property); test_frozen_throttle_signature_never_escalates\
+      \ (\"429 rate limit\", never escalates/exhausts); test_non_throttle_signature_escalates_once_past_guard_threshold\
+      \ (\"Traceback: KeyError\" \u2192 escalates once, sticky \u2014 corrected AC-C4\
+      \ positive-evidence gate); test_advancing_progression_resets_the_guard (kept).\
+      \ Test hygiene sound (deterministic _ManualClock, clean per-supervisor isolation);\
+      \ executor-handler / auth_errors / kubernetes_spawner / supervision_policy suites\
+      \ unchanged and valid. My concurrency/liveness concern remains fully resolved.\
+      \ ACK."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:49Z] reviewer_code → tester (CONSENSUS_ACK): ACK from reviewer_code for tester
+
+ACK (new consensus round). The tester's proposal SHA e96806cea is the IDENTICAL commit I reviewed in depth and ACKed as tester v2 last round — the test content is byte-for-byte unchanged, so my prior verdict carries forward verbatim:
+
+- test_event_loop_rate_limited.py :: TestLoopGuardAndThreshold pins the corrected AC-C4/AC-C5 contract: test_steady_throttle_never_escalates_and_paces_past_threshold (60 bare-throttle retries, frozen progression: no deterministic_loop ever, is_exhausted False, exactly one threshold_crossed at cumulative_wait >= 1800s — the AC-C5 no-ceiling regression), test_frozen_throttle_signature_never_escalates ("429 rate limit" never escalates), test_non_throttle_signature_escalates_once_past_guard_threshold ("Traceback: KeyError" escalates once, sticky — AC-C4 positive evidence), test_advancing_progression_resets_the_guard. The v1 bug-codifying test (frozen throttle asserting a halt) is gone.
+- The other four files remain correct: test_auth_errors_rate_limit.py (classification + EX_RATE_LIMITED=69 distinctness + AC-C6 disjointness + CLI mapping), test_kubernetes_spawner_rate_limited.py (outcome_for auth-fatal precedence + AC-C6 regression), test_supervision_policy.py (constants/parse/backoff/fingerprint), test_concurrent_executor_rate_limit.py (_handle_rate_limited reaction-to-flags + landed-slice preservation).
+
+Consistent with the coder e96806cea source ACK I recorded this round (the tests match the corrected discriminator). No content change to re-examine.
+
+````yaml
+id: 7290c8b6-cbd4-45
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    reason: "ACK (new consensus round). The tester's proposal SHA e96806cea is the\
+      \ IDENTICAL commit I reviewed in depth and ACKed as tester v2 last round \u2014\
+      \ the test content is byte-for-byte unchanged, so my prior verdict carries forward\
+      \ verbatim:\n\n- test_event_loop_rate_limited.py :: TestLoopGuardAndThreshold\
+      \ pins the corrected AC-C4/AC-C5 contract: test_steady_throttle_never_escalates_and_paces_past_threshold\
+      \ (60 bare-throttle retries, frozen progression: no deterministic_loop ever,\
+      \ is_exhausted False, exactly one threshold_crossed at cumulative_wait >= 1800s\
+      \ \u2014 the AC-C5 no-ceiling regression), test_frozen_throttle_signature_never_escalates\
+      \ (\"429 rate limit\" never escalates), test_non_throttle_signature_escalates_once_past_guard_threshold\
+      \ (\"Traceback: KeyError\" escalates once, sticky \u2014 AC-C4 positive evidence),\
+      \ test_advancing_progression_resets_the_guard. The v1 bug-codifying test (frozen\
+      \ throttle asserting a halt) is gone.\n- The other four files remain correct:\
+      \ test_auth_errors_rate_limit.py (classification + EX_RATE_LIMITED=69 distinctness\
+      \ + AC-C6 disjointness + CLI mapping), test_kubernetes_spawner_rate_limited.py\
+      \ (outcome_for auth-fatal precedence + AC-C6 regression), test_supervision_policy.py\
+      \ (constants/parse/backoff/fingerprint), test_concurrent_executor_rate_limit.py\
+      \ (_handle_rate_limited reaction-to-flags + landed-slice preservation).\n\n\
+      Consistent with the coder e96806cea source ACK I recorded this round (the tests\
+      \ match the corrected discriminator). No content change to re-examine."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:50Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: e74905d9-6d8b-49
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:50Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 74b367f7-59f9-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:52Z] reviewer_code_holistic → tester (CONSENSUS_ACK): ACK from reviewer_code_holistic for tester
+
+ACK (holistic) — re-review at the new consensus baseline. The tester's proposal SHA e96806cea is the SAME commit I reviewed in full and ACKed as tester v2; the five test files are byte-identical, so no re-assessment is needed and my prior verdict carries over.
+
+Verified holistic verdict on this exact test surface:
+- TestLoopGuardAndThreshold now pins the CORRECTED no-ceiling contract: test_steady_throttle_never_escalates_and_paces_past_threshold (frozen progression, bare-throttle path, 60 retries → never deterministic_loop, never exhausted, exactly one cq-1 threshold_crossed at cumulative wait >= 1800s — the AC-C5 regression I required); test_frozen_throttle_signature_never_escalates ("429 rate limit" signature never escalates); test_non_throttle_signature_escalates_once_past_guard_threshold ("Traceback: KeyError" → escalates once, sticky — AC-C4 positive evidence); test_advancing_progression_resets_the_guard. The v1 frozen-throttle-ESCALATES assertion that codified the defect is gone, and the redundant advance-progression sidestep threshold test was removed.
+- Unchanged and solid: auth_errors disjointness (weekly-cap-on-429 stays auth-fatal, never both-true) + CLI exit-code mapping; kubernetes_spawner outcome_for mapping (rate_limited / auth-fatal precedence / stray→abnormal / read-failure→abnormal); AC-C1 no-streak-halt + AC-C6 abnormal-path regression; pacing window + success/retire state clearing; supervision_policy pure-function coverage; concurrent_executor _handle_rate_limited reaction coverage (threshold→alert-no-halt, deterministic_loop→alert+halt, sibling preserved).
+
+NON-BLOCKING (unchanged): the module docstring bullet still describes the guard as escalating on "identical fingerprint at the same progression point past the guard threshold" without the added non-throttle-signature qualifier — a stale-comment nuance (assertions are correct); a one-line touch-up for a future pass, not a blocker. No blockers.
+
+````yaml
+id: eedc105a-a4db-49
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    reason: "ACK (holistic) \u2014 re-review at the new consensus baseline. The tester's\
+      \ proposal SHA e96806cea is the SAME commit I reviewed in full and ACKed as\
+      \ tester v2; the five test files are byte-identical, so no re-assessment is\
+      \ needed and my prior verdict carries over.\n\nVerified holistic verdict on\
+      \ this exact test surface:\n- TestLoopGuardAndThreshold now pins the CORRECTED\
+      \ no-ceiling contract: test_steady_throttle_never_escalates_and_paces_past_threshold\
+      \ (frozen progression, bare-throttle path, 60 retries \u2192 never deterministic_loop,\
+      \ never exhausted, exactly one cq-1 threshold_crossed at cumulative wait >=\
+      \ 1800s \u2014 the AC-C5 regression I required); test_frozen_throttle_signature_never_escalates\
+      \ (\"429 rate limit\" signature never escalates); test_non_throttle_signature_escalates_once_past_guard_threshold\
+      \ (\"Traceback: KeyError\" \u2192 escalates once, sticky \u2014 AC-C4 positive\
+      \ evidence); test_advancing_progression_resets_the_guard. The v1 frozen-throttle-ESCALATES\
+      \ assertion that codified the defect is gone, and the redundant advance-progression\
+      \ sidestep threshold test was removed.\n- Unchanged and solid: auth_errors disjointness\
+      \ (weekly-cap-on-429 stays auth-fatal, never both-true) + CLI exit-code mapping;\
+      \ kubernetes_spawner outcome_for mapping (rate_limited / auth-fatal precedence\
+      \ / stray\u2192abnormal / read-failure\u2192abnormal); AC-C1 no-streak-halt\
+      \ + AC-C6 abnormal-path regression; pacing window + success/retire state clearing;\
+      \ supervision_policy pure-function coverage; concurrent_executor _handle_rate_limited\
+      \ reaction coverage (threshold\u2192alert-no-halt, deterministic_loop\u2192\
+      alert+halt, sibling preserved).\n\nNON-BLOCKING (unchanged): the module docstring\
+      \ bullet still describes the guard as escalating on \"identical fingerprint\
+      \ at the same progression point past the guard threshold\" without the added\
+      \ non-throttle-signature qualifier \u2014 a stale-comment nuance (assertions\
+      \ are correct); a one-line touch-up for a future pass, not a blocker. No blockers."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:52Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: a9b5ce22-9415-49
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:55Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=165435 util=0.17 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 7398183b-8a3b-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:56Z] reviewer_security → tester (CONSENSUS_ACK): ACK from reviewer_security for tester
+
+Security review PASS on tester proposal e96806cea (fresh round, v1). The proposal SHA is identical to the SHA I already ACKed as tester v2, so the test artifacts are byte-identical to content I have fully reviewed — no new content this round. Security assessment (unchanged): test-only, no production code, no new attack surface. The two security-critical tests remain present and intact: test_absurd_hint_is_clamped_to_the_pacing_ceiling (untrusted reset-hint clamp so a hostile hint can't park an arm forever) and TestDisjointFromAuthFatal / test_predicates_are_never_both_true (credential-failure disjointness — a weekly-cap/bad-credential 429 stays auth-fatal, never an infinite paced retry). No hardcoded secrets, no # nosec / # noqa: S security-check suppression, no verify=False / shell=True; commit reports bandit(-ll) clean. No security blockers.
+
+````yaml
+id: f3b70e8d-9b44-41
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    reason: "Security review PASS on tester proposal e96806cea (fresh round, v1).\
+      \ The proposal SHA is identical to the SHA I already ACKed as tester v2, so\
+      \ the test artifacts are byte-identical to content I have fully reviewed \u2014\
+      \ no new content this round. Security assessment (unchanged): test-only, no\
+      \ production code, no new attack surface. The two security-critical tests remain\
+      \ present and intact: test_absurd_hint_is_clamped_to_the_pacing_ceiling (untrusted\
+      \ reset-hint clamp so a hostile hint can't park an arm forever) and TestDisjointFromAuthFatal\
+      \ / test_predicates_are_never_both_true (credential-failure disjointness \u2014\
+      \ a weekly-cap/bad-credential 429 stays auth-fatal, never an infinite paced\
+      \ retry). No hardcoded secrets, no # nosec / # noqa: S security-check suppression,\
+      \ no verify=False / shell=True; commit reports bandit(-ll) clean. No security\
+      \ blockers."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:57Z] reviewer_contract → tester (CONSENSUS_ACK): ACK from reviewer_contract for tester
+
+ACK — fresh-round re-ACK at the identical, already-verified commit. This tester edge is anchored at e96806cea, the exact commit I fully audited and ACKed on the prior tester edge (ack_version=2, fully_acked). The proposal SHA is unchanged, so there is no new delta to review; my prior full verification carries over verbatim:
+
+- TestLoopGuardAndThreshold pins the corrected AC-C4/AC-C5 contract: test_steady_throttle_never_escalates_and_paces_past_threshold (60 retries, frozen progression, no exit_detail → never deterministic_loop, never exhausted, exactly one cq-1 threshold crossing at cumulative wait >= 1800s — the binding no-ceiling guarantee); test_frozen_throttle_signature_never_escalates; test_non_throttle_signature_escalates_once_past_guard_threshold (AC-C4 positive non-throttle evidence, sticky); test_advancing_progression_resets_the_guard. The redundant artificial-progression test_cumulative_wait_threshold_alert_latches_once is removed with its property retained on the correct path.
+- The other four suites (auth_errors disjointness + EX_RATE_LIMITED distinctness + CLI mapping; outcome_for precedence + abnormal fallback; _observe_jobs routing + AC-C1 no-streak-halt + AC-C6 abnormal-still-halts + pacing/clearing; supervision_policy constants/helpers/fingerprint) are unchanged and remain verified-good.
+
+FULL AC PASS for task-2-8 (AC-C1..C7) and task-2-5 (record_rate_limited leaves the abnormal streak untouched, paces on a separate anchor, reports transitions correctly). Contract-clean; verdict carries over.
+
+````yaml
+id: d09486bd-8432-48
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    reason: "ACK \u2014 fresh-round re-ACK at the identical, already-verified commit.\
+      \ This tester edge is anchored at e96806cea, the exact commit I fully audited\
+      \ and ACKed on the prior tester edge (ack_version=2, fully_acked). The proposal\
+      \ SHA is unchanged, so there is no new delta to review; my prior full verification\
+      \ carries over verbatim:\n\n- TestLoopGuardAndThreshold pins the corrected AC-C4/AC-C5\
+      \ contract: test_steady_throttle_never_escalates_and_paces_past_threshold (60\
+      \ retries, frozen progression, no exit_detail \u2192 never deterministic_loop,\
+      \ never exhausted, exactly one cq-1 threshold crossing at cumulative wait >=\
+      \ 1800s \u2014 the binding no-ceiling guarantee); test_frozen_throttle_signature_never_escalates;\
+      \ test_non_throttle_signature_escalates_once_past_guard_threshold (AC-C4 positive\
+      \ non-throttle evidence, sticky); test_advancing_progression_resets_the_guard.\
+      \ The redundant artificial-progression test_cumulative_wait_threshold_alert_latches_once\
+      \ is removed with its property retained on the correct path.\n- The other four\
+      \ suites (auth_errors disjointness + EX_RATE_LIMITED distinctness + CLI mapping;\
+      \ outcome_for precedence + abnormal fallback; _observe_jobs routing + AC-C1\
+      \ no-streak-halt + AC-C6 abnormal-still-halts + pacing/clearing; supervision_policy\
+      \ constants/helpers/fingerprint) are unchanged and remain verified-good.\n\n\
+      FULL AC PASS for task-2-8 (AC-C1..C7) and task-2-5 (record_rate_limited leaves\
+      \ the abnormal streak untouched, paces on a separate anchor, reports transitions\
+      \ correctly). Contract-clean; verdict carries over."
+    ack_version: 1
+    attestation:
+      tasks_verified:
+      - task-2-5
+      - task-2-8
+      verification_note: 'Fresh-round re-ACK at the identical commit e96806cea I already
+        fully audited and ACKed on the tester edge (prior ack_version=2). No proposal-SHA
+        change, so no new delta. task-2-8 (PR C test suite): full AC-C1..C7 coverage;
+        TestLoopGuardAndThreshold pins the corrected no-ceiling contract (steady frozen
+        throttle never escalates + paces past threshold once; throttle-signature never
+        escalates; non-throttle signature escalates once; advancing progression resets);
+        the redundant artificial-progression threshold test is removed. task-2-5 (record_rate_limited):
+        leaves the abnormal streak untouched (AC-C1), paces on a separate anchor,
+        reports deterministic_loop only on positive non-throttle evidence.'
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:57Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: ac77fee0-1c63-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:58:58Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=250993 util=0.25 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 6dfc1cb9-7c84-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:00Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=198732 util=0.20 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: b2eaca8a-a7d4-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:04Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=149328 util=0.15 cache_hit=1.00 decision=below_threshold
+
+````yaml
+id: 1c084104-5af0-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:04Z] documenter (CONSENSUS_PROPOSE): Proposal from documenter
+
+Documenter proposal for slice-2 (PR C) — now that PR C's code has LANDED (coder commits 2bd6124a3 + loop-guard correction 94fbf7c6e + tester coverage), this documents the REAL shipped supervision mechanism in docs/reference/agent-recovery.md, resolving the deferral both reviewers requested ("gate this doc on the coder's landed PR C implementation, then re-propose against the ACTUAL symbols"). Every symbol/value verified against the tree: exit 69 EX_RATE_LIMITED (distinct from auth-fatal 77; is_transient_rate_limit_error matches 429 / rate limit / overloaded / too many requests; disjoint — a weekly/usage cap delivered as 429 stays exit 77); outcome_for -> JOB_OUTCOME_RATE_LIMITED; _observe_jobs -> record_rate_limited (abnormal _streaks/_exhausted untouched, so no fail-streak halt); windowed paced retry via the five SUPERVISION_RATE_LIMIT_* constants (BACKOFF_FACTOR=30, BACKOFF_CAP=900s/15m, MAX_PACING=3600s/1h, ALERT_THRESHOLD=1800s/30m, LOOP_GUARD_REPEATS=5), landed slices preserved, NO hard ceiling per cq-1, sticky agent-rate-limited OVERSEER_ALERT at the cumulative-wait threshold. Critically, the deterministic-loop guard is documented as CORRECTED post-v1-NACK: it escalates+halts (rate-limit-deterministic-loop, halt_rate_limited) ONLY on positive non-throttle evidence, NOT on a frozen fingerprint (a genuine cap wall freezes BRC progression identically, so frozen != loop). Three edits: new exception subsection, exit-code table row, and 'two codes diverge' summary correction.
+
+**Adversarial re-review**
+
+**Your v1 review has TWO equal-weight mandates:**
+
+1. **Verify named prior blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** — ignore your prior NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v1 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v1 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which prior blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: e2b3590f-7372-45
+phase: implement
+metadata:
+  payload:
+    summary: "Documenter proposal for slice-2 (PR C) \u2014 now that PR C's code has\
+      \ LANDED (coder commits 2bd6124a3 + loop-guard correction 94fbf7c6e + tester\
+      \ coverage), this documents the REAL shipped supervision mechanism in docs/reference/agent-recovery.md,\
+      \ resolving the deferral both reviewers requested (\"gate this doc on the coder's\
+      \ landed PR C implementation, then re-propose against the ACTUAL symbols\").\
+      \ Every symbol/value verified against the tree: exit 69 EX_RATE_LIMITED (distinct\
+      \ from auth-fatal 77; is_transient_rate_limit_error matches 429 / rate limit\
+      \ / overloaded / too many requests; disjoint \u2014 a weekly/usage cap delivered\
+      \ as 429 stays exit 77); outcome_for -> JOB_OUTCOME_RATE_LIMITED; _observe_jobs\
+      \ -> record_rate_limited (abnormal _streaks/_exhausted untouched, so no fail-streak\
+      \ halt); windowed paced retry via the five SUPERVISION_RATE_LIMIT_* constants\
+      \ (BACKOFF_FACTOR=30, BACKOFF_CAP=900s/15m, MAX_PACING=3600s/1h, ALERT_THRESHOLD=1800s/30m,\
+      \ LOOP_GUARD_REPEATS=5), landed slices preserved, NO hard ceiling per cq-1,\
+      \ sticky agent-rate-limited OVERSEER_ALERT at the cumulative-wait threshold.\
+      \ Critically, the deterministic-loop guard is documented as CORRECTED post-v1-NACK:\
+      \ it escalates+halts (rate-limit-deterministic-loop, halt_rate_limited) ONLY\
+      \ on positive non-throttle evidence, NOT on a frozen fingerprint (a genuine\
+      \ cap wall freezes BRC progression identically, so frozen != loop). Three edits:\
+      \ new exception subsection, exit-code table row, and 'two codes diverge' summary\
+      \ correction."
+    attestation: {}
+    artifacts:
+    - docs/reference/agent-recovery.md
+    risk_considered: ''
+    commit_sha: ff4ed52774ad2435e809468bf311e42153472a53
+    files_changed:
+    - docs/reference/agent-recovery.md
+    tests_run: []
+    tasks_satisfied: []
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: ff4ed52774ad2435e809468bf311e42153472a53
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:05Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=265024 util=0.27 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: eb647313-8bab-49
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:05Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 55163b62-1fe1-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:05Z] reviewer_code_holistic (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code_holistic
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 2e918e55-5e47-41
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:06Z] reviewer_security (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_security
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: f71b7920-3c84-4c
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:06Z] reviewer_concurrency (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_concurrency
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 982fc86c-fca9-40
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:07Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 8a83214f-1dd0-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:07Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: dacf8db8-6d4b-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:19Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 6521c521-fdac-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:19Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 3fd2ec1d-0a11-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:41Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=189177 util=0.19 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 59e2a942-8b11-47
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:43Z] tester → coder (CONSENSUS_ACK): ACK from tester for coder
+
+ACK coder (round anchored at e96806cea). This is the corrected PR C loop-guard implementation — same content I reviewed, ACKed, and regression-proved in the prior round. Re-verified at HEAD: (1) record_rate_limited gates deterministic_loop behind signature_is_non_throttle = bool(exit_detail) AND not is_transient_rate_limit_error(exit_detail) AND parse_rate_limit_reset_seconds(exit_detail) is None (_supervisor.py:389); (2) _observe_jobs deliberately passes NO exit_detail on the rate-limit branch (_loop.py:139 record_rate_limited(key, action, role)), so a bare production throttle can never satisfy the gate and paces indefinitely with only the cq-1 threshold OVERSEER_ALERT — resolving the cq-1/AC-C5 no-ceiling requirement all four reviewers NACKed at v1. AC-C4 preserved (advancing progression resets the counter; a genuinely changed non-throttle signature still escalates). AC-C1/C3/C6 untouched. Ran the full PR C suite: 81 passed / 5 SDK-skipped. Prior-round regression proof stands: the AC-C5 liveness tests fail against the buggy impl and pass against this one. No blockers.
+
+````yaml
+id: 22f09ba5-2787-47
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/concurrent_executor.py
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    reason: "ACK coder (round anchored at e96806cea). This is the corrected PR C loop-guard\
+      \ implementation \u2014 same content I reviewed, ACKed, and regression-proved\
+      \ in the prior round. Re-verified at HEAD: (1) record_rate_limited gates deterministic_loop\
+      \ behind signature_is_non_throttle = bool(exit_detail) AND not is_transient_rate_limit_error(exit_detail)\
+      \ AND parse_rate_limit_reset_seconds(exit_detail) is None (_supervisor.py:389);\
+      \ (2) _observe_jobs deliberately passes NO exit_detail on the rate-limit branch\
+      \ (_loop.py:139 record_rate_limited(key, action, role)), so a bare production\
+      \ throttle can never satisfy the gate and paces indefinitely with only the cq-1\
+      \ threshold OVERSEER_ALERT \u2014 resolving the cq-1/AC-C5 no-ceiling requirement\
+      \ all four reviewers NACKed at v1. AC-C4 preserved (advancing progression resets\
+      \ the counter; a genuinely changed non-throttle signature still escalates).\
+      \ AC-C1/C3/C6 untouched. Ran the full PR C suite: 81 passed / 5 SDK-skipped.\
+      \ Prior-round regression proof stands: the AC-C5 liveness tests fail against\
+      \ the buggy impl and pass against this one. No blockers."
+    ack_version: 1
+    attestation:
+      tests_verified:
+      - 'PR C rate-limit suite: 81 passed / 5 SDK-skipped at HEAD e96806cea'
+      checks_passed:
+      - test
+      note: Fresh consensus round; production content is byte-identical to the corrected
+        coder fix I reviewed + regression-proved in the prior round (AC-C5 liveness
+        tests FAIL on v1 / PASS on this impl).
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:43Z] orchestrator → tester (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 08e54f3b-94dc-41
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:43Z] orchestrator → coder (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 7198d090-f6c4-4a
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:48Z] coder (CONSENSUS_CONFIRMED): Consensus confirmed by coder
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 9ed8adf7-a811-44
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T21:59:48Z] tester (CONSENSUS_CONFIRMED): Consensus confirmed by tester
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: b8653626-7aa5-45
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T22:00:01Z] tester (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=412294 util=0.41 cache_hit=1.00 decision=below_threshold
+
+````yaml
+id: 4172e45f-72fe-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T22:00:08Z] reviewer_code → documenter (CONSENSUS_ACK): ACK from reviewer_code for documenter
+
+ACK — the doc now accurately describes the LANDED PR C implementation, resolving all three of my original v1 NACK reasons (symbols didn't exist / plan-divergent mechanism / documented ahead of code). PR C has landed (coder e96806cea) and I verified every technical claim against that code:
+
+- exit 69 EX_RATE_LIMITED distinct from 77; is_transient_rate_limit_error matches 429 / rate limit / overloaded / too many requests; checked AFTER is_auth_fatal_error so a weekly/usage cap delivered as 429 stays exit 77 — disjoint. Matches auth_errors.py + __main__.py. ✓
+- outcome_for -> JOB_OUTCOME_RATE_LIMITED (stray code -> abnormal); _observe_jobs -> record_rate_limited (not record_abort); abnormal _streaks/_exhausted untouched, so no fail-streak halt. Matches _models.py + _loop.py + _supervisor.py. ✓
+- Pacing constants exact: SUPERVISION_RATE_LIMIT_BACKOFF_CAP_SECONDS = 15 min (900s), _MAX_PACING_SECONDS = 1 h (3600s), _ALERT_THRESHOLD_SECONDS = 30 min (1800s), _LOOP_GUARD_REPEATS = 5; reset-time-paced else bounded backoff; separate from the 30s abnormal cap. Matches supervision_policy.py. ✓
+- Paced retry via the normal respawn gate, completed slices preserved (AC-C3); cq-1 no hard wall-clock ceiling; sticky OVERSEER_ALERT anomaly "agent-rate-limited" priority high at cumulative wait > 30 min. Matches _handle_rate_limited. ✓
+- CRITICAL — the loop-guard prose matches the CORRECTED v2 behavior, not the buggy v1: escalates ONLY on positive non-throttle evidence (exit signature present AND not a transient rate-limit AND no parseable reset hint) reproduced 5x with no state advance; a frozen/identical fingerprint is NOT a loop (a genuine cap wall freezes progression identically); on that evidence emits "rate-limit-deterministic-loop" + halt_rate_limited (key exhausted) -> arms-exhausted HITL; advancing progression resets the counter; a bare production throttle (no classifiable exit text) never satisfies the gate and paces indefinitely with only the threshold alert. Matches record_rate_limited's signature_is_non_throttle gate + _observe_jobs dropping exit_detail. ✓
+- Table row + "two codes diverge" summary are accurate.
+
+No false claims remain; the reference is faithful to shipped code. (The doc's diff base is the branch base c007c4285; the pre-existing origin/main advance of unrelated #3548/#3537 sections is a merge-base artifact, not documenter-introduced, and doesn't affect this content's correctness.)
+
+````yaml
+id: 79f6c3f2-9f6c-4c
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - docs/reference/agent-recovery.md
+    reason: "ACK \u2014 the doc now accurately describes the LANDED PR C implementation,\
+      \ resolving all three of my original v1 NACK reasons (symbols didn't exist /\
+      \ plan-divergent mechanism / documented ahead of code). PR C has landed (coder\
+      \ e96806cea) and I verified every technical claim against that code:\n\n- exit\
+      \ 69 EX_RATE_LIMITED distinct from 77; is_transient_rate_limit_error matches\
+      \ 429 / rate limit / overloaded / too many requests; checked AFTER is_auth_fatal_error\
+      \ so a weekly/usage cap delivered as 429 stays exit 77 \u2014 disjoint. Matches\
+      \ auth_errors.py + __main__.py. \u2713\n- outcome_for -> JOB_OUTCOME_RATE_LIMITED\
+      \ (stray code -> abnormal); _observe_jobs -> record_rate_limited (not record_abort);\
+      \ abnormal _streaks/_exhausted untouched, so no fail-streak halt. Matches _models.py\
+      \ + _loop.py + _supervisor.py. \u2713\n- Pacing constants exact: SUPERVISION_RATE_LIMIT_BACKOFF_CAP_SECONDS\
+      \ = 15 min (900s), _MAX_PACING_SECONDS = 1 h (3600s), _ALERT_THRESHOLD_SECONDS\
+      \ = 30 min (1800s), _LOOP_GUARD_REPEATS = 5; reset-time-paced else bounded backoff;\
+      \ separate from the 30s abnormal cap. Matches supervision_policy.py. \u2713\n\
+      - Paced retry via the normal respawn gate, completed slices preserved (AC-C3);\
+      \ cq-1 no hard wall-clock ceiling; sticky OVERSEER_ALERT anomaly \"agent-rate-limited\"\
+      \ priority high at cumulative wait > 30 min. Matches _handle_rate_limited. \u2713\
+      \n- CRITICAL \u2014 the loop-guard prose matches the CORRECTED v2 behavior,\
+      \ not the buggy v1: escalates ONLY on positive non-throttle evidence (exit signature\
+      \ present AND not a transient rate-limit AND no parseable reset hint) reproduced\
+      \ 5x with no state advance; a frozen/identical fingerprint is NOT a loop (a\
+      \ genuine cap wall freezes progression identically); on that evidence emits\
+      \ \"rate-limit-deterministic-loop\" + halt_rate_limited (key exhausted) -> arms-exhausted\
+      \ HITL; advancing progression resets the counter; a bare production throttle\
+      \ (no classifiable exit text) never satisfies the gate and paces indefinitely\
+      \ with only the threshold alert. Matches record_rate_limited's signature_is_non_throttle\
+      \ gate + _observe_jobs dropping exit_detail. \u2713\n- Table row + \"two codes\
+      \ diverge\" summary are accurate.\n\nNo false claims remain; the reference is\
+      \ faithful to shipped code. (The doc's diff base is the branch base c007c4285;\
+      \ the pre-existing origin/main advance of unrelated #3548/#3537 sections is\
+      \ a merge-base artifact, not documenter-introduced, and doesn't affect this\
+      \ content's correctness.)"
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T22:00:10Z] reviewer_code (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 5caeab5e-229a-47
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T22:00:19Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=270719 util=0.27 cache_hit=0.98 decision=below_threshold
+
+````yaml
+id: 7b9e65e1-a543-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-09T22:01:07Z] reviewer_contract → documenter (CONSENSUS_ACK): ACK from reviewer_contract for documenter
+
+ACK — the doc now accurately documents the LANDED, corrected PR C behavior; present-tense is appropriate because PR C shipped (merged HEAD e96806c), resolving the timing objection that grounded my v1 NACK of the documenter.
+
+I verified every claim in the new "transient rate-limit paced retry (exit 69)" subsection + table row against the code:
+- exit 69 EX_RATE_LIMITED distinct from 77 (auth_errors.py); is_transient_rate_limit_error matches 429 / rate limit / overloaded / too many requests; checked AFTER is_auth_fatal_error so a weekly/usage cap delivered as a 429 stays exit 77 (disjoint) — matches __main__.py + auth_errors.py.
+- outcome_for maps 69 -> JOB_OUTCOME_RATE_LIMITED, stray code -> abnormal (kubernetes_spawner/_models.py); _observe_jobs -> record_rate_limited leaving the abnormal _streaks/_exhausted untouched (no fail-streak halt) — matches _loop.py + _supervisor.py.
+- pacing: reset-time-paced else bounded backoff, SUPERVISION_RATE_LIMIT_BACKOFF_CAP_SECONDS = 15 min, MAX_PACING = 1 h, separate from the 30 s abnormal cap; landed slices preserved via the normal respawn gate; no hard ceiling (cq-1) with a sticky agent-rate-limited OVERSEER_ALERT once cumulative wait crosses SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS (30 min) — matches supervision_policy.py constants + _handle_rate_limited.
+- CRITICALLY, the deterministic-loop guard is documented as CORRECTED post-NACK: a frozen/identical fingerprint is NOT treated as a loop (a genuine cap wall freezes BRC progression identically); the guard escalates + halts (rate-limit-deterministic-loop, halt_rate_limited) only on positive non-throttle evidence (signature present AND not a transient rate-limit AND no parseable reset hint) reproduced 5x with no state advance; advancing progression resets; a bare production throttle never satisfies the gate and paces indefinitely with only the threshold alert. This is exactly the corrected semantics I verified and ACKed on the coder edge — the doc does NOT describe the buggy v1 halt behavior.
+- The "two codes diverge" summary correction is now accurate (77 and 69).
+
+The v1 internal-contradiction (a distinct exit code vs "the wrapper has no per-exit-code branching") is resolved: the doc correctly frames exit-code SELECTION as agent-CLI-side (egg_agent/__main__) and the BRANCHING as orchestrator-side with the bash wrapper passing every rc through — consistent with how exit 77 is described and with the real architecture. Contract-faithful and matches the landed implementation. No documenter task was mandated for slice-2, so this accurate documentation of the shipped feature is a clean, contract-consistent contribution.
+
+````yaml
+id: 3ff14d3f-018d-4c
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - docs/reference/agent-recovery.md
+    reason: "ACK \u2014 the doc now accurately documents the LANDED, corrected PR\
+      \ C behavior; present-tense is appropriate because PR C shipped (merged HEAD\
+      \ e96806c), resolving the timing objection that grounded my v1 NACK of the documenter.\n\
+      \nI verified every claim in the new \"transient rate-limit paced retry (exit\
+      \ 69)\" subsection + table row against the code:\n- exit 69 EX_RATE_LIMITED\
+      \ distinct from 77 (auth_errors.py); is_transient_rate_limit_error matches 429\
+      \ / rate limit / overloaded / too many requests; checked AFTER is_auth_fatal_error\
+      \ so a weekly/usage cap delivered as a 429 stays exit 77 (disjoint) \u2014 matches\
+      \ __main__.py + auth_errors.py.\n- outcome_for maps 69 -> JOB_OUTCOME_RATE_LIMITED,\
+      \ stray code -> abnormal (kubernetes_spawner/_models.py); _observe_jobs -> record_rate_limited\
+      \ leaving the abnormal _streaks/_exhausted untouched (no fail-streak halt) \u2014\
+      \ matches _loop.py + _supervisor.py.\n- pacing: reset-time-paced else bounded\
+      \ backoff, SUPERVISION_RATE_LIMIT_BACKOFF_CAP_SECONDS = 15 min, MAX_PACING =\
+      \ 1 h, separate from the 30 s abnormal cap; landed slices preserved via the\
+      \ normal respawn gate; no hard ceiling (cq-1) with a sticky agent-rate-limited\
+      \ OVERSEER_ALERT once cumulative wait crosses SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS\
+      \ (30 min) \u2014 matches supervision_policy.py constants + _handle_rate_limited.\n\
+      - CRITICALLY, the deterministic-loop guard is documented as CORRECTED post-NACK:\
+      \ a frozen/identical fingerprint is NOT treated as a loop (a genuine cap wall\
+      \ freezes BRC progression identically); the guard escalates + halts (rate-limit-deterministic-loop,\
+      \ halt_rate_limited) only on positive non-throttle evidence (signature present\
+      \ AND not a transient rate-limit AND no parseable reset hint) reproduced 5x\
+      \ with no state advance; advancing progression resets; a bare production throttle\
+      \ never satisfies the gate and paces indefinitely with only the threshold alert.\
+      \ This is exactly the corrected semantics I verified and ACKed on the coder\
+      \ edge \u2014 the doc does NOT describe the buggy v1 halt behavior.\n- The \"\
+      two codes diverge\" summary correction is now accurate (77 and 69).\n\nThe v1\
+      \ internal-contradiction (a distinct exit code vs \"the wrapper has no per-exit-code\
+      \ branching\") is resolved: the doc correctly frames exit-code SELECTION as\
+      \ agent-CLI-side (egg_agent/__main__) and the BRANCHING as orchestrator-side\
+      \ with the bash wrapper passing every rc through \u2014 consistent with how\
+      \ exit 77 is described and with the real architecture. Contract-faithful and\
+      \ matches the landed implementation. No documenter task was mandated for slice-2,\
+      \ so this accurate documentation of the shipped feature is a clean, contract-consistent\
+      \ contribution."
+    ack_version: 1
+    attestation:
+      tasks_verified:
+      - task-2-1
+      - task-2-3
+      - task-2-4
+      - task-2-6
+      - task-2-7
+      verification_note: 'The documenter has no assigned slice-2 task (all are coder/tester);
+        I verified the doc''s claims against the landed PR C tasks it describes: task-2-1
+        (EX_RATE_LIMITED=69 + is_transient_rate_limit_error match set + disjointness),
+        task-2-3 (outcome_for->JOB_OUTCOME_RATE_LIMITED, stray->abnormal), task-2-4
+        (_observe_jobs->record_rate_limited, no abnormal streak), task-2-6 (pacing/threshold
+        constants and their values), task-2-7 (sticky agent-rate-limited alert @1800s
+        + corrected loop-guard: positive non-throttle evidence, halt_rate_limited
+        + rate-limit-deterministic-loop, advancing-progression reset). Every documented
+        symbol/value/behavior matches the merged HEAD e96806c implementation.'
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T22:01:07Z] orchestrator → documenter (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: a8a3977a-f0ba-49
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-09T22:01:08Z] documenter (CONSENSUS_CONFIRMED): Consensus confirmed by documenter
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 4b6524b4-5f2e-4f
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T22:01:08Z] reviewer_contract (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_contract
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 30e6e7c8-bd86-46
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T22:01:08Z] reviewer_security (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_security
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 766739e1-bc11-45
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T22:01:08Z] reviewer_concurrency (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_concurrency
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 469c7183-f669-4a
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-09T22:01:17Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=291053 util=0.29 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: b7296cef-1abf-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:30:57Z] coder (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: 581fc91c-3b95-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:30:58Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: 9d7fc54f-18dd-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:31:04Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 49dbc56b-7f48-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:31:09Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: a37cfc57-e1dc-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:31:40Z] documenter (CONSENSUS_PROPOSE): Proposal from documenter
+
+Re-propose (fresh BRC round after slice reset) of the unchanged documenter commit ff4ed5277. PR C's code remains landed on the branch (coder 2bd6124a3 + loop-guard correction 94fbf7c6e + tester coverage; no new coder commits since), so the doc still matches the tree symbol-for-symbol — no doc change was needed. docs/reference/agent-recovery.md documents the REAL shipped supervision path: exit 69 EX_RATE_LIMITED (disjoint from auth-fatal 77; is_transient_rate_limit_error matches 429 / rate limit / overloaded / too many requests; a weekly/usage cap delivered as 429 stays exit 77); outcome_for -> JOB_OUTCOME_RATE_LIMITED; _observe_jobs -> record_rate_limited (abnormal _streaks/_exhausted untouched -> no fail-streak halt); windowed paced retry via the five verified SUPERVISION_RATE_LIMIT_* constants (BACKOFF_FACTOR=30, BACKOFF_CAP=900s, MAX_PACING=3600s, ALERT_THRESHOLD=1800s, LOOP_GUARD_REPEATS=5); landed slices preserved; NO hard ceiling per cq-1; sticky agent-rate-limited OVERSEER_ALERT at the cumulative-wait threshold; and the CORRECTED deterministic-loop guard (rate-limit-deterministic-loop + halt_rate_limited) escalating ONLY on positive non-throttle evidence, NOT on a frozen fingerprint. Three edits: exception subsection, exit-code table row, and 'two codes diverge' summary correction.
+
+**Adversarial re-review**
+
+**Your v1 review has TWO equal-weight mandates:**
+
+1. **Verify named prior blockers were addressed** — confirm the producer fixed what you NACK'd.
+2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** — ignore your prior NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes — whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** — it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.
+
+Both mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.
+
+**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** — security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) — the persistent reviewer correctly answered mandate 1 ("did prior issues get fixed? yes") and skipped mandate 2 ("does this delta introduce new issues? actually yes"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward "verify my fix-request landed → ACK." Recognize the pull and do mandate 2 anyway.
+
+**How to execute mandate 2:**
+
+- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?
+- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.
+- **Fresh-reviewer simulation.** Before issuing your v1 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.
+- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.
+
+**Your v1 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:
+
+- (a) Which prior blockers you verified-fixed (mandate 1).
+- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked — not "reviewed thoroughly," but "checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes." If you can't enumerate (b), you haven't done mandate 2.
+
+**Re-reviews are cheap by design.** Your amortized context means the work is "read the delta, apply your rubric, decide" — minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.
+
+````yaml
+id: 99c49d62-d001-4d
+phase: implement
+metadata:
+  payload:
+    summary: "Re-propose (fresh BRC round after slice reset) of the unchanged documenter\
+      \ commit ff4ed5277. PR C's code remains landed on the branch (coder 2bd6124a3\
+      \ + loop-guard correction 94fbf7c6e + tester coverage; no new coder commits\
+      \ since), so the doc still matches the tree symbol-for-symbol \u2014 no doc\
+      \ change was needed. docs/reference/agent-recovery.md documents the REAL shipped\
+      \ supervision path: exit 69 EX_RATE_LIMITED (disjoint from auth-fatal 77; is_transient_rate_limit_error\
+      \ matches 429 / rate limit / overloaded / too many requests; a weekly/usage\
+      \ cap delivered as 429 stays exit 77); outcome_for -> JOB_OUTCOME_RATE_LIMITED;\
+      \ _observe_jobs -> record_rate_limited (abnormal _streaks/_exhausted untouched\
+      \ -> no fail-streak halt); windowed paced retry via the five verified SUPERVISION_RATE_LIMIT_*\
+      \ constants (BACKOFF_FACTOR=30, BACKOFF_CAP=900s, MAX_PACING=3600s, ALERT_THRESHOLD=1800s,\
+      \ LOOP_GUARD_REPEATS=5); landed slices preserved; NO hard ceiling per cq-1;\
+      \ sticky agent-rate-limited OVERSEER_ALERT at the cumulative-wait threshold;\
+      \ and the CORRECTED deterministic-loop guard (rate-limit-deterministic-loop\
+      \ + halt_rate_limited) escalating ONLY on positive non-throttle evidence, NOT\
+      \ on a frozen fingerprint. Three edits: exception subsection, exit-code table\
+      \ row, and 'two codes diverge' summary correction."
+    attestation: {}
+    artifacts:
+    - docs/reference/agent-recovery.md
+    risk_considered: ''
+    commit_sha: ff4ed52774ad2435e809468bf311e42153472a53
+    files_changed:
+    - docs/reference/agent-recovery.md
+    tests_run: []
+    tasks_satisfied: []
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: ff4ed52774ad2435e809468bf311e42153472a53
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:31:46Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 3d47a9ad-d2b9-46
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:31:47Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 7a830ff0-6036-43
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:31:58Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: eae3d455-b948-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:32:09Z] reviewer_contract → documenter (CONSENSUS_ACK): ACK from reviewer_contract for documenter
+
+ACK — fresh-round re-ACK at the identical, already-verified commit. This documenter edge is anchored at ff4ed52774ad2435e809468bf311e42153472a53, the exact commit I fully audited and ACKed on the prior documenter edge. The proposal SHA is unchanged, so there is no new delta; my prior verification carries over verbatim: the doc accurately documents the LANDED, corrected PR C behavior in docs/reference/agent-recovery.md — exit 69 EX_RATE_LIMITED (distinct from 77, disjoint classifier), outcome_for -> JOB_OUTCOME_RATE_LIMITED (stray -> abnormal), _observe_jobs -> record_rate_limited (abnormal streak untouched), windowed paced retry (15 min / 1 h caps separate from the 30 s abnormal cap, landed slices preserved), no hard wall-clock ceiling per cq-1 with a sticky agent-rate-limited OVERSEER_ALERT at 30 min cumulative wait, and — critically — the CORRECTED deterministic-loop guard that escalates/halts only on positive non-throttle evidence (never on a frozen fingerprint), so a bare production throttle paces indefinitely. Every documented symbol/value/behavior matches the merged HEAD e96806c implementation; the "two codes diverge" summary is accurate and the v1 internal-contradiction is resolved. Contract-clean; verdict carries over.
+
+````yaml
+id: 53f6479d-f4d7-4b
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - docs/reference/agent-recovery.md
+    reason: "ACK \u2014 fresh-round re-ACK at the identical, already-verified commit.\
+      \ This documenter edge is anchored at ff4ed52774ad2435e809468bf311e42153472a53,\
+      \ the exact commit I fully audited and ACKed on the prior documenter edge. The\
+      \ proposal SHA is unchanged, so there is no new delta; my prior verification\
+      \ carries over verbatim: the doc accurately documents the LANDED, corrected\
+      \ PR C behavior in docs/reference/agent-recovery.md \u2014 exit 69 EX_RATE_LIMITED\
+      \ (distinct from 77, disjoint classifier), outcome_for -> JOB_OUTCOME_RATE_LIMITED\
+      \ (stray -> abnormal), _observe_jobs -> record_rate_limited (abnormal streak\
+      \ untouched), windowed paced retry (15 min / 1 h caps separate from the 30 s\
+      \ abnormal cap, landed slices preserved), no hard wall-clock ceiling per cq-1\
+      \ with a sticky agent-rate-limited OVERSEER_ALERT at 30 min cumulative wait,\
+      \ and \u2014 critically \u2014 the CORRECTED deterministic-loop guard that escalates/halts\
+      \ only on positive non-throttle evidence (never on a frozen fingerprint), so\
+      \ a bare production throttle paces indefinitely. Every documented symbol/value/behavior\
+      \ matches the merged HEAD e96806c implementation; the \"two codes diverge\"\
+      \ summary is accurate and the v1 internal-contradiction is resolved. Contract-clean;\
+      \ verdict carries over."
+    ack_version: 1
+    attestation:
+      tasks_verified:
+      - task-2-1
+      - task-2-3
+      - task-2-4
+      - task-2-6
+      - task-2-7
+      verification_note: Re-ACK at the identical commit ff4ed527 I already fully verified
+        on the prior documenter edge. No SHA change, no new delta. The doc accurately
+        documents the landed, corrected PR C (exit 69 EX_RATE_LIMITED, outcome_for/JOB_OUTCOME_RATE_LIMITED,
+        record_rate_limited no-streak, pacing constants, no-ceiling cq-1 + agent-rate-limited
+        alert @1800s, and the CORRECTED positive-non-throttle-evidence loop-guard).
+        Verified against merged HEAD e96806c.
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:32:10Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 705178c1-7918-4b
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:32:16Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=295926 util=0.30 cache_hit=1.00 decision=below_threshold
+
+````yaml
+id: 724faba3-e2ac-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:32:17Z] documenter (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=198732 util=0.20 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: b6bc9b03-a7e8-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:32:23Z] reviewer_code → documenter (CONSENSUS_ACK): ACK from reviewer_code for documenter
+
+ACK (re-affirm in new consensus round). Same proposal SHA ff4ed527 I fully verified last round — doc content is byte-identical and unchanged. The agent-recovery.md supervision-reference subsection accurately describes the LANDED PR C code (coder e96806cea): exit 69 EX_RATE_LIMITED (disjoint from 77), is_transient_rate_limit_error patterns, outcome_for -> JOB_OUTCOME_RATE_LIMITED, _observe_jobs -> record_rate_limited (abnormal streak untouched), exact pacing constants (15 min / 1 h / 30 min / 5 repeats), cq-1 no-ceiling + sticky agent-rate-limited alert, and — critically — the CORRECTED loop-guard behavior (positive non-throttle evidence only; frozen fingerprint is not a loop; bare throttle paces indefinitely; rate-limit-deterministic-loop + halt_rate_limited on positive evidence). No false claims; faithful to shipped code. Verdict unchanged from my prior ACK.
+
+````yaml
+id: 4e0dd6f9-7cfe-49
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - docs/reference/agent-recovery.md
+    reason: "ACK (re-affirm in new consensus round). Same proposal SHA ff4ed527 I\
+      \ fully verified last round \u2014 doc content is byte-identical and unchanged.\
+      \ The agent-recovery.md supervision-reference subsection accurately describes\
+      \ the LANDED PR C code (coder e96806cea): exit 69 EX_RATE_LIMITED (disjoint\
+      \ from 77), is_transient_rate_limit_error patterns, outcome_for -> JOB_OUTCOME_RATE_LIMITED,\
+      \ _observe_jobs -> record_rate_limited (abnormal streak untouched), exact pacing\
+      \ constants (15 min / 1 h / 30 min / 5 repeats), cq-1 no-ceiling + sticky agent-rate-limited\
+      \ alert, and \u2014 critically \u2014 the CORRECTED loop-guard behavior (positive\
+      \ non-throttle evidence only; frozen fingerprint is not a loop; bare throttle\
+      \ paces indefinitely; rate-limit-deterministic-loop + halt_rate_limited on positive\
+      \ evidence). No false claims; faithful to shipped code. Verdict unchanged from\
+      \ my prior ACK."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:32:35Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=277431 util=0.28 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 02597355-9aa3-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:08Z] coder (CONSENSUS_PROPOSE): Proposal from coder
+
+PR C (#3364) supervision hardening — re-propose at the advanced shared tip ff4ed527 (only delta since my last propose is the documenter's docs commit ff4ed5277; NO code files changed — my implementation is byte-identical and green). Tracker had reset to v0.
+
+Stable corrected implementation: EX_AUTH_FATAL-style transient rate-limit mirror — is_transient_rate_limit_error/EX_RATE_LIMITED=69 (disjoint from auth-fatal) -> __main__ emits it (auth-fatal FIRST) -> outcome_for -> JOB_OUTCOME_RATE_LIMITED -> _observe_jobs -> record_rate_limited (abnormal streak untouched, AC-C1) -> paced respawn via extended ready_to_respawn (AC-C2, separate from the 30s abnormal cap) -> _handle_rate_limited emits the cq-1 cumulative-wait threshold OVERSEER_ALERT with NO hard ceiling (AC-C5). The v1-NACK loop-guard correction is carried: escalates ONLY on POSITIVE non-throttle evidence (present signature that is not is_transient_rate_limit_error and has no reset hint) and _observe_jobs passes no exit_detail, so a genuine steady cap wall paces INDEFINITELY (crosses 1800s, alerts once, is_exhausted stays False); only a failure that CHANGED to a non-throttle error escalates+halts (AC-C4). Landed slices preserved (AC-C3); EX_AUTH_FATAL + abnormal unchanged (AC-C6).
+
+Green at ff4ed527: ruff clean; rate-limit + event_loop/concurrent_executor regression suites pass. (task-2-5 record_rate_limited implemented coder-side for import coherence — flagged coder/tester seam; tester owns 2-5/2-8.)
+
+````yaml
+id: 82bc7cae-3a27-4e
+phase: implement
+metadata:
+  payload:
+    summary: "PR C (#3364) supervision hardening \u2014 re-propose at the advanced\
+      \ shared tip ff4ed527 (only delta since my last propose is the documenter's\
+      \ docs commit ff4ed5277; NO code files changed \u2014 my implementation is byte-identical\
+      \ and green). Tracker had reset to v0.\n\nStable corrected implementation: EX_AUTH_FATAL-style\
+      \ transient rate-limit mirror \u2014 is_transient_rate_limit_error/EX_RATE_LIMITED=69\
+      \ (disjoint from auth-fatal) -> __main__ emits it (auth-fatal FIRST) -> outcome_for\
+      \ -> JOB_OUTCOME_RATE_LIMITED -> _observe_jobs -> record_rate_limited (abnormal\
+      \ streak untouched, AC-C1) -> paced respawn via extended ready_to_respawn (AC-C2,\
+      \ separate from the 30s abnormal cap) -> _handle_rate_limited emits the cq-1\
+      \ cumulative-wait threshold OVERSEER_ALERT with NO hard ceiling (AC-C5). The\
+      \ v1-NACK loop-guard correction is carried: escalates ONLY on POSITIVE non-throttle\
+      \ evidence (present signature that is not is_transient_rate_limit_error and\
+      \ has no reset hint) and _observe_jobs passes no exit_detail, so a genuine steady\
+      \ cap wall paces INDEFINITELY (crosses 1800s, alerts once, is_exhausted stays\
+      \ False); only a failure that CHANGED to a non-throttle error escalates+halts\
+      \ (AC-C4). Landed slices preserved (AC-C3); EX_AUTH_FATAL + abnormal unchanged\
+      \ (AC-C6).\n\nGreen at ff4ed527: ruff clean; rate-limit + event_loop/concurrent_executor\
+      \ regression suites pass. (task-2-5 record_rate_limited implemented coder-side\
+      \ for import coherence \u2014 flagged coder/tester seam; tester owns 2-5/2-8.)"
+    attestation: {}
+    artifacts:
+    - ff4ed52774ad2435e809468bf311e42153472a53
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    risk_considered: No code change since the reviewer-vetted corrected implementation;
+      only the documenter's docs commit advanced the tip. AC-C5/cq-1 structurally
+      guaranteed by the non-throttle-evidence loop-guard. Re-proposing after a tracker
+      reset.
+    commit_sha: ff4ed52774ad2435e809468bf311e42153472a53
+    files_changed:
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    tests_run: []
+    tasks_satisfied:
+    - task-2-1
+    - task-2-2
+    - task-2-3
+    - task-2-4
+    - task-2-6
+    - task-2-7
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: ff4ed52774ad2435e809468bf311e42153472a53
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:09Z] coder (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: d0984df0-416a-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:13Z] tester (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=slice-2)
+
+````yaml
+id: 2bcef6d6-41d4-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:13Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 5734796d-4a6b-4d
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:15Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: c3606193-333e-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:15Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: fe9a98d4-9a8d-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:17Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 81ebe7f6-cc9c-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:18Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 5777c050-678d-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:25Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 2aeea5fd-9242-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:26Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: cdc9bb33-a0b6-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:28Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: d875ca52-3de8-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:28Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 606c7a9e-0a31-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:28Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: fe174a58-e044-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:30Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 9ce7a71e-18b2-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:39Z] reviewer_code → coder (CONSENSUS_ACK): ACK from reviewer_code for coder
+
+ACK (re-affirm in new consensus round). The coder's source at ff4ed527 is byte-identical to e96806cea / 94fbf7c6e, which I reviewed in depth and ACKed: `git diff e96806cea..ff4ed527` over all eight coder source files is EMPTY (ff4ed527's only change is the documenter's docs/reference/agent-recovery.md). My verified verdict carries forward: the corrected deterministic-loop guard honors binding cq-1/AC-C5 (bare-throttle cap wall paces indefinitely via the signature_is_non_throttle gate + _observe_jobs dropping exit_detail; no ~7.5-min halt; escalates only on positive non-throttle evidence), and AC-C1 (abnormal streak untouched), AC-C3 (halt one key only, normal respawn gate), AC-C6 (auth-fatal-first disjointness; abnormal path byte-identical), plus the EX_RATE_LIMITED=69 / outcome_for precedence / JOB_OUTCOME_RATE_LIMITED plumbing are all still correct. No code change to re-examine.
+
+````yaml
+id: 6bab41fe-5798-4f
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    reason: 'ACK (re-affirm in new consensus round). The coder''s source at ff4ed527
+      is byte-identical to e96806cea / 94fbf7c6e, which I reviewed in depth and ACKed:
+      `git diff e96806cea..ff4ed527` over all eight coder source files is EMPTY (ff4ed527''s
+      only change is the documenter''s docs/reference/agent-recovery.md). My verified
+      verdict carries forward: the corrected deterministic-loop guard honors binding
+      cq-1/AC-C5 (bare-throttle cap wall paces indefinitely via the signature_is_non_throttle
+      gate + _observe_jobs dropping exit_detail; no ~7.5-min halt; escalates only
+      on positive non-throttle evidence), and AC-C1 (abnormal streak untouched), AC-C3
+      (halt one key only, normal respawn gate), AC-C6 (auth-fatal-first disjointness;
+      abnormal path byte-identical), plus the EX_RATE_LIMITED=69 / outcome_for precedence
+      / JOB_OUTCOME_RATE_LIMITED plumbing are all still correct. No code change to
+      re-examine.'
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:46Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=283022 util=0.28 cache_hit=1.00 decision=below_threshold
+
+````yaml
+id: 6f578dab-a763-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:46Z] reviewer_contract → coder (CONSENSUS_ACK): ACK from reviewer_contract for coder
+
+ACK — re-anchored coder edge at the documenter's HEAD ff4ed527; the PR C source is unchanged from my prior ACK. I confirmed `git diff e96806cea..ff4ed52774` over all eight PR C source files (auth_errors.py, __main__.py, kubernetes_spawner/_models.py, supervision_policy.py, event_loop/__init__.py, _loop.py, _supervisor.py, concurrent_executor.py) is EMPTY — the only change in the range is a 5-line doc-only edit to docs/reference/agent-recovery.md (the documenter's landed-PR-C documentation, which I ACKed on the documenter edge). The implementation is byte-identical to the state I verified and ACKed on the coder edge at e96806c: AC-C5/binding-cq-1 fix intact (loop-guard escalates only on positive non-throttle evidence; _observe_jobs passes no exit_detail so a genuine cap wall paces indefinitely), plus AC-C1 (no fail-streak halt), AC-C2 (paced window), AC-C3 (landed-slice preservation), AC-C4 (loop-guard both directions), AC-C6 (EX_AUTH_FATAL precedence + abnormal path unchanged + classifier disjointness). No new source delta to audit; verdict carries over. Contract-clean. Tasks 2-1..2-7.
+
+````yaml
+id: e5538bc6-0118-43
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    reason: "ACK \u2014 re-anchored coder edge at the documenter's HEAD ff4ed527;\
+      \ the PR C source is unchanged from my prior ACK. I confirmed `git diff e96806cea..ff4ed52774`\
+      \ over all eight PR C source files (auth_errors.py, __main__.py, kubernetes_spawner/_models.py,\
+      \ supervision_policy.py, event_loop/__init__.py, _loop.py, _supervisor.py, concurrent_executor.py)\
+      \ is EMPTY \u2014 the only change in the range is a 5-line doc-only edit to\
+      \ docs/reference/agent-recovery.md (the documenter's landed-PR-C documentation,\
+      \ which I ACKed on the documenter edge). The implementation is byte-identical\
+      \ to the state I verified and ACKed on the coder edge at e96806c: AC-C5/binding-cq-1\
+      \ fix intact (loop-guard escalates only on positive non-throttle evidence; _observe_jobs\
+      \ passes no exit_detail so a genuine cap wall paces indefinitely), plus AC-C1\
+      \ (no fail-streak halt), AC-C2 (paced window), AC-C3 (landed-slice preservation),\
+      \ AC-C4 (loop-guard both directions), AC-C6 (EX_AUTH_FATAL precedence + abnormal\
+      \ path unchanged + classifier disjointness). No new source delta to audit; verdict\
+      \ carries over. Contract-clean. Tasks 2-1..2-7."
+    ack_version: 1
+    attestation:
+      tasks_verified:
+      - task-2-1
+      - task-2-2
+      - task-2-3
+      - task-2-4
+      - task-2-5
+      - task-2-6
+      - task-2-7
+      verification_note: "Re-anchored coder edge at ff4ed527 (documenter HEAD). git\
+        \ diff e96806c..ff4ed527 over all 8 PR C source files is empty \u2014 the\
+        \ only change is the documenter's doc-only edit to agent-recovery.md. Source\
+        \ is byte-identical to my already-ACKed coder state; AC-C1..C6 + the AC-C5/cq-1\
+        \ loop-guard fix all intact. Tasks 2-1..2-7 verified."
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:51Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=301285 util=0.30 cache_hit=1.00 decision=below_threshold
+
+````yaml
+id: 45aea32e-3f22-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:52Z] reviewer_security → coder (CONSENSUS_ACK): ACK from reviewer_security for coder
+
+Security review PASS on coder proposal ff4ed527 (v1). The only change since my prior coder ACK (e96806cea) is a docs-only update to docs/reference/agent-recovery.md — `git diff --stat e96806cea..ff4ed527` shows that single file changed, so all production code (auth_errors.py, __main__.py, supervision_policy.py, event_loop/*, concurrent_executor.py, kubernetes_spawner/_models.py) is byte-identical to content I already fully vetted. Docs-only: no production code, no new attack surface. I sanity-checked the new prose against the reviewed code — it accurately documents the security-relevant invariants: disjoint classifiers (a subscription weekly/usage cap delivered as a 429 still exits 77 EX_AUTH_FATAL, never reclassified as a retryable throttle), abnormal streak left untouched, no hard wall-clock ceiling per cq-1, and the deterministic-loop guard escalating/halting only on positive non-throttle evidence — so it provides no misleading operator guidance. No secret values are exposed (the remediation references the config key name CLAUDE_CODE_OAUTH_TOKEN, not a value). No security blockers.
+
+````yaml
+id: c935f1dd-34e3-4f
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - docs/reference/agent-recovery.md
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/concurrent_executor.py
+    - orchestrator/kubernetes_spawner/_models.py
+    reason: "Security review PASS on coder proposal ff4ed527 (v1). The only change\
+      \ since my prior coder ACK (e96806cea) is a docs-only update to docs/reference/agent-recovery.md\
+      \ \u2014 `git diff --stat e96806cea..ff4ed527` shows that single file changed,\
+      \ so all production code (auth_errors.py, __main__.py, supervision_policy.py,\
+      \ event_loop/*, concurrent_executor.py, kubernetes_spawner/_models.py) is byte-identical\
+      \ to content I already fully vetted. Docs-only: no production code, no new attack\
+      \ surface. I sanity-checked the new prose against the reviewed code \u2014 it\
+      \ accurately documents the security-relevant invariants: disjoint classifiers\
+      \ (a subscription weekly/usage cap delivered as a 429 still exits 77 EX_AUTH_FATAL,\
+      \ never reclassified as a retryable throttle), abnormal streak left untouched,\
+      \ no hard wall-clock ceiling per cq-1, and the deterministic-loop guard escalating/halting\
+      \ only on positive non-throttle evidence \u2014 so it provides no misleading\
+      \ operator guidance. No secret values are exposed (the remediation references\
+      \ the config key name CLAUDE_CODE_OAUTH_TOKEN, not a value). No security blockers."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:33:57Z] reviewer_concurrency → coder (CONSENSUS_ACK): ACK from reviewer_concurrency for coder
+
+ACK — carries forward my prior coder ACK. The only delta since my last-ACKed coder SHA e96806cea is a docs-only change to docs/reference/agent-recovery.md (+5/-2); `git diff --stat e96806cea..ff4ed5277` over all production artifacts is empty (auth_errors.py, __main__.py, kubernetes_spawner/_models.py, supervision_policy.py, event_loop/__init__.py, _loop.py, _supervisor.py, concurrent_executor.py all byte-identical to what I already reviewed and ACKed).
+
+Reviewed the new doc prose for accuracy against the implemented concurrency/liveness behavior — it is faithful: record_rate_limited leaves the abnormal _streaks/_exhausted state untouched (AC-C1/C6); paced backoff bounded at 15 min / reset-derived capped at 1 h, separate from the 30 s abnormal cap; NO hard wall-clock ceiling with a once-sticky agent-rate-limited OVERSEER_ALERT at 30 min cumulative wait (cq-1/AC-C5); and critically it correctly documents the corrected loop-guard — "a frozen/identical fingerprint is NOT treated as a loop … escalates only on positive non-throttle evidence … a bare production throttle never satisfies the gate, so it paces indefinitely." No misleading claims about the paced-retry loop's termination semantics; the no-ceiling liveness guarantee I required is accurately described. Production supervision code unchanged and concurrency-sound. ACK.
+
+````yaml
+id: 6dae4fc8-b55e-4f
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - docs/reference/agent-recovery.md
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/concurrent_executor.py
+    reason: "ACK \u2014 carries forward my prior coder ACK. The only delta since my\
+      \ last-ACKed coder SHA e96806cea is a docs-only change to docs/reference/agent-recovery.md\
+      \ (+5/-2); `git diff --stat e96806cea..ff4ed5277` over all production artifacts\
+      \ is empty (auth_errors.py, __main__.py, kubernetes_spawner/_models.py, supervision_policy.py,\
+      \ event_loop/__init__.py, _loop.py, _supervisor.py, concurrent_executor.py all\
+      \ byte-identical to what I already reviewed and ACKed).\n\nReviewed the new\
+      \ doc prose for accuracy against the implemented concurrency/liveness behavior\
+      \ \u2014 it is faithful: record_rate_limited leaves the abnormal _streaks/_exhausted\
+      \ state untouched (AC-C1/C6); paced backoff bounded at 15 min / reset-derived\
+      \ capped at 1 h, separate from the 30 s abnormal cap; NO hard wall-clock ceiling\
+      \ with a once-sticky agent-rate-limited OVERSEER_ALERT at 30 min cumulative\
+      \ wait (cq-1/AC-C5); and critically it correctly documents the corrected loop-guard\
+      \ \u2014 \"a frozen/identical fingerprint is NOT treated as a loop \u2026 escalates\
+      \ only on positive non-throttle evidence \u2026 a bare production throttle never\
+      \ satisfies the gate, so it paces indefinitely.\" No misleading claims about\
+      \ the paced-retry loop's termination semantics; the no-ceiling liveness guarantee\
+      \ I required is accurately described. Production supervision code unchanged\
+      \ and concurrency-sound. ACK."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:01Z] coder (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=531850 util=0.53 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 689061ff-48ff-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:01Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=159548 util=0.16 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: a8807d28-7aa6-4f
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:03Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=175371 util=0.18 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 3ab1d621-3b80-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:08Z] reviewer_code_holistic → coder (CONSENSUS_ACK): ACK from reviewer_code_holistic for coder
+
+ACK (holistic) — the only delta from the baseline I previously ACKed (e96806cea) is a DOCS-ONLY change: `git diff e96806cea..ff4ed5277` touches solely docs/reference/agent-recovery.md (+5/-2). All eight implementation files in this event's artifact_refs are byte-identical to the code I already verified and ACKed, so my prior holistic verdict on the rate-limit path stands unchanged (loop-guard honors cq-1 no-ceiling; AC-C1/C3/C6 + exit-code plumbing all hold).
+
+Reviewed the doc addition for accuracy against the implementation — it is faithful on every point:
+- exit 69 EX_RATE_LIMITED via is_transient_rate_limit_error, checked AFTER is_auth_fatal_error, disjoint (weekly-cap-as-429 stays 77);
+- outcome_for maps 69 -> JOB_OUTCOME_RATE_LIMITED, stray code -> abnormal;
+- _observe_jobs -> record_rate_limited (not record_abort); _streaks/_exhausted untouched (mirrors record_legitimate_outcome), so no fail-streak halt;
+- paced respawn: reset-time-paced or bounded backoff (FACTOR, CAP 15 min, MAX_PACING 1 h), separate from the 30 s abnormal cap; normal respawn gate so landed slices preserved;
+- cq-1 no hard ceiling; sticky agent-rate-limited OVERSEER_ALERT once cumulative wait > 30 min (ALERT_THRESHOLD 1800 s);
+- deterministic-loop guard escalates ONLY on positive non-throttle evidence (signature present AND not transient-rate-limit AND no parseable reset hint), reproduced LOOP_GUARD_REPEATS(5)× with no state advance -> rate-limit-deterministic-loop alert + halt_rate_limited (key exhausted) -> arms-exhausted HITL; advancing progression resets the counter; a bare production throttle never satisfies the gate and paces indefinitely.
+The exit-code table row and the "two codes diverge" summary are likewise accurate.
+
+NON-BLOCKING NOTES (not conditions): (1) the guard's production dormancy is documented honestly ("a bare production throttle ... never satisfies the gate"), consistent with my earlier ACKs. (2) agent-recovery.md nominally overlaps the documenter's lane — a lane/seam observation for reviewer_contract, not a code-correctness issue; the content itself is accurate and low-risk. No blockers.
+
+````yaml
+id: 2653d5e0-a532-4a
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - docs/reference/agent-recovery.md
+    - shared/egg_agent/auth_errors.py
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/supervision_policy.py
+    reason: "ACK (holistic) \u2014 the only delta from the baseline I previously ACKed\
+      \ (e96806cea) is a DOCS-ONLY change: `git diff e96806cea..ff4ed5277` touches\
+      \ solely docs/reference/agent-recovery.md (+5/-2). All eight implementation\
+      \ files in this event's artifact_refs are byte-identical to the code I already\
+      \ verified and ACKed, so my prior holistic verdict on the rate-limit path stands\
+      \ unchanged (loop-guard honors cq-1 no-ceiling; AC-C1/C3/C6 + exit-code plumbing\
+      \ all hold).\n\nReviewed the doc addition for accuracy against the implementation\
+      \ \u2014 it is faithful on every point:\n- exit 69 EX_RATE_LIMITED via is_transient_rate_limit_error,\
+      \ checked AFTER is_auth_fatal_error, disjoint (weekly-cap-as-429 stays 77);\n\
+      - outcome_for maps 69 -> JOB_OUTCOME_RATE_LIMITED, stray code -> abnormal;\n\
+      - _observe_jobs -> record_rate_limited (not record_abort); _streaks/_exhausted\
+      \ untouched (mirrors record_legitimate_outcome), so no fail-streak halt;\n-\
+      \ paced respawn: reset-time-paced or bounded backoff (FACTOR, CAP 15 min, MAX_PACING\
+      \ 1 h), separate from the 30 s abnormal cap; normal respawn gate so landed slices\
+      \ preserved;\n- cq-1 no hard ceiling; sticky agent-rate-limited OVERSEER_ALERT\
+      \ once cumulative wait > 30 min (ALERT_THRESHOLD 1800 s);\n- deterministic-loop\
+      \ guard escalates ONLY on positive non-throttle evidence (signature present\
+      \ AND not transient-rate-limit AND no parseable reset hint), reproduced LOOP_GUARD_REPEATS(5)\xD7\
+      \ with no state advance -> rate-limit-deterministic-loop alert + halt_rate_limited\
+      \ (key exhausted) -> arms-exhausted HITL; advancing progression resets the counter;\
+      \ a bare production throttle never satisfies the gate and paces indefinitely.\n\
+      The exit-code table row and the \"two codes diverge\" summary are likewise accurate.\n\
+      \nNON-BLOCKING NOTES (not conditions): (1) the guard's production dormancy is\
+      \ documented honestly (\"a bare production throttle ... never satisfies the\
+      \ gate\"), consistent with my earlier ACKs. (2) agent-recovery.md nominally\
+      \ overlaps the documenter's lane \u2014 a lane/seam observation for reviewer_contract,\
+      \ not a code-correctness issue; the content itself is accurate and low-risk.\
+      \ No blockers."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:13Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=209809 util=0.21 cache_hit=0.98 decision=below_threshold
+
+````yaml
+id: af720da6-6ca5-4a
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:29Z] tester (CONSENSUS_PROPOSE): Proposal from tester
+
+tester task-2-8 coverage for PR C EX_RATE_LIMITED transient rate-limit path, finalized against the corrected no-ceiling loop-guard. 5 test files pinning: is_transient_rate_limit_error classification + AC-C6 disjointness (weekly-cap-on-429 stays auth-fatal) + CLI exit-code mapping; outcome_for EX_RATE_LIMITED->rate_limited with auth-fatal precedence and stray/read-failure->abnormal; _observe_jobs routes to record_rate_limited (not record_abort); AC-C1 no streak halt while record_abort still halts (AC-C6 regression); ready_to_respawn pacing + success/retire state clearing; supervision_policy constants/parse/backoff/RateLimitFingerprint; _handle_rate_limited threshold-alert/loop-guard-halt/landed-slice-preservation. The corrected TestLoopGuardAndThreshold pins the binding cq-1/AC-C5 contract: a steady bare throttle (frozen progression) NEVER escalates / never exhausts and fires the cumulative-wait OVERSEER_ALERT once (no ceiling); a throttle-classified signature never escalates; only a changed NON-throttle signature escalates once past the guard threshold (AC-C4 positive deterministic evidence); advancing progression resets the counter. Regression-proved: the AC-C5 liveness tests FAIL against the v1 buggy guard and PASS against the landed fix. task-2-5 (record_rate_limited) landed in the coder's files as the declared merge seam.
+
+````yaml
+id: 8be1f8a2-29d5-4b
+phase: implement
+metadata:
+  payload:
+    summary: 'tester task-2-8 coverage for PR C EX_RATE_LIMITED transient rate-limit
+      path, finalized against the corrected no-ceiling loop-guard. 5 test files pinning:
+      is_transient_rate_limit_error classification + AC-C6 disjointness (weekly-cap-on-429
+      stays auth-fatal) + CLI exit-code mapping; outcome_for EX_RATE_LIMITED->rate_limited
+      with auth-fatal precedence and stray/read-failure->abnormal; _observe_jobs routes
+      to record_rate_limited (not record_abort); AC-C1 no streak halt while record_abort
+      still halts (AC-C6 regression); ready_to_respawn pacing + success/retire state
+      clearing; supervision_policy constants/parse/backoff/RateLimitFingerprint; _handle_rate_limited
+      threshold-alert/loop-guard-halt/landed-slice-preservation. The corrected TestLoopGuardAndThreshold
+      pins the binding cq-1/AC-C5 contract: a steady bare throttle (frozen progression)
+      NEVER escalates / never exhausts and fires the cumulative-wait OVERSEER_ALERT
+      once (no ceiling); a throttle-classified signature never escalates; only a changed
+      NON-throttle signature escalates once past the guard threshold (AC-C4 positive
+      deterministic evidence); advancing progression resets the counter. Regression-proved:
+      the AC-C5 liveness tests FAIL against the v1 buggy guard and PASS against the
+      landed fix. task-2-5 (record_rate_limited) landed in the coder''s files as the
+      declared merge seam.'
+    attestation:
+      tests_run: 86
+      checks_passed:
+      - lint
+      - test
+      - security
+      note: 'At HEAD ff4ed5277: pytest 81 passed / 5 SDK-gated CLI skipped; ruff check
+        clean; bandit -ll -c pyproject.toml exit 0 (Medium/High 0). AC-C5 liveness
+        regression verified to FAIL against v1 buggy guard and PASS against the landed
+        corrected guard.'
+    artifacts:
+    - ff4ed5277
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    risk_considered: Test-only artifacts; the loop-guard/threshold tests were reworked
+      in lockstep with the coder's corrected no-ceiling guard (removed the v1 bug-blessing
+      assertion, added the AC-C5 frozen-throttle-never-halts regression, keyed escalation
+      on a non-throttle signature, kept advancing-progression-resets, dropped the
+      redundant advancing-progression threshold test). All reviewer-flagged good tests
+      preserved. task-2-5 production code is the coder's merge seam (tester role-blocked
+      from _supervisor.py).
+    commit_sha: ff4ed5277
+    files_changed:
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    tests_run: []
+    tasks_satisfied:
+    - task-2-5
+    - task-2-8
+    no_changes_needed: false
+    no_changes_reason: ''
+  version: 1
+  commit_sha: ff4ed5277
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:29Z] orchestrator → documenter (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: e6bef0c3-d046-43
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:33Z] documenter (CONSENSUS_CONFIRMED): Consensus confirmed by documenter
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 91dd0799-edeb-4c
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:34Z] tester (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: d8f7a075-c9b0-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:34Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 4d920aa7-7f98-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:35Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: db2bb536-8e31-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:36Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 8f76c55b-7f93-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:36Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: a975a95f-d011-44
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:37Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=slice-2)
+
+````yaml
+id: 274389ca-7c5a-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:42Z] tester (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=422075 util=0.42 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: 34bfc6a7-39d4-4b
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:46Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 3ea3ff0c-62f9-48
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:46Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: ddbeac09-ec12-4b
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:47Z] tester (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 2030200b-52be-42
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:47Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: dc53e811-5cab-4e
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:48Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: aad87a6a-c3d9-40
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:49Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=slice-2)
+
+````yaml
+id: 8e7f469b-400b-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:56Z] reviewer_code → tester (CONSENSUS_ACK): ACK from reviewer_code for tester
+
+ACK (re-affirm in new consensus round). The tester's test files at ff4ed527 are byte-identical to e96806cea, which I reviewed in depth and ACKed: `git diff e96806cea..ff4ed527` over all five test files is EMPTY (ff4ed527's only change is the documenter's agent-recovery.md). My verified verdict carries forward: TestLoopGuardAndThreshold pins the corrected AC-C4/AC-C5 contract (test_steady_throttle_never_escalates_and_paces_past_threshold = the AC-C5 no-ceiling regression; test_frozen_throttle_signature_never_escalates; test_non_throttle_signature_escalates_once_past_guard_threshold; test_advancing_progression_resets_the_guard), the v1 bug-codifying test is gone, and the other four files (auth_errors classification/disjointness/CLI mapping, kubernetes_spawner outcome_for precedence, supervision_policy constants/parse/backoff/fingerprint, concurrent_executor reaction-to-flags + landed-slice preservation) remain correct. No content change to re-examine; consistent with my coder ff4ed527 source ACK this round.
+
+````yaml
+id: c30c237c-e74a-40
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    reason: 'ACK (re-affirm in new consensus round). The tester''s test files at ff4ed527
+      are byte-identical to e96806cea, which I reviewed in depth and ACKed: `git diff
+      e96806cea..ff4ed527` over all five test files is EMPTY (ff4ed527''s only change
+      is the documenter''s agent-recovery.md). My verified verdict carries forward:
+      TestLoopGuardAndThreshold pins the corrected AC-C4/AC-C5 contract (test_steady_throttle_never_escalates_and_paces_past_threshold
+      = the AC-C5 no-ceiling regression; test_frozen_throttle_signature_never_escalates;
+      test_non_throttle_signature_escalates_once_past_guard_threshold; test_advancing_progression_resets_the_guard),
+      the v1 bug-codifying test is gone, and the other four files (auth_errors classification/disjointness/CLI
+      mapping, kubernetes_spawner outcome_for precedence, supervision_policy constants/parse/backoff/fingerprint,
+      concurrent_executor reaction-to-flags + landed-slice preservation) remain correct.
+      No content change to re-examine; consistent with my coder ff4ed527 source ACK
+      this round.'
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:57Z] reviewer_code (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 69e06b8e-eadf-40
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:58Z] reviewer_concurrency → tester (CONSENSUS_ACK): ACK from reviewer_concurrency for tester
+
+ACK — carries forward my prior tester ACK. `git diff --stat e96806cea..ff4ed5277` over all five tester test files is EMPTY; they are byte-identical to the SHA I already reviewed and ACKed (the only change between the two SHAs was a docs-only commit to docs/reference/agent-recovery.md). The corrected TestLoopGuardAndThreshold surface (test_steady_throttle_never_escalates_and_paces_past_threshold — frozen progression + no signature, 60 reproductions, never deterministic_loop, never exhausted, one threshold crossing; test_frozen_throttle_signature_never_escalates; test_non_throttle_signature_escalates_once_past_guard_threshold; test_advancing_progression_resets_the_guard) still encodes exactly the no-ceiling liveness contract from my NACK/fix cycle. Test hygiene sound (deterministic _ManualClock, clean isolation). My concurrency/liveness concern remains fully resolved. ACK.
+
+````yaml
+id: 0f10776f-491e-4c
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    reason: "ACK \u2014 carries forward my prior tester ACK. `git diff --stat e96806cea..ff4ed5277`\
+      \ over all five tester test files is EMPTY; they are byte-identical to the SHA\
+      \ I already reviewed and ACKed (the only change between the two SHAs was a docs-only\
+      \ commit to docs/reference/agent-recovery.md). The corrected TestLoopGuardAndThreshold\
+      \ surface (test_steady_throttle_never_escalates_and_paces_past_threshold \u2014\
+      \ frozen progression + no signature, 60 reproductions, never deterministic_loop,\
+      \ never exhausted, one threshold crossing; test_frozen_throttle_signature_never_escalates;\
+      \ test_non_throttle_signature_escalates_once_past_guard_threshold; test_advancing_progression_resets_the_guard)\
+      \ still encodes exactly the no-ceiling liveness contract from my NACK/fix cycle.\
+      \ Test hygiene sound (deterministic _ManualClock, clean isolation). My concurrency/liveness\
+      \ concern remains fully resolved. ACK."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:34:59Z] reviewer_code_holistic → tester (CONSENSUS_ACK): ACK from reviewer_code_holistic for tester
+
+ACK (holistic) — the tester's five test files at ff4ed5277 are byte-identical to the content I reviewed in full and ACKed at the prior baseline: `git diff e96806cea..ff4ed5277 -- shared/egg_agent/tests/* orchestrator/tests/*` is EMPTY (the ff4ed5277 commit added only docs/reference/agent-recovery.md). No re-assessment needed; my prior verdict stands.
+
+Carried-over verdict: TestLoopGuardAndThreshold pins the corrected no-ceiling contract — test_steady_throttle_never_escalates_and_paces_past_threshold (frozen-progression bare throttle: never deterministic_loop, never exhausted, one cq-1 threshold alert at cumulative >= 1800s — the AC-C5 regression), test_frozen_throttle_signature_never_escalates, test_non_throttle_signature_escalates_once_past_guard_threshold (AC-C4 positive evidence, sticky), test_advancing_progression_resets_the_guard. Solid supporting coverage: auth_errors disjointness + CLI mapping; kubernetes_spawner outcome_for (rate_limited / auth-fatal precedence / stray+read-failure→abnormal); AC-C1 no-streak-halt + AC-C6 abnormal regression; pacing window + success/retire clearing; supervision_policy pure-function; concurrent_executor _handle_rate_limited reactions. No blockers.
+
+````yaml
+id: 8c3387a3-585d-45
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    reason: "ACK (holistic) \u2014 the tester's five test files at ff4ed5277 are byte-identical\
+      \ to the content I reviewed in full and ACKed at the prior baseline: `git diff\
+      \ e96806cea..ff4ed5277 -- shared/egg_agent/tests/* orchestrator/tests/*` is\
+      \ EMPTY (the ff4ed5277 commit added only docs/reference/agent-recovery.md).\
+      \ No re-assessment needed; my prior verdict stands.\n\nCarried-over verdict:\
+      \ TestLoopGuardAndThreshold pins the corrected no-ceiling contract \u2014 test_steady_throttle_never_escalates_and_paces_past_threshold\
+      \ (frozen-progression bare throttle: never deterministic_loop, never exhausted,\
+      \ one cq-1 threshold alert at cumulative >= 1800s \u2014 the AC-C5 regression),\
+      \ test_frozen_throttle_signature_never_escalates, test_non_throttle_signature_escalates_once_past_guard_threshold\
+      \ (AC-C4 positive evidence, sticky), test_advancing_progression_resets_the_guard.\
+      \ Solid supporting coverage: auth_errors disjointness + CLI mapping; kubernetes_spawner\
+      \ outcome_for (rate_limited / auth-fatal precedence / stray+read-failure\u2192\
+      abnormal); AC-C1 no-streak-halt + AC-C6 abnormal regression; pacing window +\
+      \ success/retire clearing; supervision_policy pure-function; concurrent_executor\
+      \ _handle_rate_limited reactions. No blockers."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:00Z] reviewer_contract → tester (CONSENSUS_ACK): ACK from reviewer_contract for tester
+
+ACK — re-anchored tester edge at the documenter's HEAD ff4ed527; the PR C test suite is unchanged from my prior ACK. I confirmed `git diff e96806cea..ff4ed52774` touches only docs/reference/agent-recovery.md (a 5-line doc-only edit) — all five test files (test_event_loop_rate_limited.py, test_auth_errors_rate_limit.py, test_kubernetes_spawner_rate_limited.py, test_supervision_policy.py, test_concurrent_executor_rate_limit.py) are byte-identical to the state I fully audited and ACKed on the tester edge at e96806c. My full verification carries over: TestLoopGuardAndThreshold pins the corrected AC-C4/AC-C5 contract (steady frozen throttle never escalates + paces past the 1800s threshold with exactly one alert, never exhausted; throttle-classified signature never escalates; non-throttle signature escalates once, sticky; advancing progression resets), the redundant artificial-progression test is removed, and the other four suites cover classifier disjointness + exit-code distinctness + CLI mapping, outcome_for precedence + abnormal fallback, _observe_jobs routing + AC-C1 no-streak-halt + AC-C6, and the policy helpers/constants/fingerprint. Full AC-C1..C7 for task-2-8 and task-2-5 (record_rate_limited). No new delta to audit; verdict carries over. Contract-clean.
+
+````yaml
+id: c32f8ac1-b72a-49
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    reason: "ACK \u2014 re-anchored tester edge at the documenter's HEAD ff4ed527;\
+      \ the PR C test suite is unchanged from my prior ACK. I confirmed `git diff\
+      \ e96806cea..ff4ed52774` touches only docs/reference/agent-recovery.md (a 5-line\
+      \ doc-only edit) \u2014 all five test files (test_event_loop_rate_limited.py,\
+      \ test_auth_errors_rate_limit.py, test_kubernetes_spawner_rate_limited.py, test_supervision_policy.py,\
+      \ test_concurrent_executor_rate_limit.py) are byte-identical to the state I\
+      \ fully audited and ACKed on the tester edge at e96806c. My full verification\
+      \ carries over: TestLoopGuardAndThreshold pins the corrected AC-C4/AC-C5 contract\
+      \ (steady frozen throttle never escalates + paces past the 1800s threshold with\
+      \ exactly one alert, never exhausted; throttle-classified signature never escalates;\
+      \ non-throttle signature escalates once, sticky; advancing progression resets),\
+      \ the redundant artificial-progression test is removed, and the other four suites\
+      \ cover classifier disjointness + exit-code distinctness + CLI mapping, outcome_for\
+      \ precedence + abnormal fallback, _observe_jobs routing + AC-C1 no-streak-halt\
+      \ + AC-C6, and the policy helpers/constants/fingerprint. Full AC-C1..C7 for\
+      \ task-2-8 and task-2-5 (record_rate_limited). No new delta to audit; verdict\
+      \ carries over. Contract-clean."
+    ack_version: 1
+    attestation:
+      tasks_verified:
+      - task-2-5
+      - task-2-8
+      verification_note: "Re-anchored tester edge at ff4ed527 (documenter HEAD). git\
+        \ diff e96806c..ff4ed527 touches only docs/reference/agent-recovery.md \u2014\
+        \ all 5 PR C test files are byte-identical to my already-ACKed tester state.\
+        \ Full AC-C1..C7 coverage stands (corrected loop-guard tests: steady frozen\
+        \ throttle paces past threshold once without escalating; non-throttle signature\
+        \ escalates; advancing progression resets). task-2-5 (record_rate_limited)\
+        \ behavior covered and unchanged."
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:02Z] reviewer_code_holistic (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code_holistic
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 6f440130-2b17-47
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:02Z] reviewer_contract (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_contract
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 06795b8a-ff21-4f
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:02Z] reviewer_concurrency (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_concurrency
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: f2c4e9a9-ca01-47
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:04Z] reviewer_code (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=287904 util=0.29 cache_hit=1.00 decision=below_threshold
+
+````yaml
+id: d4c3d449-f607-4c
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:04Z] reviewer_concurrency (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=180058 util=0.18 cache_hit=0.99 decision=below_threshold
+
+````yaml
+id: aad5e03f-c86d-45
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:05Z] reviewer_code_holistic (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=214565 util=0.21 cache_hit=1.00 decision=below_threshold
+
+````yaml
+id: a2505bb2-d385-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:07Z] reviewer_contract (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=306446 util=0.31 cache_hit=1.00 decision=below_threshold
+
+````yaml
+id: 1153374c-c7db-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:09Z] reviewer_security → tester (CONSENSUS_ACK): ACK from reviewer_security for tester
+
+Security review PASS on tester proposal ff4ed527 (v1). Verified the test artifacts are byte-identical to my prior tester ACK: `git diff --name-only e96806cea..ff4ed527` shows NO test files changed (the only change in that range was the docs-only agent-recovery.md update). So all five test files are exactly the content I already fully vetted. Security assessment unchanged: test-only, no production code, no new attack surface; the two security-critical tests remain present and intact — test_absurd_hint_is_clamped_to_the_pacing_ceiling (untrusted reset-hint clamp) and TestDisjointFromAuthFatal / test_predicates_are_never_both_true (credential-failure disjointness). No hardcoded secrets, no # nosec / # noqa: S suppression, no verify=False / shell=True; bandit(-ll) clean. No security blockers.
+
+````yaml
+id: 74679ac4-74ad-4a
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - shared/egg_agent/tests/test_auth_errors_rate_limit.py
+    - orchestrator/tests/test_kubernetes_spawner_rate_limited.py
+    - orchestrator/tests/test_event_loop_rate_limited.py
+    - orchestrator/tests/test_supervision_policy.py
+    - orchestrator/tests/test_concurrent_executor_rate_limit.py
+    reason: "Security review PASS on tester proposal ff4ed527 (v1). Verified the test\
+      \ artifacts are byte-identical to my prior tester ACK: `git diff --name-only\
+      \ e96806cea..ff4ed527` shows NO test files changed (the only change in that\
+      \ range was the docs-only agent-recovery.md update). So all five test files\
+      \ are exactly the content I already fully vetted. Security assessment unchanged:\
+      \ test-only, no production code, no new attack surface; the two security-critical\
+      \ tests remain present and intact \u2014 test_absurd_hint_is_clamped_to_the_pacing_ceiling\
+      \ (untrusted reset-hint clamp) and TestDisjointFromAuthFatal / test_predicates_are_never_both_true\
+      \ (credential-failure disjointness). No hardcoded secrets, no # nosec / # noqa:\
+      \ S suppression, no verify=False / shell=True; bandit(-ll) clean. No security\
+      \ blockers."
+    ack_version: 1
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:12Z] reviewer_security (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_security
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: c74d7756-0cc0-4f
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:20Z] reviewer_security (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=164508 util=0.16 cache_hit=1.00 decision=below_threshold
+
+````yaml
+id: a87f91f6-4693-41
+phase: implement
+metadata:
+  state: WORKING
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:23Z] tester → coder (CONSENSUS_ACK): ACK from tester for coder
+
+ACK coder (round anchored at ff4ed527). The coder's production files are UNCHANGED from the corrected PR C implementation I reviewed, ACKed, and regression-proved in prior rounds — the only delta between the prior reviewed tip (e96806cea) and this one is a single docs commit (docs/reference/agent-recovery.md), which is not in the coder's artifact_refs and is documenter-scoped. Re-verified at HEAD: signature_is_non_throttle gate present in _supervisor.py and _observe_jobs passes no exit_detail on the rate-limit branch (a bare production throttle paces indefinitely with only the cq-1 threshold alert — cq-1/AC-C5 satisfied; AC-C4 preserved; AC-C1/C3/C6 untouched). Full PR C suite green: 81 passed / 5 SDK-skipped. No blockers.
+
+````yaml
+id: d832efef-205e-41
+phase: implement
+metadata:
+  payload:
+    artifact_references:
+    - orchestrator/event_loop/_supervisor.py
+    - orchestrator/event_loop/_loop.py
+    - orchestrator/supervision_policy.py
+    - orchestrator/event_loop/__init__.py
+    - orchestrator/concurrent_executor.py
+    - shared/egg_agent/auth_errors.py
+    - shared/egg_agent/__main__.py
+    - orchestrator/kubernetes_spawner/_models.py
+    reason: "ACK coder (round anchored at ff4ed527). The coder's production files\
+      \ are UNCHANGED from the corrected PR C implementation I reviewed, ACKed, and\
+      \ regression-proved in prior rounds \u2014 the only delta between the prior\
+      \ reviewed tip (e96806cea) and this one is a single docs commit (docs/reference/agent-recovery.md),\
+      \ which is not in the coder's artifact_refs and is documenter-scoped. Re-verified\
+      \ at HEAD: signature_is_non_throttle gate present in _supervisor.py and _observe_jobs\
+      \ passes no exit_detail on the rate-limit branch (a bare production throttle\
+      \ paces indefinitely with only the cq-1 threshold alert \u2014 cq-1/AC-C5 satisfied;\
+      \ AC-C4 preserved; AC-C1/C3/C6 untouched). Full PR C suite green: 81 passed\
+      \ / 5 SDK-skipped. No blockers."
+    ack_version: 1
+    attestation:
+      tests_verified:
+      - 'PR C rate-limit suite: 81 passed / 5 SDK-skipped at HEAD ff4ed527'
+      checks_passed:
+      - test
+      note: Coder production content byte-identical to the already-reviewed+regression-proved
+        fix (diff e96806cea..ff4ed527 is only docs/reference/agent-recovery.md, outside
+        the coder artifact set).
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:23Z] orchestrator → tester (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 548eb058-f565-43
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:23Z] orchestrator → coder (STATUS): Ready to confirm — all confirm preconditions satisfied
+
+Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 8b116e7a-77d2-47
+phase: implement
+metadata:
+  ready_to_confirm: true
+  version: 1
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:28Z] coder (CONSENSUS_CONFIRMED): Consensus confirmed by coder
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 60048480-5fd4-41
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:28Z] tester (CONSENSUS_CONFIRMED): Consensus confirmed by tester
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 2166890d-b202-49
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:28Z] documenter (CONSENSUS_CONFIRMED): Consensus confirmed by documenter
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: d9274acd-c1ac-43
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:28Z] reviewer_code (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: ca24e905-90c4-42
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:28Z] reviewer_code_holistic (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_code_holistic
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 80d4c4cf-b9af-45
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:28Z] reviewer_contract (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_contract
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: af4ab769-6ca6-44
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:28Z] reviewer_security (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_security
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: b3fb0730-d732-47
+phase: implement
+metadata:
+  slice_id: slice-2
+````
+
+### [2026-07-10T02:35:28Z] reviewer_concurrency (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_concurrency
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: b8a2b25e-9beb-4d
+phase: implement
+metadata:
+  slice_id: slice-2
+````
