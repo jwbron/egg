@@ -550,46 +550,6 @@ resolved history), call `get_contract(task_id)` and inspect the `decisions` arra
 > For open-ended `feedback-N`, use `answer_feedback` instead — see
 > [Answering pre-proposal contract feedback](#answering-pre-proposal-contract-feedback).
 
-### Host detector migration (issue #1962)
-
-The five host-side detection blocks below — **Stall detection**, **Silent agent detection**, **NACK escalation**, **Long-Running Phase Detection**, **Stuck Pipeline Rescue** — are currently the active source of these alerts. They are being migrated into the overseer agent (`sandbox/overseer_monitor.py::run_migrated_detectors`) under the `overseer_owns_host_detection` `PipelineConfig` flag.
-
-**Gating semantics** (read at the start of every poll cycle from the `PipelineConfig` block on the cached `last_status`, refreshed via `get_status` whenever a one-shot snapshot is needed):
-
-```
-if not config.overseer_owns_host_detection:
-    # default — host runs these detectors as today
-    run host-side stall / silent-agent / NACK / long-run / rescue checks
-else:
-    # calibration-window opt-in — overseer is the sole source
-    skip all five blocks; rely on incoming OVERSEER_ALERT messages
-    (which the host still surfaces via the existing alert flow above)
-```
-
-The default is `False` so existing pipelines see no behavior change. After the calibration window concludes, a follow-up PR flips the default to `True` and deletes the dormant host blocks. **Without this gate the detection would fire from both sides simultaneously and double-alert the user.**
-
-The overseer's per-agent timing state moves from this skill's in-memory `{role: {phase, phase_entered_at, …}}` map (described in [State tracking](#state-tracking) below) into `.egg-state/oversight/agent-timing.json` (schema `egg_overseer.state.AgentTimingState`; flock-guarded). When `overseer_owns_host_detection=True` the host stops maintaining its in-memory map and reads `OVERSEER_ALERT.metadata` for the migrated anomaly types instead.
-
-#### Overseer-Absent Fallback
-
-When `overseer_owns_host_detection=True` and the host sees **no `OVERSEER_ALERT` messages** for `2 × overseer_agent_stall_seconds` (default 360s) **while running agents are present**, the overseer may itself be unresponsive. Surface a single `AskUserQuestion` (at most once per phase, gated by the sentinel file `.egg-state/oversight/sdlc-fallback-fired-{pipeline_id}-{phase}.flag`):
-
-- **Question**: "Overseer appears unresponsive — no OVERSEER_ALERT in the last <N> minutes despite running agents. How would you like to proceed?"
-- **Header**: "Overseer"
-- **Options**:
-  - **"Check the overseer container logs"** — description: "Inspect why the overseer is not emitting alerts"
-  - **"Restart the overseer"** — description: "Stop and respawn the overseer container"
-  - **"Continue with host detection only for this pipeline"** — description: "Treat `overseer_owns_host_detection` as `False` for the remainder of this pipeline"
-  - **"Cancel"** — description: "Stop the pipeline"
-
-Handle each response:
-- **Check the overseer container logs** → Call `get_container_logs` MCP tool with `agent_role="overseer"` and `lines: 200`.
-- **Restart the overseer** → (no host-side restart verb today; surface the recommendation as an issue or operator action).
-- **Continue with host detection only for this pipeline** → Treat the flag as effectively `False` for the rest of this monitoring session; resume host-side detection.
-- **Cancel** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`.
-
-After firing, write the sentinel file so the fallback does not fire again this phase. The orchestrator's per-phase `.egg-state/oversight/` cleanup removes the sentinel at phase boundary.
-
 ### Consensus Monitoring
 
 When the pipeline uses concurrent agents (BRC protocol), each `wait-status` JSON-line and the cached `last_status` may include a `concurrent.consensus` object. The CLI ships `concurrent.consensus` on every emitted line whenever the route saw it, so consensus drift never goes invisible during quiet phases on BRC pipelines. On each emitted line, check this data for red flags and surface problems to the user before they escalate.
@@ -615,7 +575,7 @@ Phase: <current_phase> | Status: <status> | Elapsed: <phase_elapsed_seconds>s | 
 **Optional rows below the table:**
 
 - **Unresolved NACK rows** — one per entry in `concurrent.consensus.unresolved_nacks` (structured field: `{reviewer, producer, reason, version}`). Render as `⚠️ <reviewer> → <producer>: "<reason>"`. This replaces the previous separate `NACKs:` line.
-- **Silent agent rows** — for any role in `running_agents` whose `elapsed_seconds` exceeds the silent threshold (10+ minutes by default; mirror the `agent-silent` detector) AND has zero messages in `recent_messages`, render `⚠️ <role>: silent for ~<N>m — no BRC messages`.
+- **Silent agent rows** — for any role in `running_agents` whose `elapsed_seconds` exceeds the silent threshold (10+ minutes by default) AND has zero messages in `recent_messages`, render `⚠️ <role>: silent for ~<N>m — no BRC messages`. This is a passive dashboard row only; the overseer owns silent-agent *detection* and surfaces it as an `OVERSEER_ALERT` (see [Overseer Alert Detection](#overseer-alert-detection)).
 
 The optional rows render only when their condition holds; omit them otherwise.
 
@@ -634,59 +594,17 @@ The `concurrent.consensus` object may not be present in all status responses (e.
    - Optional NACK rows: `CONSENSUS_NACK` messages not followed by a `CONSENSUS_PROPOSE` from the named producer (use `subject` to extract the reason)
 6. Use `subject` only for supplementary detail (e.g., extracting NACK reasons or human-readable context for the dashboard)
 
-**Stall detection** — *Skip this block when `config.overseer_owns_host_detection` is `True` (issue #1962): the overseer's `agent-stall` / `agent-nack-unresolved` migrated detectors fire and the host receives them as `OVERSEER_ALERT` messages.* Track agent phase progression using wall-clock time (not poll counts, since poll interval varies). Flag an agent as potentially stalled when:
-- It has been in `producer_phase: WORKING` for 3+ minutes while other agents have progressed
-- It has been in `producer_phase: PROPOSED` for 3+ minutes with no reviewer activity (reviewers still in `WORKING`)
-- A NACK has been unresolved for 3+ minutes (producer hasn't re-proposed)
-
-Note: 3 minutes is a baseline threshold. Code generation, test execution, and large diffs can legitimately exceed this. Adjust the threshold based on pipeline complexity — for pipelines with heavy test suites or large codebases, consider using 5+ minutes before flagging. The "Wait longer" option mitigates false positives.
-
-**Silent agent detection** — *Skip this block when `config.overseer_owns_host_detection` is `True` (issue #1962): the overseer's `agent-silent` migrated detector handles this.* Separately from phase-based stall detection, track agents that never enter the consensus protocol at all. Flag an agent as "silent" when:
-- It has been in `running_agents` for 10+ minutes of elapsed time (use the agent's server-computed `elapsed_seconds` field when available; fall back to `now - first_seen_at`)
-- It has **zero messages** in `recent_messages` (no proposals, ACKs, NACKs, or confirmations)
-- This catches agents that are running but not participating in BRC — a different failure mode from agents stuck in a specific phase
-
-When a silent agent is detected, include it in the stall alert with distinct framing:
-
-```
-### Silent Agent Detected
-
-**<role>** has been running for ~<N> minutes with no BRC messages.
-This agent may have failed to initialize or enter the consensus protocol.
-```
-
-When a stall is detected, alert the user with context:
-
-```
-### Potential Stall Detected
-
-**<role>** has been in <phase> for ~<N> minutes with no progress.
-```
-
-Then use `AskUserQuestion` to offer options:
-- **Question**: "Agent '<role>' appears stalled in <phase>. How would you like to proceed?"
-- **Header**: "Stall"
-- **Options**:
-  - **"Check agent logs"** — description: "View recent logs to diagnose the issue"
-  - **"Wait longer"** — description: "Give it more time — may be doing legitimate long-running work"
-  - **"Nudge agent"** — description: "Send a message asking the agent to report status"
-
-Handle each response:
-- **Check agent logs** → Call the `get_container_logs` MCP tool with `task_id` and `agent_role` set to the stalled agent's role (lines: 50). Show the user the output and let them decide next steps.
-- **Wait longer** → Reset `phase_entered_at` to the current time for this agent. Resume monitoring.
-- **Nudge agent** → Call the `send_message` MCP tool with `task_id`, `to_role` set to the stalled role, `message_type: "STATUS"`, and `body: "Overseer check: you appear stalled in <phase>. Please send a heartbeat or progress update."` Record the nudge timestamp (`nudged_at`). Resume monitoring. If the agent remains stalled for another 3+ minutes after the nudge, re-alert the user with stronger options (see escalation below).
-
-**NACK escalation** — *Skip this block when `config.overseer_owns_host_detection` is `True` (issue #1962): the overseer's `agent-nack-unresolved` migrated detector handles this. When the host receives an `OVERSEER_ALERT` with `subject` starting `agent-nack-unresolved`, render the existing `### Unresolved NACK` `AskUserQuestion` flow below using the alert's `metadata` rather than re-deriving it.* When an unresolved NACK persists for 3+ minutes, surface it prominently:
+**Unresolved NACK (render-on-alert)** — The overseer owns stall / silent-agent / unresolved-NACK **detection**; the host no longer runs its own timers for these. When the host receives an `OVERSEER_ALERT` whose subject starts `incomplete_consensus_stall` (the overseer's blocked-consensus / unresolved-NACK emitter — deterministic `_check_incomplete_consensus_stall` in `orchestrator/overseer/monitor/_consensus_stall.py`), render the `### Unresolved NACK` `AskUserQuestion` flow below, deriving `<reviewer>` / `<producer>` / `<reason>` from the alert `body` and from `concurrent.consensus.unresolved_nacks` rather than from any host-side timer:
 
 ```
 ### Unresolved NACK
 
 **<reviewer>** NACKed **<producer>**: "<reason>"
-This has been unresolved for ~<N> minutes. The producer has not re-proposed.
+The overseer has flagged this as blocking consensus.
 ```
 
 Then use `AskUserQuestion` to offer options:
-- **Question**: "Unresolved NACK from <reviewer> → <producer> has persisted for ~<N> minutes. How would you like to proceed?"
+- **Question**: "Unresolved NACK from <reviewer> → <producer> is blocking consensus. How would you like to proceed?"
 - **Header**: "NACK"
 - **Options**:
   - **"Check producer logs"** — description: "View the producer's recent logs to see if it's working on fixes"
@@ -698,30 +616,11 @@ Handle each response:
 - **Check producer logs** → Call the `get_container_logs` MCP tool with `task_id` and `agent_role` set to the producer's role (lines: 50). Show the output and let the user decide next steps.
 - **Check reviewer logs** → Call the `get_container_logs` MCP tool with `task_id` and `agent_role` set to the reviewer's role (lines: 50). Show the output and let the user decide next steps.
 - **Nudge producer** → Call the `send_message` MCP tool with `task_id`, `to_role` set to the producer role, `message_type: "STATUS"`, and `body: "Overseer check: unresolved NACK from <reviewer> — please address and re-propose."` Resume monitoring.
-- **Wait longer** → Reset `phase_entered_at` to the current time for the NACK tracking. Resume monitoring.
-
-**Post-nudge escalation** — If an agent remains stalled after a nudge (3+ minutes since the nudge with no change, computed from `now - nudged_at`), use `AskUserQuestion` to offer stronger actions:
-- **Question**: "Agent '<role>' is still unresponsive after nudge (~<N> minutes total). How would you like to proceed?"
-- **Header**: "Escalate"
-- **Options**:
-  - **"View full agent logs"** — description: "Show extended logs (`egg-orch container logs` with `--lines 200`) to diagnose the issue"
-  - **"Restart pipeline"** — description: "Cancel this pipeline and re-submit the task to get a fresh agent"
-  - **"Continue waiting"** — description: "Reset the stall timer and keep monitoring"
-
-Handle each response:
-- **View full agent logs** → Call the `get_container_logs` MCP tool with `task_id` and `agent_role` set to the stalled agent's role (lines: 200). Show the output and let the user decide next steps.
-- **Restart pipeline** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`, followed by `submit_task` with the original parameters. Resume from Phase 3 with the new `task_id`.
-- **Continue waiting** → Reset `phase_entered_at` to the current time. Resume monitoring.
-
-**State tracking** — When `config.overseer_owns_host_detection` is `False` (the default), maintain a simple in-memory map of `{role: {phase, phase_entered_at, nudged_at, first_seen_at, has_any_messages}}` across poll cycles, plus a top-level `running_agent_count` to track the number of running agents between polls (for detecting post-consensus reviewer spawns). All timestamps are wall-clock times. Set `first_seen_at` when a role first appears in `running_agents`. Set `phase_entered_at` to the current time when the role is first tracked or when its phase changes. Reset `phase_entered_at` whenever a role's phase changes or new messages appear from it in `recent_messages`. Set `nudged_at` when a nudge is sent (null otherwise). Set `has_any_messages` to true when any message from the role appears in `recent_messages`. This is lightweight — no persistence needed since it only matters during the active monitoring session.
-
-When `config.overseer_owns_host_detection` is `True` (issue #1962), the overseer owns this state in `.egg-state/oversight/agent-timing.json` (`egg_overseer.state.AgentTimingState` schema; flock-guarded read/modify/write). The host stops maintaining its in-memory map, and reads the migrated anomaly types from incoming `OVERSEER_ALERT` messages instead.
-
-**Server-computed timing** — When available, prefer server-computed timing fields over client-side tracking: use `phase_elapsed_seconds` for phase-level elapsed time and each agent's `elapsed_seconds` for per-agent elapsed time. These fields are computed server-side and are unaffected by client-side blocking (e.g., `AskUserQuestion` dialogs that pause the poll loop) or client-server clock skew. Fall back to `phase_entered_at`-based tracking only when these fields are absent.
+- **Wait longer** → Resume monitoring; the alert-id dedup in [Overseer Alert Detection](#overseer-alert-detection) prevents re-prompting for the same alert.
 
 ### Long-Running Phase Detection
 
-*Skip this block when `config.overseer_owns_host_detection` is `True` (issue #1962): the overseer's `phase-long-running` migrated detector handles the trigger. The host still renders the `### Long-Running Implement Phase` `AskUserQuestion` flow below when it receives the matching `OVERSEER_ALERT`.*
+*This proactive early-exit affordance is host-side by design: it fires on phase **duration** (a healthy but slow phase), not on an anomaly, so the anomaly-driven overseer has no equivalent emitter — it is deliberately retained on the host (issue #3364, cq-4). A follow-up may add a phase-duration detector to the overseer, at which point this can move.*
 
 Track elapsed time for each phase using the server-computed `phase_elapsed_seconds` field from the latest source — emitted on each `wait-status` JSON-line and on the `get_status` snapshot. Fall back to wall-clock tracking only when this field is unavailable. When the **implement phase** has been running for 60+ minutes and consensus appears mostly complete (majority of agents confirmed), proactively offer the user an early exit:
 
@@ -749,9 +648,9 @@ This threshold is configurable — adjust based on task complexity. The 60-minut
 
 ### Stuck Pipeline Rescue
 
-*Skip the host-side detection trigger of this section when `config.overseer_owns_host_detection` is `True` (issue #1962): the overseer's migrated detectors will surface the stall via `OVERSEER_ALERT`. The rescue workflow itself (Steps 1–3 below) remains user-initiated and is invoked either from the overseer-driven alert flow above or when the user picks "Open PR with current work" from the Long-Running Phase prompt — that path stays in the host even with the migration in effect.*
+*This is a **user-initiated** workflow — the host no longer runs its own stuck-pipeline detection timer. It is invoked either when the user acts on a surfaced `post_consensus_stall` `OVERSEER_ALERT` (the overseer's deterministic "consensus complete but phase has not transitioned" emitter — see [Overseer Alert Detection](#overseer-alert-detection)) or when the user picks "Open PR with current work" from the [Long-Running Phase](#long-running-phase-detection) prompt. Steps 1–3 below stay in the host.*
 
-When monitoring detects a stuck pipeline (no progress for 10+ minutes after consensus appears complete, or the user selects "Open PR with current work"), follow this workflow to extract completed work:
+When the user initiates a rescue (from a surfaced `post_consensus_stall` alert or the "Open PR with current work" option), follow this workflow to extract completed work:
 
 **Step 1: Check for committed work on the branch**
 
@@ -789,7 +688,14 @@ Handle each response:
 
 - **Cancel and retry** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`, followed by `submit_task` with the original parameters. Resume from Phase 3 with the new `task_id`. If `cancel_task` fails, inform the user and offer to retry. If `cancel_task` succeeds but `submit_task` fails, inform the user that the previous pipeline was cancelled and offer to retry the submission.
 
-- **Keep waiting** → Resume monitoring. Reset `phase_entered_at` to the current time.
+- **Keep waiting** → Resume monitoring.
+
+### Last-resort debugging
+
+Monitoring, stall/anomaly detection, and recovery are owned by the orchestrator and overseer; the skill's job is to run + report + broker HITL. When you nonetheless need to intervene from the host, two backstop rules are load-bearing:
+
+1. **Never blind-action a destructive recommendation.** An `OVERSEER_ALERT` (or any surfaced recommendation) may suggest a destructive action — cancelling the pipeline, restarting a phase, discarding work, force-pushing. Do **not** execute it automatically. Always route a destructive recommendation through `AskUserQuestion` and let the human decide; only the human authorizes `cancel_task`, phase restart, or any other irreversible step.
+2. **`TaskStop` the Monitor before re-arming it.** Before starting a new `wait-status` Monitor, call `TaskStop(task_id=monitor_task_id)` on the prior Monitor's cached id (see [HITL-driven re-arms](#hitl-driven-re-arms-stop-the-prior-monitor-first)). Two live Monitors on the same `task_id` each advance their own cursor and double-emit every event. If `TaskStop` itself fails, proceed with the re-arm but surface the failure so the user can stop the prior task manually.
 
 ## Phase 4 — HITL (Human-in-the-Loop)
 
@@ -1514,33 +1420,13 @@ During phase cycle transitions (e.g., review cycles), the orchestrator may brief
 2. If `status` is `failed` and `running_agents` is empty → call `get_pipeline_snapshot` MCP tool with the `task_id` to confirm actual state before exiting. If the snapshot shows active containers or recent messages, continue polling.
 3. Only exit to Phase S6 when `status` is `failed`, `running_agents` is empty, **and** the secondary check confirms the pipeline is genuinely stopped.
 
-### Stall detection
-
-*Skip this block when `config.overseer_owns_host_detection` is `True` (issue #1962): the overseer's `phase-long-running` and `agent-stall` migrated detectors handle the trigger; the host renders the matching `OVERSEER_ALERT` via the existing alert flow.*
-
-Track the `current_phase`, latest `recent_messages` entry, and elapsed time across polls. Use the server-computed `phase_elapsed_seconds` field for accurate timing when available; fall back to wall-clock tracking (`now - phase_entered_at`) when it is absent. If **10 minutes of elapsed time** pass with no phase change and no new messages, surface a warning:
-
-```
-### Potential Stall Detected
-
-Pipeline has shown no progress for ~10 minutes.
-```
-
-Then offer three options via `AskUserQuestion`:
-
-- **"Check logs"** — description: "View agent logs to diagnose the issue" — call the `get_container_logs` MCP tool with `task_id` and the agent's role (lines: 50). Show the user the output.
-- **"Wait longer"** — description: "Give the agent more time (resets the stall timer)"
-- **"Cancel"** — description: "Cancel this pipeline"
-
-If "Wait longer" is selected, reset `phase_entered_at` to the current time and resume monitoring. If "Cancel", call `cancel_task` and move to Phase S6 failure handling.
-
 ### NACK handling
 
 If the status shows unresolved NACKs in the consensus data, surface them to the user:
 
 > **Reviewer raised concerns** — the coder is iterating on feedback. This is normal BRC behavior.
 
-Only escalate if NACKs persist for 5+ minutes with no progress, at which point offer the same stall detection options.
+Stall / long-running detection is owned by the overseer, which emits an `OVERSEER_ALERT` (`incomplete_consensus_stall` for a blocked/unresolved-NACK consensus, `post_consensus_stall` for a wedged transition) that the host surfaces via [Overseer Alert Detection](#overseer-alert-detection); do not run a host-side stall timer here.
 
 ### Handling unexpected decisions
 
