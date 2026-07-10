@@ -576,3 +576,70 @@ class TestConsensusProposeDecisionLedgerFlags:
             "not_operator_grade :: q1? :: w1",
             "deferred_to_plan :: q2? :: w2",
         ]
+
+    def test_deferred_flag_maps_to_resolutions(self, base_env):
+        # #3564: --deferred echoes refine-deferred dq- ids with what became
+        # of each question (registered as a cq-N, or dissolved).
+        args = _make_args()
+        args.decisions_registered = ["cq-3"]
+        args.no_decisions_rationale = None
+        args.deferred = [
+            "dq-a1b2c3d4 :: registered :: cq-3",
+            "dq-99887766 :: not_operator_grade :: the design dissolved it",
+        ]
+
+        data = self._propose_and_capture_payload(args)
+        assert data["payload"]["attestation"]["deferred_resolutions"] == [
+            {"deferred_id": "dq-a1b2c3d4", "resolution": "registered", "cq": "cq-3"},
+            {
+                "deferred_id": "dq-99887766",
+                "resolution": "not_operator_grade",
+                "why": "the design dissolved it",
+            },
+        ]
+
+    def test_malformed_deferred_entry_errors_locally(self, base_env, capsys):
+        args = _make_args()
+        args.decisions_registered = ["cq-3"]
+        args.no_decisions_rationale = None
+        args.deferred = ["missing separators"]
+
+        with patch("egg_agent_tools.handlers.brc.orchestrator_request") as mock_request:
+            result = cmd_consensus_propose(args)
+        assert result == 2
+        mock_request.assert_not_called()
+        assert "--deferred" in capsys.readouterr().err
+
+    def test_unknown_deferred_resolution_errors_locally(self, base_env, capsys):
+        args = _make_args()
+        args.decisions_registered = ["cq-3"]
+        args.no_decisions_rationale = None
+        args.deferred = ["dq-a1b2c3d4 :: dropped :: w"]
+
+        with patch("egg_agent_tools.handlers.brc.orchestrator_request") as mock_request:
+            result = cmd_consensus_propose(args)
+        assert result == 2
+        mock_request.assert_not_called()
+        assert "resolution" in capsys.readouterr().err
+
+    def test_parser_accepts_repeated_deferred(self):
+        from egg_lib.orch_cli import create_parser
+
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "consensus",
+                "propose",
+                "issue-1",
+                "--decisions-registered",
+                "cq-3",
+                "--deferred",
+                "dq-a1b2c3d4 :: registered :: cq-3",
+                "--deferred",
+                "dq-99887766 :: not_operator_grade :: dissolved",
+            ]
+        )
+        assert args.deferred == [
+            "dq-a1b2c3d4 :: registered :: cq-3",
+            "dq-99887766 :: not_operator_grade :: dissolved",
+        ]
