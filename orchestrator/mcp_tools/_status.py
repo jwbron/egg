@@ -77,7 +77,11 @@ def _build_status_snapshot(self, raw_task_id: str) -> dict[str, Any]:
         ``pending_decisions`` (with draft content enrichment),
         ``recent_messages``. When the pipeline is wedged between
         phases (#2166), also includes ``wedged_no_successor`` with
-        ``phase`` / ``completed_at`` / ``since_seconds``.
+        ``phase`` / ``completed_at`` / ``since_seconds``; unless the
+        wedged phase is a slice-DAG implement phase whose contract
+        still has incomplete slices, in which case the same payload is
+        reported as ``wedged_stalled_slices`` with the incomplete
+        slices listed (#3542).
     """
     task_id = quote(raw_task_id, safe="")
 
@@ -175,7 +179,12 @@ def _build_status_snapshot(self, raw_task_id: str) -> dict[str, Any]:
     # is pending, yet no successor has been scheduled within the
     # threshold (#2166). Lets operators fail loudly within a minute
     # instead of polling for 10+ min hoping to spot the absence of
-    # progress.
+    # progress. Only the candidate payload is computed here; the field
+    # it lands under is decided after the contract fetch below, because
+    # an implement phase whose record reads COMPLETE while contract
+    # slices are still incomplete is a stalled slice, not a missing
+    # successor (#3542).
+    wedge_candidate: dict[str, Any] | None = None
     if (
         pipeline_data.get("status") == "running"
         and not status["pending_decisions"]
@@ -190,7 +199,7 @@ def _build_status_snapshot(self, raw_task_id: str) -> dict[str, Any]:
                     completed_dt = completed_dt.replace(tzinfo=UTC)
                 since_seconds = int((now - completed_dt).total_seconds())
                 if since_seconds > 60:
-                    status["wedged_no_successor"] = {
+                    wedge_candidate = {
                         "phase": current_phase_key,
                         "completed_at": completed_dt.isoformat(),
                         "since_seconds": since_seconds,
@@ -217,6 +226,11 @@ def _build_status_snapshot(self, raw_task_id: str) -> dict[str, Any]:
     # Enrichment: attach draft content to pending decisions (optional)
     self._enrich_pending_decisions(status, raw_task_id, pipeline_data)
 
+    # Fetch the SDLC contract once (best-effort, ``None`` on failure);
+    # it feeds both the cq-N surfacing and the wedge classification
+    # below. ``task_id`` is already URL-quoted above.
+    contract = self._fetch_contract(task_id)
+
     # Surface contract-resident HITL decisions (``cq-N``) that the
     # orchestrator queue does not yet know about. Agents register these
     # via ``register_open_question``; they live on the SDLC contract and
@@ -225,14 +239,78 @@ def _build_status_snapshot(self, raw_task_id: str) -> dict[str, Any]:
     # to an operator driving via ``get_status`` / ``wait-status`` — they
     # had to call ``get_contract`` out of band to find them. Expose them
     # as a sibling field (kept distinct from the queue so the documented
-    # two-wave resolve flow is unaffected). Issued last and best-effort:
-    # any failure leaves the field absent rather than breaking the
-    # snapshot. ``task_id`` is already URL-quoted above.
-    contract_pending = self._pending_contract_decisions(task_id, status["pending_decisions"])
+    # two-wave resolve flow is unaffected). Best-effort: any failure
+    # leaves the field absent rather than breaking the snapshot.
+    contract_pending = _contract_pending_decisions(contract, status["pending_decisions"])
     if contract_pending:
         status["pending_contract_decisions"] = contract_pending
 
+    # Finalize the wedge classification (#2166, #3542). During a
+    # slice-DAG implement phase the phase record can read COMPLETE while
+    # admitted slices are still mid-flight (the issue-3523 phase-record
+    # desync): reporting that as "no successor scheduled" sends the
+    # operator hunting for a missing phase instead of looking at the
+    # stalled slice. When the contract still has incomplete slices,
+    # report those
+    # under ``wedged_stalled_slices`` instead. Slices only drive the
+    # implement phase, so other phases (and any snapshot where the
+    # contract is unavailable) keep the ``wedged_no_successor`` shape.
+    if wedge_candidate:
+        stalled = _incomplete_contract_slices(contract) if current_phase_key == "implement" else []
+        if stalled:
+            status["wedged_stalled_slices"] = {**wedge_candidate, "slices": stalled}
+        else:
+            status["wedged_no_successor"] = wedge_candidate
+
     return status
+
+
+def _fetch_contract(self, task_id: str) -> dict[str, Any] | None:
+    """Fetch the pipeline's SDLC contract, or ``None`` on any failure.
+
+    ``task_id`` must already be URL-quoted (the caller quotes it once).
+    Best-effort by design: the contract only feeds optional snapshot
+    enrichments (cq-N surfacing, wedge classification), so a missing
+    contract or request error degrades those fields rather than breaking
+    the snapshot.
+    """
+    try:
+        result = self._make_request(f"/api/v1/contracts/{task_id}?pipeline_id={task_id}")
+    except Exception as e:
+        logger.debug(
+            "Contract fetch for status enrichment failed",
+            task_id=task_id,
+            error=str(e),
+        )
+        return None
+    contract = result.get("data") if isinstance(result.get("data"), dict) else result
+    return contract if isinstance(contract, dict) else None
+
+
+def _incomplete_contract_slices(contract: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Return ``{id, name, status}`` for contract slices not yet complete.
+
+    Used to reclassify the between-phases wedge report (#3542): an
+    implement phase whose record reads COMPLETE while the contract still
+    carries pending / in-progress / blocked slices is stalled mid-slice,
+    not awaiting a successor phase. Empty when the contract is
+    unavailable or carries no slices, which keeps the caller on the
+    plain ``wedged_no_successor`` shape.
+    """
+    if not isinstance(contract, dict):
+        return []
+    incomplete: list[dict[str, Any]] = []
+    for s in contract.get("slices") or []:
+        if not isinstance(s, dict) or s.get("status") == "complete":
+            continue
+        incomplete.append(
+            {
+                "id": s.get("id", ""),
+                "name": s.get("name", ""),
+                "status": s.get("status", ""),
+            }
+        )
+    return incomplete
 
 
 def _pending_contract_decisions(
@@ -243,28 +321,30 @@ def _pending_contract_decisions(
     """Return unresolved contract-resident HITL (``cq-N``) decisions.
 
     ``task_id`` must already be URL-quoted (the caller quotes it once).
-    Reads the SDLC contract via the orchestrator's ``/api/v1/contracts``
-    endpoint and returns the unresolved ``type == "hitl"`` decisions that
-    are *not already mirrored* into the orchestrator queue — the post-gate
-    bridge mirrors a ``cq-N`` into a fresh ``decision-M`` whose context is
-    ``"Open contract question {cq-id}, ..."`` and the contract entry stays
-    unresolved until that queue decision is answered and written back, so
-    without this filter a bridged question would appear twice.
+    Fetch-then-classify wrapper around ``_contract_pending_decisions``;
+    ``_build_status_snapshot`` fetches the contract once itself and calls
+    the classifier directly, so this entry point exists for callers that
+    do not already hold the contract.
 
     Best-effort: returns ``[]`` on any failure (missing contract, request
     error) so a status snapshot is never broken by this enrichment.
     """
-    try:
-        result = self._make_request(f"/api/v1/contracts/{task_id}?pipeline_id={task_id}")
-    except Exception as e:
-        logger.debug(
-            "Contract fetch for pending-decision surfacing failed",
-            task_id=task_id,
-            error=str(e),
-        )
-        return []
+    return _contract_pending_decisions(self._fetch_contract(task_id), queue_pending)
 
-    contract = result.get("data") if isinstance(result.get("data"), dict) else result
+
+def _contract_pending_decisions(
+    contract: dict[str, Any] | None,
+    queue_pending: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Classify a fetched contract's unresolved ``cq-N`` HITL decisions.
+
+    Returns the unresolved ``type == "hitl"`` decisions that are *not
+    already mirrored* into the orchestrator queue — the post-gate bridge
+    mirrors a ``cq-N`` into a fresh ``decision-M`` whose context is
+    ``"Open contract question {cq-id}, ..."`` and the contract entry stays
+    unresolved until that queue decision is answered and written back, so
+    without this filter a bridged question would appear twice.
+    """
     if not isinstance(contract, dict):
         return []
     decisions = contract.get("decisions") or []
