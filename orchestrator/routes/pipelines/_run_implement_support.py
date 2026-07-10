@@ -336,7 +336,6 @@ def _admission_base_ancestry_gate_impl(
         integration_branch,
         issue_branch=issue_branch,
         gateway_mode=gateway_mode,
-        max_parallel_slices=scheduler.max_parallel_slices,
     )
     if failure is not None:
         scheduler.record_failure(slice_id)

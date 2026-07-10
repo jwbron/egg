@@ -158,9 +158,10 @@ def _latest_completed_chain_tip(
     no other completed slice forked from (via
     ``parent_branch_at_creation``, falling back to declared
     ``dependencies``). Tips are ranked by completed-chain length, then
-    by contract declaration order, descending — under the default
-    serialized execution there is exactly one tip and its chain
-    contains every completed slice.
+    by contract declaration order, descending — under a single linear
+    serialized chain there is exactly one tip and its chain contains
+    every completed slice (a branching tree can have several tips, so
+    the ranking picks the deepest).
 
     Liveness: each candidate tip's integration branch is probed via
     ``branch_exists`` (same contract as the resolver's #2928 gate — a
@@ -1279,7 +1280,6 @@ def _check_slice_base_ancestry(
     *,
     issue_branch: str,
     gateway_mode: Literal["public", "private"] = "public",
-    max_parallel_slices: int = 1,
     contract: _pkg.Any | None = None,
 ) -> str | None:
     """Verify the new slice's base contains completed predecessors' commits (#3541).
@@ -1296,14 +1296,22 @@ def _check_slice_base_ancestry(
     missing deliverable slices later (in pipeline issue-3523 it was
     only caught by the slice-8 documenter, seven slices downstream).
 
-    Scope: under serialized execution (``max_parallel_slices == 1``,
-    the default) root linearization guarantees the base covers EVERY
-    completed slice, so all of them are gated. With genuine slice
-    concurrency (cap > 1) sibling chains may legitimately complete
-    without being ancestors of this slice's base, so the gate narrows
-    to the slices on this slice's own fork chain (walked via
-    ``parent_branch_at_creation`` / ``dependencies``) — the set the
-    topology actually promises.
+    Scope: the gate probes only the completed slices on this slice's
+    own fork chain, walked from the slice's recorded
+    ``parent_branch_at_creation`` (falling back to declared
+    ``dependencies``). That is exactly the set the base is supposed to
+    contain, and it is the correct scope for **every** topology and
+    concurrency setting — including serialized execution
+    (``max_parallel_slices == 1``). A branching (tree) DAG is a
+    first-class topology even under
+    ``max_parallel_slices == 1`` (``validate_forest`` caps parents at
+    ≤1 but places no limit on children), so a completed *sibling* chain
+    is legitimately not an ancestor of this slice's base; gating
+    against it would false-positive and spuriously fail admission. The
+    fork-chain walk still catches the original #3541 orphaning: a
+    linearized root records the completed chain tip it was re-based onto
+    as its ``parent_branch_at_creation`` (see
+    :func:`_resolve_slice_base_branch`), so the walk includes it.
 
     Returns ``None`` when the slice may spawn, or a human-readable
     failure string; the caller records the slice failure with it,
@@ -1357,21 +1365,23 @@ def _check_slice_base_ancestry(
     if not completed:
         return None
 
-    if max_parallel_slices <= 1:
-        predecessors = list(completed.values())
-    else:
-        by_id = {s.id: s for s in slices}
-        predecessors = []
-        cursor = by_id.get(slice_id)
-        seen: set[str] = set()
-        while cursor is not None and cursor.id not in seen:
-            seen.add(cursor.id)
-            parent_id = _slice_linear_parent_id(
-                cursor, issue_branch=issue_branch, known_ids=all_ids
-            )
-            cursor = by_id.get(parent_id) if parent_id else None
-            if cursor is not None and cursor.id in completed:
-                predecessors.append(cursor)
+    # Scope to this slice's own fork chain (see docstring). Walk up
+    # ``parent_branch_at_creation`` / ``dependencies`` collecting the
+    # completed ancestors the base is supposed to contain. This is
+    # correct for every topology and concurrency setting: it never
+    # reaches a completed *sibling* chain (which a branching tree DAG
+    # produces even under ``max_parallel_slices == 1``), and it still
+    # includes a linearized root's re-based chain tip.
+    by_id = {s.id: s for s in slices}
+    predecessors = []
+    cursor = by_id.get(slice_id)
+    seen: set[str] = set()
+    while cursor is not None and cursor.id not in seen:
+        seen.add(cursor.id)
+        parent_id = _slice_linear_parent_id(cursor, issue_branch=issue_branch, known_ids=all_ids)
+        cursor = by_id.get(parent_id) if parent_id else None
+        if cursor is not None and cursor.id in completed:
+            predecessors.append(cursor)
     if not predecessors:
         return None
 

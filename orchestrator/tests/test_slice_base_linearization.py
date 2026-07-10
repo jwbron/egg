@@ -20,8 +20,9 @@ Covers:
   independent kill switch.
 * ``routes.pipelines._check_slice_base_ancestry`` — gate wiring:
   kill switch, no-predecessor / probe-failure degradation, the
-  serialized (gate everything COMPLETE) vs concurrent (gate the fork
-  chain only) scoping, and the failure string on a definitive miss.
+  fork-chain-only scoping (a completed *sibling* chain is never gated,
+  in any topology or concurrency setting — including a tree DAG under
+  serialized execution), and the failure string on a definitive miss.
 """
 
 from __future__ import annotations
@@ -441,10 +442,18 @@ def gate_env(monkeypatch: pytest.MonkeyPatch):
 
 class TestCheckSliceBaseAncestry:
     def _serial_contract(self) -> Contract:
+        # slice-9 is a root that root-linearization re-based onto
+        # slice-1's completed chain tip, so it records
+        # ``parent_branch_at_creation`` accordingly — the fork-chain
+        # walk then includes slice-1 as a gated predecessor.
         return _make_contract(
             [
                 _make_slice("slice-1", status=SliceStatus.COMPLETE, commit=SHA_A),
-                _make_slice("slice-9", task_idx=2),
+                _make_slice(
+                    "slice-9",
+                    parent_branch_at_creation=f"{ISSUE_BRANCH}/slice-1",
+                    task_idx=2,
+                ),
             ]
         )
 
@@ -544,10 +553,11 @@ class TestCheckSliceBaseAncestry:
         assert NEW_SLICE_BRANCH in result
         assert cc.BASE_ANCESTRY_GATE_ENV_VAR in result
 
-    def test_concurrent_mode_ignores_off_chain_siblings(self, tmp_path: Path, gate_env) -> None:
-        # cap > 1: a completed sibling chain the new slice does not
-        # fork from is legitimately not an ancestor — no gate, no
-        # probe.
+    def test_ignores_off_chain_siblings(self, tmp_path: Path, gate_env) -> None:
+        # A completed sibling chain the new slice does not fork from is
+        # legitimately not an ancestor — no gate, no probe. slice-9 is a
+        # true root (no deps, no recorded parent) forked from the work
+        # branch; slice-1 is an unrelated completed sibling.
         contract = _make_contract(
             [
                 _make_slice("slice-1", status=SliceStatus.COMPLETE, commit=SHA_A),
@@ -562,16 +572,64 @@ class TestCheckSliceBaseAncestry:
             "slice-9",
             NEW_SLICE_BRANCH,
             issue_branch=ISSUE_BRANCH,
-            max_parallel_slices=2,
             contract=contract,
         )
         assert result is None
         spawner.gateway.find_unreachable_evidence_commits.assert_not_called()
 
-    def test_concurrent_mode_gates_fork_chain(self, tmp_path: Path, gate_env) -> None:
-        # cap > 1: completed ancestors on the slice's own fork chain
-        # (declared dependency AND recorded linearized parent) are
-        # still gated.
+    def test_tree_dag_serialized_ignores_completed_sibling(self, tmp_path: Path, gate_env) -> None:
+        # Regression for the tree-DAG false-positive: under serialized
+        # execution (the old "gate everything COMPLETE" scope) admitting
+        # slice-3 while sibling slice-2 has completed spuriously probed
+        # slice-2's commit against slice-3's base and failed admission.
+        # slice-1 → {slice-2, slice-3}: slice-3 forks from slice-1, so
+        # only slice-1's commit is a legitimate ancestor; slice-2's
+        # (SHA_B) must never be probed.
+        contract = _make_contract(
+            [
+                _make_slice("slice-1", status=SliceStatus.COMPLETE, commit=SHA_A),
+                _make_slice(
+                    "slice-2",
+                    deps=["slice-1"],
+                    parent_branch_at_creation=f"{ISSUE_BRANCH}/slice-1",
+                    status=SliceStatus.COMPLETE,
+                    commit=SHA_B,
+                    task_idx=2,
+                ),
+                _make_slice(
+                    "slice-3",
+                    deps=["slice-1"],
+                    parent_branch_at_creation=f"{ISSUE_BRANCH}/slice-1",
+                    task_idx=3,
+                ),
+            ]
+        )
+        # slice-1's commit (SHA_A) is reachable from slice-3's base, so
+        # nothing is unreachable and the gate passes. The regression is
+        # in the probe *scope*: the old "gate every COMPLETE slice"
+        # branch would also hand slice-2's SHA_B to the gateway (and, if
+        # it lived only on slice-2's branch, fail admission). The
+        # fork-chain scope must never probe it.
+        spawner = _spawner([])
+        result = _check_slice_base_ancestry(
+            PIPELINE_ID,
+            spawner,
+            tmp_path,
+            "slice-3",
+            f"{ISSUE_BRANCH}/slice-3",
+            issue_branch=ISSUE_BRANCH,
+            contract=contract,
+        )
+        assert result is None
+        # Only slice-1 (slice-3's fork parent) is probed; slice-2's
+        # sibling commit is never handed to the gateway.
+        call_kwargs = spawner.gateway.find_unreachable_evidence_commits.call_args.kwargs
+        assert call_kwargs["commit_shas"] == [SHA_A]
+
+    def test_gates_fork_chain(self, tmp_path: Path, gate_env) -> None:
+        # Completed ancestors on the slice's own fork chain (declared
+        # dependency AND recorded linearized parent) are gated in every
+        # topology and concurrency setting.
         contract = _make_contract(
             [
                 _make_slice("slice-1", status=SliceStatus.COMPLETE, commit=SHA_A),
@@ -598,7 +656,6 @@ class TestCheckSliceBaseAncestry:
             "slice-9",
             NEW_SLICE_BRANCH,
             issue_branch=ISSUE_BRANCH,
-            max_parallel_slices=2,
             contract=contract,
         )
         assert result is not None

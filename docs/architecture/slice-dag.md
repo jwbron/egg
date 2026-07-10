@@ -459,8 +459,9 @@ mechanisms close this:
 - **Root linearization** (`_resolve_slice_base_branch` tier 3, via
   `_latest_completed_chain_tip`): a root slice with no recorded parent
   forks from the integration branch of the deepest COMPLETE chain tip
-  instead of the work branch. Under the default serialized execution
-  (`max_parallel_slices == 1`) this makes the git topology a single
+  instead of the work branch. Under serialized execution
+  (`max_parallel_slices == 1`) with a single linear chain this makes
+  the git topology a single
   linear chain in completion order — every slice's base transitively
   contains all previously completed work, and the final chain tip is a
   complete deliverable. Tips whose branch was merged and
@@ -476,15 +477,29 @@ mechanisms close this:
   gate (#3125). Right after `create_slice_integration_branch` (the
   branch tip still equals the fork base) and before agents spawn, it
   verifies every commit SHA the contract records as evidence on
-  completed predecessor slices is an ancestor of the new branch. Under
-  serialized execution the predecessor set is *every* COMPLETE slice;
-  under cap > 1 it narrows to the slice's own fork chain (walked via
-  `parent_branch_at_creation` / `dependencies`) — the set the topology
-  actually promises. A definitive miss fails the admission
+  completed predecessor slices is an ancestor of the new branch. The
+  predecessor set is the slice's own fork chain (walked via
+  `parent_branch_at_creation` / `dependencies`) — the set the base is
+  supposed to contain — in **every** topology and concurrency setting.
+  This is scope-correct even under serialized execution
+  (`max_parallel_slices == 1`): a branching (tree) DAG is legal at any
+  cap (`validate_forest` caps parents at ≤1 but not children), so a
+  completed *sibling* chain is legitimately not an ancestor and must
+  not be gated against — gating every COMPLETE slice would
+  false-positive on tree fan-out. The walk still catches the original
+  orphaning because a linearized root records the completed chain tip
+  it was re-based onto as its `parent_branch_at_creation`. A definitive
+  miss fails the admission
   (`record_failure` → cascade + HITL); contract-read or gateway-probe
-  failures degrade to a logged skip, mirroring #3125.
-  `EGG_SLICE_BASE_ANCESTRY_GATE=off` is the operator kill switch (e.g.
-  when an operator squash-merge legitimately rewrote completed SHAs).
+  failures degrade to a logged skip, mirroring #3125. Like every other
+  reachability check in the slice DAG (`_sha_is_ancestor`,
+  `is_slice_branch_merged_into_parent`), the gate assumes merges into
+  `work` preserve SHAs: the automatic cascade only *deletes* branches
+  after a human PR merge — it never merges/squashes into `work` itself
+  — so the sole SHA-rewriting path is an operator squash/rebase-merge,
+  for which `EGG_SLICE_BASE_ANCESTRY_GATE=off` is the operator kill
+  switch (a completed slice's recorded SHA is no longer an ancestor of
+  the rewritten `work`).
 
 The planner prompt gained the matching plan-shape rule: a slice that
 *reads* another slice's output (documents, verifies, builds on it)
