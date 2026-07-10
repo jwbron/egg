@@ -28,3 +28,7 @@ caps:
 files:
   orchestrator/concurrent_executor.py:
     issue: "3498"
+  orchestrator/routes/pipelines/__init__.py:
+    issue: "3587"
+  orchestrator/routes/pipelines/_slice_state.py:
+    issue: "3587"
