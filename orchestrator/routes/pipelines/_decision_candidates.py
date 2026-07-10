@@ -99,7 +99,18 @@ def _format_deferred_candidates_with_ids(candidates: list[dict]) -> str:
     for c in candidates:
         if not isinstance(c, dict):
             continue
-        question = str(c.get("question") or "?").strip()
+        # Skip a blank-question candidate rather than render a
+        # ``deferred_question_id("?")`` bullet the gate never expects
+        # (#3564): ``_validate_deferred_candidate_coverage`` computes the
+        # expected ids off the stripped question and skips blanks, so a "?"
+        # id rendered here could not be satisfied — the architect would echo
+        # it and the gate would false-NACK it with no way to cover it, a
+        # plan-phase deadlock. Keeping both surfaces on the same skip-blank
+        # rule closes that latent trap if the refine-side non-empty-question
+        # invariant is ever relaxed.
+        question = str(c.get("question") or "").strip()
+        if not question:
+            continue
         why = str(c.get("why") or "").strip()
         lines.append(f"- `{deferred_question_id(question)}` — **{question}**: {why}")
     return "\n".join(lines)
@@ -150,9 +161,16 @@ def _build_deferred_candidates_section(pipeline_id: str | None) -> list[str]:
         "`not_operator_grade` with a concrete why (e.g. the design "
         "dissolved the choice).\n",
         "Then, when you propose, echo EVERY `dq-` id above in your "
-        "attestation via repeated `--deferred` flags (#3564):\n",
+        "attestation via repeated `--deferred` flags (#3564). These ride "
+        "on top of — they do not replace — your ledger attestation, so keep "
+        "the `--decisions-registered` (or `--no-decisions-rationale "
+        "--considered ...`) flag your propose already needs; `--deferred` "
+        "alone yields an attestation missing the required exactly-one-of "
+        "ledger field and is shape-NACKed:\n",
         "```bash",
-        'egg-orch consensus propose ... --deferred "dq-<hash> :: registered :: cq-<N>" \\',
+        "egg-orch consensus propose ... \\",
+        '  --decisions-registered "cq-<N>,..." \\',
+        '  --deferred "dq-<hash> :: registered :: cq-<N>" \\',
         '  --deferred "dq-<hash> :: not_operator_grade :: <why the design dissolved it>"',
         "```",
         "The orchestrator recomputes these ids from the refine attestation "

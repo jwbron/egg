@@ -479,9 +479,12 @@ def _validate_decision_attestation_shape(
 # Plan producers whose proposal must account for every refine-deferred
 # question (#3564). Mirrors the prompt injection exactly: the deferred
 # section (with its ``dq-`` ids) is rendered into the concurrent-mode
-# architect prompt and the single-agent plan prompt — task_planner and
-# risk_analyst never receive it, so requiring coverage from them would
-# NACK a producer for ids it was never shown.
+# architect prompt — the only reachable plan-producer surface in practice,
+# since the plan phase always runs concurrent and ``_build_agent_prompt``
+# delegates to ``_build_phase_prompt`` (whose ``phase == "plan"`` branch
+# also renders the section) only for coder/refiner, never for a plan
+# producer. task_planner and risk_analyst never receive it, so requiring
+# coverage from them would NACK a producer for ids it was never shown.
 _DEFERRAL_COVERAGE_ROLES = frozenset({"architect"})
 
 
