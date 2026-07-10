@@ -365,7 +365,7 @@
         {
           "id": "task-3-5",
           "description": "Verification for PR D: grep-clean for overseer_owns_host_detection and\nrun_migrated_detectors and the removed detector headings; update/remove\nany orchestrator tests that reference the removed config field; confirm\nSKILL.md still renders and the preserved AskUserQuestion flows are\nstructurally intact. make lint + make test green.",
-          "status": "pending",
+          "status": "complete",
           "commit": "4444378f0dd7cf5861fd92107a6819c977ca3f67",
           "checkpoint_id": null,
           "notes": "",
@@ -1311,6 +1311,17 @@
       "old_value": null,
       "new_value": "4444378f0dd7cf5861fd92107a6819c977ca3f67",
       "reason": "Linked commit 4444378 to task-3-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:59:32.035075Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-5 as complete",
       "checkpoint_id": null
     }
   ],
