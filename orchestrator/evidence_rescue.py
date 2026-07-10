@@ -210,19 +210,29 @@ def rescue_unreachable_commits(
     if not branch_map:
         return {}
 
-    # Only consult the registry for SHAs whose objects are gone; the
-    # odb-computed patch-id is authoritative when available.
-    recorded: dict[str, str | None] | None = None
     rescued: dict[str, str] = {}
+    odb_misses: list[str] = []
+    # First pass: the odb-computed patch-id is authoritative when the
+    # pre-rebase object still exists. Defer SHAs whose objects are gone.
     for sha in unreachable_shas:
         pid = patch_id_for_commit(repo_path, sha)
         if pid is None:
-            if recorded is None:
-                recorded = _recorded_patch_ids(list(unreachable_shas))
-            pid = recorded.get(sha)
-        if not pid:
+            odb_misses.append(sha)
             continue
         match = branch_map.get(pid)
         if match:
             rescued[sha] = match
+
+    # Second pass: consult the authorship registry only for the odb
+    # misses. ``recorded`` is keyed by ``_validate_sha``-normalized SHAs
+    # (stripped + lowercased), so normalize the lookup key to match.
+    if odb_misses:
+        recorded = _recorded_patch_ids(odb_misses)
+        for sha in odb_misses:
+            pid = recorded.get(sha.strip().lower())
+            if not pid:
+                continue
+            match = branch_map.get(pid)
+            if match:
+                rescued[sha] = match
     return rescued

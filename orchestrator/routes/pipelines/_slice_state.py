@@ -1167,11 +1167,23 @@ def _check_slice_evidence_reachability(
             pipeline_id=pipeline_id,
             slice_id=slice_id,
             integration_branch=integration_branch,
-            rescued=dict(rescued.items()),
+            rescued=dict(rescued),
         )
         unreachable_shas = [s for s in unreachable_shas if s not in rescued]
         if not unreachable_shas:
             return None
+
+    # The rescue could not account for these SHAs (no resolvable patch-id,
+    # or a rewrite that landed deeper than the branch scan limit). Trace
+    # them at debug so an operator triaging the HITL decision can see which
+    # cited commits stayed lost, complementing the rescued-set info log above.
+    _pkg.logger.debug(
+        "Evidence commits still unreachable after patch-id rescue (#3572)",
+        pipeline_id=pipeline_id,
+        slice_id=slice_id,
+        integration_branch=integration_branch,
+        still_unreachable=list(unreachable_shas),
+    )
 
     lost = [r for r in rows if r["commit"] in set(unreachable_shas)]
     summary = cc.format_evidence_rows(lost)
