@@ -301,7 +301,7 @@
         {
           "id": "task-3-2",
           "description": "GATED on TASK-3-1. Delete from skills/sdlc/SKILL.md (detection/trigger\nprose ONLY): the \"Host detector migration (issue #1962)\" section\n(~553), the \"Overseer-Absent Fallback\" (~573), the five host-side\ndetector blocks \u2014 Stall (~637), Silent agent (~644), NACK escalation\n(~679), Long-Running Phase Detection (~722), the host-side detection\nTRIGGER of Stuck Pipeline Rescue (~750; workflow Steps 1-3 STAY) \u2014 and\nthe short-flow Stall detection block (~1517). Drop the orphaned\noverseer_owns_host_detection State-tracking conditionals (571/716/718).\nPRESERVE (AC-D3, key regression surface): the Long-Running Implement\nPhase and Unresolved NACK AskUserQuestion render-on-alert flows must\nstill fire on their OVERSEER_ALERTs.",
-          "status": "pending",
+          "status": "complete",
           "commit": "8082a83ae",
           "checkpoint_id": null,
           "notes": "",
@@ -1201,6 +1201,17 @@
       "old_value": null,
       "new_value": "8082a83ae",
       "reason": "Linked commit 8082a83 to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:49:34.459966Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-2 as complete",
       "checkpoint_id": null
     }
   ],
