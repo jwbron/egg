@@ -264,8 +264,10 @@ def can_run_in_parallel(role1: AgentRole | str, role2: AgentRole | str) -> bool:
 
 
 # Phase-to-role mappings for multi-agent execution
-# Note: Utility roles (AUTOFIXER, CONFLICT_RESOLVER) are excluded
-# by design — they are spawned on-demand, not as part of standard phase execution.
+# Note: Utility roles (AUTOFIXER, CONFLICT_RESOLVER, EVIDENCE_GATHERER) are
+# excluded by design — they are spawned on-demand, not as part of standard
+# phase execution. EVIDENCE_GATHERER in particular runs ahead of a review wave
+# as a read-only pass (see EVIDENCE_GATHERER_ROLE in _oversight_roles.py).
 
 _PHASE_ROLES: dict[str, list[AgentRole]] = {
     "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER],
