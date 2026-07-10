@@ -280,7 +280,7 @@
         {
           "id": "task-3-1",
           "description": "GATE (hard predecessor of TASK-3-2 and TASK-3-3): produce the\ncoverage-map. For EACH of the five host-detector blocks in\nskills/sdlc/SKILL.md (Stall detection ~637, Silent agent detection\n~644, NACK escalation ~679, Long-Running Phase Detection ~722, and the\nhost-side detection TRIGGER of Stuck Pipeline Rescue ~750) name the\nconcrete overseer emitter (a deterministic _broadcast_alert(...)\nstructural check in orchestrator/overseer/monitor/ OR the classifier/\nadjudicator action:{action} path) and the OVERSEER_ALERT subject the\nskill ALREADY surfaces. Record the map in the PR body. This is REAL\nverification: the host vocab (agent-stall / agent-silent /\nagent-nack-unresolved / phase-long-running) exists in production only\nas a last-alert dedup map (shared/egg_overseer/state.py) and is\notherwise produced by the overseer Haiku classifier (LLM path), while\nthe live monitor emits a DIFFERENT deterministic vocab\n(post_consensus_stall / incomplete_consensus_stall / rerun_anomaly /\nstatus_inconsistency / hitl_propagation_failure /\ncross_phase_inconsistency / orchestrator_unreachable). Any block that\nmaps to NO confirmed emitter is raised as a HITL via\nmcp__sdlc__register_open_question at the point of discovery (carrying\nthe specific block + evidence) \u2014 NOT a silent delete into a dark gap.",
-          "status": "pending",
+          "status": "complete",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
@@ -1179,6 +1179,17 @@
       "old_value": "complete",
       "new_value": "complete",
       "reason": "Operator task completion (#3124): Evidence repair (#3125): record cited phantom pre-rebase SHA 681bdd470 absent from egg/issue-3364/slice-2; work landed as 2bd6124a3 and was reviewed/ACKed at v2 (94fbf7c6e).",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T01:22:47.071820Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-1 as complete",
       "checkpoint_id": null
     }
   ],
