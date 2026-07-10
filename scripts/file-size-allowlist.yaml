@@ -31,4 +31,4 @@ files:
   orchestrator/routes/pipelines/__init__.py:
     issue: "3587"
   orchestrator/routes/pipelines/_slice_state.py:
-    issue: "3587"
+    issue: "3586"
