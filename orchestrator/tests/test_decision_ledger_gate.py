@@ -718,6 +718,22 @@ class TestDeferredCandidatesPromptSection:
         assert "Should the fallback cache be enabled by default?" in text
         assert "egg-contract add-decision" in text
 
+    def test_section_renders_stable_dq_ids_and_echo_contract(self):
+        # #3564: each candidate carries the content-derived dq-<hash> id the
+        # propose-time coverage gate recomputes, plus the --deferred echo
+        # syntax the producer must use. The rendered id and the gate's id
+        # must come from the same helper or the exact match breaks.
+        from egg_contracts.decisions import deferred_question_id
+        from routes.pipelines import _build_deferred_candidates_section
+
+        with patch("routes.pipelines._find_deferred_plan_candidates", return_value=self._DEFERRED):
+            section = _build_deferred_candidates_section("pipeline-id")
+        text = "\n".join(section)
+        assert deferred_question_id(self._DEFERRED[0]["question"]) in text
+        assert "--deferred" in text
+        assert "registered :: cq-" in text
+        assert "not_operator_grade" in text
+
     def test_section_empty_without_deferrals(self):
         from routes.pipelines import _build_deferred_candidates_section
 

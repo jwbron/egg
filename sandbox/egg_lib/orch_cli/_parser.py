@@ -538,6 +538,21 @@ def create_parser() -> argparse.ArgumentParser:
         ),
     )
     cons_propose.add_argument(
+        "--deferred",
+        dest="deferred",
+        action="append",
+        metavar='"<dq-id> :: <resolution> :: <cq-N or why>"',
+        help=(
+            "Plan producers only (#3564): what became of a refine-deferred "
+            "question; repeatable, one per dq-<hash> id in the 'Deferred "
+            "from refine' section of your prompt. Format: "
+            '"<dq-id> :: registered :: <cq-N>" when you registered it '
+            '(possibly reframed), or "<dq-id> :: not_operator_grade :: '
+            '<why>" when the design dissolved it. The orchestrator rejects '
+            "a plan proposal that leaves a deferred question unaccounted."
+        ),
+    )
+    cons_propose.add_argument(
         "--push",
         action="store_true",
         help="Run git push before sending the proposal (bundles push+propose "

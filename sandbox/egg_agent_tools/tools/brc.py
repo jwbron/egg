@@ -77,7 +77,14 @@ _PROPOSE_SCHEMA: dict[str, Any] = {
                 "(disposition: 'not_operator_grade' or "
                 "'deferred_to_plan'); it may also accompany "
                 "`decisions_registered` for choices you considered but "
-                "did not register."
+                "did not register. Plan producers whose prompt carries a "
+                "'Deferred from refine' section must also include "
+                "`deferred_resolutions` (#3564): one {deferred_id, "
+                "resolution, cq|why} entry per dq-<hash> id, with "
+                "resolution 'registered' (plus the cq-N it became) or "
+                "'not_operator_grade' (plus why the design dissolved it) "
+                "— the orchestrator rejects a plan propose that leaves a "
+                "deferred question unaccounted."
             ),
         },
         "no_changes_needed": {

@@ -530,6 +530,70 @@ class TestCheckSliceEvidenceReachability:
         assert result is None
         spawner.gateway.find_unreachable_evidence_commits.assert_not_called()
 
+    def test_rescued_rebase_rewrite_passes(self, tmp_path: Path, gate_env) -> None:
+        """#3572: a cited SHA the probe flags unreachable but whose
+        identical patch is on the integration branch (a reconciled-push
+        rebase rewrite) must not fail the slice close.
+        """
+        _write_contract(tmp_path)
+        with patch(
+            "evidence_rescue.rescue_unreachable_commits",
+            return_value={LATE_SHA: "d" * 40},
+        ) as mock_rescue:
+            result = _check_slice_evidence_reachability(
+                PIPELINE_ID, _spawner([LATE_SHA]), tmp_path, "slice-2", INTEGRATION_BRANCH
+            )
+        assert result is None
+        call_kwargs = mock_rescue.call_args.kwargs
+        assert call_kwargs["unreachable_shas"] == [LATE_SHA]
+        assert call_kwargs["integration_branch"] == INTEGRATION_BRANCH
+
+    def test_partial_rescue_still_fails_with_unrescued_rows(self, tmp_path: Path, gate_env) -> None:
+        """#3572: only the rescued SHA is dropped from the verdict;
+        rows citing a truly-lost SHA keep failing the gate.
+        """
+        _write_contract(tmp_path)
+        with patch(
+            "evidence_rescue.rescue_unreachable_commits",
+            return_value={PUSHED_SHA: "d" * 40},
+        ):
+            result = _check_slice_evidence_reachability(
+                PIPELINE_ID,
+                _spawner([PUSHED_SHA, LATE_SHA]),
+                tmp_path,
+                "slice-2",
+                INTEGRATION_BRANCH,
+            )
+        assert result is not None
+        assert "task-2-2" in result
+        assert "task-2-3" in result
+        assert "task-2-1" not in result
+
+    def test_rescue_exception_keeps_strict_verdict(self, tmp_path: Path, gate_env) -> None:
+        """#3572: the rescue may only narrow the verdict; an unexpected
+        failure inside it leaves the strict #3125 outcome standing.
+        """
+        _write_contract(tmp_path)
+        with patch(
+            "evidence_rescue.rescue_unreachable_commits",
+            side_effect=RuntimeError("rescue exploded"),
+        ):
+            result = _check_slice_evidence_reachability(
+                PIPELINE_ID, _spawner([LATE_SHA]), tmp_path, "slice-2", INTEGRATION_BRANCH
+            )
+        assert result is not None
+        assert "task-2-2" in result
+
+    def test_no_rescue_for_empty_unreachable(self, tmp_path: Path, gate_env) -> None:
+        """The rescue only runs when the probe flagged something."""
+        _write_contract(tmp_path)
+        with patch("evidence_rescue.rescue_unreachable_commits") as mock_rescue:
+            result = _check_slice_evidence_reachability(
+                PIPELINE_ID, _spawner([]), tmp_path, "slice-2", INTEGRATION_BRANCH
+            )
+        assert result is None
+        mock_rescue.assert_not_called()
+
     def test_pre_loaded_contract_skips_internal_load(self, tmp_path: Path, gate_env) -> None:
         """When the caller pre-loads the contract (the close-path
         does this to reuse one load for both the gate and the slice
@@ -556,3 +620,86 @@ class TestCheckSliceEvidenceReachability:
                 contract=preloaded,
             )
         assert result is None
+
+
+# ----------------------------------------------------------------------
+# routes.pipelines._escalate_evidence_gate_to_hitl (#3572)
+# ----------------------------------------------------------------------
+
+
+class TestEscalateEvidenceGateToHITL:
+    """A consensus-complete slice whose close fails the gate must land
+    an unresolved HITL Decision on the contract (#3572) instead of
+    parking silently after ``record_failure``.
+    """
+
+    ESCALATION_PIPELINE_ID = "issue-3572-evidence-hitl"
+
+    def test_writes_decision_with_marker_and_failure(self, tmp_path: Path) -> None:
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract, IssueInfo
+        from egg_contracts.models import PipelinePhase as ContractPhase
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_evidence_gate_to_hitl
+
+        contract = Contract(
+            schemaVersion="1.2",
+            issue=IssueInfo(number=3572, title="#3572", url=""),
+            pipeline_id=self.ESCALATION_PIPELINE_ID,
+            current_phase=ContractPhase.IMPLEMENT,
+            slices=[],
+        )
+        save_contract(contract, tmp_path)
+        failure = (
+            "slice slice-2: evidence-reachability gate failed: contract task "
+            "records cite commits that are not on integration branch "
+            "egg/issue-3364/slice-2: task-2-2 (role=coder, commit=681bdd4)."
+        )
+        _escalate_evidence_gate_to_hitl(
+            pipeline_id=self.ESCALATION_PIPELINE_ID,
+            slice_id="slice-2",
+            failure=failure,
+            worktree_repo_path=tmp_path,
+            current_phase=PipelineModelsPhase.IMPLEMENT,
+        )
+        reloaded = load_contract(self.ESCALATION_PIPELINE_ID, tmp_path)
+        assert len(reloaded.decisions) == 1
+        decision = reloaded.decisions[0]
+        assert "[#3572 evidence-gate]" in decision.question
+        assert "slice-2" in decision.question
+        assert failure in decision.question, (
+            "the gate's failure summary (task ids + cited SHAs) must be "
+            "embedded verbatim so the operator can act without log digging"
+        )
+        assert "#3124" in decision.question  # names the repair endpoint
+        assert decision.resolution is None
+
+    def test_deterministic_question_dedupes_on_retry(self, tmp_path: Path) -> None:
+        """The question embeds only deterministic incident data, so a
+        close retry (or phase restart) adopts the existing open
+        Decision instead of minting a duplicate (#3427 parity).
+        """
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract, IssueInfo
+        from egg_contracts.models import PipelinePhase as ContractPhase
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_evidence_gate_to_hitl
+
+        contract = Contract(
+            schemaVersion="1.2",
+            issue=IssueInfo(number=3572, title="#3572", url=""),
+            pipeline_id=self.ESCALATION_PIPELINE_ID,
+            current_phase=ContractPhase.IMPLEMENT,
+            slices=[],
+        )
+        save_contract(contract, tmp_path)
+        for _ in range(2):
+            _escalate_evidence_gate_to_hitl(
+                pipeline_id=self.ESCALATION_PIPELINE_ID,
+                slice_id="slice-2",
+                failure="same deterministic failure text",
+                worktree_repo_path=tmp_path,
+                current_phase=PipelineModelsPhase.IMPLEMENT,
+            )
+        reloaded = load_contract(self.ESCALATION_PIPELINE_ID, tmp_path)
+        assert len(reloaded.decisions) == 1
