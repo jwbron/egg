@@ -38,12 +38,14 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `reviewer_contract` | Review | Implement | Yes (with `reviewer_code`, `reviewer_code_holistic`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
 | `reviewer_security` | Review | Implement | Yes (with `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_concurrency`) | coder, tester |
 | `reviewer_concurrency` | Review | Implement | Yes (with `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`) | coder, tester |
-| `autofixer` | Utility | Any | Yes | — |
-| `conflict_resolver` | Utility | Any | Yes | — |
-| `evidence_gatherer` | Utility | Any (runs ahead of a review wave) | Yes | — |
+| `autofixer` | Utility | Any | — | — |
+| `conflict_resolver` | Utility | Any | — | — |
+| `evidence_gatherer` | Utility | Any (runs ahead of a review wave) | — | — |
 | `overseer` | Interface | Per-phase (spawned/torn down at phase boundaries) | — | — (pipeline health monitoring) |
 
 All agents within a phase run concurrently via BRC consensus. Concurrency is enabled by default for the refine, plan, and implement phases, and can be extended to additional phases via the `concurrent_phases` config.
+
+The "Parallel?" column describes concurrency within a phase's BRC wave: `Yes (with X)` means the role runs as a concurrent BRC peer of X. Utility roles and the interface role are marked `—` because they spawn on-demand through dedicated paths outside standard phase execution and are never BRC peers (see the phase-mapping note in `shared/egg_contracts/agent_roles/_registry.py`); `evidence_gatherer` in particular runs *ahead of* a review wave as a standalone read-only pass, not in parallel with it.
 
 ## Refine Phase
 
