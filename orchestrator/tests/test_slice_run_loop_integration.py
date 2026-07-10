@@ -813,6 +813,7 @@ class TestRunImplementPhaseSlices:
                 "routes.pipelines._check_slice_evidence_reachability",
                 side_effect=_gate_side_effect,
             ) as mock_gate,
+            patch("routes.pipelines._escalate_evidence_gate_to_hitl") as mock_escalate,
             patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
         ):
             mock_start_recon.return_value = (MagicMock(), threading.Event())
@@ -842,6 +843,12 @@ class TestRunImplementPhaseSlices:
                 "Close path must thread the pre-loaded contract through "
                 "to the gate so the lock-held internal load is skipped"
             )
+        # #3572: the failing slice lands an unresolved HITL Decision
+        # (an operator question) rather than parking silently; the
+        # passing sibling must NOT be escalated.
+        escalated = [c.kwargs["slice_id"] for c in mock_escalate.call_args_list]
+        assert escalated == ["slice-1"]
+        assert mock_escalate.call_args.kwargs["failure"] == evidence_failure_text
         # Failing slice surfaces a non-zero overall exit code.
         assert exit_code != 0, (
             "Evidence-reachability failure must propagate to a non-zero exit "

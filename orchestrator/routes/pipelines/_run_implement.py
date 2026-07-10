@@ -927,55 +927,25 @@ def _run_implement_phase_slices(
                     )
                     return exit_code_inner, logs_inner
 
-                # Slice consensus reached — load the contract ONCE
-                # under the per-pipeline state lock and reuse the same
-                # snapshot for the #3125 evidence-reachability gate
-                # AND the slice's PR data snapshot below. Both readers
-                # previously took the lock independently; collapsing
-                # them eliminates one file read + lock acquire per
-                # slice close (#3125 review).
-                #
-                # The slice_pr_data block below originally documented
-                # the lock as covering only the contract read so the
-                # gateway HTTP round-trip wouldn't serialise other
-                # writers — the same posture applies here: we release
-                # the lock before the gateway call inside the gate.
-                contract_post: _pkg.Any | None = None
-                try:
-                    with get_pipeline_state_lock(pipeline_id):
-                        contract_post = load_contract(pipeline_id, worktree_repo_path)
-                except Exception as load_err:  # noqa: BLE001
-                    _pkg.logger.warning(
-                        "Slice close: contract load failed (continuing) (#3125)",
-                        pipeline_id=pipeline_id,
-                        slice_id=slice_id,
-                        error=str(load_err),
-                    )
-
-                # #3125 — evidence-reachability gate: every commit SHA
-                # cited by this slice's contract task records must be
-                # an ancestor of the integration branch tip, or the
-                # slice PR would ship without a deliverable the task
-                # record claims is done (the post-confirmation
-                # ``complete-task --commit`` unblock flow, #3124).
-                # Fails the slice BEFORE any close side effect so the
-                # cascade + HITL machinery surfaces the gap loudly.
-                # ``contract_post`` may be None if the load above
-                # raised — the gate falls back to its own load in that
-                # case (and skips gracefully if that fails too).
-                if pipeline.repo:
-                    evidence_failure = _pkg._check_slice_evidence_reachability(
-                        pipeline_id,
-                        spawner,
-                        worktree_repo_path,
-                        slice_id,
-                        integration_branch,
-                        gateway_mode=gateway_mode,  # type: ignore[arg-type]
-                        contract=contract_post,
-                    )
-                    if evidence_failure is not None:
-                        scheduler.record_failure(slice_id)
-                        return 1, evidence_failure
+                # Slice consensus reached: one contract load (reused
+                # by the slice PR data snapshot below) + the #3125
+                # evidence-reachability gate, which runs BEFORE any
+                # close side effect. On a definitive failure the helper
+                # lands an unresolved HITL Decision (#3572) and the
+                # slice fails through the cascade machinery. See
+                # ``_slice_close_evidence_gate`` for the full posture.
+                contract_post, evidence_failure = _pkg._slice_close_evidence_gate(
+                    pipeline_id,
+                    spawner,
+                    worktree_repo_path,
+                    slice_id,
+                    integration_branch,
+                    gateway_mode=gateway_mode,  # type: ignore[arg-type]
+                    pipeline=pipeline,
+                )
+                if evidence_failure is not None:
+                    scheduler.record_failure(slice_id)
+                    return 1, evidence_failure
 
                 # #3398 — per-slice green gate: execute the repo's
                 # configured checks (repositories.yaml, via

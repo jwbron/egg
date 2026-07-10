@@ -240,3 +240,77 @@ def _contract_loader_impl(*, pipeline_id, worktree_repo_path) -> _pkg.Any:
         # OSError on the contract file read, and any pydantic
         # re-serialisation failure.
         return None
+
+
+def _slice_close_evidence_gate(
+    pipeline_id,
+    spawner,
+    worktree_repo_path,
+    slice_id,
+    integration_branch,
+    *,
+    gateway_mode,
+    pipeline,
+) -> tuple[_pkg.Any | None, str | None]:
+    """Load the contract once and run the slice-close evidence gate (#3125).
+
+    Returns ``(contract, evidence_failure)``. The contract is loaded
+    ONCE under the per-pipeline state lock and reused for both the
+    evidence-reachability gate and the caller's slice PR data snapshot
+    (both readers previously took the lock independently, and
+    collapsing them saves one file read + lock acquire per slice close,
+    #3125 review). The lock covers only the read; it is released
+    before the gateway round-trips inside the gate so other writers
+    are not serialised. ``contract`` may be ``None`` when the load
+    fails; the gate falls back to its own load in that case (and
+    skips gracefully if that fails too).
+
+    The gate itself (``_check_slice_evidence_reachability``): every
+    commit SHA cited by this slice's contract task records must be an
+    ancestor of the integration branch tip, or the slice PR would ship
+    without a deliverable the task record claims is done (the
+    post-confirmation ``complete-task --commit`` unblock flow, #3124).
+    It runs BEFORE any close side effect. Only repo-backed pipelines
+    are gated; ``evidence_failure`` is ``None`` otherwise.
+
+    On a definitive failure this helper lands an unresolved HITL
+    Decision on the contract (#3572) before returning: the caller's
+    ``record_failure`` only arms the descendant cascade, nothing
+    re-drives the close, and a consensus-complete slice otherwise
+    parks silently until an operator notices the failed phase.
+    """
+    contract_post: _pkg.Any | None = None
+    try:
+        from egg_contracts.loader import load_contract
+
+        with _pkg.get_pipeline_state_lock(pipeline_id):
+            contract_post = load_contract(pipeline_id, worktree_repo_path)
+    except Exception as load_err:  # noqa: BLE001
+        _pkg.logger.warning(
+            "Slice close: contract load failed (continuing) (#3125)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            error=str(load_err),
+        )
+
+    if not pipeline.repo:
+        return contract_post, None
+
+    evidence_failure = _pkg._check_slice_evidence_reachability(
+        pipeline_id,
+        spawner,
+        worktree_repo_path,
+        slice_id,
+        integration_branch,
+        gateway_mode=gateway_mode,
+        contract=contract_post,
+    )
+    if evidence_failure is not None:
+        _pkg._escalate_evidence_gate_to_hitl(
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            failure=evidence_failure,
+            worktree_repo_path=worktree_repo_path,
+            current_phase=getattr(pipeline, "current_phase", None),
+        )
+    return contract_post, evidence_failure

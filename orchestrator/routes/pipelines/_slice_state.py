@@ -561,7 +561,8 @@ def _escalate_layer_c_hitl(
     """Create an HITL Decision on the contract for a Layer-C anomaly (slice-4 TASK-4-4).
 
     Shared transport for case (4) blocked-without-HITL and case (5)
-    corrupt-status escalations. Per the plan task body — "escalate
+    corrupt-status escalations, and for the #3572 evidence-gate
+    close-failure escalation (``_escalate_evidence_gate_to_hitl``). Per the plan task body — "escalate
     via ``mcp__sdlc__register_open_question`` (do NOT silently
     re-yield as READY — silent classification error is worse than
     an operator pause)" — Layer C must create an unresolved
@@ -778,6 +779,50 @@ def _escalate_blocked_slice_to_hitl(
             f"{pipeline_id} is in BLOCKED status, but no PENDING HITL "
             f"decision was found on the contract that matches the slice. "
             f"{reason}. How should the orchestrator proceed?"
+        ),
+    )
+
+
+def _escalate_evidence_gate_to_hitl(
+    *,
+    pipeline_id: str,
+    slice_id: str,
+    failure: str,
+    worktree_repo_path: _pkg.Path,
+    current_phase: _pkg.PipelinePhase | None,
+) -> None:
+    """Escalate an evidence-gate slice-close failure to HITL (#3572).
+
+    A consensus-complete slice whose close fails the #3125 gate
+    previously parked silently: ``record_failure`` only arms the
+    descendant cascade, nothing in the running phase re-drives the
+    close, and recovery required an operator to notice the failed
+    phase and re-run the entire confirmed wave via ``restart_phase``.
+    Landing an unresolved Decision on the contract makes the block an
+    explicit operator question instead.
+
+    Question text is prefixed with ``[#3572 evidence-gate]`` so a
+    future dispatch handler in ``routes/decisions.py`` can route on
+    the literal substring, mirroring the Layer-C case-4/case-5
+    wrappers above. The text embeds the gate's failure summary (task
+    ids + cited SHAs), which is deterministic per incident, so the
+    ``_escalate_layer_c_hitl`` dedupe/carry-forward guard (#3427)
+    holds across close retries and phase restarts.
+    """
+    _pkg._escalate_layer_c_hitl(
+        pipeline_id=pipeline_id,
+        slice_id=slice_id,
+        worktree_repo_path=worktree_repo_path,
+        current_phase=current_phase,
+        question=(
+            f"[#3572 evidence-gate] Slice {slice_id} of pipeline "
+            f"{pipeline_id} reached full consensus, but its close is "
+            f"blocked by the evidence-reachability gate (#3125): {failure} "
+            f"The reviewed work may already be on the integration branch "
+            f"under rewritten SHAs; if so, re-link each task record via "
+            f"POST /api/v1/contracts/{pipeline_id}/tasks/<task-id>/complete "
+            f"(#3124) and restart the phase. How should the orchestrator "
+            f"proceed?"
         ),
     )
 
@@ -1009,6 +1054,14 @@ def _check_slice_evidence_reachability(
     fails the close. ``EGG_EVIDENCE_REACHABILITY_GATE`` is the operator
     kill switch.
 
+    Definitive verdicts pass through the #3572 patch-id rescue before
+    failing the slice: a reconciled push rebases the worktree and mints
+    new SHAs after the agent cited its local HEAD, so a cited SHA whose
+    identical patch is on the branch is satisfied, not lost (see
+    ``evidence_rescue``; ``EGG_EVIDENCE_PATCH_ID_RESCUE`` disables it).
+    A slice that still fails is escalated to a HITL Decision by the
+    caller so it does not park silently (#3572).
+
     ``contract`` is an optional pre-loaded contract: the close path
     already needs the contract one stretch later for the slice PR data
     snapshot, so threading the same load through saves one file read
@@ -1074,6 +1127,51 @@ def _check_slice_evidence_reachability(
         return None
     if not unreachable_shas:
         return None
+
+    # #3572 patch-id rescue: the gateway push reconciliation
+    # (``push_worktree_branch`` → ``_reconcile_and_retry_push``) rebases
+    # the worktree onto the remote tip before retrying, minting new SHAs
+    # AFTER the agent already cited its local HEAD in the task record.
+    # The cited SHA is then unreachable even though the identical patch
+    # is on the branch. Re-identify such rewrites by content
+    # (``git patch-id --stable``, same mechanism as the #2932
+    # authorship rescue) and treat a matched record as satisfied; the
+    # deliverable provably landed. Only truly-lost commits keep failing
+    # the gate. ``EGG_EVIDENCE_PATCH_ID_RESCUE`` is the kill switch.
+    try:
+        import evidence_rescue as _rescue
+    except ImportError:
+        from .. import evidence_rescue as _rescue  # type: ignore[no-redef]
+
+    try:
+        rescued = _rescue.rescue_unreachable_commits(
+            pipeline_id,
+            worktree_repo_path,
+            unreachable_shas=list(unreachable_shas),
+            integration_branch=integration_branch,
+        )
+    except Exception as rescue_err:  # noqa: BLE001
+        # The rescue may only ever narrow the gate's verdict; an
+        # unexpected failure inside it must leave the strict #3125
+        # verdict standing, not break the close path.
+        _pkg.logger.warning(
+            "Evidence patch-id rescue failed; keeping strict verdict (#3572)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            error=str(rescue_err),
+        )
+        rescued = {}
+    if rescued:
+        _pkg.logger.info(
+            "Evidence commits satisfied via patch-id match after rebase rewrite (#3572)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            integration_branch=integration_branch,
+            rescued=dict(rescued.items()),
+        )
+        unreachable_shas = [s for s in unreachable_shas if s not in rescued]
+        if not unreachable_shas:
+            return None
 
     lost = [r for r in rows if r["commit"] in set(unreachable_shas)]
     summary = cc.format_evidence_rows(lost)
