@@ -7,18 +7,18 @@ egg offers an alternative: a public, async workflow where every interaction happ
 ## How It Works
 
 ```
-@mention → Plan → Implement → PR → Review → Human merges
+Submit task → Refine → Plan → Implement → Stacked PRs → Human merges
 ```
 
-At each stage, the team has visibility and can intervene: redirect scope at mention, review approach at plan, review code at PR.
+At each stage, the team has visibility and can intervene: redirect scope at submission, review the analysis at refine, review the approach at plan, review code at PR.
 
-**Task assignment is public.** Work starts with an @mention in a GitHub issue or PR comment. Anyone watching the repo sees the request, understands the scope, and can weigh in before the agent starts.
+**Task assignment is public.** Work starts with a GitHub issue (or Jira epic) submitted through the orchestrator's MCP server. Anyone watching the repo sees the request, understands the scope, and can weigh in before the agents start; the pipeline posts its analysis, plan, and phase-completion artifacts back to the issue thread.
 
 **Plans are reviewable before implementation.** For non-trivial work, egg produces a structured plan describing what it intends to do, which files it will change, and how it will verify correctness. This is the highest-leverage collaboration point: five minutes of plan review saves hours of rework.
 
-**All work is async.** You @mention egg, then walk away. It reads the codebase, writes code, runs tests, and opens a PR. You can assign a task from your phone and review the result later.
+**All work is async.** You submit a task, then walk away. The agent teams read the codebase, write code, run tests, and open stacked PRs. You can assign a task from your phone and review the result later.
 
-**Workflow logs are the audit trail.** Every run produces a full GitHub Actions log: what the agent did, what it tried, what output it got. When a colleague gets a good result, you can read the log to see exactly what prompt and approach worked. This is dramatically more useful than "I asked the AI to do X and it worked."
+**The artifacts are the audit trail.** Every run leaves a visible trail: the analysis and plan on the issue, the review deliberation on the PRs, persisted agent transcripts (`get_agent_transcript`), and structured orchestrator logs. When a colleague gets a good result, you can read exactly what prompt and approach worked. This is dramatically more useful than "I asked the AI to do X and it worked."
 
 ## What This Workflow Offers
 
@@ -28,7 +28,7 @@ egg adds a public, async option to your team's AI toolkit. Use it when the task 
 |---|---|
 | Feedback at PR review, after the agent has committed to an approach | Feedback at plan stage, when redirecting costs minutes instead of hours |
 | Prompt knowledge stays with individual developers | Shared prompt playbooks emerge organically from visible issue threads |
-| Reviewing AI work is opaque: just a diff, no reasoning | Full reasoning visible in workflow logs, alongside the code |
+| Reviewing AI work is opaque: just a diff, no reasoning | Full reasoning visible in issue threads, PR deliberation, and agent transcripts, alongside the code |
 | Developers adopt AI tools individually | Common patterns and standards develop naturally across the team |
 
 When teams adopt the public workflow, knowledge compounds. Someone discovers that explicit acceptance criteria produce better tests. Someone else finds that referencing a specific ADR leads to more consistent architecture. These strategies spread because the artifacts are public, not locked in private chat sessions.
@@ -76,7 +76,7 @@ These mechanisms compound: by the time a human reviewer sees the PR, the most co
 
 **When the investment pays off:** Teams with two or more engineers working on the same codebase see the most benefit from the visibility model. Solo developers still gain the safety guarantees and async workflow, but the collaboration benefits compound with team size.
 
-**Interactive CLI mode:** egg also runs as an interactive CLI for rapid prototyping and real-time back-and-forth, where the async workflow's overhead isn't worth it.
+For rapid prototyping and real-time back-and-forth where the async workflow's overhead isn't worth it, use a private AI tool directly; egg's agents are headless by design ([#1762](https://github.com/jwbron/egg/issues/1762)), and the operator drives them as an MCP client.
 
 ## Looking Forward
 
