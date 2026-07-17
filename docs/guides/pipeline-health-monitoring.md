@@ -1,6 +1,24 @@
 # Pipeline Health Monitoring
 
-Pipeline health monitoring uses a **two-tier architecture** to detect and respond to agent failures during pipeline execution. The orchestrator tier handles clear-cut failures deterministically (no LLM cost), while the overseer agent tier handles ambiguous situations requiring semantic analysis.
+> **Status:** The **Tier 1 deterministic detection** described here — structured
+> progress events, orchestrator tripwires, the alive-signal gates, and
+> branch-divergence detection — is current and authoritative. The **Tier 2
+> "Overseer Agent" internal architecture** below (Haiku classifiers on every
+> cycle, a Sonnet/Opus decision-maker) predates the overseer overhaul
+> ([#2270](https://github.com/jwbron/egg/issues/2270)) and is being retired: the
+> delivered shape is a deterministic **detection plane** plus an **on-demand,
+> advisory adjudicator** (Opus tier) that runs only for the genuinely ambiguous
+> minority, executing a bounded corrective vocabulary under the orchestrator
+> identity. For the current overseer model, see
+> [Overseer Architecture](../architecture/overseer.md), which is authoritative
+> when the two disagree.
+
+Pipeline health monitoring detects and responds to agent failures during
+pipeline execution. The orchestrator resolves clear-cut failures
+deterministically (no LLM cost) via the detection plane described under
+[Tier 1](#tier-1-orchestrator-tripwires); genuinely ambiguous findings are
+handed to the on-demand overseer adjudicator (see
+[Overseer Architecture](../architecture/overseer.md)).
 
 ## Architecture Overview
 
