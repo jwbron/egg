@@ -110,12 +110,13 @@ set_secret() {
   local key="$1" value="$2" tmp
   touch "$SECRETS_FILE"
   tmp="$(mktemp)"
-  if grep -q "^${key}=" "$SECRETS_FILE" 2>/dev/null; then
-    sed "s|^${key}=.*|${key}=\"${value}\"|" "$SECRETS_FILE" >"$tmp"
-  else
-    cat "$SECRETS_FILE" >"$tmp"
-    echo "${key}=\"${value}\"" >>"$tmp"
-  fi
+  # Drop any existing definition, then append the new one. Avoids sed on
+  # the value so bytes that are special to sed's s/// (| & \ /) round-trip
+  # intact — a mistyped or pasted value no longer crashes the rewrite.
+  # `key` is a fixed identifier (no regex metacharacters), so it is safe on
+  # grep's pattern side.
+  grep -v "^${key}=" "$SECRETS_FILE" >"$tmp" 2>/dev/null || true
+  echo "${key}=\"${value}\"" >>"$tmp"
   cat "$tmp" >"$SECRETS_FILE"
   rm -f "$tmp"
   chmod 600 "$SECRETS_FILE"
@@ -197,7 +198,10 @@ need_cmd() {
     echo "      install: $hint_linux"
   fi
   PREFLIGHT_FAILURES=$((PREFLIGHT_FAILURES + 1))
-  return 1
+  # Always return success: a non-zero return from a bare call would trip
+  # `set -e` and abort at the first missing tool, defeating the enumerate-all
+  # design. Control flow is driven off PREFLIGHT_FAILURES instead.
+  return 0
 }
 
 stage_preflight() {
@@ -264,9 +268,6 @@ orchestrator_api_port: 9849
 # MCP server (always enabled, configure port and rate limit)
 mcp_server_port: 9850
 mcp_rate_limit: 30
-
-# Anthropic authentication method
-anthropic_auth_method: oauth
 YAML_EOF
   ok "wrote config.yaml (host_uid=$(id -u), host_home=$HOME)"
 }
@@ -311,6 +312,7 @@ collect_anthropic() {
       ask_secret token "Claude OAuth token (sk-ant-oat...)"
       case "$token" in sk-ant-oat*) : ;; *) warn "token does not start with sk-ant-oat — saving anyway" ;; esac
       set_secret CLAUDE_CODE_OAUTH_TOKEN "$token"
+      set_secret ANTHROPIC_API_KEY ""
       ok "saved CLAUDE_CODE_OAUTH_TOKEN $(mask "$token")"
       ;;
   esac
@@ -374,8 +376,14 @@ collect_repos() {
   if [ -f "$REPOS_FILE" ]; then
     ok "repositories.yaml exists"
     confirm "Re-collect repository configuration?" N || return 0
-    cp "$REPOS_FILE" "$REPOS_FILE.bak.$(date +%s)"
-    info "backed up existing repositories.yaml"
+    # Back up into a subdirectory, not $CONFIG_DIR itself: `make k3s-secrets`
+    # bundles the whole config dir via `--from-file=$HOME/.config/egg/`, which
+    # does not recurse, so a *.bak.<ts> file sitting alongside would otherwise
+    # accumulate as stale credential-adjacent keys inside gateway-secrets.
+    local backup_dir="$CONFIG_DIR/backups"
+    mkdir -p "$backup_dir"
+    cp "$REPOS_FILE" "$backup_dir/repositories.yaml.bak.$(date +%s)"
+    info "backed up existing repositories.yaml to backups/"
   fi
 
   echo
@@ -547,13 +555,28 @@ stage_smoke() {
   local failures=0
 
   if kubectl get pods -n egg-system >/dev/null 2>&1; then
-    local not_ready
-    not_ready="$(kubectl get pods -n egg-system --no-headers 2>/dev/null | grep -cv 'Running\|Completed' || true)"
-    if [ "$not_ready" = "0" ]; then
-      ok "egg-system pods Ready"
+    local pod_lines total not_ready not_ready_n
+    pod_lines="$(kubectl get pods -n egg-system --no-headers 2>/dev/null)"
+    total="$(printf '%s\n' "$pod_lines" | grep -c . || true)"
+    # A pod counts as Ready only when its READY column reads n/n (all
+    # containers up) and its status is Running — a `0/1 Running` pod is
+    # Running-but-not-Ready. Completed (finished jobs) is fine at any ready
+    # count. awk emits every pod that fails those tests.
+    not_ready="$(printf '%s\n' "$pod_lines" | awk 'NF {
+      split($2, r, "/")
+      if ($3 == "Completed") next
+      if ($3 == "Running" && r[2] != "" && r[1] == r[2]) next
+      print
+    }')"
+    not_ready_n="$(printf '%s\n' "$not_ready" | grep -c . || true)"
+    if [ "$total" = "0" ]; then
+      fail "no pods in egg-system (nothing deployed yet?)"
+      failures=$((failures + 1))
+    elif [ "$not_ready_n" = "0" ]; then
+      ok "egg-system pods Ready ($total)"
     else
-      fail "$not_ready egg-system pod(s) not Ready"
-      kubectl get pods -n egg-system --no-headers 2>/dev/null | grep -v 'Running\|Completed' | sed 's/^/      /'
+      fail "$not_ready_n egg-system pod(s) not Ready"
+      printf '%s\n' "$not_ready" | sed 's/^/      /'
       failures=$((failures + 1))
     fi
   else
@@ -698,7 +721,13 @@ main() {
     case "$1" in
       --check) mode="check" ;;
       --update)
-        mode="update-$2"
+        # Guard $2 so a bare `--update` gives a usage error, not a raw
+        # `$2: unbound variable` crash under `set -u`.
+        [ $# -ge 2 ] || die "--update requires a target: secrets or repos (try --help)"
+        case "$2" in
+          secrets | repos) mode="update-$2" ;;
+          *) die "unknown --update target: $2 (expected 'secrets' or 'repos')" ;;
+        esac
         shift
         ;;
       --skip-cluster) skip_cluster=1 ;;
