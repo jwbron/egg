@@ -512,11 +512,11 @@ stage_host() {
   if mcp_registered; then
     ok "egg MCP server already registered ($MCP_URL)"
   elif confirm "Register the egg MCP server with Claude Code ($MCP_URL)?" Y; then
-    if claude mcp add --transport http egg "$MCP_URL" >/dev/null 2>&1; then
-      ok "registered egg MCP server"
+    if claude mcp add --scope user --transport http egg "$MCP_URL" >/dev/null 2>&1; then
+      ok "registered egg MCP server (user scope)"
     else
       warn "automatic registration failed — run by hand:"
-      echo "      claude mcp add --transport http egg $MCP_URL"
+      echo "      claude mcp add --scope user --transport http egg $MCP_URL"
     fi
   fi
 
@@ -561,10 +561,21 @@ stage_smoke() {
     failures=$((failures + 1))
   fi
 
-  if curl -sf --max-time 5 http://localhost:9848/api/v1/health >/dev/null 2>&1; then
-    ok "gateway healthy (:9848)"
+  # The orchestrator REST API rides the hostPort (:9849) the local overlay
+  # binds; the gateway Service is ClusterIP-only, so its health check has
+  # to run from inside the cluster.
+  if curl -sf --max-time 5 http://localhost:9849/api/v1/health >/dev/null 2>&1; then
+    ok "orchestrator healthy (:9849)"
   else
-    fail "gateway not healthy on :9848 — kubectl logs -n egg-system deploy/gateway"
+    fail "orchestrator not healthy on :9849; kubectl logs -n egg-system deploy/orchestrator"
+    failures=$((failures + 1))
+  fi
+
+  if kubectl exec -n egg-system deploy/orchestrator -- \
+    curl -sf --max-time 5 http://gateway:9848/api/v1/health >/dev/null 2>&1; then
+    ok "gateway healthy (in-cluster :9848)"
+  else
+    fail "gateway not healthy; kubectl logs -n egg-system deploy/gateway"
     failures=$((failures + 1))
   fi
 
@@ -654,7 +665,7 @@ stage_check() {
   fi
 
   info "Host integration"
-  mcp_registered && ok "egg MCP server registered" || warn "egg MCP server not registered (claude mcp add --transport http egg $MCP_URL)"
+  mcp_registered && ok "egg MCP server registered" || warn "egg MCP server not registered (claude mcp add --scope user --transport http egg $MCP_URL)"
   for skill in "${EGG_SKILLS[@]}"; do
     [ -e "$SKILLS_DST/$skill" ] && ok "skill $skill" || warn "skill $skill not installed"
   done

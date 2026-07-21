@@ -27,7 +27,7 @@ That's it. The script walks through seven stages, prompting only for the two cre
 | **4. images** | `make build` + `make k3s-push` (layer-aware push to the local registry; first build is slow, later ones incremental) |
 | **5. deploy** | `make k3s-secrets` + `make deploy` |
 | **6. host** | Registers `http://localhost:9850/mcp` as the `egg` MCP server via `claude mcp add`, and symlinks the operator skills (`sdlc`, `agent-diagnose`, `deployment-diagnose`, `egg-setup`) into `~/.claude/skills/` |
-| **7. smoke** | Verifies `egg-system` pods are Ready, the gateway is healthy on `:9848`, and the MCP endpoint is reachable on `:9850` |
+| **7. smoke** | Verifies `egg-system` pods are Ready, the orchestrator is healthy on `:9849`, the gateway is healthy (checked in-cluster; its Service is ClusterIP-only), and the MCP endpoint is reachable on `:9850` |
 
 Re-running `./bin/egg-init` is safe: every stage detects existing state and skips or validates rather than clobbering.
 
@@ -83,7 +83,8 @@ kubectl get pods -n egg-system # inspect the cluster
 | `Cilium not detected` | You have a flannel-only k3s. In-place CNI swap is unsupported: `make k3s-teardown && make k3s-setup` |
 | First image build is very slow | Expected — the sandbox image is large. Later builds are incremental through the local registry |
 | `make deploy` aborts: images not in k3s | The tag moved since the last build (a pull/rebase). Run `make redeploy` |
-| Smoke: gateway unhealthy on `:9848` | `kubectl logs -n egg-system deploy/gateway`, then `/deployment-diagnose` |
+| Smoke: gateway unhealthy | `kubectl logs -n egg-system deploy/gateway`, then `/deployment-diagnose` |
+| Smoke: orchestrator unhealthy on `:9849` | `kubectl logs -n egg-system deploy/orchestrator`, then `/deployment-diagnose` |
 | Smoke: MCP unreachable on `:9850` | `kubectl logs -n egg-system deploy/orchestrator`, then `/deployment-diagnose` |
 | `Permission denied` on repos | `host_uid`/`host_gid` in `~/.config/egg/config.yaml` must match `id -u`/`id -g`; fix and `make k3s-secrets && make deploy` |
 

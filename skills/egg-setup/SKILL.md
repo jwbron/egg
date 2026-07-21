@@ -84,7 +84,7 @@ What each stage does, so you can narrate:
 4. **images** — `make build` + `make k3s-push` (layer-aware push to the local registry)
 5. **deploy** — `make k3s-secrets` + `make deploy`
 6. **host** — registers `http://localhost:9850/mcp` as the `egg` MCP server via `claude mcp add`, and symlinks the operator skills (`sdlc`, `agent-diagnose`, `deployment-diagnose`, `egg-setup`) into `~/.claude/skills/` (never overwrites a real file or a conflicting symlink)
-7. **smoke** — `egg-system` pods Ready, gateway `/api/v1/health` green on :9848, MCP endpoint reachable on :9850
+7. **smoke** — `egg-system` pods Ready, orchestrator `/api/v1/health` green on :9849, gateway healthy (checked in-cluster; its Service is ClusterIP-only), MCP endpoint reachable on :9850
 
 ### 4. Interpret and fix
 
