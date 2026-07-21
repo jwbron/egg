@@ -152,14 +152,24 @@ YAML_EOF
 
     # Seed secrets.env from the annotated template if it doesn't exist
     if [ ! -f "$secrets_file" ]; then
-        cp "$PROJECT_DIR/config/secrets.template.env" "$secrets_file"
+        local secrets_template="$PROJECT_DIR/config/secrets.template.env"
+        if [ ! -f "$secrets_template" ]; then
+            error "Seed template not found: $secrets_template (run from an egg checkout)"
+            exit 1
+        fi
+        cp "$secrets_template" "$secrets_file"
         chmod 600 "$secrets_file"
         info "Created secrets.env at $secrets_file (from config/secrets.template.env)"
     fi
 
     # Seed repositories.yaml from the annotated example if it doesn't exist
     if [ ! -f "$repos_file" ]; then
-        cp "$PROJECT_DIR/config/repositories.yaml.example" "$repos_file"
+        local repos_template="$PROJECT_DIR/config/repositories.yaml.example"
+        if [ ! -f "$repos_template" ]; then
+            error "Seed template not found: $repos_template (run from an egg checkout)"
+            exit 1
+        fi
+        cp "$repos_template" "$repos_file"
         info "Created repositories.yaml at $repos_file (from config/repositories.yaml.example)"
     fi
 
@@ -177,7 +187,7 @@ YAML_EOF
     echo "  3. Install k3s (once): make k3s-setup"
     echo "  4. Build and deploy: make build && make k3s-push && make deploy"
     echo "  5. Register the MCP server with Claude Code:"
-    echo "       claude mcp add --transport http egg http://localhost:9850/mcp"
+    echo "       claude mcp add --scope user --transport http egg http://localhost:9850/mcp"
     echo ""
     echo "  See docs/guides/local-quickstart.md for the full walkthrough."
 }
