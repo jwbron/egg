@@ -1,0 +1,745 @@
+#!/usr/bin/env bash
+# egg-init - Guided, idempotent onboarding for egg
+#
+# One command from `git clone` to a running egg: preflight checks,
+# credential + repository configuration, k3s cluster, image build,
+# deploy, host-side Claude Code integration, and a smoke check.
+#
+# The script owns orchestration and detection only; every cluster or
+# image action delegates to the existing Makefile targets, so there is
+# exactly one implementation of each step.
+#
+# Usage:
+#   bin/egg-init                     Full guided setup (all stages)
+#   bin/egg-init --check             Validate an existing setup, change nothing
+#   bin/egg-init --update secrets    Re-collect credentials only
+#   bin/egg-init --update repos      Re-collect repository config only
+#   bin/egg-init --skip-cluster      Config + host integration only
+#   bin/egg-init --yes               Accept defaults, skip confirmations
+#   bin/egg-init --help
+#
+# macOS note: this flow is Linux-first. On macOS the script detects the
+# platform and points at the Lima-based path (docs/guides/onboarding.md)
+# rather than attempting an unsupported native install.
+#
+# See: docs/guides/onboarding.md
+#      https://github.com/jwbron/egg/issues/3155
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+CONFIG_DIR="${EGG_CONFIG_DIR:-$HOME/.config/egg}"
+CONFIG_FILE="$CONFIG_DIR/config.yaml"
+SECRETS_FILE="$CONFIG_DIR/secrets.env"
+REPOS_FILE="$CONFIG_DIR/repositories.yaml"
+
+MCP_URL="http://localhost:9850/mcp"
+SKILLS_SRC="$PROJECT_DIR/skills"
+SKILLS_DST="${EGG_SKILLS_DIR:-$HOME/.claude/skills}"
+EGG_SKILLS=(sdlc agent-diagnose deployment-diagnose egg-setup)
+
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+info() { echo -e "${BLUE}==>${NC} $*"; }
+ok() { echo -e "${GREEN}  ✓${NC} $*"; }
+warn() { echo -e "${YELLOW}  !${NC} $*"; }
+fail() { echo -e "${RED}  ✗${NC} $*"; }
+stage() {
+  echo
+  echo -e "${BLUE}── $* ──────────────────────────────${NC}"
+}
+die() {
+  fail "$*" >&2
+  exit 1
+}
+
+ASSUME_YES=0
+confirm() {
+  # confirm <question> [default Y|N] -> 0 if yes
+  local q="$1" default="${2:-Y}" reply
+  [ "$ASSUME_YES" = "1" ] && return 0
+  local hint="[Y/n]"
+  [ "$default" = "N" ] && hint="[y/N]"
+  read -r -p "    $q $hint " reply
+  reply="${reply:-$default}"
+  case "$reply" in [Yy]*) return 0 ;; *) return 1 ;; esac
+}
+
+ask() {
+  # ask <varname> <prompt> [default]
+  local var="$1" prompt="$2" default="${3:-}" reply
+  if [ -n "$default" ]; then
+    read -r -p "    $prompt [$default]: " reply
+    reply="${reply:-$default}"
+  else
+    read -r -p "    $prompt: " reply
+  fi
+  printf -v "$var" '%s' "$reply"
+}
+
+ask_secret() {
+  # ask_secret <varname> <prompt> -> value never echoed on a TTY.
+  # `read -s` requires a terminal; when stdin is piped (tests, automation)
+  # it mangles input, so fall back to a plain read in that case.
+  local var="$1" prompt="$2" reply
+  if [ -t 0 ]; then
+    read -r -s -p "    $prompt: " reply
+    echo
+  else
+    read -r -p "    $prompt: " reply
+  fi
+  printf -v "$var" '%s' "$reply"
+}
+
+mask() {
+  # mask <secret> -> first 8 + … + last 4
+  local s="$1" n=${#1}
+  if [ "$n" -le 12 ]; then echo "(set, $n chars)"; else echo "${s:0:8}…${s: -4}"; fi
+}
+
+# Upsert KEY=VALUE into secrets.env without printing the value.
+set_secret() {
+  local key="$1" value="$2" tmp
+  touch "$SECRETS_FILE"
+  tmp="$(mktemp)"
+  if grep -q "^${key}=" "$SECRETS_FILE" 2>/dev/null; then
+    sed "s|^${key}=.*|${key}=\"${value}\"|" "$SECRETS_FILE" >"$tmp"
+  else
+    cat "$SECRETS_FILE" >"$tmp"
+    echo "${key}=\"${value}\"" >>"$tmp"
+  fi
+  cat "$tmp" >"$SECRETS_FILE"
+  rm -f "$tmp"
+  chmod 600 "$SECRETS_FILE"
+}
+
+get_secret() {
+  # Always exits 0 (it runs inside `$(...)` under `set -e`); prints the
+  # dequoted value for KEY from secrets.env, empty when unset.
+  { grep -E "^${1}=" "$SECRETS_FILE" 2>/dev/null || true; } | tail -n1 | cut -d= -f2- \
+    | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//" || true
+}
+
+OS="$(uname -s)"
+
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+usage() {
+  cat <<'EOF'
+egg-init - Guided, idempotent onboarding for egg
+
+Usage: bin/egg-init [mode]
+
+Modes:
+  (none)              Full guided setup: preflight → config → cluster →
+                      images → deploy → host integration → smoke check
+  --check             Validate an existing setup; change nothing
+  --update secrets    Re-collect credentials (Anthropic + GitHub) only
+  --update repos      Re-collect repository configuration only
+
+Flags:
+  --skip-cluster      Skip cluster/image/deploy stages (config + host only)
+  --yes, -y           Accept defaults and skip confirmations
+  --help, -h          Show this help
+
+Environment overrides:
+  EGG_CONFIG_DIR      Config directory     (default: ~/.config/egg)
+  EGG_SKILLS_DIR      Skills install dir   (default: ~/.claude/skills)
+
+What it does:
+  1. preflight      Checks docker, git, gh (authed), curl, kubectl,
+                    envsubst, claude; prints per-OS install guidance
+  2. config         Generates config.yaml, launcher-secret, lifecycle-secret;
+                    interactively collects a Claude credential and GitHub
+                    PAT into secrets.env; derives repositories.yaml from
+                    your repos (owner/repo from each origin remote)
+  3. cluster        make k3s-setup (k3s + Cilium) and make registry-setup
+  4. images         make build + make k3s-push (layer-aware local registry)
+  5. deploy         make k3s-secrets + make deploy
+  6. host           Registers the egg MCP server with Claude Code and
+                    symlinks the operator skills into ~/.claude/skills/
+  7. smoke          Pods Ready, gateway healthy, MCP endpoint reachable
+
+Re-running is safe: every stage detects existing state and skips or
+validates rather than clobbering.
+
+macOS: detected and redirected to the Lima-based flow — see
+docs/guides/onboarding.md#macos. Not supported natively (k3s and Cilium
+are Linux-native; network isolation is load-bearing).
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Stage 1: preflight
+# ---------------------------------------------------------------------------
+PREFLIGHT_FAILURES=0
+
+need_cmd() {
+  # need_cmd <cmd> <install-hint-linux> [install-hint-brew]
+  local cmd="$1" hint_linux="$2" hint_brew="${3:-}"
+  if command -v "$cmd" >/dev/null 2>&1; then
+    ok "$cmd ($("$cmd" --version 2>/dev/null | head -1))"
+    return 0
+  fi
+  fail "$cmd not found"
+  if [ "$OS" = "Darwin" ] && [ -n "$hint_brew" ]; then
+    echo "      install: $hint_brew"
+  else
+    echo "      install: $hint_linux"
+  fi
+  PREFLIGHT_FAILURES=$((PREFLIGHT_FAILURES + 1))
+  return 1
+}
+
+stage_preflight() {
+  stage "Stage 1/7: Preflight dependency check"
+  PREFLIGHT_FAILURES=0
+
+  need_cmd docker "https://docs.docker.com/engine/install/" "brew install --cask docker"
+  need_cmd git "apt install git / dnf install git" "brew install git"
+  need_cmd gh "https://github.com/cli/cli/blob/trunk/docs/install_linux.md" "brew install gh"
+  need_cmd curl "apt install curl / dnf install curl" "brew install curl"
+  need_cmd kubectl "https://kubernetes.io/docs/tasks/tools/" "brew install kubectl"
+  need_cmd envsubst "apt install gettext / dnf install gettext" "brew install gettext"
+  need_cmd claude "https://claude.ai/install.sh" "https://claude.ai/install.sh"
+
+  if docker info >/dev/null 2>&1; then
+    ok "docker daemon running"
+  else
+    fail "docker daemon not running (start Docker / your docker service)"
+    PREFLIGHT_FAILURES=$((PREFLIGHT_FAILURES + 1))
+  fi
+
+  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    ok "gh authenticated as $(gh api user --jq .login 2>/dev/null || echo '?')"
+  elif command -v gh >/dev/null 2>&1; then
+    fail "gh not authenticated — run: gh auth login"
+    PREFLIGHT_FAILURES=$((PREFLIGHT_FAILURES + 1))
+  fi
+
+  if [ "$PREFLIGHT_FAILURES" -gt 0 ]; then
+    echo
+    warn "$PREFLIGHT_FAILURES preflight check(s) failed."
+    confirm "Continue anyway (later stages may fail)?" N || die "Fix the failures above and re-run bin/egg-init."
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Stage 2: config
+# ---------------------------------------------------------------------------
+gen_secret() { openssl rand -hex 32; }
+
+write_config_yaml() {
+  if [ -f "$CONFIG_FILE" ]; then
+    ok "config.yaml exists (leaving as-is)"
+    return
+  fi
+  cat >"$CONFIG_FILE" <<YAML_EOF
+# Egg Configuration
+# Generated by egg-init ($(date '+%Y-%m-%d'))
+
+# Host identity (required for worktree bind mounts)
+host_home: $HOME
+host_uid: $(id -u)
+host_gid: $(id -g)
+
+# Git identity for commits
+git_name: egg
+git_email: egg@localhost
+
+# Network ports
+gateway_api_port: 9848
+gateway_proxy_port: 3129
+orchestrator_api_port: 9849
+
+# MCP server (always enabled, configure port and rate limit)
+mcp_server_port: 9850
+mcp_rate_limit: 30
+
+# Anthropic authentication method
+anthropic_auth_method: oauth
+YAML_EOF
+  ok "wrote config.yaml (host_uid=$(id -u), host_home=$HOME)"
+}
+
+gen_infra_secrets() {
+  for name in launcher-secret lifecycle-secret; do
+    local path="$CONFIG_DIR/$name"
+    if [ -f "$path" ]; then
+      ok "$name exists"
+    else
+      gen_secret >"$path"
+      chmod 600 "$path"
+      ok "generated $name"
+    fi
+  done
+}
+
+collect_anthropic() {
+  local existing_oauth existing_key
+  existing_oauth="$(get_secret CLAUDE_CODE_OAUTH_TOKEN)"
+  existing_key="$(get_secret ANTHROPIC_API_KEY)"
+  if [ -n "$existing_oauth" ] || [ -n "$existing_key" ]; then
+    ok "Anthropic credential present ($([ -n "$existing_oauth" ] && mask "$existing_oauth" || mask "$existing_key"))"
+    confirm "Replace the Anthropic credential?" N || return 0
+  fi
+
+  echo
+  info "How do you authenticate with Claude?"
+  echo "      1) OAuth token (Claude subscription)  — claude auth status --json | jq -r .oauthToken"
+  echo "      2) API key     (console.anthropic.com)"
+  local choice token
+  ask choice "Choice" "1"
+  case "$choice" in
+    2)
+      ask_secret token "Anthropic API key (sk-ant-api...)"
+      case "$token" in sk-ant-api*) : ;; *) warn "token does not start with sk-ant-api — saving anyway" ;; esac
+      set_secret ANTHROPIC_API_KEY "$token"
+      set_secret CLAUDE_CODE_OAUTH_TOKEN ""
+      ok "saved ANTHROPIC_API_KEY $(mask "$token")"
+      ;;
+    *)
+      ask_secret token "Claude OAuth token (sk-ant-oat...)"
+      case "$token" in sk-ant-oat*) : ;; *) warn "token does not start with sk-ant-oat — saving anyway" ;; esac
+      set_secret CLAUDE_CODE_OAUTH_TOKEN "$token"
+      ok "saved CLAUDE_CODE_OAUTH_TOKEN $(mask "$token")"
+      ;;
+  esac
+}
+
+collect_github() {
+  local gh_user
+  gh_user="$(gh api user --jq .login 2>/dev/null || true)"
+
+  local existing_pat
+  existing_pat="$(get_secret GITHUB_USER_TOKEN)"
+  if [ -n "$existing_pat" ]; then
+    ok "GitHub PAT present ($(mask "$existing_pat"))"
+    confirm "Replace the GitHub PAT?" N || {
+      collect_gateway_policy "$gh_user"
+      return 0
+    }
+  fi
+
+  echo
+  info "egg pushes branches and opens PRs as you via a fine-grained PAT."
+  echo "      Create one at https://github.com/settings/tokens?type=beta with:"
+  echo "      Contents (R/W), Pull requests (R/W), Issues (R/W)"
+  local pat
+  ask_secret pat "GitHub PAT (github_pat_... or ghp_...)"
+  case "$pat" in github_pat_* | ghp_*) : ;; *) warn "token does not start with github_pat_ or ghp_ — saving anyway" ;; esac
+  set_secret GITHUB_USER_TOKEN "$pat"
+  ok "saved GITHUB_USER_TOKEN $(mask "$pat")"
+
+  collect_gateway_policy "$gh_user"
+}
+
+collect_gateway_policy() {
+  local gh_user="${1:-}"
+  [ -z "$gh_user" ] && gh_user="$(gh api user --jq .login 2>/dev/null || true)"
+
+  # Defaults only: fill anything unset, never overwrite an explicit value.
+  [ -z "$(get_secret GATEWAY_BOT_NAME)" ] && set_secret GATEWAY_BOT_NAME "egg"
+  [ -z "$(get_secret GATEWAY_BOT_BRANCH_PREFIX)" ] && set_secret GATEWAY_BOT_BRANCH_PREFIX "egg"
+  if [ -z "$(get_secret GATEWAY_TRUSTED_USERS)" ] && [ -n "$gh_user" ]; then
+    set_secret GATEWAY_TRUSTED_USERS "$gh_user"
+  fi
+  ok "gateway policy: bot=egg, branch prefix=egg, trusted users=$(get_secret GATEWAY_TRUSTED_USERS)"
+}
+
+owner_repo_from() {
+  # owner_repo_from <path> -> owner/repo via the origin remote
+  local url
+  url="$(git -C "$1" remote get-url origin 2>/dev/null || true)"
+  case "$url" in
+    git@github.com:*) echo "${url#git@github.com:}" | sed 's/\.git$//' ;;
+    https://github.com/*) echo "${url#https://github.com/}" | sed 's/\.git$//' ;;
+    *) echo "" ;;
+  esac
+}
+
+collect_repos() {
+  local gh_user
+  gh_user="$(gh api user --jq .login 2>/dev/null || true)"
+
+  if [ -f "$REPOS_FILE" ]; then
+    ok "repositories.yaml exists"
+    confirm "Re-collect repository configuration?" N || return 0
+    cp "$REPOS_FILE" "$REPOS_FILE.bak.$(date +%s)"
+    info "backed up existing repositories.yaml"
+  fi
+
+  echo
+  info "Which local repositories should egg work on?"
+  echo "      egg mounts each into the cluster and pushes branches/opens PRs there."
+  local paths=() slugs=() p slug
+  while true; do
+    ask p "Repo path (blank to finish)" ""
+    [ -z "$p" ] && break
+    p="${p/#\~/$HOME}"
+    if [ ! -d "$p/.git" ] && ! git -C "$p" rev-parse --git-dir >/dev/null 2>&1; then
+      warn "$p is not a git repository — skipped"
+      continue
+    fi
+    slug="$(owner_repo_from "$p")"
+    if [ -z "$slug" ]; then
+      warn "could not parse owner/repo from origin remote — skipped"
+      continue
+    fi
+    paths+=("$p")
+    slugs+=("$slug")
+    ok "$slug  ←  $p"
+  done
+
+  [ "${#paths[@]}" -eq 0 ] && die "no repositories configured — egg needs at least one writable repo."
+
+  {
+    echo "# Egg repository configuration"
+    echo "# Generated by egg-init ($(date '+%Y-%m-%d'))"
+    echo "github_username: ${gh_user:-YOUR_GITHUB_USERNAME}"
+    echo "bot_username: egg"
+    echo "default_reviewer: ${gh_user:-YOUR_GITHUB_USERNAME}"
+    echo
+    echo "writable_repos:"
+    for slug in "${slugs[@]}"; do echo "  - $slug"; done
+    echo
+    echo "repo_settings:"
+    for slug in "${slugs[@]}"; do
+      echo "  $slug:"
+      echo "    auth_mode: user    # use your PAT; commits/PRs attributed to you"
+    done
+    echo
+    echo "local_repos:"
+    echo "  paths:"
+    for p in "${paths[@]}"; do echo "    - $p"; done
+  } >"$REPOS_FILE"
+  ok "wrote repositories.yaml (${#paths[@]} repo(s), auth_mode: user)"
+}
+
+stage_config() {
+  stage "Stage 2/7: Configuration"
+  mkdir -p "$CONFIG_DIR"
+  write_config_yaml
+  gen_infra_secrets
+  collect_anthropic
+  collect_github
+  collect_repos
+}
+
+stage_update_secrets() {
+  stage "Update: secrets"
+  mkdir -p "$CONFIG_DIR"
+  gen_infra_secrets
+  collect_anthropic
+  collect_github
+  echo
+  ok "secrets updated. Re-create cluster secrets with: make k3s-secrets"
+}
+
+stage_update_repos() {
+  stage "Update: repositories"
+  mkdir -p "$CONFIG_DIR"
+  collect_repos
+  echo
+  ok "repos updated. Re-deploy to pick up mount changes: make deploy"
+}
+
+# ---------------------------------------------------------------------------
+# Stages 3–5: cluster, images, deploy
+# ---------------------------------------------------------------------------
+stage_cluster() {
+  stage "Stage 3/7: k3s cluster + registry"
+  export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+
+  if kubectl cluster-info >/dev/null 2>&1; then
+    ok "k3s cluster reachable"
+    if kubectl get daemonset -n kube-system cilium >/dev/null 2>&1; then
+      ok "Cilium CNI present"
+    else
+      warn "Cilium not detected — egg's NetworkPolicy isolation requires it."
+      warn "A plain k3s (flannel) is NOT a supported install. Run: make k3s-teardown && make k3s-setup"
+      confirm "Install/verify Cilium now via make k3s-setup?" Y || die "Cilium is required for egg's agent network isolation."
+      make -C "$PROJECT_DIR" k3s-setup
+    fi
+  else
+    info "Installing k3s + Cilium (make k3s-setup) — may prompt for sudo"
+    make -C "$PROJECT_DIR" k3s-setup
+  fi
+
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx egg-registry; then
+    ok "local image registry running (localhost:5000)"
+  else
+    info "Setting up the local image registry (make registry-setup)"
+    make -C "$PROJECT_DIR" registry-setup
+  fi
+}
+
+stage_images() {
+  stage "Stage 4/7: Build images"
+  info "Building gateway, orchestrator, sandbox, litellm, redis images."
+  info "First build is slow (the sandbox image is large); later builds are incremental."
+  make -C "$PROJECT_DIR" build
+  info "Publishing images to the local registry (layer-aware)"
+  make -C "$PROJECT_DIR" k3s-push
+}
+
+stage_deploy() {
+  stage "Stage 5/7: Deploy to k3s"
+  export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+  make -C "$PROJECT_DIR" k3s-secrets
+  make -C "$PROJECT_DIR" deploy
+}
+
+# ---------------------------------------------------------------------------
+# Stage 6: host integration (MCP registration + skills)
+# ---------------------------------------------------------------------------
+mcp_registered() {
+  claude mcp list 2>/dev/null | grep -q "^egg:"
+}
+
+stage_host() {
+  stage "Stage 6/7: Host Claude Code integration"
+
+  if mcp_registered; then
+    ok "egg MCP server already registered ($MCP_URL)"
+  elif confirm "Register the egg MCP server with Claude Code ($MCP_URL)?" Y; then
+    if claude mcp add --transport http egg "$MCP_URL" >/dev/null 2>&1; then
+      ok "registered egg MCP server"
+    else
+      warn "automatic registration failed — run by hand:"
+      echo "      claude mcp add --transport http egg $MCP_URL"
+    fi
+  fi
+
+  mkdir -p "$SKILLS_DST"
+  local skill link
+  for skill in "${EGG_SKILLS[@]}"; do
+    link="$SKILLS_DST/$skill"
+    if [ -L "$link" ] && [ "$(readlink "$link")" = "$SKILLS_SRC/$skill" ]; then
+      ok "skill $skill already linked"
+    elif [ -e "$link" ] && [ ! -L "$link" ]; then
+      warn "skill $skill exists as a real file at $link — leaving untouched"
+      warn "    remove it and re-run to link egg's version"
+    elif [ -L "$link" ]; then
+      warn "skill $skill points elsewhere ($(readlink "$link")) — leaving untouched"
+    else
+      ln -s "$SKILLS_SRC/$skill" "$link"
+      ok "linked skill $skill → $SKILLS_SRC/$skill"
+    fi
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Stage 7: smoke check
+# ---------------------------------------------------------------------------
+stage_smoke() {
+  stage "Stage 7/7: Smoke check"
+  export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+  local failures=0
+
+  if kubectl get pods -n egg-system >/dev/null 2>&1; then
+    local not_ready
+    not_ready="$(kubectl get pods -n egg-system --no-headers 2>/dev/null | grep -cv 'Running\|Completed' || true)"
+    if [ "$not_ready" = "0" ]; then
+      ok "egg-system pods Ready"
+    else
+      fail "$not_ready egg-system pod(s) not Ready"
+      kubectl get pods -n egg-system --no-headers 2>/dev/null | grep -v 'Running\|Completed' | sed 's/^/      /'
+      failures=$((failures + 1))
+    fi
+  else
+    fail "cannot reach cluster (is KUBECONFIG set? tried $KUBECONFIG)"
+    failures=$((failures + 1))
+  fi
+
+  if curl -sf --max-time 5 http://localhost:9848/api/v1/health >/dev/null 2>&1; then
+    ok "gateway healthy (:9848)"
+  else
+    fail "gateway not healthy on :9848 — kubectl logs -n egg-system deploy/gateway"
+    failures=$((failures + 1))
+  fi
+
+  if curl -sf --max-time 5 -o /dev/null http://localhost:9850/mcp 2>/dev/null \
+    || curl -s --max-time 5 -o /dev/null -w '%{http_code}' http://localhost:9850/mcp 2>/dev/null | grep -qE '^(200|405|406)$'; then
+    ok "MCP endpoint reachable (:9850)"
+  else
+    fail "MCP endpoint not reachable on :9850 — kubectl logs -n egg-system deploy/orchestrator"
+    failures=$((failures + 1))
+  fi
+
+  echo
+  if [ "$failures" = "0" ]; then
+    echo -e "${GREEN}egg is up.${NC} From any Claude Code session:"
+    echo
+    echo "    submit_task(issue_number=123, repo=\"owner/name\")"
+    echo "    or run the /sdlc skill"
+    echo
+  else
+    warn "$failures smoke check(s) failed. See docs/guides/deployment-diagnostics.md"
+    echo "    or run the /deployment-diagnose skill from Claude Code."
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# --check mode
+# ---------------------------------------------------------------------------
+stage_check() {
+  stage "egg setup check"
+  local failures=0
+
+  info "Dependencies"
+  PREFLIGHT_FAILURES=0
+  need_cmd docker "-" "-"
+  need_cmd git "-" "-"
+  need_cmd gh "-" "-"
+  need_cmd kubectl "-" "-"
+  need_cmd envsubst "-" "-"
+  need_cmd claude "-" "-"
+  docker info >/dev/null 2>&1 && ok "docker daemon running" || {
+    fail "docker daemon not running"
+    PREFLIGHT_FAILURES=$((PREFLIGHT_FAILURES + 1))
+  }
+  gh auth status >/dev/null 2>&1 && ok "gh authenticated" || {
+    fail "gh not authenticated"
+    PREFLIGHT_FAILURES=$((PREFLIGHT_FAILURES + 1))
+  }
+  failures=$((failures + PREFLIGHT_FAILURES))
+
+  info "Configuration files"
+  for f in config.yaml repositories.yaml secrets.env launcher-secret lifecycle-secret; do
+    if [ -f "$CONFIG_DIR/$f" ]; then ok "$f"; else
+      fail "$f missing — run bin/egg-init"
+      failures=$((failures + 1))
+    fi
+  done
+
+  info "Credentials (presence + prefix only)"
+  if [ -f "$SECRETS_FILE" ]; then
+    if [ -n "$(get_secret CLAUDE_CODE_OAUTH_TOKEN)" ] || [ -n "$(get_secret ANTHROPIC_API_KEY)" ]; then
+      ok "Anthropic credential set"
+    else
+      fail "no Anthropic credential (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)"
+      failures=$((failures + 1))
+    fi
+    [ -n "$(get_secret GITHUB_USER_TOKEN)" ] && ok "GitHub PAT set" || {
+      fail "GITHUB_USER_TOKEN unset"
+      failures=$((failures + 1))
+    }
+    [ -n "$(get_secret GATEWAY_BOT_NAME)" ] && ok "GATEWAY_BOT_NAME set" || {
+      fail "GATEWAY_BOT_NAME unset"
+      failures=$((failures + 1))
+    }
+  fi
+
+  info "Repositories"
+  if [ -f "$REPOS_FILE" ]; then
+    while IFS= read -r p; do
+      p="${p/#\~/$HOME}"
+      if git -C "$p" rev-parse --git-dir >/dev/null 2>&1; then
+        ok "$p"
+      else
+        fail "$p is not a git repository"
+        failures=$((failures + 1))
+      fi
+    done < <(grep -E '^[[:space:]]+- /' "$REPOS_FILE" | sed -E 's/^[[:space:]]+-[[:space:]]+//')
+  fi
+
+  info "Host integration"
+  mcp_registered && ok "egg MCP server registered" || warn "egg MCP server not registered (claude mcp add --transport http egg $MCP_URL)"
+  for skill in "${EGG_SKILLS[@]}"; do
+    [ -e "$SKILLS_DST/$skill" ] && ok "skill $skill" || warn "skill $skill not installed"
+  done
+
+  export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+  if kubectl cluster-info >/dev/null 2>&1; then
+    info "Cluster"
+    kubectl get daemonset -n kube-system cilium >/dev/null 2>&1 && ok "Cilium present" || {
+      fail "Cilium missing"
+      failures=$((failures + 1))
+    }
+    kubectl get pods -n egg-system >/dev/null 2>&1 && ok "egg-system namespace reachable" || warn "egg not deployed yet"
+  else
+    warn "no cluster reachable — deploy stages not checked"
+  fi
+
+  echo
+  if [ "$failures" = "0" ]; then ok "all checks passed"; else
+    fail "$failures check(s) failed — re-run bin/egg-init"
+    exit 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+main() {
+  local mode="full" skip_cluster=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --check) mode="check" ;;
+      --update)
+        mode="update-$2"
+        shift
+        ;;
+      --skip-cluster) skip_cluster=1 ;;
+      --yes | -y) ASSUME_YES=1 ;;
+      --help | -h)
+        usage
+        exit 0
+        ;;
+      *) die "unknown argument: $1 (try --help)" ;;
+    esac
+    shift
+  done
+
+  if [ "$OS" = "Darwin" ] && [ "$mode" = "full" ] && [ "$skip_cluster" = "0" ]; then
+    warn "macOS detected: k3s and Cilium are Linux-native, and egg's network"
+    warn "isolation requires them. The supported macOS path runs the cluster"
+    warn "inside a Lima VM — see docs/guides/onboarding.md#macos."
+    echo
+    if confirm "Run config + host integration only (skip cluster build)?" Y; then
+      skip_cluster=1
+    else
+      die "Aborted. Set up the Lima VM first (docs/guides/onboarding.md#macos), then re-run inside it."
+    fi
+  fi
+
+  case "$mode" in
+    check)
+      stage_check
+      ;;
+    update-secrets)
+      stage_update_secrets
+      ;;
+    update-repos)
+      stage_update_repos
+      ;;
+    full)
+      stage_preflight
+      stage_config
+      if [ "$skip_cluster" = "0" ]; then
+        stage_cluster
+        stage_images
+        stage_deploy
+      else
+        info "Skipping cluster/image/deploy stages (--skip-cluster)"
+      fi
+      stage_host
+      if [ "$skip_cluster" = "0" ]; then
+        stage_smoke
+      fi
+      ;;
+    *) die "unknown mode: $mode" ;;
+  esac
+}
+
+main "$@"

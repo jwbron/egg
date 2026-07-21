@@ -51,6 +51,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 | Document | Description |
 |----------|-------------|
+| [Onboarding](guides/onboarding.md) | Guided setup from `git clone` to a running egg via `bin/egg-init` (Linux; macOS via Lima) |
 | [Deployment](guides/deployment.md) | Production deployment options: Docker Compose, CLI, GitHub Action |
 | [Deploy Migration](guides/deploy-migration.md) | Migrating from legacy deployments |
 | [Agent-Mode Design](guides/agent-mode-design.md) | When to let egg operate freely vs. when constraints are appropriate |
