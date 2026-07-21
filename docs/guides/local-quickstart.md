@@ -88,6 +88,13 @@ make deploy             # deploy gateway + orchestrator to k3s (idempotent)
 kubectl get pods -n egg-system  # verify pods are running
 ```
 
+> **Rather not run these by hand?** `bin/egg-init` chains exactly these steps
+> (registry → build → push → secrets → deploy) with preflight checks; see the
+> [Onboarding Guide](onboarding.md). The interactive `egg` CLI that used to
+> appear here was removed in
+> [#1762](https://github.com/jwbron/egg/issues/1762) — drive pipelines through
+> the MCP server instead (see below).
+
 `make registry-setup` is a one-time host step (also run by `make k3s-setup`): it starts a `registry:2` container **bound to 127.0.0.1 only** (nothing is published off-host) and points k3s's containerd at it via `/etc/rancher/k3s/registries.yaml`. `make build` builds the Docker images. `make k3s-push` publishes the registry-subset images through the registry — `docker push` and the containerd pull are both layer-aware, so after the first publish a code-only rebuild moves tens of MB instead of full images (issue #2999). `make deploy` applies the Kustomize manifests — it is idempotent and can be re-run after code changes to update the running deployment. `make deploy` also performs a pre-flight check: it aborts before touching the cluster if the images for the current tag were never published, directing you to run `make redeploy` instead.
 
 All four images ride the registry by default (`EGG_REGISTRY_IMAGES`). The egg images — the sandbox especially — bake in private repo content (prebuilt `node_modules`/`.venv` from `repositories.yaml` build commands), so the privacy controls are structural: `make registry-setup` only ever creates a `127.0.0.1`-bound registry, and `push-egg-images.sh` hard-refuses any non-loopback registry with no override — nothing can be published off-host. To keep an image off the registry entirely, remove it from `EGG_REGISTRY_IMAGES`; it then publishes via `docker save` + `ctr import` instead (store-to-store on this host, no registry involved, at the cost of full-image serialization per change).

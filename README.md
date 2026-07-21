@@ -236,33 +236,15 @@ Host-side CLIs in `bin/` (`egg-sdlc`, `egg-status`, `egg-pipeline-watch`, `egg-o
 
 ## Quick Start
 
-egg deploys to a local **k3s** cluster. (Docker Compose was removed in [#1762](https://github.com/jwbron/egg/issues/1762); `bin/egg-deploy up/down/build/logs` are deprecated stubs.)
+egg deploys to a local **k3s** cluster. `bin/egg-init` is the guided, idempotent path from `git clone` to a running egg — it orchestrates the cluster, config, credentials, image build, deploy, and host-side Claude Code integration, prompting only for a GitHub PAT and a Claude credential:
 
 ```bash
-# 1. Clone
 git clone https://github.com/jwbron/egg.git
 cd egg
-
-# 2. Install k3s with the Cilium CNI (required for NetworkPolicy enforcement)
-make k3s-setup
-
-# 3. Generate host-side config (secrets, config.yaml, repositories.yaml templates)
-bin/egg-deploy init
-#    then edit ~/.config/egg/secrets.env  (ANTHROPIC_API_KEY or OAuth token,
-#    GitHub PAT, gateway policy) and ~/.config/egg/repositories.yaml
-
-# 4. Build images, publish them to the local registry, create secrets, and deploy
-make build
-make k3s-push
-make k3s-secrets
-make deploy
-
-# 5. Verify
-kubectl get pods -n egg-system
-
-# 6. Connect your Claude Code session to the orchestrator's MCP server
-claude mcp add --transport http --scope user egg http://localhost:9850/mcp
+./bin/egg-init
 ```
+
+Re-run any time; `bin/egg-init --check` validates an existing setup without changing anything. See the [Onboarding Guide](docs/guides/onboarding.md) for the stage-by-stage breakdown, subcommands, and the macOS (Lima) path.
 
 Then drive agent work through the MCP server from any MCP-compatible host (e.g. Claude Code):
 
@@ -270,9 +252,11 @@ Then drive agent work through the MCP server from any MCP-compatible host (e.g. 
 submit_task(issue_number=123, repo="owner/name")
 ```
 
-See:
+Prefer the individual steps? The Makefile targets underneath (`make k3s-setup`, `make build`, `make deploy`, …) are documented in the [Deployment Guide](docs/guides/deployment.md) and [Local Quickstart](docs/guides/local-quickstart.md). (Docker Compose was removed in [#1762](https://github.com/jwbron/egg/issues/1762).)
 
-- [Local Quickstart](docs/guides/local-quickstart.md) for end-to-end k3s setup with a worked example.
+See also:
+
+- [Onboarding Guide](docs/guides/onboarding.md) for the guided setup and troubleshooting.
 - [Deployment Guide](docs/guides/deployment.md) for production options and the full k3s flow.
 - [Per-Agent Models](docs/guides/per-agent-models.md) for routing a single agent role to a non-Claude model (e.g. Qwen) via the LiteLLM proxy.
 
