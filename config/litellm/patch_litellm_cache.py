@@ -70,7 +70,11 @@ OpenRouter. The image pins that same version (see the Dockerfile
      forever), so auto-compaction never triggers and the orchestrator's
      transcript-derived token accounting undercounts. Mirrors the fix
      upstreamed via jwbron/litellm#6 (upstream now falls back to
-     ``prompt_tokens_details.cached_tokens`` natively).
+     ``prompt_tokens_details.cached_tokens`` natively). Unlike Patch 5,
+     this has no sync ``__next__`` twin: the cache-token usage merge
+     exists only in the async ``__anext__`` path upstream (the sync path
+     has no equivalent merge block), and that async path is the one the
+     litellm proxy drives for Claude Code streaming.
 
 Idempotent: each patch detects whether it is already applied. Fails
 loudly (non-zero exit) if a needle is missing, so a LiteLLM version bump
