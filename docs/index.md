@@ -51,7 +51,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 | Document | Description |
 |----------|-------------|
-| [Deployment](guides/deployment.md) | Production deployment options: Docker Compose, CLI, GitHub Action |
+| [Deployment](guides/deployment.md) | Kubernetes (k3s) deployment: setup, images, secrets, health checks, GitHub Action, troubleshooting |
 | [Deploy Migration](guides/deploy-migration.md) | Migrating from legacy deployments |
 | [Agent-Mode Design](guides/agent-mode-design.md) | When to let egg operate freely vs. when constraints are appropriate |
 | [Agent Development](guides/agent-development.md) | Developing agent strategies |
