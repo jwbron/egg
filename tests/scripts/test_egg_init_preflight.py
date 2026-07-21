@@ -85,9 +85,7 @@ class TestCheckEnumeratesAllMissingDeps:
     """``bin/egg-init --check`` must list every missing dependency and
     reach the trailing sections, not abort at the first."""
 
-    def test_check_enumerates_all_and_reaches_summary(
-        self, bash: str, tmp_path: Path
-    ) -> None:
+    def test_check_enumerates_all_and_reaches_summary(self, bash: str, tmp_path: Path) -> None:
         env = _base_env(tmp_path)
         proc = subprocess.run(
             [bash, str(EGG_INIT), "--check"],
@@ -101,8 +99,7 @@ class TestCheckEnumeratesAllMissingDeps:
         # Every masked dependency is enumerated — not just the first.
         for dep in MASKED_DEPS:
             assert f"{dep} not found" in out, (
-                f"{dep!r} missing from --check output; the run likely "
-                f"aborted early.\n{out}"
+                f"{dep!r} missing from --check output; the run likely aborted early.\n{out}"
             )
 
         # The run reached sections that come *after* the dependency block,
@@ -119,18 +116,12 @@ class TestPreflightEnumeratesAllMissingDeps:
     directly (main() stripped) to confirm it enumerates all deps and
     reaches its summary rather than aborting on the first."""
 
-    def test_preflight_enumerates_all_and_reaches_summary(
-        self, bash: str, tmp_path: Path
-    ) -> None:
+    def test_preflight_enumerates_all_and_reaches_summary(self, bash: str, tmp_path: Path) -> None:
         env = _base_env(tmp_path)
         # Source the script with its final `main "$@"` line removed, set
         # ASSUME_YES *after* sourcing (the script resets it to 0), then
         # invoke stage_preflight in isolation.
-        script = (
-            'source <(sed "$ d" "$1"); '
-            "ASSUME_YES=1; "
-            "stage_preflight"
-        )
+        script = 'source <(sed "$ d" "$1"); ASSUME_YES=1; stage_preflight'
         proc = subprocess.run(
             [bash, "-c", script, "_", str(EGG_INIT)],
             env=env,
@@ -142,8 +133,7 @@ class TestPreflightEnumeratesAllMissingDeps:
 
         for dep in MASKED_DEPS:
             assert f"{dep} not found" in out, (
-                f"{dep!r} missing from preflight output; the run likely "
-                f"aborted early.\n{out}"
+                f"{dep!r} missing from preflight output; the run likely aborted early.\n{out}"
             )
 
         # The per-OS install hints for tools *after* docker must appear —
