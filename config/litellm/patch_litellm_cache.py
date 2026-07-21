@@ -4,8 +4,8 @@
 LiteLLM's stock Anthropic->OpenAI translation (the path Claude Code's
 ``/v1/messages`` requests take when routed at a non-Claude OpenRouter
 backend) drops prompt-cache hits for Qwen/DeepSeek and mis-streams
-reasoning models. Five independent gaps cause it; this script closes all
-five by editing the installed ``litellm`` package in place, then
+reasoning models. Six independent gaps cause it; this script closes all
+six by editing the installed ``litellm`` package in place, then
 ``config/litellm/Dockerfile`` bakes the result into the ``egg-litellm``
 image.
 
@@ -57,6 +57,24 @@ OpenRouter. The image pins that same version (see the Dockerfile
      thinking block and the first answer token after thinking are silently
      dropped; a one-chunk answer can vanish entirely. Applied to both the
      sync ``__next__`` and async ``__anext__`` paths.
+  6. ``AnthropicStreamWrapper`` usage merge (same streaming_iterator.py)
+     report provider-automatic cache hits in the streamed usage. The stock
+     code subtracts ``prompt_tokens_details.cached_tokens`` from
+     ``input_tokens`` but only emits ``cache_read_input_tokens`` from the
+     internal ``_cache_read_input_tokens`` field, which OpenAI/OpenRouter-
+     style usage never populates (only Anthropic- and DeepSeek-native
+     fields do). On any auto-caching route (Moonshot kimi-k3 ~94% hit
+     rate, Fireworks deepseek-flash, DeepInfra glm) the cached tokens
+     simply vanish from the usage Anthropic-format clients see: Claude
+     Code's context tracking sees only the uncached tail (~0% context
+     forever), so auto-compaction never triggers and the orchestrator's
+     transcript-derived token accounting undercounts. Mirrors the fix
+     upstreamed via jwbron/litellm#6 (upstream now falls back to
+     ``prompt_tokens_details.cached_tokens`` natively). Unlike Patch 5,
+     this has no sync ``__next__`` twin: the cache-token usage merge
+     exists only in the async ``__anext__`` path upstream (the sync path
+     has no equivalent merge block), and that async path is the one the
+     litellm proxy drives for Claude Code streaming.
 
 Idempotent: each patch detects whether it is already applied. Fails
 loudly (non-zero exit) if a needle is missing, so a LiteLLM version bump
@@ -140,7 +158,7 @@ PATCHES: list[dict[str, str]] = [
             '    QWEN = "qwen"\n'
             '    DEEPSEEK = "deepseek"\n'
         ),
-        "label": "Patch 1/5 (CacheControlSupportedModels)",
+        "label": "Patch 1/6 (CacheControlSupportedModels)",
     },
     # Patch 2 — broaden ONLY the cache_control gate (not the shared
     # is_anthropic_claude_model predicate, which also gates thinking
@@ -170,7 +188,7 @@ PATCHES: list[dict[str, str]] = [
             "            )\n"
             "        ):\n"
         ),
-        "label": "Patch 2/5 (cache_control gate)",
+        "label": "Patch 2/6 (cache_control gate)",
     },
     # Patch 3 — drop x-anthropic-billing-header during Anthropic->OpenAI translation.
     {
@@ -204,7 +222,7 @@ PATCHES: list[dict[str, str]] = [
             '                        "text": text,\n'
             "                    }\n"
         ),
-        "label": "Patch 3/5 (x-anthropic-billing-header filter)",
+        "label": "Patch 3/6 (x-anthropic-billing-header filter)",
     },
     # Patch 4 — OpenRouter-style reasoning_content must open a thinking
     # content block, not fall through to a text block. The bare
@@ -242,7 +260,7 @@ PATCHES: list[dict[str, str]] = [
             '                choice.delta, "thinking_blocks"\n'
             "            ):\n"
         ),
-        "label": "Patch 4/5 (reasoning_content thinking block)",
+        "label": "Patch 4/6 (reasoning_content thinking block)",
     },
     # Patch 5a — sync __next__: don't drop the first delta on text or
     # thinking block transitions.
@@ -342,7 +360,7 @@ PATCHES: list[dict[str, str]] = [
             "                        ):\n"
             "                            self.chunk_queue.append(processed_chunk)\n"
         ),
-        "label": "Patch 5/5a (sync first-delta requeue)",
+        "label": "Patch 5a/6 (sync first-delta requeue)",
     },
     # Patch 5b — async __anext__: same first-delta preservation.
     {
@@ -440,7 +458,99 @@ PATCHES: list[dict[str, str]] = [
             "                            ):\n"
             "                                self.chunk_queue.append(processed_chunk)\n"
         ),
-        "label": "Patch 5/5b (async first-delta requeue)",
+        "label": "Patch 5b/6 (async first-delta requeue)",
+    },
+    # Patch 6 — streamed usage must report provider-automatic cache hits.
+    # The needle spans the whole usage-merge region so both edit points
+    # (the cached_tokens hoist and the cache_read fallback) land atomically.
+    {
+        "file": F3,
+        "present": "# egg cache patch (streaming cache_read fallback)",
+        "needle": (
+            "                    # Add usage to the held chunk\n"
+            "                    uncached_input_tokens = chunk.usage.prompt_tokens or 0\n"
+            "                    if (\n"
+            '                        hasattr(chunk.usage, "prompt_tokens_details")\n'
+            "                        and chunk.usage.prompt_tokens_details\n"
+            "                    ):\n"
+            "                        cached_tokens = (\n"
+            "                            getattr(\n"
+            '                                chunk.usage.prompt_tokens_details, "cached_tokens", 0\n'
+            "                            )\n"
+            "                            or 0\n"
+            "                        )\n"
+            "                        uncached_input_tokens -= cached_tokens\n"
+            "\n"
+            "                    usage_dict: UsageDelta = {\n"
+            '                        "input_tokens": uncached_input_tokens,\n'
+            '                        "output_tokens": chunk.usage.completion_tokens or 0,\n'
+            "                    }\n"
+            "                    # Add cache tokens if available (for prompt caching support)\n"
+            "                    if (\n"
+            '                        hasattr(chunk.usage, "_cache_creation_input_tokens")\n'
+            "                        and chunk.usage._cache_creation_input_tokens > 0\n"
+            "                    ):\n"
+            '                        usage_dict["cache_creation_input_tokens"] = (\n'
+            "                            chunk.usage._cache_creation_input_tokens\n"
+            "                        )\n"
+            "                    if (\n"
+            '                        hasattr(chunk.usage, "_cache_read_input_tokens")\n'
+            "                        and chunk.usage._cache_read_input_tokens > 0\n"
+            "                    ):\n"
+            '                        usage_dict["cache_read_input_tokens"] = (\n'
+            "                            chunk.usage._cache_read_input_tokens\n"
+            "                        )\n"
+        ),
+        "replacement": (
+            "                    # Add usage to the held chunk\n"
+            "                    uncached_input_tokens = chunk.usage.prompt_tokens or 0\n"
+            "                    cached_tokens = 0\n"
+            "                    if (\n"
+            '                        hasattr(chunk.usage, "prompt_tokens_details")\n'
+            "                        and chunk.usage.prompt_tokens_details\n"
+            "                    ):\n"
+            "                        cached_tokens = (\n"
+            "                            getattr(\n"
+            '                                chunk.usage.prompt_tokens_details, "cached_tokens", 0\n'
+            "                            )\n"
+            "                            or 0\n"
+            "                        )\n"
+            "                        uncached_input_tokens -= cached_tokens\n"
+            "\n"
+            "                    usage_dict: UsageDelta = {\n"
+            '                        "input_tokens": uncached_input_tokens,\n'
+            '                        "output_tokens": chunk.usage.completion_tokens or 0,\n'
+            "                    }\n"
+            "                    # Add cache tokens if available (for prompt caching support)\n"
+            "                    if (\n"
+            '                        hasattr(chunk.usage, "_cache_creation_input_tokens")\n'
+            "                        and chunk.usage._cache_creation_input_tokens > 0\n"
+            "                    ):\n"
+            '                        usage_dict["cache_creation_input_tokens"] = (\n'
+            "                            chunk.usage._cache_creation_input_tokens\n"
+            "                        )\n"
+            "                    if (\n"
+            '                        hasattr(chunk.usage, "_cache_read_input_tokens")\n'
+            "                        and chunk.usage._cache_read_input_tokens > 0\n"
+            "                    ):\n"
+            '                        usage_dict["cache_read_input_tokens"] = (\n'
+            "                            chunk.usage._cache_read_input_tokens\n"
+            "                        )\n"
+            "                    # egg cache patch (streaming cache_read fallback).\n"
+            "                    # OpenAI/OpenRouter-style usage reports the cache hit in\n"
+            "                    # prompt_tokens_details.cached_tokens; Usage.__init__ only\n"
+            "                    # populates _cache_read_input_tokens from Anthropic- or\n"
+            "                    # DeepSeek-native fields. Without this fallback the cached\n"
+            "                    # tokens are subtracted from input_tokens above but never\n"
+            "                    # reported, so Anthropic-format clients (Claude Code\n"
+            "                    # context tracking, the orchestrator token accounting)\n"
+            "                    # undercount the prompt by the cached amount on every\n"
+            "                    # cache hit. Mirrors jwbron/litellm#6 (fixed natively\n"
+            "                    # upstream after v1.86.2).\n"
+            "                    elif cached_tokens > 0:\n"
+            '                        usage_dict["cache_read_input_tokens"] = cached_tokens\n'
+        ),
+        "label": "Patch 6/6 (streaming cache_read fallback)",
     },
 ]
 
