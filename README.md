@@ -246,19 +246,22 @@ cd egg
 # 2. Install k3s with the Cilium CNI (required for NetworkPolicy enforcement)
 make k3s-setup
 
-# 3. Generate host-side config (~/.config/egg/launcher-secret, config.yaml, …)
+# 3. Generate host-side config (secrets, config.yaml, repositories.yaml templates)
 bin/egg-deploy init
 #    then edit ~/.config/egg/secrets.env  (ANTHROPIC_API_KEY or OAuth token,
 #    GitHub PAT, gateway policy) and ~/.config/egg/repositories.yaml
 
-# 4. Build images, import them into k3s, create secrets, and deploy
+# 4. Build images, publish them to the local registry, create secrets, and deploy
 make build
-make k3s-import
+make k3s-push
 make k3s-secrets
 make deploy
 
 # 5. Verify
 kubectl get pods -n egg-system
+
+# 6. Connect your Claude Code session to the orchestrator's MCP server
+claude mcp add --transport http --scope user egg http://localhost:9850/mcp
 ```
 
 Then drive agent work through the MCP server from any MCP-compatible host (e.g. Claude Code):

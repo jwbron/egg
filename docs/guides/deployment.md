@@ -36,17 +36,24 @@ egg runs on Kubernetes using k3s for local development. The orchestrator and gat
 git clone https://github.com/jwbron/egg.git
 cd egg
 
-# Install k3s with Cilium CNI
+# Install k3s with Cilium CNI (also sets up the local image registry)
 make k3s-setup
 
-# Build and import images into k3s
+# Generate host-side config, then edit secrets.env and repositories.yaml
+bin/egg-deploy init
+
+# Build images and publish them to the local registry
 make build
+make k3s-push
 
 # Deploy egg to the cluster
 make deploy
 
 # Verify everything is running
 kubectl get pods -n egg-system
+
+# Connect your Claude Code session to the orchestrator's MCP server
+claude mcp add --transport http --scope user egg http://localhost:9850/mcp
 ```
 
 ### Setup Details
@@ -75,19 +82,26 @@ scripts/install-metrics-server.sh  # deploys the hostNetwork metrics-server addo
 
 #### Image Management
 
-Images are built locally and imported directly into k3s (no remote registry required):
+Images are built locally and published to a loopback-only local registry
+(`localhost:5000`), which k3s's containerd pulls from. Nothing is ever
+published off-host: `make registry-setup` (run automatically by
+`make k3s-setup`) only creates a `127.0.0.1`-bound registry, and the push
+script refuses any non-loopback registry. Both `docker push` and the
+containerd pull are layer-aware, so a code-only rebuild moves tens of MB
+instead of the full multi-GB sandbox image (issue #2999):
 
 ```bash
-# Build all images
+# Build all images (gateway, orchestrator, sandbox, litellm, redis)
 make build
 
-# This runs:
-# docker build -t egg-sandbox:latest sandbox/
-# docker build -t egg-orchestrator:latest orchestrator/
-# docker build -t egg-gateway:latest gateway/
-# docker build -t egg-litellm:latest -f config/litellm/Dockerfile config/litellm  (vendored with cache patches)
-# k3s ctr images import <image-tarballs>
+# Publish them to the local registry + pre-pull into k3s
+make k3s-push
 ```
+
+To run without the registry entirely (e.g. an ephemeral CI host), set
+`EGG_IMAGE_REGISTRY=` (empty); images then publish via `docker save` +
+`k3s ctr images import` (`make k3s-import`), which re-serializes full
+images on every change.
 
 ### Configuration
 
@@ -95,12 +109,12 @@ make build
    ```bash
    bin/egg-deploy init
    ```
-   This creates `~/.config/egg/config.yaml` with system defaults and generates a `launcher-secret`.
-
-   > **Note:** `bin/egg-deploy init` only generates the `launcher-secret`. The `lifecycle-secret` (required for HITL resolve, pipeline CRUD, and phase-control endpoints) must be generated manually — the legacy `egg --setup` wizard that auto-generated it was removed in [#1762](https://github.com/jwbron/egg/issues/1762):
-   > ```bash
-   > openssl rand -hex 32 > ~/.config/egg/lifecycle-secret && chmod 600 ~/.config/egg/lifecycle-secret
-   > ```
+   This is idempotent (existing files are never overwritten) and generates
+   the full `~/.config/egg/` set: `config.yaml` with auto-detected system
+   defaults, the `launcher-secret` and `lifecycle-secret` (the latter is
+   required for HITL resolve, pipeline CRUD, and phase-control endpoints),
+   plus `secrets.env` and `repositories.yaml` seeded from the annotated
+   templates in `config/`.
 
 2. **Set your GitHub token:**
    ```bash
@@ -111,7 +125,7 @@ make build
 
 3. **Review settings** in `~/.config/egg/config.yaml` (host_home, host_uid, host_gid are auto-detected).
 
-4. **Create repositories.yaml:**
+4. **Edit repositories.yaml** (seeded by `bin/egg-deploy init`; the template documents every field):
    ```yaml
    github_username: your-github-username
    bot_username: your-bot-name  # Required for bot operations
@@ -127,8 +141,9 @@ make build
 |---------|-------------|
 | `make k3s-setup` | Install k3s + Cilium CNI (idempotent) |
 | `make deploy` | Deploy all k8s resources via Kustomize + `envsubst` (see [details below](#make-deploy-details)) |
-| `make redeploy` | Rebuild images, import into k3s, and deploy in one step — use this after any commit, pull, rebase, or branch switch |
-| `make build` | Build images and import into k3s |
+| `make redeploy` | Rebuild images, publish, and deploy in one step; use this after any commit, pull, rebase, or branch switch |
+| `make build` | Build images |
+| `make k3s-push` | Publish built images to the local registry (layer-incremental) + pre-pull into k3s |
 | `make litellm-config` | Apply host-side LiteLLM `model_list` from `~/.config/egg/litellm-models.yaml`; no-op if absent |
 | `make routing-policy` | Hot-reload gateway routing policy from `~/.config/egg/routing-policy.yaml` without a pod rollout; no-op if absent |
 | `make k3s-teardown` | Remove k3s installation |
@@ -142,7 +157,7 @@ make build
 
 **Prerequisite:** `envsubst` from GNU gettext (`dnf install gettext` / `brew install gettext`).
 
-**Pre-flight image check:** Before applying any manifests, `make deploy` verifies that the egg images for the current `EGG_IMAGE_TAG` are already in k3s's containerd. If any image is missing — typically because a commit, pull, rebase, or branch switch changed the tag since the last build — `make deploy` aborts immediately with no cluster mutations and directs you to run `make redeploy` instead.
+**Pre-flight image check:** Before applying any manifests, `make deploy` verifies that the egg images for the current `EGG_IMAGE_TAG` are where the cluster will pull them from (the local registry, or k3s's containerd for registry-excluded images). If any image is missing (typically because a commit, pull, rebase, or branch switch changed the tag since the last publish), `make deploy` aborts immediately with no cluster mutations and directs you to run `make redeploy` instead.
 
 `make deploy` also invokes `make litellm-config` automatically at the end, applying any
 host-side LiteLLM backend overlay from `~/.config/egg/litellm-models.yaml` (no-op if the file is absent).
@@ -200,9 +215,29 @@ k3s is Linux-native. On macOS, use one of:
 
 - **[Lima](https://lima-vm.io/)**: `limactl start --name=k3s template://k3s`
 - **[Rancher Desktop](https://rancherdesktop.io/)**: Provides k3s in a managed VM
-- **Docker Desktop with k3s**: Enable Kubernetes in Docker Desktop settings
 
-Once deployed, interact with egg through the MCP server (port 9850) from any MCP-compatible client.
+> **Caveat:** neither path is scripted or tested by this repo today. You
+> will need to plumb file sharing for the hostPath mounts (repos,
+> `~/.egg-worktrees`, `~/.egg-state`) into the VM yourself, and Cilium (or
+> an equivalent NetworkPolicy-enforcing CNI) is still required inside the
+> VM; the `egg-agents` namespace isolation is the security boundary, so
+> do not run with a CNI that ignores NetworkPolicies. First-class macOS
+> support is tracked in [#3155](https://github.com/jwbron/egg/issues/3155).
+
+### Connecting an MCP client
+
+Once deployed, interact with egg through the MCP server, exposed on the host at port 9850 (Streamable HTTP at `/mcp`). From Claude Code:
+
+```bash
+claude mcp add --transport http --scope user egg http://localhost:9850/mcp
+```
+
+Verify with `claude mcp list`; the `mcp__egg__*` tools (`submit_task`, `get_status`, `provide_input`, ...) become available in your session. Optionally symlink the operator skills into your Claude Code skills directory for guided pipeline driving:
+
+```bash
+mkdir -p ~/.claude/skills
+ln -s "$PWD"/skills/* ~/.claude/skills/
+```
 
 ## GitHub Action Deployment
 
