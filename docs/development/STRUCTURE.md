@@ -12,7 +12,7 @@ entries for new files going forward).
 
 ```
 egg/
-├── bin/                    # CLI entry points (egg, egg-deploy, egg-status)
+├── bin/                    # CLI entry points (egg-init, egg-deploy, egg-status)
 ├── config/                 # Central configuration (repos, secrets template)
 ├── docs/                   # Cross-cutting documentation
 ├── gateway/                # Gateway sidecar (trusted container)
@@ -35,7 +35,7 @@ egg/
 
 | Directory | Purpose | Runs In |
 |-----------|---------|---------|
-| `bin/` | CLI entry points (`egg`, `egg-sdlc`) | Host |
+| `bin/` | CLI entry points (`egg-init`, `egg-sdlc`) | Host |
 | `config/` | Repository config, secrets template | Host |
 | `gateway/` | Gateway sidecar: policy enforcement, credential injection, proxying | Gateway container |
 | `integration_tests/` | Integration tests requiring k3s cluster and real pods | CI / local |

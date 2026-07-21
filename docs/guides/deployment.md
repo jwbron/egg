@@ -16,6 +16,12 @@ egg supports two deployment methods depending on your use case:
 > [#1762](https://github.com/jwbron/egg/issues/1762). All deployments
 > now use `bin/egg-deploy` against k3s.
 
+> **New to egg?** `bin/egg-init` chains the steps below (plus preflight
+> checks, credential capture, and host-side Claude Code integration)
+> into a single guided, idempotent command. See the
+> [Onboarding Guide](onboarding.md). This guide covers the individual
+> steps for production deployments or when you want more control.
+
 ### Prerequisites by Platform
 
 | Platform | Runtime | Notes |
