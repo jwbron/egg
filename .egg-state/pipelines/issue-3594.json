@@ -11,7 +11,7 @@
     }
   ],
   "prompt": "[issue-3364] Operator-visibility gaps: forward-progress, event feed, and post-mortem surfaces\n\n## Summary\n\nIssue #3364 laid out a four-PR plan to slim the `/sdlc` skill and harden supervision + long-haul monitoring. **All four PRs have landed**: PR A via #3421/#3233, and PRs B, C, D via #3524 (merged 2026-07-10). See the Correction section below for the per-item evidence.\n\nWhat remains from #3364 is a different body of work: the **operator-visibility backlog** captured in its two comments after the issue-3312-v2 run, which was never broken out into its own tracking issue. That is what this issue tracks.\n\nThe common denominator from that run: **every recovery was cheap once the state was visible; the expensive part was always discovering the state.** Over ~48h the pipeline hit four distinct pathologies and `get_status` reported the same thing for all of them — `running`, all agents `WORKING`, no pending decisions. A coder `WORKING` for six hours looked identical whether it was legitimately grinding a 30.5k-line decomposition, no-oping rc=0 against an empty worktree mount (#3502), committing work that re-attach resets discarded every cycle (#3506), or amnesiacally re-deriving days of completed work (#3509). The only reliable operator signal was a hand-rolled `git rev-list --count base..HEAD` loop against the agent's worktree.\n\n## Verified state (2026-07-24, against `main`)\n\nEvery gap below was re-confirmed absent from the current tree before filing.\n\n### Group 1 — Forward-progress surface\n\nThe single highest-leverage group: item 1.1 alone would have made #3502, #3506, and #3509 visible at a glance.\n\n- **1.1 Per-role forward-progress in `get_status`.** For worktree-bearing roles, expose `{commits_ahead_of_base, last_commit_ts, last_commit_subject}`. The orchestrator already has the worktrees locally; this is one git call per role. *Verified absent*: no such field in the payload built at `orchestrator/routes/pipelines/_routes_status.py:52-110`.\n- **1.2 Progress-regression detection in the overseer.** `commits_ahead` decreasing (or resetting to 0) without a corresponding branch push is never normal — it is either the #3506 discard or an amnesia re-derive. Should raise a visible anomaly, not a log line. *Verified absent*: no such detector among the eight checks in `orchestrator/overseer/monitor/_anomaly_checks.py`.\n- **1.3 \"NACKed but not re-proposing\" watchdog.** In the first slice-1 failure the coder heartbeated `WORKING` for ~37 minutes after two NACKs without ever re-proposing, then the window expired. Time-since-last-NACK-without-producer-response is cheap and high-signal. *Verified absent* from `orchestrator/overseer/monitor/_consensus_stall.py` (which has `_check_post_consensus_stall` / `_check_incomplete_consensus_stall`, neither of which covers this).\n\n### Group 2 — Event / alert feed on the status surface\n\nDestructive and exceptional events currently reach orchestrator logs or an alert *counter* only. An operator polling `get_status` sees none of them.\n\n- **2.1 `recent_events` list in the status payload** (last N warnings/anomalies for the pipeline). The R6 `discarding unpushed local commits` WARNING, convergence-stall anomalies, and exhausted-key transitions were all log-only or counter-only. This one field closes most of the gap cheaply.\n- **2.2 `OVERSEER_ALERT` as a feed, not a counter.** The count climbed 10 to 52 across the run with no way to see contents or severity without pod/bus forensics; genuine infra escalations were indistinguishable from the known false-positive noise (#3341). Needs severity + dedup keys in the payload.\n- **2.3 Surface the stored `pipeline.error` string.** After the reboot boot-race the pipeline was failed with a precise reason (`Failed to create worktrees ... gateway connection refused`) stored on the pipeline record, but `get_status` showed only `status: failed`. *Verified absent*: the payload carries no error field.\n- **2.4 Agent-side worktree health.** The documenter detected `STILL UNMOUNTED` on its 1st through 23rd spawns and escalated high-priority alerts; all of it stayed inside bus messages surfacing as a counter. Exposing a pod-side mount probe result — or simply the last heartbeat *body* per role, which carried the full diagnosis verbatim — would have caught #3502 on spawn one.\n\n### Group 3 — Clocks and per-invocation accounting\n\n- **3.1 Consensus-window countdown.** Nothing surfaces when the current slice's consensus window started or when it expires; both near-misses (slice-2's 90-min wall, slice-4 caught 15 minutes before its 360-min wall) were computed by hand from log timestamps. `get_status` should carry `{consensus_window_started_at, timeout_minutes, expires_at}` per active slice. The live-widening knob (#3494) is only useful if the operator can see the clock.\n- **3.2 Per-invocation outcome summaries.** One-shot cycles that exit rc=0 having done nothing (empty-mount no-ops, gate-check spins) are indistinguishable in every surface from productive cycles. A record of `{role, duration, commits_made, consensus_action_taken, cost_usd}` — the SDK result event already carries most of it — would make no-op loops visible after 2-3 cycles instead of after a 30-minute convergence-stall budget. For non-committing roles, \"cycles without a consensus action\" is the analogous metric. *Coordinate the `cost_usd` portion with #3508.*\n\n### Group 4 — Post-mortem durability\n\n- **4.1 Per-arm termination causes queryable at any time.** `exit_code=75` crash-streaks had no queryable cause until the #3496 escalation embedded recent terminations into a decision at streak-10. *Verified*: the data exists in memory the whole while (`_format_exit_history` / `exit_history_text`, `orchestrator/event_loop/_supervisor.py:548`, `orchestrator/concurrent_executor.py:1387`) but is only ever rendered into log lines and streak-point escalation decisions — never exposed on a route.\n- **4.2 Session-state TTL expiry is silent.** The 6h Redis TTL lapsing overnight is what converted a routine discard into the #3509 amnesia incident. *Verified*: `SESSION_STATE_TTL_SECONDS = 6 * 60 * 60` (`orchestrator/session_state_store.py:54`), refreshed on write, with no event on expiry. \"Role X session state expired while its slice is active\" should be an event; arguably active-pipeline session state should not expire at all (#3509 ask 3).\n- **4.3 Agent invocation logs die with the pod.** Every diagnosis that run raced kubelet GC to capture pod logs, and several were lost. The orchestrator should retain at least the tail of each invocation's log per role (or route the SDK event stream it already receives into a queryable per-invocation archive) so `get_container_logs` works for completed one-shots, not just live pods. *Verified absent*: no retention/archive path in the spawner or MCP log tooling.\n\n## Out of scope — owned elsewhere\n\n| Concern | Owner |\n|---|---|\n| Durable context-measurement surface (#3364 item 8) | #3249 |\n| Token/cost accounting parity for the Anthropic route | #3508 |\n| `cq-N` contract decisions invisible in `pending_decisions` | #3369 |\n| Overseer's own rate-limit crash-respawn loop | #3212 |\n\n## Correction to the original framing\n\nThis issue was originally filed tracking four items carried over from #3364's 2026-07-06 triage comment. **All four were already delivered by #3524** (merged 2026-07-10); the comment was stale by the time it was transcribed. Recorded here so the history is unambiguous:\n\n1. **Skill slimming.** #3524 cut `skills/sdlc/SKILL.md` 1600 to 1486 lines (`+17/-131`). `overseer_owns_host_detection` is grep-clean from source — the only remaining hits are regression tests *asserting its removal* (`orchestrator/tests/test_config_overseer_flag_removed.py`, `orchestrator/tests/test_routes_status.py`). The stall / silent-agent / NACK-escalation / stuck-rescue host *triggers* are deleted. Two blocks remain by design: `Long-Running Phase Detection` fires on phase *duration* rather than an anomaly, so the anomaly-driven overseer has no equivalent emitter — retained by an explicit operator HITL decision during the pipeline (cq-4, documented inline at `skills/sdlc/SKILL.md:621`); and the *Stuck Pipeline Rescue workflow* was kept per PR D's own scope, which removed only its host-side detection trigger.\n2. **`wait-status` flags.** `--exclude-types` and `--quiet` both exist (`skills/sdlc/bin/wait-status:390-402`), with `_parse_exclude_types`, `_line_is_essential`, and `_should_emit_line`; covered by `orchestrator/tests/test_wait_status_flags.py`.\n3. **`slice.closed`.** `EventType.SLICE_CLOSED = \"slice.closed\"` (`orchestrator/events.py:56`), emitted outside the scheduler lock from `record_complete` / `record_failure` via an injected `slice_closed_emitter` (`orchestrator/slice_scheduler.py:378-428`), wired at `orchestrator/routes/pipelines/_run_implement.py:86` and present in `_STATUS_WAIT_EVENT_TYPES`. Tests: `test_run_implement_slice_closed.py`, `test_events.py`.\n4. **Rate-limit classification.** The exclusion of 429 / \"rate limit\" / \"overloaded\" from `EX_AUTH_FATAL` is deliberate and **still correct** — a throttle self-heals, so making it credential-fatal would be a regression. PR C fixed the real problem a different way: a separate `EX_RATE_LIMITED = 69` (`shared/egg_agent/auth_errors.py:53`) returned by the agent CLI (`shared/egg_agent/__main__.py:162`), mapped by the spawner to `JOB_OUTCOME_RATE_LIMITED`, and consumed by `JobSupervisor.record_rate_limited` (`orchestrator/event_loop/_supervisor.py:293`) with windowed paced retry (`rate_limit_backoff_seconds` / `parse_rate_limit_reset_seconds`) plus a deterministic-loop guard. A cap wall no longer feeds the abnormal streak.\n\n## Related\n\n- #3364 (parent issue; PRs A-D all landed)\n- #3524 (PRs B/C/D), #3421 / #3233 (PR A)\n- #3249, #3508, #3369, #3212 (owned elsewhere, see table above)\n- #3502, #3506, #3509, #3537, #3572 (the incidents these surfaces would have caught; all now closed)\n- #3540 (open — an 11h silent wedge, exactly the detection gap Group 1/2 addresses)",
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -93,10 +93,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-07-24T18:34:12.819930Z",
       "work_started_at": "2026-07-24T18:34:13.854961Z",
-      "completed_at": null,
+      "completed_at": "2026-07-24T20:04:16.739646Z",
       "containers": [],
       "agents": [],
       "review_cycles": 0,
@@ -105,12 +105,12 @@
         {
           "cycle": 0,
           "started_at": "2026-07-24T18:34:13.854961Z",
-          "completed_at": null,
+          "completed_at": "2026-07-24T20:04:16.739607Z",
           "commit_sha": "14b22e862079eb8433df90e2ae8ff26e75698fd0"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents=reviewer_refine, simplifier, first_principles_reviewer, reviewer_agent_design, refiner",
       "operator_directives": [],
       "iteration_history": [],
       "phase_start_sha": "14b22e862079eb8433df90e2ae8ff26e75698fd0",
@@ -139,20 +139,20 @@
     }
   ],
   "created_at": "2026-07-24T18:34:06.627997Z",
-  "updated_at": "2026-07-24T20:04:16.689196Z",
+  "updated_at": "2026-07-24T20:04:16.739807Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "pr_head_sha": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents=reviewer_refine, simplifier, first_principles_reviewer, reviewer_agent_design, refiner",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 8,
+  "version": 9,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
