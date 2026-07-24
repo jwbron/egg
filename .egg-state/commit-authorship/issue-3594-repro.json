@@ -1,10 +1,34 @@
 {
   "entries": {
+    "1dafed0b9b268373b4af01f0a8c13f032e41fbbd": {
+      "branch": "egg/issue-3594-repro/work",
+      "patch_id": "eba6605f90afaa17ca7aed761bd4e9df6082c345",
+      "pipeline_id": "issue-3594-repro",
+      "registered_at": "2026-07-24T22:59:26.871605+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
     "97f3772d86853b526c4f025053f0d1b9effc7610": {
       "branch": "egg/issue-3594-repro/work",
       "patch_id": "808f778e93b88c467aca0ff0e8e119b7c51efc7c",
       "pipeline_id": "issue-3594-repro",
       "registered_at": "2026-07-24T22:58:19.514952+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
+    "d81481ac0de9ec9f8ea9ac6338df5c1650ae78f2": {
+      "branch": "egg/issue-3594-repro/work",
+      "patch_id": "53ff5ec39881668d5cbb5f9b4c65a320882264db",
+      "pipeline_id": "issue-3594-repro",
+      "registered_at": "2026-07-24T22:59:26.869237+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
+    "e81f083dc53d932687993eac2b8b7f70a1942db1": {
+      "branch": "egg/issue-3594-repro/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3594-repro",
+      "registered_at": "2026-07-24T22:59:26.865553+00:00",
       "repo": null,
       "role": "refiner"
     }
