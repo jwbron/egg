@@ -1,5 +1,13 @@
 {
   "entries": {
+    "14f6c8f214a125c3ca651a39cb8247eb2b4ea411": {
+      "branch": "egg/issue-3594-repro/work",
+      "patch_id": "98aa007ce3a39a3f31e4b944610316207d4bc4a6",
+      "pipeline_id": "issue-3594-repro",
+      "registered_at": "2026-07-24T23:08:58.043230+00:00",
+      "repo": null,
+      "role": "simplifier"
+    },
     "1dafed0b9b268373b4af01f0a8c13f032e41fbbd": {
       "branch": "egg/issue-3594-repro/work",
       "patch_id": "eba6605f90afaa17ca7aed761bd4e9df6082c345",
