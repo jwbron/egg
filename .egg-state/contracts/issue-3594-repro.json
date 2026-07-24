@@ -48,10 +48,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "Implement all four groups (1-4)",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-24T23:17:34.903130Z",
       "debounce_until": null,
       "redirect_seed": null
     },
@@ -108,29 +108,34 @@
         {
           "id": "opt-1",
           "label": "Yes \u2014 add reasoning_tokens to _usage_components and AgentResult.token_usage",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "No \u2014 reasoning_tokens is already captured by cost_callback.py, no need to duplicate",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-3",
           "label": "Defer \u2014 not in scope for #3594, track as separate issue",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-4",
           "label": "Other (explain in reply)",
-          "description": null
+          "description": null,
+          "adds_task": null
         }
       ],
       "resolved": false,
       "resolution": null,
       "resolved_by": null,
       "resolved_at": null,
-      "debounce_until": null
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
