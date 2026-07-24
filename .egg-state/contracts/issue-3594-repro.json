@@ -64,25 +64,64 @@
         {
           "id": "opt-1",
           "label": "7 \u2192 2 \u2192 3 \u2192 5 \u2192 1 \u2192 6 \u2192 4 (recommended: recording first, then detection, then recovery)",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "2 \u2192 3 \u2192 5 \u2192 7 \u2192 1 \u2192 6 \u2192 4 (detection first, recording later)",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-3",
           "label": "5 \u2192 2 \u2192 3 \u2192 7 \u2192 1 \u2192 6 \u2192 4 (consumption breaker first)",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-4",
           "label": "Custom \u2014 specify in notes",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "cq-3",
+      "question": "cq-3: Should the refiner's token_usage capture be extended to include reasoning_tokens? Currently _usage_components in shared/egg_agent/client.py captures input_tokens, cache_read_input_tokens, cache_creation_input_tokens, and output_tokens \u2014 but NOT reasoning_tokens (which lives at completion_tokens_details.reasoning_tokens). The cost_callback.py already captures reasoning_tokens, but the agent-side AgentResult.token_usage does not. This is relevant to the #3595 reproduction purpose (determining whether thinking/reasoning blocks are persisted across turns).",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 add reasoning_tokens to _usage_components and AgentResult.token_usage",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No \u2014 reasoning_tokens is already captured by cost_callback.py, no need to duplicate",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer \u2014 not in scope for #3594, track as separate issue",
+          "description": null
+        },
+        {
+          "id": "opt-4",
           "label": "Other (explain in reply)",
           "description": null
         }
@@ -190,6 +229,49 @@
         "debounce_until": null
       },
       "reason": "Created HITL decision: cq-2: For incident #3595 remediation, what is the ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-24T22:58:44.927689Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "cq-3: Should the refiner's token_usage capture be extended to include reasoning_tokens? Currently _usage_components in shared/egg_agent/client.py captures input_tokens, cache_read_input_tokens, cache_creation_input_tokens, and output_tokens \u2014 but NOT reasoning_tokens (which lives at completion_tokens_details.reasoning_tokens). The cost_callback.py already captures reasoning_tokens, but the agent-side AgentResult.token_usage does not. This is relevant to the #3595 reproduction purpose (determining whether thinking/reasoning blocks are persisted across turns).",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 add reasoning_tokens to _usage_components and AgentResult.token_usage",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No \u2014 reasoning_tokens is already captured by cost_callback.py, no need to duplicate",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer \u2014 not in scope for #3594, track as separate issue",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: cq-3: Should the refiner's token_usage capture be ...",
       "checkpoint_id": null
     }
   ],
