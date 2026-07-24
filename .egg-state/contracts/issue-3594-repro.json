@@ -10,9 +10,97 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "cq-1: Which groups from issue #3594 (operator-visibility gaps) should the implement phase cover? Group 1 (forward-progress: per-role commits-ahead, progress-regression detection, NACKed-but-not-re-proposing watchdog), Group 2 (event/alert feed: recent_events list, OVERSEER_ALERT as feed, pipeline.error surfacing, worktree health), Group 3 (clocks: consensus-window countdown, per-invocation outcome summaries), Group 4 (post-mortem: per-arm termination causes, session-state TTL expiry event, invocation log retention)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Implement all four groups (1-4)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Groups 1+2 only (highest leverage per #3595)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Groups 1+2+3 (defer post-mortem durability)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Custom \u2014 specify in notes",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-07-24T22:58:38.424523Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "cq-1: Which groups from issue #3594 (operator-visibility gaps) should the implement phase cover? Group 1 (forward-progress: per-role commits-ahead, progress-regression detection, NACKed-but-not-re-proposing watchdog), Group 2 (event/alert feed: recent_events list, OVERSEER_ALERT as feed, pipeline.error surfacing, worktree health), Group 3 (clocks: consensus-window countdown, per-invocation outcome summaries), Group 4 (post-mortem: per-arm termination causes, session-state TTL expiry event, invocation log retention)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Implement all four groups (1-4)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Groups 1+2 only (highest leverage per #3595)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Groups 1+2+3 (defer post-mortem durability)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Custom \u2014 specify in notes",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: cq-1: Which groups from issue #3594 (operator-visi...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
