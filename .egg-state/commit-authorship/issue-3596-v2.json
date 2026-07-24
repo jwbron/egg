@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "6daa4597f3d474e2fd93e393b9e5df311f62b909": {
+      "branch": "egg/issue-3596-v2/work",
+      "patch_id": "ffdd2b17cdc48ac65cd7ae3a9436bac110ea2cac",
+      "pipeline_id": "issue-3596-v2",
+      "registered_at": "2026-07-24T23:40:29.578733+00:00",
+      "repo": null,
+      "role": "refiner"
+    }
+  },
+  "version": 2
+}
