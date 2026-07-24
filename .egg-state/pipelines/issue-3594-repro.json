@@ -11,7 +11,7 @@
     }
   ],
   "prompt": "Reproduction run for #3595 investigation. Same input and model config as the pipeline that livelocked on 2026-07-24 (refiner emitted 119 identical Bash calls, zero proposals, 94 min to consensus timeout).\n\nPurpose: capture the refiner's live session transcript while it is looping, to determine whether thinking/reasoning blocks are persisted across turns. The previous run's refiner transcript was lost because agents only push transcripts on event-pod exit and that refiner never exited.\n\nTask (same as issue #3594): [issue-3364] Operator-visibility gaps: forward-progress, event feed, and post-mortem surfaces.\n\nSee https://github.com/jwbron/egg/issues/3594 for the full body and https://github.com/jwbron/egg/issues/3595 for the incident this reproduces.",
-  "status": "running",
+  "status": "cancelled",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -179,7 +179,7 @@
     }
   ],
   "created_at": "2026-07-24T22:46:47.680321Z",
-  "updated_at": "2026-07-24T23:12:52.968944Z",
+  "updated_at": "2026-07-24T23:21:04.805259Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -192,7 +192,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16,
+  "version": 17,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
