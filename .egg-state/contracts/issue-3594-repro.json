@@ -92,10 +92,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "Custom \u2014 the options are unanswerable as posed, because they were written against a superseded version of #3595. Re-read the live issue body before using this.\n\nTwo of the referenced items no longer exist in that form: \"(1) expressible compaction threshold\" was DELETED (its root cause, a context-length \"fidelity knee\", was falsified by direct experiment), and the issue now has EIGHT work items, including a new one added today. Use the current numbering.\n\nRequired order, current #3595 numbering:\n\n1st \u2014 item 6, record sampling params (extend cost_callback.py to log optional_params). Cheapest item on the list and it gates the credibility of every measurement that follows, including resolving the issue's open question. Nothing else should land first.\n2nd \u2014 item 1, scope peer-liveness and noop-streak decisions to the dependency graph. Fixes two verified root causes with one change; highest leverage for detection.\n3rd \u2014 item 2, detect near-identical loops gated on the objective (absence of BRC progress/commits/artifact writes), not on repetition alone.\n4th \u2014 item 8, add a ground-truth verifier to the review set. Newly added; this pipeline's own first refine cycle is the motivating incident, where five agents unanimously confirmed an analysis of already-merged work.\n5th \u2014 item 4, uncached-token and call-count consumption breaker. Note: denominate in prompt_tokens MINUS cached_tokens, not raw prompt tokens; this route runs ~99.9% cache hits so raw tokens overstate consumption by about two orders of magnitude.\n6th \u2014 item 7, investigate occ=0 vs None on LiteLLM routes.\n7th \u2014 item 5, repetition-triggered context surgery. Largest and least certain; needs a feasibility check on whether rewriting a live Claude Code session history is supported at all before design.\n8th \u2014 item 3, raise severity and cut latency on protracted-phase-no-progress. Small, can ride along with item 2.\n\nRationale for recording first rather than detection first: this investigation was blocked twice by missing instrumentation, once when the failed refiner's transcript was destroyed and once when sampling params proved unrecoverable. Detection fixes are more valuable, but they are not measurable until recording exists.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-24T23:17:54.422716Z",
       "debounce_until": null,
       "redirect_seed": null
     },
