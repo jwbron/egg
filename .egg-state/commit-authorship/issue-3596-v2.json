@@ -1,5 +1,13 @@
 {
   "entries": {
+    "3ce5ee246f4adc1249a0e388bd52b27390071415": {
+      "branch": "egg/issue-3596-v2/work",
+      "patch_id": "53fd908d734dc067a5a6bf283a8f58e2c71ab4f0",
+      "pipeline_id": "issue-3596-v2",
+      "registered_at": "2026-07-24T23:41:47.363511+00:00",
+      "repo": null,
+      "role": "simplifier"
+    },
     "6daa4597f3d474e2fd93e393b9e5df311f62b909": {
       "branch": "egg/issue-3596-v2/work",
       "patch_id": "ffdd2b17cdc48ac65cd7ae3a9436bac110ea2cac",
