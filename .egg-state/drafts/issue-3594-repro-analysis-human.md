@@ -126,6 +126,20 @@ One real decision, in PR C:
 Everything else in the issue is already settled — either by the original
 instructions or as routine planning-and-implementation detail.
 
+## Operator decision already resolved
+
+The one decision raised above (how long to keep waiting when a cap wall
+persists) has been answered by a human reviewer at this phase gate:
+
+- **Retry until the cap lifts (no hard ceiling)** — keep trying across the
+  real throttle window, don't give up at a fixed retry count.
+- **But emit an OVERSEER_ALERT once the wait crosses a threshold** — so that an
+  attended operator is informed while auto-recovery continues.
+
+This means an unattended pipeline won't silently sit paused forever without
+anyone knowing; the alert surfaces the situation to someone who can act,
+while the system keeps trying to recover on its own.
+
 ## A few groundwork notes
 
 - The three PRs are independent and should be planned as three separate units
