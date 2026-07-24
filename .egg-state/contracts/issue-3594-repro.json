@@ -130,10 +130,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "Yes \u2014 add reasoning_tokens to _usage_components and AgentResult.token_usage",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-24T23:18:03.036062Z",
       "debounce_until": null,
       "redirect_seed": null
     }
