@@ -24,6 +24,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "7ef3fd053b159dd8c16ece1c82fbaca4f65ffe93": {
+      "branch": "egg/issue-3594-repro/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3594-repro",
+      "registered_at": "2026-07-24T23:05:48.469684+00:00",
+      "repo": null,
+      "role": "simplifier"
+    },
     "959ac198b0331e466c861a362f19a41339b5a495": {
       "branch": "egg/issue-3594-repro/work",
       "patch_id": "0b7783e6381a3d308fecc8c3572e4c22d294621f",
