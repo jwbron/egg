@@ -20,16 +20,60 @@
         {
           "id": "opt-1",
           "label": "Implement all four groups (1-4)",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "Groups 1+2 only (highest leverage per #3595)",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-3",
           "label": "Groups 1+2+3 (defer post-mortem durability)",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Custom \u2014 specify in notes",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "cq-2",
+      "question": "cq-2: For incident #3595 remediation, what is the priority order for the seven proposed work items? (7) pin/inject/record sampling params, (2) scope peer-liveness and noop-streak to dependency graph, (3) detect near-identical loops, (5) token/call consumption breaker, (1) expressible compaction threshold, (6) context surgery recovery, (4) raise severity/cut latency on protracted-phase-no-progress.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "7 \u2192 2 \u2192 3 \u2192 5 \u2192 1 \u2192 6 \u2192 4 (recommended: recording first, then detection, then recovery)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "2 \u2192 3 \u2192 5 \u2192 7 \u2192 1 \u2192 6 \u2192 4 (detection first, recording later)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "5 \u2192 2 \u2192 3 \u2192 7 \u2192 1 \u2192 6 \u2192 4 (consumption breaker first)",
           "description": null
         },
         {
@@ -98,6 +142,54 @@
         "debounce_until": null
       },
       "reason": "Created HITL decision: cq-1: Which groups from issue #3594 (operator-visi...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-24T22:58:42.286700Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "cq-2: For incident #3595 remediation, what is the priority order for the seven proposed work items? (7) pin/inject/record sampling params, (2) scope peer-liveness and noop-streak to dependency graph, (3) detect near-identical loops, (5) token/call consumption breaker, (1) expressible compaction threshold, (6) context surgery recovery, (4) raise severity/cut latency on protracted-phase-no-progress.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "7 \u2192 2 \u2192 3 \u2192 5 \u2192 1 \u2192 6 \u2192 4 (recommended: recording first, then detection, then recovery)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "2 \u2192 3 \u2192 5 \u2192 7 \u2192 1 \u2192 6 \u2192 4 (detection first, recording later)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "5 \u2192 2 \u2192 3 \u2192 7 \u2192 1 \u2192 6 \u2192 4 (consumption breaker first)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Custom \u2014 specify in notes",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: cq-2: For incident #3595 remediation, what is the ...",
       "checkpoint_id": null
     }
   ],
