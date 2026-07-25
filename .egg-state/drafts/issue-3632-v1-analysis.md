@@ -65,13 +65,29 @@ one recovery path that could have made resume lossless.
 - BUT: `run_epoch` is NOT used to namespace the tracker or message store. It's only used for
   thread-ownership detection (`_pipeline_superseded_by_restart`).
 
-### Fact 3: `start_pipeline` does NOT bump `run_epoch` on CANCELLED recovery
-- `orchestrator/routes/pipelines/_routes_lifecycle.py:762-798` — `start_pipeline` only bumps
-  `run_epoch` on the FAILED recovery path (L796-798). For CANCELLED, it just sets
-  `pipeline.status = RUNNING` at L801 without bumping `run_epoch`.
-- **This is the critical safety finding**: if we stop clearing on CANCELLED (Change 1) without
-  also namespacing by `run_epoch` (Change 2), a CANCELLED pipeline resumed via `start_pipeline`
-  would reuse the old `run_epoch` and inherit the old tracker, reintroducing #2053.
+### Fact 3: STRUCK — `start_pipeline` returns 409 for CANCELLED before reaching the lock block
+- `orchestrator/routes/pipelines/_routes_lifecycle.py:753-757` — `start_pipeline` returns 409
+  "Pipeline is cancelled" for CANCELLED pipelines, **before** the `with get_pipeline_state_lock(...)`
+  block at L759.
+- The `pipeline.status = RUNNING` assignment at L801 is therefore **unreachable** for a cancelled
+  pipeline. The scenario described in the original Fact 3 (a CANCELLED pipeline resumed via
+  `start_pipeline` reusing the old `run_epoch`) **cannot occur**.
+- This is confirmed by the analysis's own Fact 7 ("start_pipeline 409s on CANCELLED"), so the
+  original analysis contradicted itself between two adjacent numbered facts.
+- **The correct safety argument** (binding, from `first_principles_reviewer` via cq-1 resolution):
+  With Change 1 alone, the message stream survives a cancel while remaining keyed by bare
+  `pipeline_id` (`redis_message_store.py:69`, `_stream_key`), and the tracker likewise
+  (`peer_consensus/__init__.py:226`, `_tracker_key`). Resume via `restart_agent`/`restart_phase`
+  deliberately RESETS consensus state — one role's or the whole phase's — and flips the pipeline
+  to RUNNING. If the orchestrator then restarts, `startup_reconciliation`
+  (`startup_reconciliation.py:305`) calls `reconstruct_tracker_from_messages` and replays the
+  retained pre-cancel CONSENSUS_* messages, resurrecting the confirmations the restart had just
+  cleared. The exposed window opens AFTER the resume flips the pipeline to RUNNING, not between
+  CANCELLED and restart_phase (reconstruction skips non-RUNNING pipelines at L305).
+- **This is NOT #2053.** #2053 is a *new* pipeline reusing a terminal pipeline's id; Change 1
+  explicitly keeps clearing on the create path, so #2053 stays closed on its own terms. The hazard
+  above is same-pipeline stale-state replay — a distinct bug. Mislabelling it as #2053 will
+  produce the wrong test.
 
 ### Fact 4: Per-slice trackers are NOT reconstructable from messages
 - `orchestrator/concurrent_executor.py:1935-1934` — reconstruction is gated on
@@ -108,73 +124,104 @@ one recovery path that could have made resume lossless.
 
 ## Proposed Scope
 
-### Adopt: Changes 1 + 2 + 3
+### Adopt: Changes 1 + 2 + 3 (together, in one slice)
 
 1. **Stop clearing runtime state on CANCELLED** — only clear on delete and on create. This makes
    `cancel_task(cleanup=false)` truly lossless for resume via `restart_phase`/`restart_agent`.
 
-2. **Namespace the tracker and message stream by `run_epoch`** — so #2053 is closed by
-   construction. A fresh pipeline reusing an id from a prior terminal run will have a new
-   `run_epoch` and will NOT match the old tracker's epoch. This is the architecturally correct
-   fix — the docstring in `_lifecycle_helpers.py:163` literally says "Without a matching
-   `run_epoch` namespace..."
+2. **Namespace the tracker and message stream by `run_epoch`** — so stale-state replay is
+   impossible by construction. The correct safety argument (NOT #2053): with Change 1 alone, the
+   message stream survives a cancel keyed by bare `pipeline_id`. After resume flips the pipeline
+   to RUNNING, an orchestrator restart triggers `startup_reconciliation`
+   (`startup_reconciliation.py:305`) which calls `reconstruct_tracker_from_messages` and replays
+   the retained pre-cancel CONSENSUS_* messages, resurrecting confirmations the restart had just
+   cleared. Namespacing by `run_epoch` ensures the replayed messages belong to the old epoch and
+   are not matched against the new round's tracker. The docstring in `_lifecycle_helpers.py:163`
+   literally says "Without a matching `run_epoch` namespace..."
 
 3. **Persist BRC history on cancel** — best-effort, before any clearing. Extend #2548 so cancel
-   flushes the in-flight slice's history to the branch first.
+   flushes the in-flight slice's history to the branch first. Per cq-3's resolution, this must
+   write the per-slice CONSENSUS_* buckets (not just the unattributed sibling that
+   `_persist_phase_brc_history` with `write_per_slice=False` writes), or it will reproduce
+   exactly the gap that made the last incident's in-flight slice unrecoverable (Fact 5).
+
+**Changes 1 and 2 ship together, in one slice** — per cq-3's resolution, landing 1 alone is
+strictly worse than today's behaviour. Change 3 is independent and may land first.
 
 ### Defer: Change 4 (per-slice tracker reconstruction on resume)
 
 Highest complexity, not required for the core fix. The namespacing (Change 2) already makes
 resume lossless for the consensus round; per-slice tracker reconstruction is a nice-to-have for
-full Redis-loss recovery but not required for the core fix.
+full Redis-loss recovery. Per cq-3's resolution, the #2535 rationale (a fresh slice must not
+inherit a same-named role's confirm) addresses NEW slices, not resumed ones — so the deferral is
+a scope call, not a correctness one, and should be revisited.
+
+### Out of scope: #3633
+
+#3633 (cancel never stops the driver thread or event loop) is a distinct fix in a different code
+path. Per cq-3's resolution, it stays tracked separately and is not bundled into this pipeline.
 
 ## Test Impact
 
-The #2053 regression test at `test_pipelines_api.py:1069` (`test_cancel_clears_runtime_state`)
-explicitly asserts `_clear_pipeline_runtime_state` IS called on cancel. This test must be updated
-to assert that cancel does NOT clear (only delete and create do).
+Per cq-2's resolution, three test changes are required:
 
-## Open Questions (HITL decisions registered on contract)
+1. **Rewrite `test_cancel_clears_runtime_state`** (`test_pipelines_api.py:1083-1112`) to assert
+   that cancel does NOT clear runtime state. Rename it (e.g. `test_cancel_preserves_runtime_state`)
+   — a test called `test_cancel_clears_runtime_state` that asserts the opposite is a trap for the
+   next reader.
+
+2. **Pin the CREATE path explicitly** — `test_create_clears_runtime_state` must assert that create
+   still clears. Change 1's entire safety argument for #2053 rests on create still clearing, so
+   this assertion is now load-bearing rather than incidental.
+
+3. **Add a NEW regression test** for the hazard described in cq-1's resolution: cancel → resume
+   (`restart_agent` or `restart_phase`) → simulated orchestrator restart → assert the pre-cancel
+   consensus state is NOT resurrected by `reconstruct_tracker_from_messages`. This is the
+   regression that Change 2 exists to prevent, and without it Change 2 is untested. The existing
+   `TestPipelineRuntimeStateClear` tests do not cover this path.
+
+## Open Questions (HITL decisions registered on contract) — RESOLVED
 
 ### cq-1: Should the refiner raise a HITL decision on the critical safety finding that start_pipeline does NOT bump run_epoch on CANCELLED recovery (only on FAILED), meaning Change 1 alone would reintroduce #2053?
 
-**Options:**
-- opt-1: Yes — raise as HITL decision, require operator sign-off before implementing Change 1 without Change 2
-- opt-2: No — document in proposal, let implementer handle
-- opt-3: Defer to plan phase
+**Resolution (binding, 2026-07-25):** No — do not raise a further HITL gate. The premise of this
+question is **void**: `start_pipeline` returns 409 for CANCELLED at `_routes_lifecycle.py:753-757`,
+before the lock block at L759, so the L801 assignment is unreachable and the scenario cannot
+occur. The refiner's own Fact 7 states this, so the original analysis contradicted itself.
 
-**Refiner position:** The refiner has documented this finding in the analysis draft (see Fact 3
-above) and in the proposal's risk_considered field. The finding is a hard safety constraint:
-Change 1 (stop clearing on CANCELLED) is only safe when paired with Change 2 (run_epoch
-namespacing). This is not a question of preference — it's a correctness requirement. The refiner
-recommends **opt-1**: raise this as a HITL decision so the operator explicitly acknowledges the
-interdependency before implementation proceeds.
+**The conclusion survives for a different and better reason** (from `first_principles_reviewer`):
+With Change 1 alone, the message stream survives a cancel keyed by bare `pipeline_id`. Resume via
+`restart_agent`/`restart_phase` resets consensus and flips the pipeline to RUNNING. If the
+orchestrator then restarts, `startup_reconciliation` (`startup_reconciliation.py:305`) calls
+`reconstruct_tracker_from_messages` and replays the retained pre-cancel CONSENSUS_* messages,
+resurrecting confirmations the restart had just cleared. The window opens AFTER resume flips to
+RUNNING, not between CANCELLED and restart_phase.
+
+**This is NOT #2053** — it is same-pipeline stale-state replay, a distinct bug. The regression
+test must exercise cancel → resume → orchestrator restart → assert consensus is NOT resurrected.
 
 ### cq-2: Should the #2053 regression test (test_pipelines_api.py:1069, test_cancel_clears_runtime_state) be updated to reflect that cancel no longer clears runtime state (only delete and create do)?
 
-**Options:**
-- opt-1: Yes — update test to assert cancel does NOT clear, only delete+create do
-- opt-2: Keep test as-is, add new test for cancel-not-clearing
-- opt-3: Defer test changes to implement phase
+**Resolution (binding, 2026-07-25):** Yes — update `test_cancel_clears_runtime_state` to assert
+that cancel does NOT clear, and keep `test_delete_clears_runtime_state` /
+`test_create_clears_runtime_state` asserting that delete and create still do. Rename the test
+(e.g. `test_cancel_preserves_runtime_state`). Two additions required: (1) pin the CREATE path
+explicitly — Change 1's safety argument for #2053 rests on create still clearing; (2) add a NEW
+test for cancel → resume → orchestrator restart → assert consensus is NOT resurrected.
 
-**Refiner position:** The test at `test_pipelines_api.py:1083-1112` explicitly asserts
-`_clear_pipeline_runtime_state` IS called on cancel. If Change 1 is adopted, this test must be
-updated — it currently encodes the exact behavior we are changing. The refiner recommends
-**opt-1**: update the test to assert cancel does NOT clear, and keep the delete/create tests
-as-is.
+### cq-3: Should the refiner adopt Changes 1+2+3 from issue #3632 and defer Change 4?
 
-### cq-3: Should the refiner adopt Changes 1+2+3 from issue #3632 (stop clearing runtime state on CANCELLED, namespace tracker+message stream by run_epoch, persist BRC history on cancel) and defer Change 4 (per-slice tracker reconstruction on resume)?
+**Resolution (binding, 2026-07-25):** Yes — adopt Changes 1+2+3, defer Change 4. Four constraints:
+1. Changes 1 and 2 ship together in one slice — landing 1 alone is strictly worse than today.
+2. Change 3 is independent and may land first — it makes the next incident diagnosable regardless
+   of the other two.
+3. Change 4 is deferred, not dropped — the #2535 rationale addresses new slices, not resumed ones.
+4. #3633 is out of scope for this pipeline — it is a distinct fix in a different code path.
 
-**Options:**
-- opt-1: Yes adopt Changes 1+2+3 defer Change 4
-- opt-2: Adopt only Change 1 minimal fix
-- opt-3: Adopt all four changes full fix
-- opt-4: Adopt Changes 1+2+3+4 but reorder
-
-**Refiner position:** The refiner recommends **opt-1**. Changes 1+2 are interdependent for
-safety (Change 1 alone reintroduces #2053). Change 3 is cheap insurance. Change 4 is the most
-complex and least urgent — per-slice tracker reconstruction is a nice-to-have for full Redis-loss
-recovery but not required for the core lossless-resume fix.
+Additionally: the analysis's Fact 5 (that `restart_phase` calls `_persist_phase_brc_history` with
+`write_per_slice=False`, so per-slice CONSENSUS_* buckets are never written) is a genuine finding.
+Change 3 must write the per-slice buckets, or it will reproduce the gap that made the last incident's
+in-flight slice unrecoverable.
 
 ## Ergonomics Observations (documented, not blocking)
 
