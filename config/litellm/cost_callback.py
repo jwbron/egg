@@ -43,6 +43,17 @@ strictly separate from ``cost`` — an estimate from a possibly-stale rate
 card must never be mistaken for a bill — and follows the same null-not-zero
 rule when LiteLLM cannot price the model.
 
+Each line also carries ``request_params``: the decoding configuration that
+actually went upstream on that call (issue #3599). Repetition and
+degeneration are decoding-sensitive failure modes, so an incident report
+that cannot name the temperature / top_p / penalty configuration in play is
+unanalysable after the fact — which is precisely what happened in #3598,
+where a producer emitted 480 identical tool calls and nothing recorded
+whether that was inherent to the model or an artifact of the sampling
+config. See ``_extract_request_params`` for the source and its two
+non-obvious properties (absent key == provider default; post-``drop_params``,
+so config-vs-wire divergence becomes visible).
+
 Each line additionally carries ``pipeline_id`` / ``agent_role`` / ``phase``
 read from the gateway-stamped ``x-egg-*`` request headers (issue #3175),
 so per-role spend is a log query instead of a hand cross-reference against
@@ -297,6 +308,137 @@ def _extract_model(mcd):
         return None
 
 
+# Decoding-relevant request parameters to record per call (#3599).
+#
+# An ALLOWLIST, not a dump of ``optional_params``: that dict also carries the
+# translated ``tools`` schemas (Claude Code sends a dozen-plus per request)
+# and other prompt-adjacent payloads. Emitting it whole would bloat every
+# line by orders of magnitude and spill task text into a stream that is a
+# cost/observability sink, not a transcript sink.
+#
+# ``stream`` is included because it is the reason ``cost`` reads null on a
+# line (see the module docstring) — worth having next to the null rather than
+# inferred. ``max_tokens`` and ``n`` are not sampling knobs but shape the
+# generation, and are cheap to carry.
+_REQUEST_PARAM_KEYS = (
+    "temperature",
+    "top_p",
+    "top_k",
+    "min_p",
+    "typical_p",
+    "seed",
+    "frequency_penalty",
+    "presence_penalty",
+    "repetition_penalty",
+    "logit_bias",
+    "max_tokens",
+    "max_completion_tokens",
+    "stop",
+    "stop_sequences",
+    "n",
+    "reasoning_effort",
+    "reasoning",
+    "thinking",
+    "stream",
+)
+
+# Per-value size cap. Everything on the allowlist is normally a scalar or a
+# small object, but ``logit_bias`` / ``stop`` are client-supplied and
+# unbounded; one pathological request must not be able to blow up every log
+# line for the rest of the session.
+_MAX_PARAM_JSON_CHARS = 512
+
+
+def _bounded_param(value):
+    """Return ``value`` clamped to something safe to embed in the log line.
+
+    Two hazards, both of which would cost us the WHOLE line rather than just
+    this field (``_emit`` swallows a serialization failure):
+    non-JSON-serializable values, and unbounded ones. Scalars pass through;
+    everything else is round-tripped through JSON — with ``default=str`` so an
+    exotic value degrades to its repr instead of raising — and replaced by a
+    size marker when it exceeds the cap."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value if len(value) <= _MAX_PARAM_JSON_CHARS else f"<{len(value)} chars omitted>"
+    try:
+        encoded = json.dumps(value, default=str)
+    except Exception:
+        return "<unserializable>"
+    if len(encoded) > _MAX_PARAM_JSON_CHARS:
+        return f"<{len(encoded)} chars omitted>"
+    try:
+        return json.loads(encoded)
+    except Exception:
+        return "<unserializable>"
+
+
+def _extract_request_params(mcd):
+    """Return the decoding configuration this call actually ran under (#3599).
+
+    Source is ``model_call_details['optional_params']``: LiteLLM's
+    POST-mapping parameter set, i.e. the dict that becomes the upstream
+    request body. Verified against the pinned litellm 1.86.2 on the
+    ``anthropic_messages`` route (the route every Claude Code agent request
+    takes), streaming and non-streaming — the streaming case matters most,
+    since that is essentially all real agent traffic.
+
+    Two properties make this worth having, and both are the difference
+    between a line that answers the question and one that misleads:
+
+    - **An absent key was not sent**, so the provider's own server-side
+      default applied. That is the answer today for ``temperature`` /
+      ``top_p`` / ``top_k`` on every egg route: egg pins none of them, so the
+      effective config is the provider's, and it can change under us with no
+      egg change. Absence is the signal, so we omit missing keys rather than
+      writing nulls that would read as "explicitly unset".
+    - **``drop_params`` has already acted**, so a knob an operator set in
+      ``litellm_params`` that does NOT appear here was silently discarded (or
+      relocated into ``extra_body``) by the mapping layer. Today that
+      divergence between what the config says and what the wire carried is
+      invisible; here it is a diff.
+
+    We deliberately do NOT read ``standard_logging_object.model_parameters``:
+    it filters to OpenAI's declared parameter set, which drops ``top_k``,
+    ``stop_sequences`` and ``extra_body`` — silently under-reporting several
+    of the anti-repetition knobs this exists to capture.
+
+    Returns a dict holding only the keys that were present (possibly empty:
+    "LiteLLM reported the params, none were decoding-relevant"), or None when
+    ``optional_params`` is missing or not a dict ("we could not tell") — the
+    same unknown-is-not-zero discipline the cost fields follow."""
+    try:
+        params = (mcd or {}).get("optional_params")
+        if not isinstance(params, dict):
+            return None
+        out = {}
+        for key in _REQUEST_PARAM_KEYS:
+            if key in params:
+                out[key] = _bounded_param(params[key])
+        extra = params.get("extra_body")
+        if isinstance(extra, dict):
+            leftover = {}
+            for key, value in extra.items():
+                # LiteLLM's param mapper relocates knobs a provider doesn't
+                # declare into extra_body rather than dropping them (e.g.
+                # top_k on an OpenAI-shaped route), so the same knob lands at
+                # different depths depending on model. Hoist allowlisted keys
+                # to the flat level so one query finds them wherever LiteLLM
+                # put them; keep the rest under extra_body — notably the
+                # OpenRouter provider pin, which decides WHICH backend (and
+                # so which quantization) served the turn.
+                if key in _REQUEST_PARAM_KEYS and key not in out:
+                    out[key] = _bounded_param(value)
+                else:
+                    leftover[key] = value
+            if leftover:
+                out["extra_body"] = _bounded_param(leftover)
+        return out
+    except Exception:
+        return None
+
+
 def _emit(payload):
     """One structured JSON line to stdout — captured by egg's log stream.
     Mirrors egg_logging's field shape loosely (timestamp/severity/service/
@@ -349,6 +491,7 @@ class LiteLLMCostLogger(CustomLogger):
             sid = _extract_session_id(mcd) or "_no_session"
             model = _extract_model(mcd)
             attribution = _extract_attribution(mcd)
+            request_params = _extract_request_params(mcd)
             with _lock:
                 agg = _session_totals.get(sid)
                 if agg is None:
@@ -419,6 +562,14 @@ class LiteLLMCostLogger(CustomLogger):
                     # hop. Session-stable, but emitted per line so every log
                     # line is independently queryable by role/pipeline.
                     **attribution,
+                    # The decoding config this call actually ran under
+                    # (#3599). Top-level, not nested under ``call``, so an
+                    # incident query can filter on it the same way it filters
+                    # on model/role. Per line rather than once per session
+                    # because it is NOT session-stable: LiteLLM rewrites
+                    # ``thinking`` into a ``reasoning_effort`` bucket, so the
+                    # effective effort tracks the per-turn thinking budget.
+                    "request_params": request_params,
                     "call": {
                         "cost": cost,
                         "cost_estimated": cost_estimated,

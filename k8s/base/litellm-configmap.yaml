@@ -60,8 +60,10 @@ data:
     # request time and the provider returns silent 401s.
     model_list: []
 
-    # Custom logger: surfaces real upstream cost + prompt-cache stats for
-    # non-Claude routes into the pod log stream. Baked into the egg-litellm
+    # Custom logger: surfaces real upstream cost, prompt-cache stats, and the
+    # per-call decoding config (``request_params`` — sampling params as they
+    # actually went upstream, #3599) for non-Claude routes into the pod log
+    # stream. Baked into the egg-litellm
     # image at /app/cost_callback.py — LiteLLM resolves a config-registered
     # callback as a file next to ``--config`` (here /app/config.yaml), so the
     # name MUST match. LiteLLM resolves it at STARTUP, not at call time: an

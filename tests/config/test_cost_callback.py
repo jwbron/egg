@@ -81,12 +81,33 @@ def _nonstreaming_usage() -> dict:
     }
 
 
+def _streaming_optional_params() -> dict:
+    """``model_call_details['optional_params']`` as litellm 1.86.2 populates it
+    on a streamed ``anthropic_messages`` call to an OpenRouter backend — the
+    route and mode of all real Claude Code agent traffic.
+
+    Captured from a live litellm 1.86.2 run (HTTP mocked at the transport
+    layer, not via ``mock_response``: that short-circuits in
+    ``anthropic_messages_handler`` before the adapter path runs and leaves
+    ``optional_params`` empty, which would make this fixture a lie). Note what
+    is NOT here: no ``temperature``, no ``top_p``, no ``top_k``, no penalty —
+    egg pins none of them, so the provider's server-side defaults applied.
+    That absence is the finding #3599 exists to make visible."""
+    return {
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "max_tokens": 32000,
+        "extra_body": {"provider": {"order": ["Alibaba"], "allow_fallbacks": False}},
+    }
+
+
 def _mcd(
     session_id: str,
     *,
     raw_usage: dict | None = None,
     extra_headers: dict | None = None,
     response_cost: float | None = None,
+    optional_params: dict | None = None,
 ) -> dict:
     """Build a ``model_call_details`` dict the callback understands."""
     headers = {"x-claude-code-session-id": session_id, **(extra_headers or {})}
@@ -98,6 +119,8 @@ def _mcd(
         mcd["original_response"] = json.dumps({"usage": raw_usage})
     if response_cost is not None:
         mcd["response_cost"] = response_cost
+    if optional_params is not None:
+        mcd["optional_params"] = optional_params
     return mcd
 
 
@@ -290,3 +313,168 @@ class TestAttribution:
             types.SimpleNamespace(usage=_streaming_usage()),
         )
         assert emitted[0]["agent_role"] == "coder"
+
+
+class TestExtractRequestParams:
+    """The decoding config a call ran under, read from LiteLLM's post-mapping
+    ``optional_params`` (#3599). Absence of a key is the load-bearing signal:
+    it means the parameter was never sent and the provider's own default
+    applied."""
+
+    def test_streaming_agent_call_shape(self):
+        params = cc._extract_request_params(_mcd("r", optional_params=_streaming_optional_params()))
+        assert params["stream"] is True
+        assert params["max_tokens"] == 32000
+        # Nothing egg pins => the sampling knobs are simply absent, and the
+        # provider default was in force. Never emit them as null: that would
+        # read as "explicitly unset" rather than "never sent".
+        for key in ("temperature", "top_p", "top_k", "frequency_penalty"):
+            assert key not in params
+
+    def test_explicit_sampling_params_are_recorded(self):
+        params = cc._extract_request_params(
+            _mcd(
+                "r",
+                optional_params={
+                    "temperature": 0.3,
+                    "top_p": 0.9,
+                    "top_k": 40,
+                    "seed": 42,
+                    "frequency_penalty": 0.2,
+                    "presence_penalty": 0.1,
+                    "repetition_penalty": 1.05,
+                    "reasoning_effort": "high",
+                },
+            )
+        )
+        assert params["temperature"] == 0.3
+        assert params["top_p"] == 0.9
+        assert params["top_k"] == 40
+        assert params["seed"] == 42
+        assert params["frequency_penalty"] == 0.2
+        assert params["presence_penalty"] == 0.1
+        assert params["repetition_penalty"] == 1.05
+        assert params["reasoning_effort"] == "high"
+
+    def test_prompt_bearing_params_are_excluded(self):
+        # optional_params also carries the translated tool schemas (Claude Code
+        # sends a dozen-plus per request). Dumping it whole would bloat every
+        # line and spill task text into a cost stream. The allowlist is the
+        # guard; this pins it.
+        params = cc._extract_request_params(
+            _mcd(
+                "r",
+                optional_params={
+                    "temperature": 0.3,
+                    "tools": [{"name": "Bash", "input_schema": {"x": "y" * 5000}}],
+                    "tool_choice": "auto",
+                    "messages": [{"role": "user", "content": "secret task text"}],
+                    "user": "someone",
+                },
+            )
+        )
+        assert params == {"temperature": 0.3}
+
+    def test_extra_body_hoists_known_knobs_and_keeps_the_provider_pin(self):
+        # LiteLLM relocates knobs a provider doesn't declare into extra_body
+        # rather than dropping them, so the same knob lands at different
+        # depths per model. Hoisting keeps one query surface; the provider pin
+        # (which backend, so which quantization, served the turn) is kept.
+        params = cc._extract_request_params(
+            _mcd(
+                "r",
+                optional_params={
+                    "temperature": 0.4,
+                    "extra_body": {
+                        "top_k": 40,
+                        "reasoning": {"effort": "high"},
+                        "provider": {"order": ["Alibaba"], "allow_fallbacks": False},
+                    },
+                },
+            )
+        )
+        assert params["temperature"] == 0.4
+        assert params["top_k"] == 40
+        assert params["reasoning"] == {"effort": "high"}
+        assert params["extra_body"] == {
+            "provider": {"order": ["Alibaba"], "allow_fallbacks": False}
+        }
+
+    def test_top_level_wins_over_extra_body_duplicate(self):
+        params = cc._extract_request_params(
+            _mcd("r", optional_params={"top_k": 10, "extra_body": {"top_k": 40}})
+        )
+        assert params["top_k"] == 10
+        # The losing copy is preserved rather than silently dropped, so a
+        # genuine divergence is still visible in the line.
+        assert params["extra_body"] == {"top_k": 40}
+
+    def test_extra_body_omitted_when_fully_hoisted(self):
+        params = cc._extract_request_params(
+            _mcd("r", optional_params={"extra_body": {"top_k": 40}})
+        )
+        assert params == {"top_k": 40}
+
+    def test_missing_or_malformed_optional_params_reads_as_unknown(self):
+        # None means "we could not tell", distinct from {} ("reported, nothing
+        # decoding-relevant") — the same unknown-is-not-zero discipline the
+        # cost fields follow.
+        assert cc._extract_request_params({}) is None
+        assert cc._extract_request_params({"optional_params": "nope"}) is None
+        assert cc._extract_request_params(None) is None
+        assert cc._extract_request_params({"optional_params": {}}) == {}
+
+
+class TestBoundedParam:
+    """``logit_bias`` / ``stop`` are client-supplied and unbounded, and a
+    serialization failure inside ``_emit`` costs the entire line, not just the
+    field. Both hazards are clamped here."""
+
+    def test_scalars_pass_through(self):
+        assert cc._bounded_param(0.3) == 0.3
+        assert cc._bounded_param(True) is True
+        assert cc._bounded_param(None) is None
+        assert cc._bounded_param("high") == "high"
+
+    def test_oversized_values_become_size_markers(self):
+        assert "chars omitted" in cc._bounded_param("x" * 5000)
+        assert "chars omitted" in cc._bounded_param({str(i): i for i in range(500)})
+
+    def test_unserializable_values_degrade_to_repr_not_raise(self):
+        # A pydantic/enum-ish value must not take the log line down with it.
+        value = {"effort": types.SimpleNamespace(name="high")}
+        assert json.dumps(cc._bounded_param(value))
+
+
+class TestRequestParamsInPayload:
+    def setup_method(self):
+        cc._session_totals.clear()
+
+    def _capture(self, monkeypatch) -> list[dict]:
+        emitted: list[dict] = []
+        monkeypatch.setattr(cc, "_emit", lambda payload: emitted.append(payload))
+        return emitted
+
+    def test_emitted_line_carries_request_params(self, monkeypatch):
+        emitted = self._capture(monkeypatch)
+        cc.LiteLLMCostLogger()._record(
+            _mcd("p1", optional_params=_streaming_optional_params()),
+            types.SimpleNamespace(usage=_streaming_usage()),
+        )
+        payload = emitted[0]
+        assert payload["request_params"]["max_tokens"] == 32000
+        assert payload["request_params"]["extra_body"] == {
+            "provider": {"order": ["Alibaba"], "allow_fallbacks": False}
+        }
+        # The whole line must stay serializable — _emit swallows failures, so
+        # an unserializable param field would silently drop cost data too.
+        assert json.dumps(payload)
+
+    def test_absent_optional_params_does_not_suppress_the_line(self, monkeypatch):
+        # Cost/cache visibility must not regress on a LiteLLM shape that
+        # carries no optional_params.
+        emitted = self._capture(monkeypatch)
+        cc.LiteLLMCostLogger()._record(_mcd("p2"), types.SimpleNamespace(usage=_streaming_usage()))
+        payload = emitted[0]
+        assert payload["request_params"] is None
+        assert payload["call"]["cached_tokens"] == 600
