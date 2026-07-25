@@ -535,7 +535,7 @@
           "id": "task-5-2",
           "description": "Test for sampling params logging in cost_callback.",
           "status": "pending",
-          "commit": null,
+          "commit": "4a02ece9b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Test verifies cost_callback output includes optional_params field\n- Test verifies per-model temperature/top_p pinned in litellm_settings.yaml\n- Test verifies backward-compatible log format",
@@ -1337,6 +1337,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-4-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T06:47:10.550205Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.4.tasks.1.commit",
+      "old_value": null,
+      "new_value": "4a02ece9b",
+      "reason": "Linked commit 4a02ece to task-5-2",
       "checkpoint_id": null
     }
   ],
