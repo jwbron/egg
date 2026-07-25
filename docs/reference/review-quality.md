@@ -16,7 +16,10 @@ rather than a bespoke one.
 ## Staged rollout convention (`off → log → on`)
 
 Every behavior-shifting piece below ships behind the established staged-flag
-convention (the same shape as `orchestrator/slice_green_gate.py`):
+convention (originally mirrored in `orchestrator/slice_green_gate.py`, which has
+since diverged — that gate now defaults to `on` and degrades an unknown value to
+`on` with a warning, since over-verifying is its safe direction. The flags below
+keep the off-default shape, since under-reviewing is never safe for them):
 
 - **`off`** (default) — inert. Behavior is byte-identical to the pre-#3523 pipeline.
   Unknown / mistyped flag values resolve to `off` (fail-safe): an operator typo
