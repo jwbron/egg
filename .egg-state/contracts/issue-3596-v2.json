@@ -276,7 +276,7 @@
         {
           "id": "task-1-13",
           "description": "Correct health_checks/README.md:88. The README documents\n_run_overseer_detection_plane as the thing that \"builds the snapshot,\nevaluates\" \u2014 implying it's wired in production. Correct this line to\nreflect that the detection plane is NOT currently wired into the\nruntime tick, and that task-1a adds that wiring.",
-          "status": "pending",
+          "status": "complete",
           "commit": "840906f8f",
           "checkpoint_id": null,
           "notes": "",
@@ -882,6 +882,17 @@
       "old_value": null,
       "new_value": "840906f8f",
       "reason": "Linked commit 840906f to task-1-13",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T04:57:51.552141Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.12.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-13 as complete",
       "checkpoint_id": null
     }
   ],
