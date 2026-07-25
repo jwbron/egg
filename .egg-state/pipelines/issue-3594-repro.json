@@ -11,7 +11,7 @@
     }
   ],
   "prompt": "Reproduction run for #3595 investigation. Same input and model config as the pipeline that livelocked on 2026-07-24 (refiner emitted 119 identical Bash calls, zero proposals, 94 min to consensus timeout).\n\nPurpose: capture the refiner's live session transcript while it is looping, to determine whether thinking/reasoning blocks are persisted across turns. The previous run's refiner transcript was lost because agents only push transcripts on event-pod exit and that refiner never exited.\n\nTask (same as issue #3594): [issue-3364] Operator-visibility gaps: forward-progress, event feed, and post-mortem surfaces.\n\nSee https://github.com/jwbron/egg/issues/3594 for the full body and https://github.com/jwbron/egg/issues/3595 for the incident this reproduces.",
-  "status": "cancelled",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -93,10 +93,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-07-24T22:46:53.933924Z",
       "work_started_at": "2026-07-24T23:12:52.932795Z",
-      "completed_at": null,
+      "completed_at": "2026-07-25T00:42:57.747673Z",
       "containers": [],
       "agents": [],
       "review_cycles": 0,
@@ -111,12 +111,12 @@
         {
           "cycle": 0,
           "started_at": "2026-07-24T23:12:52.932795Z",
-          "completed_at": null,
+          "completed_at": "2026-07-25T00:42:57.747635Z",
           "commit_sha": "19659e2229e8c9c1e336e0bfc5ca6823b090a934"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents=unknown",
       "operator_directives": [
         {
           "iteration_n": 0,
@@ -197,20 +197,20 @@
     }
   ],
   "created_at": "2026-07-24T22:46:47.680321Z",
-  "updated_at": "2026-07-25T00:42:57.706960Z",
+  "updated_at": "2026-07-25T00:42:57.747834Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "pr_head_sha": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents=unknown",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 18,
+  "version": 19,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
