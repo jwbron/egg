@@ -60,6 +60,16 @@ POD_STARTUP_GRACE_SECONDS = 60
 # many call sites fire.
 DETECTION_PLANE_MIN_INTERVAL_SECONDS = 10.0
 
+# Minimum spacing between OVERSEER adjudicator spawns for the same
+# ``(pipeline, finding_class, target)`` triple. The conditions that set
+# ``requires_adjudication`` — stalls, restart loops, branch divergence — are
+# *persistent* by nature: they stay true across many ticks. Without this the
+# tick guard above bounds spawns to one per pipeline per 10s, which for a
+# single day-long stall is ~8600 agents. Fifteen minutes is well inside the
+# window an operator would notice a genuine wedge in, and it is per-triple, so
+# a different finding class or a different agent still escalates immediately.
+ADJUDICATION_COOLDOWN_SECONDS = 900.0
+
 # Kubernetes state vocabulary the detection plane's container-lifecycle
 # detectors match on (``health_checks/tier1/container_k8s.py``). The
 # orchestrator's own ``ContainerStatus`` enum uses different names, so
@@ -91,13 +101,17 @@ _OOM_EXIT_CODE = 137
 # plane's bias is silence over false positives, and an automatic respawn on a
 # shaky signal is the most expensive false positive available.
 #
-# The three entries and why they are safe:
+# The two entries that can fire today, and why they are safe:
 #   container_death       — a dead agent container is unambiguous and the cohort
 #                           respawn is the existing recovery for it.
-#   heartbeat_stall       — nudging a live-but-quiet agent is cheap and
-#                           idempotent; it cannot destroy work.
 #   container_oom_evicted — respawning would just OOM again on the same limits,
 #                           so this escalates to a human instead.
+# heartbeat_stall is staged, not live: nudging a live-but-quiet agent is cheap
+# and idempotent so the mapping is the right one, but ``detect_heartbeat_stall``
+# (``tier1/consensus_stall.py``) is not among ``DetectionPlane.default()``'s
+# registered detectors, so the plane never produces the class. The row is kept
+# so that registering the detector is a one-line change that routes correctly
+# rather than one that silently lands in the emit-only default.
 # overseer_self_injection is intentionally absent: its own recommended_action
 # says not to respawn blindly, and there is no safe automatic alternative.
 ROUTINE_CORRECTIVE_ACTIONS: dict[str, str] = {
@@ -202,6 +216,13 @@ class KubernetesMonitor:
         # Shares _detection_plane_lock — both are detection-plane tick state and
         # neither critical section does real work.
         self._corrective_executors: dict[str, Any] = {}
+        # Adjudication cooldown: (pipeline_id, finding_class, target) -> the
+        # monotonic timestamp of the last adjudicator spawn for that triple.
+        # The routine path is deduplicated by the executor's idempotency set,
+        # but ``_escalate_finding_to_adjudicator`` has no such gate — so a
+        # persistent condition (a stall, a restart loop) would spawn an OVERSEER
+        # agent on every tick for as long as it lasts.
+        self._adjudication_last_spawn: dict[tuple[str, str, str], float] = {}
         self._detection_plane_lock = threading.Lock()
 
     def add_handler(self, handler: EventHandler) -> None:
@@ -470,7 +491,7 @@ class KubernetesMonitor:
             ``True`` if the caller may evaluate, ``False`` if another call
             already did within the interval.
         """
-        now = time.time()
+        now = time.monotonic()
         with self._detection_plane_lock:
             last = self._detection_plane_last_eval.get(pipeline_id)
             if last is not None and (now - last) < DETECTION_PLANE_MIN_INTERVAL_SECONDS:
@@ -565,8 +586,32 @@ class KubernetesMonitor:
                 error=str(e),
             )
 
-    @staticmethod
+    def _claim_adjudication(self, pipeline_id: str, finding: Any) -> bool:
+        """Whether this finding may spawn an adjudicator now (#3596 task-2-2).
+
+        Compare-and-set on a per-``(pipeline, finding_class, target)`` monotonic
+        timestamp, mirroring :meth:`_claim_detection_plane_tick`. The routine
+        corrective path is deduplicated by ``CorrectiveExecutor``'s idempotency
+        set; the adjudication path has no equivalent, so an unchanging condition
+        would spawn an agent every tick for as long as it holds.
+        """
+        from health_checks.types import finding_target_role
+
+        key = (
+            pipeline_id,
+            str(getattr(finding, "finding_class", "") or ""),
+            finding_target_role(finding),
+        )
+        now = time.monotonic()
+        with self._detection_plane_lock:
+            last = self._adjudication_last_spawn.get(key)
+            if last is not None and (now - last) < ADJUDICATION_COOLDOWN_SECONDS:
+                return False
+            self._adjudication_last_spawn[key] = now
+        return True
+
     def _adjudicate_findings(
+        self,
         findings: list[Any],
         pipeline: Any,
         pipeline_id: str,
@@ -574,11 +619,19 @@ class KubernetesMonitor:
     ) -> list[tuple[Any, Any]]:
         """Escalate each finding to an on-demand adjudicator; keep real verdicts.
 
+        Findings inside their per-triple cooldown window are dropped before any
+        gateway or spawner work happens, so a persistent condition costs nothing
+        beyond the detector run that produced it.
+
         The gateway-mode lookup can cost a gateway round-trip, so it is resolved
         lazily here — only once at least one finding actually needs an
         adjudicator — rather than on every tick.
         """
         import routes.pipelines as pipelines_pkg
+
+        eligible = [f for f in findings if self._claim_adjudication(pipeline_id, f)]
+        if not eligible:
+            return []
 
         try:
             gateway_mode, _visibility = pipelines_pkg._compute_gateway_mode(pipeline)
@@ -593,7 +646,7 @@ class KubernetesMonitor:
 
         repos = getattr(pipeline, "repos", None)
         results: list[tuple[Any, Any]] = []
-        for finding in findings:
+        for finding in eligible:
             try:
                 verdict = pipelines_pkg._escalate_finding_to_adjudicator(
                     finding,
@@ -621,27 +674,37 @@ class KubernetesMonitor:
         Cached per pipeline because the executor *is* the idempotency and
         rate-limit state — rebuilding it every tick would let the same
         corrective action fire once per tick forever.
+
+        Construction happens **outside** the lock, which is shared with the tick
+        claim and therefore on the reconciliation thread's path: building an
+        executor resolves collaborators and is not the "no real work" critical
+        section the lock's comment assumes. The cost of the race is one
+        discarded executor on the first concurrent build for a pipeline —
+        the winner's instance is the one everyone keeps, so the idempotency set
+        stays single-instance.
         """
         import routes.pipelines as pipelines_pkg
 
         with self._detection_plane_lock:
             executor = self._corrective_executors.get(pipeline_id)
-            if executor is None:
-                executor = pipelines_pkg._build_overseer_corrective_executor(
-                    issue_number=issue_number
-                )
-                self._corrective_executors[pipeline_id] = executor
+        if executor is not None:
             return executor
+
+        built = pipelines_pkg._build_overseer_corrective_executor(issue_number=issue_number)
+        with self._detection_plane_lock:
+            return self._corrective_executors.setdefault(pipeline_id, built)
 
     def _forget_detection_plane_state(self, pipeline_id: str) -> None:
         """Drop retained detection-plane state for a pipeline that stopped.
 
-        Both dicts are keyed by pipeline id and would otherwise grow for the
-        orchestrator's lifetime.
+        All three collections are keyed by (or on) the pipeline id and would
+        otherwise grow for the orchestrator's lifetime.
         """
         with self._detection_plane_lock:
             self._detection_plane_last_eval.pop(pipeline_id, None)
             self._corrective_executors.pop(pipeline_id, None)
+            for key in [k for k in self._adjudication_last_spawn if k[0] == pipeline_id]:
+                self._adjudication_last_spawn.pop(key, None)
 
     def _check_all_pods(self) -> None:
         """Check all orchestrator-managed pods."""
