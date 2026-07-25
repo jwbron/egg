@@ -82,19 +82,24 @@ _WARNED_FETCH_FAILURE = False
 _WARNED_ENV: set[tuple[str, str]] = set()
 
 
-def _log(level: str, message: str, *args: object) -> None:
+def _log(level: str, message: str, *args: object) -> bool:
     """Log via litellm's ``verbose_logger``, deferring the import.
 
     Kept out of module scope so this file stays importable where litellm is
     not installed. Never raises: a diagnostic must not be able to break a
     request, and must not stop the capability lookup either.
+
+    Returns whether the record was actually emitted, so the warn-once
+    bookkeeping below can key on "this was seen" rather than "this was
+    attempted" — swallowing the exception must not also swallow the signal.
     """
     try:
         from litellm._logging import verbose_logger
 
         getattr(verbose_logger, level)(message, *args)
+        return True
     except Exception:  # noqa: BLE001 - diagnostics must never break a request
-        pass
+        return False
 
 
 def _warn_env_once(name: str, raw: str, message: str, *args: object) -> None:
@@ -107,8 +112,12 @@ def _warn_env_once(name: str, raw: str, message: str, *args: object) -> None:
     key = (name, raw)
     if key in _WARNED_ENV:
         return
-    _WARNED_ENV.add(key)
-    _log("warning", message, *args)
+    # Recorded only once the line is out. ``_log`` deliberately never
+    # propagates, so recording first would mean a failure on the *first* call —
+    # litellm's logger not yet in place, say — permanently suppresses the
+    # warning: every later call would find the key already there.
+    if _log("warning", message, *args):
+        _WARNED_ENV.add(key)
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -217,10 +226,23 @@ def _fetch() -> dict[str, set[str]]:
             continue
         capabilities[model_id] = {p for p in params if isinstance(p, str)}
 
-    # Re-arm the failure warning. Latching it for the life of the process would
-    # mean a single blip during pod startup permanently demotes every later
-    # outage to debug — silencing exactly the case _log_fetch_failure exists to
-    # surface.
+    if not capabilities:
+        # A 200 whose `data` list is empty, or every entry of which is
+        # unparseable, is an OpenRouter schema change or an empty roster — not
+        # the ordinary "we asked and got nothing usable" fallback it otherwise
+        # looks like from the outside. Reporting it keeps `{}` meaning exactly
+        # one thing (see the _CACHE comment) and makes a schema drift visible
+        # instead of indistinguishable from a fetch that simply had no opinion.
+        _log_fetch_failure(
+            "`data` list contained no usable entries; falling back to the bundled model-cost map"
+        )
+        return {}
+
+    # Re-arm the failure warning, and only on a fetch that actually produced
+    # capabilities. Latching it for the life of the process would mean a single
+    # blip during pod startup permanently demotes every later outage to debug —
+    # silencing exactly the case _log_fetch_failure exists to surface — but
+    # re-arming on an empty parse would report a recovery that did not happen.
     _WARNED_FETCH_FAILURE = False
     return capabilities
 
@@ -237,8 +259,12 @@ def _log_fetch_failure(message: str, *args: object) -> None:
     global _WARNED_FETCH_FAILURE
 
     level = "debug" if _WARNED_FETCH_FAILURE else "warning"
-    _WARNED_FETCH_FAILURE = True
-    _log(level, "openrouter capabilities: " + message, *args)
+    # Latched only once the warning is out, for the reason in ``_warn_env_once``:
+    # ``_log`` swallows its own failures, and marking "already warned" for a
+    # line that was never emitted would demote every later outage to debug
+    # without anyone having seen the first one.
+    if _log(level, "openrouter capabilities: " + message, *args):
+        _WARNED_FETCH_FAILURE = True
 
 
 def _get_cache() -> dict[str, set[str]]:

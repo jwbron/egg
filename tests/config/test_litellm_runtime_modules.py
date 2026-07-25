@@ -56,16 +56,38 @@ class _RecordingLogger:
         return [text for lvl, text in self.records if level is None or lvl == level]
 
 
-@pytest.fixture
-def logger(monkeypatch):
-    """Install a stub ``litellm._logging.verbose_logger``."""
-    recorder = _RecordingLogger()
+class _FlakyLogger(_RecordingLogger):
+    """Raises on the first ``n`` emits, then records normally.
+
+    Stands in for a logger that is not yet wired up when the first diagnostic
+    fires. The modules swallow that failure by design; the question these
+    tests ask is whether they also swallow the *signal*.
+    """
+
+    def __init__(self, failures=1):
+        super().__init__()
+        self.remaining = failures
+
+    def warning(self, message, *args):
+        if self.remaining > 0:
+            self.remaining -= 1
+            raise RuntimeError("logging subsystem not ready")
+        super().warning(message, *args)
+
+
+def _install_logger(monkeypatch, recorder):
     litellm = sys.modules.get("litellm") or types.ModuleType("litellm")
     logging_mod = types.ModuleType("litellm._logging")
     logging_mod.verbose_logger = recorder
     monkeypatch.setitem(sys.modules, "litellm", litellm)
     monkeypatch.setitem(sys.modules, "litellm._logging", logging_mod)
     return recorder
+
+
+@pytest.fixture
+def logger(monkeypatch):
+    """Install a stub ``litellm._logging.verbose_logger``."""
+    return _install_logger(monkeypatch, _RecordingLogger())
 
 
 # --------------------------------------------------------------------------
@@ -166,6 +188,38 @@ def test_env_warning_is_deduplicated_not_emitted_per_request(caps, logger, monke
     monkeypatch.setenv("LITELLM_OPENROUTER_CAPABILITY_TTL", "-3")
     caps.get_supported_parameters("moonshotai/kimi-k3")
     assert len(logger.messages("warning")) == 2
+
+
+def test_env_warning_is_not_lost_to_a_swallowed_emit_failure(caps, monkeypatch):
+    """``_log`` never propagates, so recording the dedup key before the emit
+    would let one failure on the *first* call suppress the warning forever:
+    every later call finds the key already there."""
+    recorder = _install_logger(monkeypatch, _FlakyLogger())
+    monkeypatch.setenv("LITELLM_OPENROUTER_CAPABILITY_TTL", "1h")
+
+    assert caps._ttl_seconds() == caps.DEFAULT_TTL_SECONDS
+    assert recorder.messages("warning") == [], "first emit raised, and was swallowed"
+
+    assert caps._ttl_seconds() == caps.DEFAULT_TTL_SECONDS
+    assert len(recorder.messages("warning")) == 1, "the signal must survive the failure"
+
+    assert caps._ttl_seconds() == caps.DEFAULT_TTL_SECONDS
+    assert len(recorder.messages("warning")) == 1, "and dedup still holds once it is out"
+
+
+def test_fetch_failure_warning_is_not_lost_to_a_swallowed_emit_failure(caps, monkeypatch):
+    """Same reasoning as above for the other warn-once latch."""
+    recorder = _install_logger(monkeypatch, _FlakyLogger())
+    _install_http_stub(monkeypatch, boom=OSError("no route to host"))
+
+    caps.get_supported_parameters("moonshotai/kimi-k3")
+    assert recorder.messages("warning") == []
+    assert caps._WARNED_FETCH_FAILURE is False, "nothing was emitted, so nothing is latched"
+
+    caps._CACHE = None
+    caps.get_supported_parameters("moonshotai/kimi-k3")
+    assert len(recorder.messages("warning")) == 1
+    assert caps._WARNED_FETCH_FAILURE is True
 
 
 def test_ttl_zero_is_accepted_and_disables_caching(caps, logger, monkeypatch):
@@ -293,6 +347,39 @@ def test_non_200_is_no_opinion(caps, logger, monkeypatch):
 def test_payload_without_data_list_is_no_opinion(caps, logger, monkeypatch):
     _install_http_stub(monkeypatch, payload={"error": "nope"})
     assert caps.get_supported_parameters("moonshotai/kimi-k3") is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"data": []},
+        {"data": ["not-a-dict", {"id": 5}, {"id": "x", "supported_parameters": "nope"}]},
+    ],
+    ids=["empty-list", "every-entry-malformed"],
+)
+def test_a_200_that_parses_to_nothing_is_reported(caps, logger, monkeypatch, payload):
+    """Otherwise an OpenRouter schema change is indistinguishable from a fetch
+    that simply had no opinion, and the module goes back to the model-cost map
+    with nothing said."""
+    _install_http_stub(monkeypatch, payload=payload)
+    assert caps.get_supported_parameters("moonshotai/kimi-k3") is None
+    assert any("no usable entries" in m for m in logger.messages("warning"))
+
+
+def test_a_200_that_parses_to_nothing_does_not_rearm_the_failure_warning(caps, logger, monkeypatch):
+    """Re-arming there would report a recovery that did not happen: the point
+    of the flag is that the *first* line of a real outage is visible."""
+    _install_http_stub(monkeypatch, boom=OSError("no route to host"))
+    caps.get_supported_parameters("moonshotai/kimi-k3")
+    assert caps._WARNED_FETCH_FAILURE is True
+    assert len(logger.messages("warning")) == 1
+
+    caps._CACHE = None
+    _install_http_stub(monkeypatch, payload={"data": []})
+    assert caps.get_supported_parameters("moonshotai/kimi-k3") is None
+    assert caps._WARNED_FETCH_FAILURE is True, "an empty parse is not a recovery"
+    assert len(logger.messages("warning")) == 1, "and it is a repeat, so it goes to debug"
+    assert any("no usable entries" in m for m in logger.messages("debug"))
 
 
 def test_fetch_disabled_skips_the_network_entirely(caps, monkeypatch):

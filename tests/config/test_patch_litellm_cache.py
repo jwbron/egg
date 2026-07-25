@@ -118,6 +118,76 @@ def test_missing_file_fails_loud(tmp_path):
     assert "file not found" in str(excinfo.value), "aborted before reaching _apply"
 
 
+def test_malformed_replacement_fails_at_build_time(tmp_path):
+    """A replacement with wrong indentation applies *cleanly*.
+
+    The needle check only proves we found the right spot, not that what we put
+    there is valid Python. Without this guard the broken result passes the
+    build, ships in the image, and surfaces as a pod CrashLoopBackOff when
+    litellm imports the file — the one place nothing is watching."""
+    path = tmp_path / "victim.py"
+    stock = "def f():\n    return 1\n"
+    path.write_text(stock)
+
+    with pytest.raises(SystemExit) as excinfo:
+        plc._apply(
+            str(path),
+            present="# egg marker",
+            needle="    return 1\n",
+            replacement="# egg marker\nreturn 1\n",
+            label="Patch X",
+        )
+    assert "does not parse" in str(excinfo.value)
+    assert path.read_text() == stock, "a rejected patch must not leave a broken file behind"
+
+
+def test_wellformed_replacement_still_applies(tmp_path):
+    """The parse check must not reject a correct patch."""
+    path = tmp_path / "victim.py"
+    path.write_text("def f():\n    return 1\n")
+    plc._apply(
+        str(path),
+        present="# egg marker",
+        needle="    return 1\n",
+        replacement="    # egg marker\n    return 2\n",
+        label="Patch X",
+    )
+    assert "return 2" in path.read_text()
+
+
+def test_unparseable_input_is_not_blamed_on_the_patch(tmp_path):
+    """The check asserts the patch did not break the file, not that the file
+    was ever valid — the concatenated-needle fixtures here never are, and
+    holding them to it would test the fixture rather than the patch."""
+    path = tmp_path / "victim.py"
+    path.write_text("this is (not python\n")
+    plc._apply(
+        str(path),
+        present="# egg marker",
+        needle="not python",
+        replacement="# egg marker\nstill not python",
+        label="Patch X",
+    )
+    assert "# egg marker" in path.read_text()
+
+
+def test_installed_module_payload_must_parse(tmp_path, monkeypatch):
+    """Same guard on the other write path: a truncated COPY or a half-written
+    staged file would install without complaint and only fail at import."""
+    spec = dict(plc.NEW_MODULES[0])
+    (tmp_path / spec["dest"]).parent.mkdir(parents=True, exist_ok=True)
+
+    broken = tmp_path / "staged"
+    broken.mkdir()
+    (broken / spec["source"]).write_text("def truncated(\n")
+    monkeypatch.setattr(plc, "_module_source", lambda name, label: str(broken / name))
+
+    with pytest.raises(SystemExit) as excinfo:
+        plc._install_module(str(tmp_path), spec)
+    assert "does not parse" in str(excinfo.value)
+    assert not (tmp_path / spec["dest"]).exists()
+
+
 def test_new_module_refuses_to_clobber_a_foreign_file(tmp_path):
     """Every other operation in this script is fail-loud on drift; so is this.
 

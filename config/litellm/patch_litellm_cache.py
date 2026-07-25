@@ -138,7 +138,15 @@ OpenRouter. The image pins that same version (see the Dockerfile
      by default, ``LITELLM_ANTHROPIC_THINKING_TO_REASONING_EFFORT=1`` to
      restore stock) keeps patch 7's actual goal: a knob an operator
      configured reaches the wire, one nobody configured does not. The
-     Claude branch is untouched.
+     Claude branch is untouched, and so is an effort the CALLER stated
+     outright: on an adaptive request (``thinking: {"type": "adaptive"}``
+     plus ``output_config: {"effort": ...}``) the gate sits after stock's
+     override, so that value still reaches the provider with the policy
+     off. Only the DERIVED bucket is suppressed — the distinction is
+     structural, not a special case. A ``thinking.summary`` request goes
+     with the derived effort, because stock carries the summary only as a
+     field of the ``reasoning_effort`` dict and there is no wire shape for
+     "summary, no effort".
 
 Idempotent: each patch detects whether it is already applied. Fails
 loudly (non-zero exit) if a needle is missing, so a LiteLLM version bump
@@ -146,6 +154,7 @@ that moves the code surfaces at build time instead of silently shipping
 an unpatched image that bills full input rate or drops reasoning tokens.
 """
 
+import ast
 import importlib.util
 import os
 import sys
@@ -182,6 +191,32 @@ def _litellm_roots() -> list[str]:
     return out
 
 
+def _parses(source: str) -> bool:
+    try:
+        ast.parse(source)
+    except SyntaxError:
+        return False
+    return True
+
+
+def _check_parses(source: str, path: str, label: str) -> None:
+    """Fail the build if we are about to write source Python cannot import.
+
+    A needle miss already exits non-zero, but a replacement with wrong
+    indentation applies *cleanly* — the result would pass the build, ship in
+    the image, and surface as a pod CrashLoopBackOff at litellm import time,
+    long after the only thing that could have caught it. Same fail-loud
+    discipline as the needle check, one step later.
+    """
+    try:
+        ast.parse(source, filename=path)
+    except SyntaxError as exc:
+        raise SystemExit(
+            f"{label}: patched source does not parse ({path}:{exc.lineno}: {exc.msg}) "
+            "— the replacement is malformed"
+        ) from exc
+
+
 def _apply(path: str, present: str, needle: str, replacement: str, label: str) -> None:
     if not os.path.isfile(path):
         raise SystemExit(f"{label}: file not found: {path}")
@@ -192,8 +227,16 @@ def _apply(path: str, present: str, needle: str, replacement: str, label: str) -
         return
     if needle not in src:
         raise SystemExit(f"{label}: marker not found in {path} — LiteLLM version drift?")
+    patched = src.replace(needle, replacement, 1)
+    # Checked only when the input was valid Python to begin with: a patch can
+    # break a file, it cannot be blamed for one that never parsed. Every real
+    # litellm source does; the concatenated-needle fixtures in tests/config
+    # deliberately do not, and holding them to it would test the fixture rather
+    # than the patch.
+    if _parses(src):
+        _check_parses(patched, path, label)
     with open(path, "w") as fh:
-        fh.write(src.replace(needle, replacement, 1))
+        fh.write(patched)
     print(f"{label}: applied")
 
 
@@ -901,6 +944,9 @@ def _install_module(root: str, spec: dict[str, str]) -> None:
         # the guard below reads. A leading comment leaves the module docstring
         # as the first statement, so nothing about the module changes.
         payload = EGG_MODULE_HEADER + fh.read()
+    # Same reason as in ``_apply``: a truncated COPY or a half-written staged
+    # file would install without complaint and only fail at litellm import.
+    _check_parses(payload, source, label)
     dest = os.path.join(root, spec["dest"])
     dest_dir = os.path.dirname(dest)
     if not os.path.isdir(dest_dir):
