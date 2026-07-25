@@ -2,8 +2,8 @@
 
 Covers:
 
-* ``green_gate_mode`` — the three-state operator switch (off default,
-  log soak mode, on; unknown values degrade to off).
+* ``green_gate_mode`` — the three-state operator switch (log default,
+  explicit off, on; unrecognised values degrade to the default).
 * ``_gate_checks`` / ``_repo_requires_prebuilt`` — config-driven check
   selection (skip set, default ``security``) and the prebuilt-toolchain
   requirement derived from ``build_commands.persist_dirs``.
@@ -75,8 +75,14 @@ def gate_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
 
 
 class TestGreenGateMode:
-    def test_default_is_off(self, gate_env: pytest.MonkeyPatch) -> None:
-        assert sgg.green_gate_mode() == "off"
+    def test_default_is_log(self, gate_env: pytest.MonkeyPatch) -> None:
+        """Unset resolves to the product default, not to a disabled gate.
+
+        The #3398 switch shipped defaulting to ``off`` and was never set
+        in any deployment, so the check-runner path never executed. The
+        default is the rollout.
+        """
+        assert sgg.green_gate_mode() == "log"
 
     @pytest.mark.parametrize("value", ["on", "ON", " true ", "1", "yes"])
     def test_enabled_values(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
@@ -88,10 +94,23 @@ class TestGreenGateMode:
         gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, value)
         assert sgg.green_gate_mode() == "log"
 
-    @pytest.mark.parametrize("value", ["off", "0", "false", "", "banana", "enabled"])
-    def test_everything_else_is_off(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
+    @pytest.mark.parametrize("value", ["off", "OFF", " off ", "0", "false", "no"])
+    def test_disabled_values(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
+        """Turning the gate off now takes an explicit disable value."""
         gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, value)
         assert sgg.green_gate_mode() == "off"
+
+    @pytest.mark.parametrize("value", ["", "   ", "banana", "enabled", "tru", "onn"])
+    def test_unrecognised_values_degrade_to_default(
+        self, gate_env: pytest.MonkeyPatch, value: str
+    ) -> None:
+        """A typo can neither block slices nor silently disable the gate.
+
+        ``"tru"`` / ``"onn"`` are the realistic shapes: an operator
+        reaching for ``on`` must not land on "gate does nothing".
+        """
+        gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, value)
+        assert sgg.green_gate_mode() == sgg._DEFAULT_MODE == "log"
 
 
 # ----------------------------------------------------------------------
@@ -485,6 +504,13 @@ class TestRunSliceGreenGate:
     def test_kill_switch_off_skips_everything(
         self, gate_env: pytest.MonkeyPatch, configured_checks: None
     ) -> None:
+        """``off`` still short-circuits before any spawn side effect.
+
+        This must set the switch explicitly: since the default became
+        ``log`` the unset case *runs* the gate, so an implicit-off
+        assertion here would silently start exercising the runner.
+        """
+        gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, "off")
         spawner = _spawner()
         assert _run_gate(spawner) is None
         spawner.gateway.create_worktrees.assert_not_called()

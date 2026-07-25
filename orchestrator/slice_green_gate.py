@@ -50,11 +50,26 @@ Mechanics mirror the two established precedents:
   distinguish an infra-induced red inside a check from a genuine
   check failure.
 
-Rollout is staged via ``EGG_SLICE_GREEN_GATE``: ``off`` (default) →
-``log`` (run checks, log the verdict loudly, never block — the soak mode
-while #3301 contract-single-writer is still landing, since a stale
-contract snapshot on the slice tip can red contract-hygiene tests for
-reasons unrelated to the slice's code) → ``on`` (block).
+Rollout is staged via ``EGG_SLICE_GREEN_GATE``: ``off`` → ``log``
+(**the default**: run checks, log the verdict loudly, never block) →
+``on`` (block).
+
+``log`` is the default rather than ``off`` because a gate nobody runs
+verifies nothing: the switch shipped in #3398 defaulting to ``off`` and
+was never set in any deployment, so the check-runner path had not
+executed once in the ~3 weeks after it landed. Defaulting to ``log``
+makes every slice close produce a real verdict — the soak evidence that
+``on`` needs — while keeping the blocking decision opt-in. It is also
+the soak mode for #3301 contract-single-writer, since a stale contract
+snapshot on the slice tip can red contract-hygiene tests for reasons
+unrelated to the slice's code.
+
+The cost of the default is real and deliberate: ``log`` mode still
+*runs* the checks and still waits for the runner pod, so slice-close
+latency grows by the check duration (bounded by
+``EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS``, default 1800s, after which the
+gate fails open). ``off`` remains available for deployments that cannot
+absorb that.
 
 The check toolchain is the **repo-defined** one, not the sandbox
 image's: ``repositories.yaml::build_commands`` builds the repo's pinned
@@ -89,14 +104,24 @@ if TYPE_CHECKING:
 
 logger = get_logger("orchestrator.slice_green_gate")
 
-# Operator switch for the green gate. Three-state, default off during
-# rollout (#3398): "off"/unset → gate skipped entirely; "log" → checks
-# run and a red verdict is logged loudly but never blocks; "on" → a red
-# verdict blocks the slice PR from opening.
+# Operator switch for the green gate. Three-state, default "log":
+# "off" → gate skipped entirely; "log"/unset → checks run and a red
+# verdict is logged loudly but never blocks; "on" → a red verdict blocks
+# the slice PR from opening.
 GREEN_GATE_ENV_VAR = "EGG_SLICE_GREEN_GATE"
 
 _ENABLED_VALUES = frozenset({"on", "1", "true", "yes"})
 _LOG_ONLY_VALUES = frozenset({"log", "log-only", "log_only"})
+_DISABLED_VALUES = frozenset({"off", "0", "false", "no"})
+
+# Mode used when the switch is unset or carries a value we do not
+# recognise. "log" satisfies both halves of the safety property an
+# unparseable switch needs: it never blocks a slice (an operator typo
+# must not start failing slices) and it never silently disables the
+# gate (a typo must not leave a deployment with less verification than
+# the product default). Only an explicit _DISABLED_VALUES entry turns
+# the gate off.
+_DEFAULT_MODE: Literal["off", "log", "on"] = "log"
 
 # Comma-separated check *names* (from repositories.yaml ``checks``) the
 # gate skips. Default skips ``security``: the full scan belongs on the
@@ -234,15 +259,28 @@ print("EGG_GREEN_GATE_VERDICT:" + json.dumps({"checks": results}), flush=True)
 def green_gate_mode() -> Literal["off", "log", "on"]:
     """Resolve the operator switch to one of ``off`` / ``log`` / ``on``.
 
-    Unknown values resolve to ``off``: during rollout an operator typo
-    must degrade to "gate does nothing", never to "gate blocks slices".
+    Unset resolves to ``_DEFAULT_MODE`` (``log``). Turning the gate off
+    requires an explicit ``off`` / ``0`` / ``false`` / ``no``; any other
+    unrecognised value also resolves to ``log`` and logs a warning, so a
+    typo can neither start blocking slices nor silently drop the
+    deployment below the product default.
     """
-    raw = os.environ.get(GREEN_GATE_ENV_VAR, "off").strip().lower()
+    raw = os.environ.get(GREEN_GATE_ENV_VAR, "").strip().lower()
+    if not raw:
+        return _DEFAULT_MODE
     if raw in _ENABLED_VALUES:
         return "on"
     if raw in _LOG_ONLY_VALUES:
         return "log"
-    return "off"
+    if raw in _DISABLED_VALUES:
+        return "off"
+    logger.warning(
+        "Unrecognised green-gate switch value; falling back to the default mode",
+        env_var=GREEN_GATE_ENV_VAR,
+        value=raw,
+        mode=_DEFAULT_MODE,
+    )
+    return _DEFAULT_MODE
 
 
 def _gate_checks(repo: str) -> list[dict[str, str]]:
