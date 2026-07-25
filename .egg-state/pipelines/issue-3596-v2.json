@@ -115,12 +115,40 @@
       "iteration_history": [],
       "phase_start_sha": "db945c86333e1696b1f13e654f6609fa431e307a",
       "agent_exits": [],
-      "decision_ledger": null
+      "decision_ledger": {
+        "registered": [],
+        "resolved": 0,
+        "explicit_none": true,
+        "attested_by": "refiner",
+        "missing": false,
+        "candidates_considered": [
+          {
+            "question": "Should commit counting use local worktree commits or remote-pushed commits?",
+            "disposition": "deferred_to_plan",
+            "why": "The implementer needs to decide whether to shell out to git in the orchestrator worktree or read from the agent's worktree mount; this is a plan-phase implementation detail."
+          },
+          {
+            "question": "Should tool-call counting use progress events as a proxy or add a new event type?",
+            "disposition": "deferred_to_plan",
+            "why": "Requires either reusing existing ProgressStore data or adding a new CONTAINER_ACTIVITY-like event; the plan phase should evaluate the trade-offs."
+          },
+          {
+            "question": "Should get_status include all active alerts or just a summary?",
+            "disposition": "deferred_to_plan",
+            "why": "Affects API response size and client rendering; the plan phase should specify the exact payload shape."
+          },
+          {
+            "question": "Should agent_log_store TTL be configurable?",
+            "disposition": "deferred_to_plan",
+            "why": "Requires a PipelineConfig field addition and plumbing through the store; the plan phase should decide the default and configurability."
+          }
+        ]
+      }
     }
   },
   "decisions": [],
   "created_at": "2026-07-24T23:26:12.128692Z",
-  "updated_at": "2026-07-25T00:02:13.780241Z",
+  "updated_at": "2026-07-25T00:02:19.029281Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -133,7 +161,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 9,
+  "version": 10,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
