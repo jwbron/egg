@@ -3,7 +3,21 @@
 CLI entry points. Most are symlinks to the actual implementations in `gateway/` and `sandbox/`.
 
 > **Note:** `bin/egg` (interactive mode) was removed in [#1762](https://github.com/jwbron/egg/issues/1762).
-> Use `bin/egg-deploy` for k3s deployments and the `submit_task` MCP tool for agent work.
+> Use `bin/egg-init` for guided onboarding, `bin/egg-deploy` for individual k3s
+> deployment steps, and the `submit_task` MCP tool for agent work.
+
+## egg-init
+
+Guided, idempotent onboarding from `git clone` to a running egg — orchestrates the cluster, config, credentials, image build, deploy, and host-side Claude Code integration (see [Onboarding Guide](../docs/guides/onboarding.md)).
+
+| Command | Description |
+|---------|-------------|
+| `bin/egg-init` | Full guided setup — all stages, prompting only for a GitHub PAT and a Claude credential |
+| `bin/egg-init --check` | Validate an existing setup; change nothing |
+| `bin/egg-init --update secrets` | Re-collect credentials only (rotate a token) |
+| `bin/egg-init --update repos` | Re-collect repository configuration only |
+| `bin/egg-init --skip-cluster` | Config + host integration only (no cluster) |
+| `bin/egg-init --yes` | Accept defaults, skip confirmations |
 
 ## egg-sdlc
 
@@ -22,16 +36,14 @@ Also available as a `/sdlc` slash command inside sandboxed agent sessions.
 
 ## egg-deploy
 
-Deploy and manage the gateway stack via Docker Compose (production/advanced).
+Lower-level config generation and health check for the k3s deployment. `bin/egg-init` wraps this and the Makefile targets into a single guided flow — reach for `egg-deploy` directly when you want just one step.
 
 | Command | Description |
 |---------|-------------|
-| `bin/egg-deploy init` | Initialize configuration files |
-| `bin/egg-deploy up` | Start the gateway stack |
-| `bin/egg-deploy down` | Stop the gateway stack |
-| `bin/egg-deploy status` | Show container status and health |
-| `bin/egg-deploy logs` | Follow gateway logs |
-| `bin/egg-deploy build` | Rebuild Docker images |
+| `bin/egg-deploy init` | Generate initial configuration files (`config.yaml`, secrets, `repositories.yaml`) |
+| `bin/egg-deploy status` | Show orchestrator health + `egg-system` pod status |
+
+`up` / `down` / `logs` / `build` are deprecated stubs — Docker Compose deployment was removed in [#1762](https://github.com/jwbron/egg/issues/1762); egg now deploys exclusively via Kubernetes (`make k3s-setup`, `make build`, `make deploy`, or `bin/egg-init`).
 
 ## egg-status
 
