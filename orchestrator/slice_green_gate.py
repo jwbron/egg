@@ -91,17 +91,19 @@ instrument for measuring the false-red rate, not merely the stricter
 one.
 
 Expect the first reds to be the gate's own wiring rather than the
-slice's code, and note that each of these reds *every* slice close
+slice's code, and note that either of these reds *every* slice close
 until it is fixed: a stale contract snapshot on the slice tip can red
-contract-hygiene tests for reasons unrelated to the slice (#3301), a
-declared-but-missing prebuilt-deps snapshot exits the runner non-zero,
-and ``make test``'s changeset narrowing derives its baseline from ``git
+contract-hygiene tests for reasons unrelated to the slice (#3301), and
+``make test``'s changeset narrowing derives its baseline from ``git
 merge-base`` inside a fresh worktree, so it sees the cumulative slice
-diff. Recovery is bounded and self-documenting: the failure message
-names the branch to fix, the slice restarts, and
-``EGG_SLICE_GREEN_GATE=off`` is quoted inline as the bypass. The slice's
-commits stay on the integration branch through all of it — a red gate
-withholds the PR, it does not discard work.
+diff rather than the tester's own-files scope. (A missing prebuilt-deps
+snapshot is *not* in this list: the runner exits non-zero and the gate
+fails open — see the toolchain paragraph below — so it costs coverage,
+not slice throughput.) Recovery from a wrong red is bounded and
+self-documenting: the failure message names the branch to fix, the
+slice restarts, and ``EGG_SLICE_GREEN_GATE=off`` is quoted inline as
+the bypass. The slice's commits stay on the integration branch through
+all of it — a red gate withholds the PR, it does not discard work.
 
 The latency cost is identical under ``log`` and ``on`` — both spawn the
 runner and wait for the pod — so it is the price of *running* the gate,
