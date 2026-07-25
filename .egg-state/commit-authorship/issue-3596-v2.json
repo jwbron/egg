@@ -80,6 +80,14 @@
       "repo": null,
       "role": "architect"
     },
+    "d08330502e9f9f3ae7df588af585b735e13a7cd4": {
+      "branch": "egg/issue-3596-v2/work",
+      "patch_id": "1ebce8e89b7cfb320f9298fa877f340285df7bb5",
+      "pipeline_id": "issue-3596-v2",
+      "registered_at": "2026-07-25T03:22:28.876188+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "d6f1f8472a6646b532278d5f547da259faf9f4fd": {
       "branch": "egg/issue-3596-v2/work",
       "patch_id": "3ff66d8bd386b6426ed19035121c79abd7ef9854",
