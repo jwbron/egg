@@ -4075,7 +4075,13 @@ class TestImpossibleElapsedSurfacing:
         assert 195 <= actions[0]["elapsed_seconds"] <= 205
 
     def test_corrupt_progress_anchor_bypasses_gate(self):
-        """The same guard applies to the progress-stall tripwire."""
+        """The same guard applies to the progress-stall tripwire.
+
+        Defensive symmetry: ``last_progress`` is only ever assigned ``now``, so
+        this state is not reachable in production — the corruption is injected
+        here to prove the progress path is wired to ``_sanitize_elapsed`` the
+        same way the heartbeat path is.
+        """
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,

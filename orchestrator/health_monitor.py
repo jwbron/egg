@@ -180,6 +180,12 @@ class HealthMonitor:
         # Wall-clock time the monitor started observing this pipeline. Every
         # anchor it reads is written after this instant, so an ``elapsed``
         # larger than the monitor's own age is necessarily corrupt (#3605).
+        # Like every other ``now - last_*`` in this module this is wall-clock,
+        # not monotonic: a backward clock step (NTP correction, host suspend)
+        # shrinks ``monitor_age`` and would make ``_sanitize_elapsed``
+        # flag-and-clamp everything until the skew window passes. Forward
+        # steps are safe — anchors and ``_created_at`` move together. Worth
+        # revisiting if this module ever moves to ``time.monotonic``.
         self._created_at: float = time.time()
 
         # Subscribe to events
@@ -577,6 +583,13 @@ class HealthMonitor:
         consumers keyed on magnitude (notably the ``>= 300s`` BRC
         stall-demotion path in ``_run_concurrent``) cannot be tripped by the
         corrupt value.
+
+        The only anchor that can actually go corrupt today is the heartbeat
+        one (``_job_active_since``, via the never-seen path this issue fixed).
+        ``check_progress`` calls this too, but ``AgentState.last_progress`` is
+        only ever assigned ``now``, so its corrupt branch is purely defensive
+        symmetry — kept so a future writer of that anchor inherits the guard
+        rather than reintroducing the epoch bug on the progress side.
         """
         monitor_age = max(0.0, now - self._created_at)
         if elapsed <= monitor_age + _ELAPSED_SANITY_SLACK_SECONDS:
@@ -973,6 +986,9 @@ class HealthMonitor:
             ]
 
         for agent_id, last_progress, already_escalated in snapshot:
+            # Defensive symmetry only: ``last_progress`` is never anchored at
+            # the epoch, so ``anchor_corrupt`` cannot fire here in production.
+            # The real #3605 trigger is heartbeat-side. See ``_sanitize_elapsed``.
             elapsed, anchor_corrupt = self._sanitize_elapsed(
                 agent_id, now - last_progress, now, "progress"
             )
