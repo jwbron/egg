@@ -12,7 +12,7 @@
   ],
   "prompt": "Operator cannot tell a working agent from a wedged one\n\n## The problem\n\nWe ran a pipeline for about 48 hours. It hit four genuinely different failures during that time, and in every single case `get_status` reported the same thing: `running`, every agent `WORKING`, no pending decisions.\n\nA coder sitting at `WORKING` for six hours looked identical whether it was:\n\n- legitimately grinding through a 30k-line decomposition,\n- exiting rc=0 doing nothing against an empty worktree mount,\n- committing real work that was being silently discarded every cycle, or\n- re-deriving days of already-finished work from scratch after losing its memory.\n\nThe only thing that reliably told these apart was a hand-rolled loop counting commits on the agent's worktree. Watching that number climb, stall, or reset to zero diagnosed each incident in minutes. Everything else — which agent was actually blocked, why an arm kept dying, when the consensus window was about to expire, what the destructive warnings in the logs meant — had to be dug out by hand with git reflog, log greps, and racing kubelet garbage collection for pod logs before they vanished.\n\nEvery recovery was cheap once the state was visible. The expensive part was always discovering the state.\n\n## What to do\n\nMake that state visible, and make the system act on it instead of waiting for a human to go looking.\n\nRoughly four areas are worth attention, though how you cut them up is your call:\n\n- **Forward progress.** Is an agent actually getting anywhere, and would we notice if it started going backwards?\n- **Events and alerts.** Destructive and exceptional things happen that never reach anyone watching. Alert volume is currently a number, not something you can read.\n- **Clocks and per-invocation accounting.** Deadlines that matter are invisible until they pass, and a cycle that did nothing is indistinguishable from one that did real work.\n- **Post-mortem durability.** Evidence routinely dies with the pod, so the state you need for diagnosis is gone by the time you know you need it.\n\nThis belongs in the orchestrator and overseer, which run continuously and can see inside the pod. It does not belong in the `/sdlc` skill, whose job is to run pipelines, report, and broker decisions.\n\n## Ground rules\n\n**Verify before you build.** Some of what looks missing here may already exist; this description is written from an operator's experience, not from the code. Check the tree before planning anything, and say what you checked. If something is already implemented, drop it and say so rather than building it twice.\n\n**Scope is yours to propose.** Decide what is worth doing, in what order, and what to leave out. If a judgement call would materially change the shape of the work, raise it as a decision rather than guessing.\n\nPrior write-ups exist (#3595 is the incident analysis) but they contain superseded plans and at least one hypothesis that was later disproved. Read them critically, or not at all. The repository is the source of truth.",
   "status": "running",
-  "current_phase": "plan",
+  "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
     "parallel_agents": true,
@@ -256,7 +256,7 @@
     }
   ],
   "created_at": "2026-07-24T23:26:12.128692Z",
-  "updated_at": "2026-07-25T04:50:56.413752Z",
+  "updated_at": "2026-07-25T04:50:56.529384Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -268,8 +268,8 @@
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
-  "run_epoch": "2026-07-25T03:06:09.252034Z",
-  "version": 38,
+  "run_epoch": "2026-07-25T04:50:56.529222Z",
+  "version": 39,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
