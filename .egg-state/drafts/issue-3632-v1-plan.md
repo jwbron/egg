@@ -26,25 +26,27 @@
 
 ## Slice structure
 
-### Slice 1: Changes 1 + 2 (together) — Lossless resume with stale-state-replay protection
+### Slice 1: Changes 1 + 2 + 3 — Lossless resume with run_epoch namespacing + BRC history persistence on cancel
 
-**Goal:** Make `cancel_task(cleanup=false)` truly lossless for resume, and prevent stale-state replay after resume → orchestrator restart.
+**Goal:** Make `cancel_task(cleanup=false)` truly lossless for resume by (1) not clearing the consensus tracker and message store on CANCELLED, (2) namespacing both by `run_epoch` so stale-state replay after resume → orchestrator restart is impossible by construction, and (3) persisting per-slice BRC history to disk on cancel so forensic evidence survives Redis loss.
+
+**Rationale for single slice:** Changes 1+2 must ship together (stale-state replay hazard — landing 1 alone is strictly worse than today). Change 3 is independent per cq-3 resolution but touches the same files (`_routes_crud.py`, `_brc_history.py`, `test_pipelines_api.py`) that Changes 1+2 touch. Since the implement phase branches each slice independently off the shared base, overlapping file edits must be in one slice to avoid integration collisions (#3046).
 
 **Files to modify:**
-- `orchestrator/routes/pipelines/_routes_crud.py` — Stop calling `_clear_pipeline_runtime_state` on CANCELLED (only on FAILED, delete, and create).
-- `orchestrator/routes/pipelines/_lifecycle_helpers.py` — Update `_clear_pipeline_runtime_state` docstring to reflect the new behavior (clear on delete + create only, not cancel).
+- `orchestrator/routes/pipelines/_routes_crud.py` — Stop calling `_clear_pipeline_runtime_state` on CANCELLED (only on FAILED, delete, and create); wire in cancel-specific BRC history persistence.
+- `orchestrator/routes/pipelines/_lifecycle_helpers.py` — Update `_clear_pipeline_runtime_state` docstring to reflect the new behavior (clear on delete + create + FAILED, not CANCELLED).
 - `orchestrator/peer_consensus/__init__.py` — Key `_tracker_key` by `(pipeline_id, run_epoch)`.
 - `orchestrator/redis_message_store.py` — Key `_stream_key` and `_counts_key` by `(pipeline_id, run_epoch)`.
-- `orchestrator/routes/pipelines/_brc_history.py` — Update `_persist_phase_brc_history` and `_write_brc_history` to pass `run_epoch` through to the message store.
+- `orchestrator/routes/pipelines/_brc_history.py` — Add cancel-specific persistence function that writes per-slice CONSENSUS_* buckets; update `_persist_phase_brc_history` and `_write_brc_history` to pass `run_epoch` through to the message store.
 - `orchestrator/startup_reconciliation.py` — Pass `run_epoch` to `reconstruct_tracker_from_messages`.
 - `orchestrator/concurrent_executor.py` — Pass `run_epoch` to `reconstruct_tracker_from_messages` and tracker calls.
 - `orchestrator/routes/pipelines/_routes_restart.py` — Pass `run_epoch` to all tracker/message-store calls.
 - `orchestrator/routes/pipelines/_routes_lifecycle.py` — Pass `run_epoch` to all tracker/message-store calls.
-- `orchestrator/routes/pipelines/_routes_crud.py` (create path) — Pass `run_epoch` to all tracker/message-store calls.
+- `orchestrator/routes/signals.py` — Pass `run_epoch` to message store calls.
 
 **Tasks:**
 
-- **task-1-1:** Modify `_routes_crud.py` to stop clearing runtime state on CANCELLED. The `_clear_pipeline_runtime_state` call at line 717 is inside the `if pipeline.status in (CANCELLED, FAILED)` block. Split this: only call `_clear_pipeline_runtime_state` for FAILED (and for delete/create paths). For CANCELLED, preserve the runtime state (tracker + message store) so resume is lossless.
+- **task-1-1:** Modify `_routes_crud.py` to stop calling `_clear_pipeline_runtime_state` on CANCELLED. The call at line 717 is inside the `if pipeline.status in (CANCELLED, FAILED)` block. Split this: only call `_clear_pipeline_runtime_state` for FAILED (and for delete/create paths). For CANCELLED, preserve the runtime state (tracker + message store) so resume is lossless.
   - **Acceptance:** `cancel_task(cleanup=false)` no longer calls `_clear_pipeline_runtime_state`; the message stream and consensus tracker survive cancel.
   - **Files:** `orchestrator/routes/pipelines/_routes_crud.py`
 
@@ -60,49 +62,25 @@
   - **Acceptance:** Docstring accurately reflects the new call sites; #2053 safety argument is preserved (create-path clear still defends against new-pipeline id reuse).
   - **Files:** `orchestrator/routes/pipelines/_lifecycle_helpers.py`, `orchestrator/routes/pipelines/_routes_crud.py`
 
-- **task-1-5:** Update tests. Rewrite `test_cancel_clears_runtime_state` → `test_cancel_preserves_runtime_state` (assert cancel does NOT clear). Pin the create-path clear explicitly in `test_create_clears_runtime_state`. Add a NEW regression test: cancel → resume → simulated orchestrator restart → assert consensus state is NOT resurrected by `reconstruct_tracker_from_messages`.
-  - **Acceptance:** Test suite reflects the new contract: cancel preserves, create/delete still clear; new regression test covers the stale-state-replay hazard.
-  - **Files:** `orchestrator/tests/test_pipelines_api.py`
-
-- **task-1-6:** Green the boundary — `make lint + make test-all`.
-  - **Acceptance:** All tests pass, no behavior change in the diff.
-  - **Files:** (test files as needed)
-
-### Slice 2: Change 3 — Persist BRC history on cancel (independent, may land first)
-
-**Goal:** Make the in-flight slice's BRC history survive to disk on cancel, so forensic evidence is preserved even if Redis is lost. Must write per-slice CONSENSUS_* buckets (not just the unattributed sibling that `write_per_slice=False` writes).
-
-**Files to modify:**
-- `orchestrator/routes/pipelines/_routes_crud.py` — Call `_persist_phase_brc_history` (or a cancel-specific variant) in the cancel path, before any clearing.
-- `orchestrator/routes/pipelines/_brc_history.py` — Add a cancel-specific persistence function that writes per-slice CONSENSUS_* buckets. The existing `_persist_phase_brc_history` calls `_write_brc_history` with `write_per_slice=False` (line ~626 in the restart path); the cancel path needs `write_per_slice=True` or a dedicated function.
-
-**Tasks:**
-
-- **task-2-1:** Add a cancel-specific BRC history persistence function in `_brc_history.py`. This function should call `_write_brc_history` with `write_per_slice=True` for the implement phase, ensuring per-slice CONSENSUS_* buckets are written to disk. It should be best-effort (never block cancel).
+- **task-1-5:** Add a cancel-specific BRC history persistence function in `_brc_history.py`. This function should call `_write_brc_history` with `write_per_slice=True` for the implement phase, ensuring per-slice CONSENSUS_* buckets are written to disk. It should be best-effort (never block cancel).
   - **Acceptance:** On cancel, the in-flight slice's BRC history (including per-slice CONSENSUS_* buckets) is written to `.egg-state/brc-history/` on the integration branch.
   - **Files:** `orchestrator/routes/pipelines/_brc_history.py`
 
-- **task-2-2:** Wire the cancel-specific persistence into the cancel path in `_routes_crud.py`. Call the new function in the `if pipeline.status in (CANCELLED, FAILED)` block, before `_clear_pipeline_runtime_state` (which still runs for FAILED).
+- **task-1-6:** Wire the cancel-specific persistence into the cancel path in `_routes_crud.py`. Call the new function in the `if pipeline.status in (CANCELLED, FAILED)` block, before `_clear_pipeline_runtime_state` (which still runs for FAILED).
   - **Acceptance:** Cancel persists BRC history before any clearing; the in-flight slice's evidence survives to disk.
   - **Files:** `orchestrator/routes/pipelines/_routes_crud.py`
 
-- **task-2-3:** Add a test verifying that cancel persists per-slice BRC history. The test should set up a pipeline with an in-flight slice that has CONSENSUS_* messages, cancel it, and assert the per-slice BRC history file exists on disk.
-  - **Acceptance:** Test confirms cancel writes per-slice CONSENSUS_* buckets to `.egg-state/brc-history/`.
-  - **Files:** `orchestrator/tests/test_pipelines_api.py` (or a BRC history test file)
+- **task-1-7:** Update tests. Rewrite `test_cancel_clears_runtime_state` → `test_cancel_preserves_runtime_state` (assert cancel does NOT clear). Pin the create-path clear explicitly in `test_create_clears_runtime_state`. Add a NEW regression test: cancel → resume → simulated orchestrator restart → assert consensus state is NOT resurrected by `reconstruct_tracker_from_messages`. Add a test verifying that cancel persists per-slice BRC history.
+  - **Acceptance:** Test suite reflects the new contract: cancel preserves, create/delete still clear; new regression test covers the stale-state-replay hazard; cancel persists per-slice BRC history.
+  - **Files:** `orchestrator/tests/test_pipelines_api.py`
 
-- **task-2-4:** Green the boundary — `make lint + make test-all`.
-  - **Acceptance:** All tests pass.
+- **task-1-8:** Green the boundary — `make lint + make test-all`.
+  - **Acceptance:** All tests pass, no behavior change in the diff.
   - **Files:** (test files as needed)
 
 ## Slice dependency
 
-```
-slice-1 (Changes 1+2) ──► implement phase
-                         │
-slice-2 (Change 3) ──────┘
-```
-
-Slice 2 (Change 3) is independent and may land first. Slice 1 (Changes 1+2) is the core fix and must be one unit. Both land in the implement phase.
+Single slice — no inter-slice dependencies. Change 4 (per-slice tracker reconstruction) is deferred to a future pipeline.
 
 ## Test requirements (from cq-2 resolution, binding)
 
@@ -137,8 +115,8 @@ Slice 2 (Change 3) is independent and may land first. Slice 1 (Changes 1+2) is t
 # yaml-tasks
 slices:
   - id: 1
-    name: "Changes 1+2: Stop clearing runtime state on CANCELLED + namespace tracker+message stream by run_epoch"
-    goal: "Make cancel_task(cleanup=false) truly lossless for resume by (1) not clearing the consensus tracker and message store on CANCELLED, and (2) namespacing both by run_epoch so stale-state replay after resume→orchestrator restart is impossible by construction. Changes 1+2 ship together in one slice — landing 1 alone is strictly worse than today's behavior."
+    name: "Changes 1+2+3: Lossless cancel_task resume with run_epoch namespacing + BRC history persistence on cancel"
+    goal: "Make cancel_task(cleanup=false) truly lossless for resume by (1) not clearing the consensus tracker and message store on CANCELLED, (2) namespacing both by run_epoch so stale-state replay after resume→orchestrator restart is impossible by construction, and (3) persisting per-slice BRC history to disk on cancel so forensic evidence survives Redis loss. Changes 1+2 must ship together (stale-state replay hazard); Change 3 is folded in because it touches the same files (_routes_crud.py, _brc_history.py, test_pipelines_api.py) and the implement phase branches slices independently off the shared base, so overlapping file edits must be in one slice to avoid integration collisions (#3046)."
     dependencies: []
     tasks:
       - id: task-1-1
@@ -175,36 +153,22 @@ slices:
           - orchestrator/routes/pipelines/_lifecycle_helpers.py
           - orchestrator/routes/pipelines/_routes_crud.py
       - id: task-1-5
-        description: "Update tests. Rewrite test_cancel_clears_runtime_state → test_cancel_preserves_runtime_state (assert cancel does NOT clear). Pin the create-path clear explicitly in test_create_clears_runtime_state. Add a NEW regression test: cancel → resume → simulated orchestrator restart → assert consensus state is NOT resurrected by reconstruct_tracker_from_messages."
-        acceptance: "Test suite reflects the new contract: cancel preserves, create/delete still clear; new regression test covers the stale-state-replay hazard."
-        files:
-          - orchestrator/tests/test_pipelines_api.py
-      - id: task-1-6
-        description: "Green the boundary — make lint + make test-all."
-        acceptance: "All tests pass, no behavior change in the diff."
-        files: []
-  - id: 2
-    name: "Change 3: Persist BRC history on cancel with per-slice CONSENSUS_* buckets"
-    goal: "Make the in-flight slice's BRC history survive to disk on cancel, so forensic evidence is preserved even if Redis is lost. Must write per-slice CONSENSUS_* buckets (not just the unattributed sibling that write_per_slice=False writes). Independent of Changes 1+2 and may land first."
-    dependencies: []
-    tasks:
-      - id: task-2-1
         description: "Add a cancel-specific BRC history persistence function in _brc_history.py. This function should call _write_brc_history with write_per_slice=True for the implement phase, ensuring per-slice CONSENSUS_* buckets are written to disk. It should be best-effort (never block cancel)."
         acceptance: "On cancel, the in-flight slice's BRC history (including per-slice CONSENSUS_* buckets) is written to .egg-state/brc-history/ on the integration branch."
         files:
           - orchestrator/routes/pipelines/_brc_history.py
-      - id: task-2-2
+      - id: task-1-6
         description: "Wire the cancel-specific persistence into the cancel path in _routes_crud.py. Call the new function in the `if pipeline.status in (CANCELLED, FAILED)` block, before _clear_pipeline_runtime_state (which still runs for FAILED)."
         acceptance: "Cancel persists BRC history before any clearing; the in-flight slice's evidence survives to disk."
         files:
           - orchestrator/routes/pipelines/_routes_crud.py
-      - id: task-2-3
-        description: "Add a test verifying that cancel persists per-slice BRC history. The test should set up a pipeline with an in-flight slice that has CONSENSUS_* messages, cancel it, and assert the per-slice BRC history file exists on disk."
-        acceptance: "Test confirms cancel writes per-slice CONSENSUS_* buckets to .egg-state/brc-history/."
+      - id: task-1-7
+        description: "Update tests. Rewrite test_cancel_clears_runtime_state → test_cancel_preserves_runtime_state (assert cancel does NOT clear). Pin the create-path clear explicitly in test_create_clears_runtime_state. Add a NEW regression test: cancel → resume → simulated orchestrator restart → assert consensus state is NOT resurrected by reconstruct_tracker_from_messages. Add a test verifying that cancel persists per-slice BRC history."
+        acceptance: "Test suite reflects the new contract: cancel preserves, create/delete still clear; new regression test covers the stale-state-replay hazard; cancel persists per-slice BRC history."
         files:
           - orchestrator/tests/test_pipelines_api.py
-      - id: task-2-4
+      - id: task-1-8
         description: "Green the boundary — make lint + make test-all."
-        acceptance: "All tests pass."
+        acceptance: "All tests pass, no behavior change in the diff."
         files: []
 ```
