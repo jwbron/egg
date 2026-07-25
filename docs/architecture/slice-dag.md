@@ -558,17 +558,30 @@ shape:
        infra-signature-tagged reds inside check execution, #3417.
        **The gate can also write to the integration branch**: when every
        genuine red carries an optional `fix:` command in
-       `repositories.yaml` (e.g. `lint: {fix: make lint-fix}`), the
-       runner applies the fixes in its worktree and the orchestrator
+       `repositories.yaml` (e.g. `lint: {fix: make lint-fix}` — reds
+       tagged with an infra signature are excluded from "genuine" only
+       under the default `EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=on`;
+       set it `off` and every red must carry a fix that re-ran green),
+       the runner applies the fixes in its worktree and the orchestrator
        commits them as `egg-green-gate` and pushes to the integration
        branch via the launcher-authed gateway push route, #3409. This is
        the one place the orchestrator authors commits on a slice branch;
-       it fires only in `on` mode, and only when the runner proves the
-       exact tree `git add -u` will stage is green — one full re-run of
-       *every* configured check against the all-fixes-applied tree
-       (`final_verification.all_ok`) plus a no-new-untracked-files
-       check. Any failure to commit or push blocks the slice exactly
-       like an unfixed red) — calls
+       it fires only in `on` mode — which is the *default*, not an
+       opt-in: `EGG_SLICE_GREEN_GATE` is unset in the shipped
+       configuration and both an unset and an unrecognised value
+       resolve to `on`. It fires only when the runner proves the exact
+       tree `git add -u` will stage is green — one full re-run of
+       *every check the gate runs* against the all-fixes-applied tree
+       (`final_verification.all_ok`;
+       `EGG_SLICE_GREEN_GATE_SKIP_CHECKS` drops names before the
+       runner sees them, default `security`), plus a
+       no-new-*non-ignored*-untracked-files check
+       (`git ls-files --others --exclude-standard`, so gitignored
+       droppings don't count) over the runner's whole session rather
+       than the fix alone, plus at least one tracked modification for
+       `git add -u` to stage — the gate refuses when the re-runs went
+       green but staged nothing. Any failure to commit or push blocks
+       the slice exactly like an unfixed red) — calls
        `GatewayClient.create_slice_pr` with `base` resolved from the
        slice's DAG parent (root → latest completed chain tip, else the
        pipeline branch (#3541); child → parent's

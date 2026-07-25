@@ -77,19 +77,29 @@ readable_repos:
 #   - checks: List of check commands for the SDLC pipeline implement phase
 #     Each entry has "name" (display label), "command" (shell command) and
 #     an optional "fix" (single shell command string)
-#     These run sequentially during the checker step
+#     These run sequentially during the tester step
 #     "fix" auto-remediates that check at the per-slice green gate: when the
 #     gate finds the check red at the slice tip it runs the fix command and
 #     re-runs the check. It commits and pushes the result to the slice
 #     integration branch as the orchestrator only when ALL of the following
 #     hold (#3409): every *genuine* red check's fix turned it green (reds
-#     tagged with an infra signature are excluded first, #3417); a final
-#     full re-run of every check the gate runs against the all-fixes-applied
-#     tree is also green; that tree created no new non-ignored untracked
-#     files (the gate stages with "git add -u", which would silently drop
-#     them); the fix left at least one tracked file modified; and the gate
-#     is running under EGG_SLICE_GREEN_GATE=on. Under "log" mode the fix
-#     still runs as a soak signal but nothing is committed or pushed.
+#     tagged with an infra signature are excluded first under the default
+#     EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=on, #3417 — set it "off" and
+#     every red must carry a fix that re-ran green); a final full re-run of
+#     every check the gate runs against the all-fixes-applied tree is also
+#     green; the runner's tree gained no new non-ignored untracked files,
+#     from the fix or from the checks themselves (the baseline is taken
+#     before the first check runs; the gate stages with "git add -u", which
+#     would silently drop them); at least one tracked file in that tree is
+#     modified, so there is something to commit; and the gate is running in
+#     "on" mode.
+#     NOTE: "on" is the DEFAULT mode — no opt-in is required. Nothing in
+#     the shipped configuration sets EGG_SLICE_GREEN_GATE, and both an
+#     unset and an unrecognised value resolve to "on", so autofix commits
+#     and pushes to your slice integration branch unless you turn it down.
+#     Set EGG_SLICE_GREEN_GATE=log to keep the fix running as a soak signal
+#     while committing and pushing nothing, or "off" to stop the gate
+#     before it spawns the runner at all — under "off" the fix never runs.
 #     Only configure deterministic auto-remediations here, e.g.
 #     "make lint-fix" for a format/lint check. Checks without "fix", or
 #     whose re-run stays red, route red verdicts back to the slice team
