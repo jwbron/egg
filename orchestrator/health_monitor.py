@@ -181,17 +181,22 @@ class HealthMonitor:
         # anchor it reads is written after this instant, so an ``elapsed``
         # larger than the monitor's own age is necessarily corrupt (#3605).
         # Like every other ``now - last_*`` in this module this is wall-clock,
-        # not monotonic: a backward clock step (NTP correction, host suspend)
-        # shrinks ``monitor_age`` and would make ``_sanitize_elapsed``
-        # flag-and-clamp every anchor written *after* the step until the skew
-        # window passes (anchors written before it shrink by the same delta
-        # and stay unflagged). Forward steps do not defeat this guard —
-        # anchors and ``_created_at`` move together, so ``elapsed <=
-        # monitor_age`` survives — but they are not harmless: they inflate
-        # every ``elapsed`` by the step, so a role that heartbeated seconds
-        # ago can trip the timeout itself, and the guard cannot catch it
-        # precisely because ``monitor_age`` inflated too. Worth revisiting if
-        # this module ever moves to ``time.monotonic``.
+        # not monotonic. A backward clock step (NTP correction, host suspend)
+        # shrinks ``monitor_age``, but that alone does not break the guard's
+        # inequality: only a step larger than the monitor's own age pushes
+        # ``now`` behind ``_created_at``, collapsing ``monitor_age`` to 0.0
+        # and making ``_sanitize_elapsed`` flag-and-clamp every anchor
+        # written *after* the step until the skew window passes. A smaller
+        # step — an ordinary sub-second NTP correction — flags nothing at
+        # all, and anchors written before any backward step shrink by the
+        # same delta and stay unflagged either way. Forward steps do not
+        # defeat this guard either: ``now`` inflates ``elapsed`` and
+        # ``monitor_age`` by the same amount, so ``elapsed <= monitor_age``
+        # survives. They are not harmless, though — every ``elapsed`` grows
+        # by the step, so a role that heartbeated seconds ago can trip the
+        # timeout itself, and the guard cannot catch that precisely because
+        # ``monitor_age`` inflated too. Worth revisiting if this module ever
+        # moves to ``time.monotonic``.
         self._created_at: float = time.time()
 
         # Subscribe to events
