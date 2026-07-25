@@ -51,6 +51,61 @@ logger = get_logger("orchestrator.kubernetes_monitor")
 # those benign race windows do not trip a FAILED verdict. See #1760.
 POD_STARTUP_GRACE_SECONDS = 60
 
+# Minimum seconds between two detection-plane evaluations of the same pipeline
+# (#3596 task-1-1). ``_run_runtime_tick_checks`` fires from two threads — the
+# monitor loop (``check_interval``, 10s) via ``_check_pod`` and the
+# reconciliation thread (30s) via ``_reconciliation_sweep`` — and a pod-heavy
+# tick calls ``_check_pod`` once per transitioning pod. This window makes the
+# plane evaluate at most once per pipeline per monitor tick regardless of how
+# many call sites fire.
+DETECTION_PLANE_MIN_INTERVAL_SECONDS = 10.0
+
+# Kubernetes state vocabulary the detection plane's container-lifecycle
+# detectors match on (``health_checks/tier1/container_k8s.py``). The
+# orchestrator's own ``ContainerStatus`` enum uses different names, so
+# ``_check_pod`` translates before recording a transition.
+_K8S_STATE_BY_STATUS: dict[ContainerStatus, str] = {
+    ContainerStatus.PENDING: "Waiting",
+    ContainerStatus.CREATING: "Waiting",
+    ContainerStatus.RUNNING: "Running",
+    ContainerStatus.EXITED: "Terminated",
+    ContainerStatus.FAILED: "Terminated",
+    ContainerStatus.REMOVED: "Terminated",
+}
+
+# Exit codes that mean the container stopped on purpose rather than crashed.
+# 143 is SIGTERM — the orchestrator's own teardown path.
+_CLEAN_EXIT_CODES = (0, 143)
+# 137 is SIGKILL, which on Kubernetes is overwhelmingly an OOM kill.
+_OOM_EXIT_CODE = 137
+
+# Routine (non-adjudicated) detection-plane finding classes that carry a
+# deterministic corrective action, mapped to a member of ``CorrectiveExecutor``'s
+# closed vocabulary (``overseer/corrective.py``: nudge_agent / respawn_cohort /
+# open_operator_hitl).
+#
+# ``Finding.recommended_action`` is operator-facing prose, not a vocabulary
+# member, so it cannot be fed to the executor directly — this table is the
+# translation. It is deliberately short: a finding class absent from it is
+# emit-only (visible on the event bus, no automatic action). Per #2270 §2 the
+# plane's bias is silence over false positives, and an automatic respawn on a
+# shaky signal is the most expensive false positive available.
+#
+# The three entries and why they are safe:
+#   container_death       — a dead agent container is unambiguous and the cohort
+#                           respawn is the existing recovery for it.
+#   heartbeat_stall       — nudging a live-but-quiet agent is cheap and
+#                           idempotent; it cannot destroy work.
+#   container_oom_evicted — respawning would just OOM again on the same limits,
+#                           so this escalates to a human instead.
+# overseer_self_injection is intentionally absent: its own recommended_action
+# says not to respawn blindly, and there is no safe automatic alternative.
+ROUTINE_CORRECTIVE_ACTIONS: dict[str, str] = {
+    "container_death": "respawn_cohort",
+    "heartbeat_stall": "nudge_agent",
+    "container_oom_evicted": "open_operator_hitl",
+}
+
 
 class ContainerEvent:
     """Event representing a pod/container state change.
@@ -135,6 +190,20 @@ class KubernetesMonitor:
         self._driver_liveness_alerted: dict[str, float] = {}
         self._driver_liveness_realert_seconds: float = 3600.0
 
+        # #3596 task-1-1 per-tick detection-plane guard. Maps pipeline_id to the
+        # monotonic timestamp of its last plane evaluation. Guarded by its own
+        # lock because the two call sites run on different threads
+        # (``_monitor_loop`` and ``_reconciliation_thread``) and could otherwise
+        # evaluate the same pipeline concurrently.
+        self._detection_plane_last_eval: dict[str, float] = {}
+        # Per-pipeline CorrectiveExecutor, cached for the monitor's lifetime.
+        # The executor *is* the idempotency set + rate-limit window, so a
+        # per-tick instance would let the same action fire every tick forever.
+        # Shares _detection_plane_lock — both are detection-plane tick state and
+        # neither critical section does real work.
+        self._corrective_executors: dict[str, Any] = {}
+        self._detection_plane_lock = threading.Lock()
+
     def add_handler(self, handler: EventHandler) -> None:
         """Add an event handler.
 
@@ -189,6 +258,11 @@ class KubernetesMonitor:
                 return
             self._pod_states[pod_id] = new_status
 
+        # Retain the transition so the detection plane's container-lifecycle
+        # detectors have a from→to history to evaluate (#3596 task-1-3).
+        # Recorded outside the lock — the store has its own.
+        self._record_container_transition(pod_id, pod_info, old_status, new_status)
+
         # Emit events outside the lock to avoid deadlock with _emit_event
         if new_status == ContainerStatus.RUNNING:
             if old_status is None or old_status == ContainerStatus.PENDING:
@@ -217,6 +291,64 @@ class KubernetesMonitor:
 
         # Fire RUNTIME_TICK health checks on state transitions
         self._run_runtime_tick_checks()
+
+    @staticmethod
+    def _record_container_transition(
+        pod_id: str,
+        pod_info: ContainerInfo,
+        old_status: ContainerStatus | None,
+        new_status: ContainerStatus,
+    ) -> None:
+        """Retain one observed pod state change for the detection plane.
+
+        Translates the orchestrator's ``ContainerStatus`` into the Kubernetes
+        state/reason vocabulary the container-lifecycle detectors match on, and
+        appends it to the bounded :mod:`container_transitions` history.
+
+        Best-effort: any failure degrades to a debug log. Losing a transition
+        costs a detector one silent tick; raising here would break pod
+        reconciliation.
+        """
+        try:
+            import container_transitions
+
+            to_state = _K8S_STATE_BY_STATUS.get(new_status, "Waiting")
+            from_state = _K8S_STATE_BY_STATUS.get(old_status) if old_status else None
+            exit_code = pod_info.exit_code
+
+            reason = ""
+            transient = False
+            if to_state == "Terminated":
+                if exit_code == _OOM_EXIT_CODE:
+                    reason = "OOMKilled"
+                elif exit_code in _CLEAN_EXIT_CODES:
+                    # A deliberate stop, not a crash. Flagged transient so the
+                    # death/restart-loop detectors skip it — one-shot BRC agents
+                    # exit cleanly by design on every single event.
+                    reason = "Completed"
+                    transient = True
+                else:
+                    reason = "Error"
+            elif to_state == "Waiting" and new_status == ContainerStatus.PENDING:
+                reason = "ContainerCreating"
+
+            role = pod_info.agent_role
+            container_transitions.record_transition(
+                pod_id=pod_id,
+                pipeline_id=pod_info.pipeline_id,
+                role=str(role.value) if role is not None else None,
+                from_state=from_state,
+                to_state=to_state,
+                reason=reason,
+                exit_code=exit_code,
+                transient=transient,
+            )
+        except Exception as e:  # noqa: BLE001 — history must never break the monitor
+            logger.debug(
+                "Failed to record container transition",
+                pod_id=pod_id,
+                error=str(e),
+            )
 
     def _run_runtime_tick_checks(self) -> None:
         """Fire RUNTIME_TICK health checks on all running pipelines.
@@ -248,6 +380,7 @@ class KubernetesMonitor:
                         pipeline = store.load_pipeline(pid)
                         if pipeline.status.value != "running":
                             self._prune_driver_liveness_state(pid, runner)
+                            self._forget_detection_plane_state(pid)
                             continue
                         ctx = PipelineHealthContext(
                             pipeline=pipeline,
@@ -261,12 +394,12 @@ class KubernetesMonitor:
                         self._handle_driver_liveness_results(results, pipeline, store)
 
                         # Evaluate the deterministic detection plane (#2270,
-                        # #3596 task-1-1). The plane is wired here — once per
-                        # runtime tick — so all 27 registered detectors can fire
-                        # on live pipeline state. Idempotent: a single tick
-                        # evaluates the plane exactly once, regardless of which
-                        # call site (_check_pod vs _reconciliation_sweep)
-                        # triggered _run_runtime_tick_checks.
+                        # #3596 task-1-1) so all registered detectors fire on
+                        # live pipeline state. _run_detection_plane takes its
+                        # own cross-thread claim (see
+                        # _claim_detection_plane_tick) because this method runs
+                        # on BOTH the monitor thread (_check_pod, every state
+                        # change) and the reconciliation thread (every 30s).
                         self._run_detection_plane(ctx, pipeline, pid, runner)
                     except Exception as e:
                         logger.debug(
@@ -287,12 +420,17 @@ class KubernetesMonitor:
         """Evaluate the deterministic detection plane for a single pipeline.
 
         Builds an :class:`EventStreamSnapshot` from the health context and
-        runs every registered detector. Findings are emitted as
-        ``DETECTION_FINDING`` events on the event bus.
+        runs every registered detector. ``HealthCheckRunner.run_detection_plane``
+        emits each finding as a ``DETECTION_FINDING`` event — this method does
+        **not** emit a second time; it routes the findings to the §4 authority
+        plane (adjudicator for ``requires_adjudication``, ``CorrectiveExecutor``
+        for the routine classes carrying a deterministic action).
 
         Best-effort: any failure degrades to a debug log — the detection
         plane must never crash the runtime tick loop.
         """
+        if not self._claim_detection_plane_tick(pipeline_id):
+            return
         try:
             from health_checks.detection_plane import (
                 default_detection_plane,
@@ -302,31 +440,204 @@ class KubernetesMonitor:
             plane = default_detection_plane()
             snapshot = snapshot_from_health_context(ctx)
             findings = runner.run_detection_plane(snapshot, plane, pipeline_id=pipeline_id)
-
-            # Emit findings as DETECTION_FINDING events on the event bus.
-            # The runner's run_detection_plane may already emit (when using
-            # the real HealthCheckRunner), but we also emit here so that
-            # mocked runners in tests still produce events.
             if findings:
-                try:
-                    from events import EventType, get_event_bus
-
-                    bus = get_event_bus()
-                    if bus is not None:
-                        for finding in findings:
-                            event_type = getattr(
-                                EventType, "DETECTION_FINDING",
-                                EventType.HEALTH_CHECK_DEGRADED,
-                            )
-                            bus.emit(event_type, pipeline_id, finding.to_dict())
-                except Exception:  # noqa: BLE001 — best-effort emission
-                    pass
+                self._route_detection_findings(findings, pipeline, pipeline_id, snapshot)
         except Exception as e:  # noqa: BLE001 — never crash the tick loop
             logger.debug(
                 "Detection plane evaluation failed for pipeline",
                 pipeline_id=pipeline_id,
                 error=str(e),
             )
+
+    def _claim_detection_plane_tick(self, pipeline_id: str) -> bool:
+        """Claim the right to evaluate the plane for ``pipeline_id`` right now.
+
+        ``_run_runtime_tick_checks`` fires from two threads — ``_monitor_loop``
+        (every ``check_interval`` seconds, plus once per observed pod state
+        change) and ``_reconciliation_thread`` (every 30s) — so without a claim
+        the same pipeline is evaluated concurrently by both. Every detector is
+        pure over its snapshot, but the evaluation costs a dozen ``git``
+        subprocesses and, once routed, can spawn an adjudicator; doing it twice
+        for one logical tick doubles both.
+
+        The claim is a compare-and-set on a last-evaluation timestamp under
+        :attr:`_detection_plane_lock`, so the loser returns ``False`` rather
+        than blocking: at most one evaluation per pipeline per
+        :data:`DETECTION_PLANE_MIN_INTERVAL_SECONDS`, whichever thread gets
+        there first.
+
+        Returns:
+            ``True`` if the caller may evaluate, ``False`` if another call
+            already did within the interval.
+        """
+        now = time.time()
+        with self._detection_plane_lock:
+            last = self._detection_plane_last_eval.get(pipeline_id)
+            if last is not None and (now - last) < DETECTION_PLANE_MIN_INTERVAL_SECONDS:
+                return False
+            self._detection_plane_last_eval[pipeline_id] = now
+        return True
+
+    def _route_detection_findings(
+        self,
+        findings: list[Any],
+        pipeline: Any,
+        pipeline_id: str,
+        snapshot: Any,
+    ) -> None:
+        """Route detection-plane findings to the §4 authority plane (#2270).
+
+        Two disjoint paths, matching the design's cost discipline:
+
+        * ``requires_adjudication=True`` — escalated to an on-demand OVERSEER
+          adjudicator via ``_escalate_finding_to_adjudicator``. This is the only
+          path that spends an agent, and only the four ambiguous/high-stakes
+          detector classes set the flag.
+        * routine findings — mapped through :data:`ROUTINE_CORRECTIVE_ACTIONS`
+          to a member of the closed corrective vocabulary and dispatched through
+          the ``CorrectiveExecutor``, with **no LLM call**. A finding class
+          absent from the table is emit-only: ``Finding.recommended_action`` is
+          operator-facing prose, not a vocabulary member, so inferring an action
+          from it is not possible and guessing one would be exactly the
+          crying-wolf failure the plane exists to prevent (#2270 §2).
+
+        The executor is cached per pipeline for the monitor's lifetime so its
+        idempotency set and rate-limit window survive across ticks — a
+        per-tick executor would re-fire the same nudge every interval.
+        """
+        import routes.pipelines as pipelines_pkg
+
+        running_agent_count = len(getattr(snapshot, "running_agents", ()) or ())
+        phase = getattr(getattr(pipeline, "current_phase", None), "value", None)
+        issue_number = getattr(pipeline, "issue_number", None)
+
+        needs_adjudication: list[Any] = []
+        routine: list[tuple[Any, str]] = []
+        for finding in findings:
+            if getattr(finding, "requires_adjudication", False):
+                needs_adjudication.append(finding)
+                continue
+            action = ROUTINE_CORRECTIVE_ACTIONS.get(str(getattr(finding, "finding_class", "")))
+            if action:
+                routine.append((finding, action))
+
+        adjudicated: list[tuple[Any, Any]] = (
+            self._adjudicate_findings(needs_adjudication, pipeline, pipeline_id, issue_number)
+            if needs_adjudication
+            else []
+        )
+
+        if not adjudicated and not routine:
+            return
+
+        executor = self._get_corrective_executor(pipeline_id, issue_number)
+        try:
+            if adjudicated:
+                pipelines_pkg._execute_overseer_verdicts(
+                    adjudicated,
+                    pipeline_id=pipeline_id,
+                    issue_number=issue_number,
+                    running_agent_count=running_agent_count,
+                    phase=phase,
+                    executor=executor,
+                )
+            for finding, action in routine:
+                evidence = getattr(finding, "evidence", None) or {}
+                target_role = str(evidence.get("agent_role") or evidence.get("role") or "")
+                finding_class = str(getattr(finding, "finding_class", ""))
+                executor.execute(
+                    action,
+                    pipeline_id=pipeline_id,
+                    running_agent_count=running_agent_count,
+                    phase=phase,
+                    target_role=target_role,
+                    finding=finding,
+                    idempotency_key=f"{finding_class}:{target_role}",
+                )
+        except Exception as e:  # noqa: BLE001 — corrective execution is advisory
+            logger.warning(
+                "Detection-plane corrective execution failed",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+
+    @staticmethod
+    def _adjudicate_findings(
+        findings: list[Any],
+        pipeline: Any,
+        pipeline_id: str,
+        issue_number: int | None,
+    ) -> list[tuple[Any, Any]]:
+        """Escalate each finding to an on-demand adjudicator; keep real verdicts.
+
+        The gateway-mode lookup can cost a gateway round-trip, so it is resolved
+        lazily here — only once at least one finding actually needs an
+        adjudicator — rather than on every tick.
+        """
+        import routes.pipelines as pipelines_pkg
+
+        try:
+            gateway_mode, _visibility = pipelines_pkg._compute_gateway_mode(pipeline)
+            spawner = pipelines_pkg._get_spawner()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Could not prepare overseer adjudication",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+            return []
+
+        repos = getattr(pipeline, "repos", None)
+        results: list[tuple[Any, Any]] = []
+        for finding in findings:
+            try:
+                verdict = pipelines_pkg._escalate_finding_to_adjudicator(
+                    finding,
+                    spawner=spawner,
+                    pipeline_id=pipeline_id,
+                    issue_number=issue_number,
+                    gateway_mode=gateway_mode,
+                    pipeline_repos=list(repos) if repos else None,
+                )
+            except Exception as e:  # noqa: BLE001 — one bad finding must not
+                logger.warning(  # stop the rest from being adjudicated
+                    "Overseer adjudication failed for finding",
+                    pipeline_id=pipeline_id,
+                    finding_class=str(getattr(finding, "finding_class", "")),
+                    error=str(e),
+                )
+                continue
+            if verdict is not None:
+                results.append((finding, verdict))
+        return results
+
+    def _get_corrective_executor(self, pipeline_id: str, issue_number: int | None) -> Any:
+        """Return this pipeline's long-lived :class:`CorrectiveExecutor`.
+
+        Cached per pipeline because the executor *is* the idempotency and
+        rate-limit state — rebuilding it every tick would let the same
+        corrective action fire once per tick forever.
+        """
+        import routes.pipelines as pipelines_pkg
+
+        with self._detection_plane_lock:
+            executor = self._corrective_executors.get(pipeline_id)
+            if executor is None:
+                executor = pipelines_pkg._build_overseer_corrective_executor(
+                    issue_number=issue_number
+                )
+                self._corrective_executors[pipeline_id] = executor
+            return executor
+
+    def _forget_detection_plane_state(self, pipeline_id: str) -> None:
+        """Drop retained detection-plane state for a pipeline that stopped.
+
+        Both dicts are keyed by pipeline id and would otherwise grow for the
+        orchestrator's lifetime.
+        """
+        with self._detection_plane_lock:
+            self._detection_plane_last_eval.pop(pipeline_id, None)
+            self._corrective_executors.pop(pipeline_id, None)
 
     def _check_all_pods(self) -> None:
         """Check all orchestrator-managed pods."""

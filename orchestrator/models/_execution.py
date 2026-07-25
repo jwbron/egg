@@ -70,6 +70,15 @@ class ContainerInfo(BaseModel):
     pod_name: str | None = Field(default=None, description="Kubernetes pod name")
     namespace: str | None = Field(default=None, description="Kubernetes namespace")
     job_name: str | None = Field(default=None, description="Kubernetes Job name")
+    pipeline_id: str | None = Field(
+        default=None,
+        description=(
+            "Owning pipeline, read from the pod's egg.pipeline.id label. Populated "
+            "by KubernetesClient.list_containers; None on paths that do not read "
+            "pod labels. Lets consumers attribute a pod to a pipeline without "
+            "parsing the Job name."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod

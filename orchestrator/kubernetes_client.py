@@ -604,6 +604,7 @@ class KubernetesClient:
                         pod_name=pod.metadata.name,
                         namespace=self.namespace,
                         job_name=job_name,
+                        pipeline_id=pod_labels.get(LABEL_PIPELINE_ID),
                     )
                 )
 

@@ -797,7 +797,10 @@ _prev_commit_counts_cache: dict[str, dict[str, int]] = {}
 
 
 def _build_git_state(
-    context: Any, pipeline: Any, phase_value: str, cid_to_role: dict[str, str],
+    context: Any,
+    pipeline: Any,
+    phase_value: str,
+    cid_to_role: dict[str, str],
     pipeline_id: str = "",
 ) -> dict[str, Any]:
     """Populate ``git_state`` with commit counts and branch info.
@@ -817,7 +820,9 @@ def _build_git_state(
         agent_commit_counts: dict[str, int] = {}
         agent_last_commit_age_s: dict[str, float] = {}
         for _cid, role in cid_to_role.items():
-            count, last_commit_ts = _count_commits_and_last_age(repo_path, pipeline, phase_value, role)
+            count, last_commit_ts = _count_commits_and_last_age(
+                repo_path, pipeline, phase_value, role
+            )
             if count is not None:
                 agent_commit_counts[role] = count
             if last_commit_ts is not None:
@@ -895,9 +900,7 @@ def _count_commits_and_last_age(
     return None, None
 
 
-def _resolve_agent_worktree(
-    repo_path: Any, pipeline: Any, phase_value: str, role: str
-) -> Any:
+def _resolve_agent_worktree(repo_path: Any, pipeline: Any, phase_value: str, role: str) -> Any:
     """Resolve the worktree path for a specific agent role.
 
     Under orchestrator-owned spawning, each agent gets a worktree under
@@ -951,9 +954,7 @@ def _resolve_base_ref(pipeline: Any, worktree_path: Any) -> str:
     return "origin/main"
 
 
-def _query_branch_git_state(
-    repo_path: Any, pipeline: Any, phase_value: str
-) -> dict[str, Any]:
+def _query_branch_git_state(repo_path: Any, pipeline: Any, phase_value: str) -> dict[str, Any]:
     """Query branch-level git state for divergence/corruption detectors."""
     try:
         import subprocess
@@ -1030,21 +1031,28 @@ def _query_branch_git_state(
 
 
 def _build_container_transitions(pipeline_id: str) -> tuple[dict[str, Any], ...]:
-    """Populate ``container_transitions`` from kubernetes_monitor's event history.
+    """Populate ``container_transitions`` from the retained transition history.
 
     Returns a tuple of transition dicts:
-    ``{container, role, from, to, reason, exit_code, restart_count, transient, timestamp}``
+    ``{pod, pipeline_id, container, role, from, to, reason, exit_code,
+    restart_count, recovered, transient, timestamp}``
 
-    NOTE: The kubernetes_monitor currently tracks only the *current* pod state
-    (``_pod_states``), not a transition history. The container death / restart-loop
-    detectors require a history of from→to transitions to function. Until the
-    monitor is enhanced to track transitions, this returns an empty tuple — the
-    detectors degrade gracefully to "no finding" rather than crashing.
+    ``KubernetesMonitor`` keeps only the *current* pod state in ``_pod_states``,
+    so the from→to history the container-lifecycle detectors need is retained
+    separately by :mod:`container_transitions`, which ``_check_pod`` appends to
+    on every observed state change (#3596 task-1-3).
+
+    Best-effort: if the store is unavailable the detectors degrade to "no
+    finding" on an empty tuple rather than crashing the snapshot build. Note
+    that an orchestrator restart empties the history, so the lifecycle detectors
+    stay silent until new transitions accumulate — the intended bias (#2270 §2).
     """
-    # The kubernetes_monitor does not currently maintain a transition history.
-    # Returning () is the correct best-effort result: detectors that read
-    # container_transitions simply won't fire on this snapshot.
-    return ()
+    try:
+        import container_transitions
+
+        return container_transitions.transitions_for(pipeline_id)
+    except Exception:  # noqa: BLE001 — defensive
+        return ()
 
 
 def _build_decision_state(pipeline_id: str, pipeline: Any) -> dict[str, Any]:
@@ -1096,10 +1104,12 @@ def _build_decision_state(pipeline_id: str, pipeline: Any) -> dict[str, Any]:
                         age = now - float(resolved_at)
                     else:
                         age = 0.0
-                    approved_unapplied.append({
-                        "id": str(getattr(d, "id", "")),
-                        "age_s": age,
-                    })
+                    approved_unapplied.append(
+                        {
+                            "id": str(getattr(d, "id", "")),
+                            "age_s": age,
+                        }
+                    )
 
         return {
             "pending_hitl": len(pending_hitl) > 0,
@@ -1183,15 +1193,17 @@ def _build_midturn_messages(pipeline_id: str) -> tuple[dict[str, Any], ...]:
         )
         result: list[dict[str, Any]] = []
         for msg in messages:
-            result.append({
-                "from_role": msg.from_role,
-                "to_role": msg.to_role,
-                "message_type": msg.message_type,
-                "subject": msg.subject,
-                "body": msg.body,
-                "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
-                "phase": msg.phase,
-            })
+            result.append(
+                {
+                    "from_role": msg.from_role,
+                    "to_role": msg.to_role,
+                    "message_type": msg.message_type,
+                    "subject": msg.subject,
+                    "body": msg.body,
+                    "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
+                    "phase": msg.phase,
+                }
+            )
         return tuple(result)
     except Exception:  # noqa: BLE001 — defensive
         return ()
@@ -1200,10 +1212,10 @@ def _build_midturn_messages(pipeline_id: str) -> tuple[dict[str, Any], ...]:
 # Default expected phase durations (seconds) when no config is available.
 # Used by detect_duration_drift to compute drift_ratio.
 _DEFAULT_PHASE_DURATIONS_S: dict[str, float] = {
-    "refine": 600.0,       # 10 minutes
-    "plan": 900.0,         # 15 minutes
-    "apply": 300.0,        # 5 minutes
-    "implement": 3600.0,   # 1 hour
+    "refine": 600.0,  # 10 minutes
+    "plan": 900.0,  # 15 minutes
+    "apply": 300.0,  # 5 minutes
+    "implement": 3600.0,  # 1 hour
 }
 
 

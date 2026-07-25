@@ -127,6 +127,11 @@ class EventType(StrEnum):
     HEALTH_CHECK_COMPLETED = "system.health_check.completed"  # Per-check or aggregate
     HEALTH_CHECK_DEGRADED = "system.health_check.degraded"  # Check returned DEGRADED
     HEALTH_CHECK_FAILED = "system.health_check.failed"  # Check returned FAILED
+    # A deterministic detection-plane finding (#2270 slice-4, #3596 task-1-1).
+    # Emitted once per finding by HealthCheckRunner.run_detection_plane so SSE
+    # consumers can subscribe to detector output without having to filter
+    # health-check degradation events.
+    DETECTION_FINDING = "system.detection.finding"
     ERROR = "system.error"
 
 

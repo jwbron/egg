@@ -189,8 +189,7 @@ class HealthCheckRunner:
         try:
             from events import EventType
 
-            event_type = getattr(EventType, "DETECTION_FINDING", EventType.HEALTH_CHECK_DEGRADED)
-            bus.emit(event_type, pipeline_id, data=finding.to_dict())
+            bus.emit(EventType.DETECTION_FINDING, pipeline_id, data=finding.to_dict())
         except Exception as exc:  # noqa: BLE001
             logger.debug("Failed to emit detection finding event", error=str(exc))
 
