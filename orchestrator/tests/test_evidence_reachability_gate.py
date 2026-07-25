@@ -703,3 +703,55 @@ class TestEscalateEvidenceGateToHITL:
             )
         reloaded = load_contract(self.ESCALATION_PIPELINE_ID, tmp_path)
         assert len(reloaded.decisions) == 1
+
+    def test_a_failure_that_recurs_after_the_operator_answered_re_asks(
+        self, tmp_path: Path
+    ) -> None:
+        """Dedupe on retry, yes; suppression after an answer, no.
+
+        The #3427 guard has two halves. The open-question half (pinned
+        above) is right for this gate. The resolved-question half —
+        ``find_resolved_question``, built for the converge-before-advance
+        loop (#3392) — is not: nothing dispatches on the
+        ``[#3572 evidence-gate]`` marker, so resolving the Decision has
+        no mechanical effect, and a close that reds again after the
+        operator answered is a fresh physical event. Carrying the answer
+        forward would leave the phase FAILED with an empty
+        ``pending_decisions``, which is the shape this escalation exists
+        to close.
+        """
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract, IssueInfo
+        from egg_contracts.models import PipelinePhase as ContractPhase
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_evidence_gate_to_hitl
+
+        contract = Contract(
+            schemaVersion="1.2",
+            issue=IssueInfo(number=3572, title="#3572", url=""),
+            pipeline_id=self.ESCALATION_PIPELINE_ID,
+            current_phase=ContractPhase.IMPLEMENT,
+            slices=[],
+        )
+        save_contract(contract, tmp_path)
+        _escalate_evidence_gate_to_hitl(
+            pipeline_id=self.ESCALATION_PIPELINE_ID,
+            slice_id="slice-2",
+            failure="same deterministic failure text",
+            worktree_repo_path=tmp_path,
+            current_phase=PipelineModelsPhase.IMPLEMENT,
+        )
+        answered = load_contract(self.ESCALATION_PIPELINE_ID, tmp_path)
+        answered.decisions[0].resolved = True
+        answered.decisions[0].resolution = "Restart slice from scratch"
+        save_contract(answered, tmp_path)
+        _escalate_evidence_gate_to_hitl(
+            pipeline_id=self.ESCALATION_PIPELINE_ID,
+            slice_id="slice-2",
+            failure="same deterministic failure text",
+            worktree_repo_path=tmp_path,
+            current_phase=PipelineModelsPhase.IMPLEMENT,
+        )
+        reloaded = load_contract(self.ESCALATION_PIPELINE_ID, tmp_path)
+        assert len(reloaded.decisions) == 2
+        assert [d.resolved for d in reloaded.decisions] == [True, False]

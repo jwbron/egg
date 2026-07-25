@@ -892,8 +892,9 @@ class TestRunImplementPhaseSlices:
             "slice slice-1: green gate failed — configured checks are red at "
             "integration branch egg/issue-9999/slice-1 tip: test.\n\n"
             "[test] exit 2:\nFAILED tests/test_x.py::test_y\n\n"
-            "Fix the failures on egg/issue-9999/slice-1, then resolve the "
-            "green-gate decision this close raises on the contract; set "
+            "If this close raised a green-gate decision on the contract, "
+            "resolve it; otherwise fix the named checks at the "
+            "egg/issue-9999/slice-1 tip and restart the slice. Set "
             "EGG_SLICE_GREEN_GATE=off to bypass the gate entirely."
         )
 

@@ -2043,7 +2043,14 @@ class TestFailureHeadline:
         headline = sgg.failure_headline(_red_failure("FAILED tests/test_x.py::test_y"))
         assert SLICE_ID in headline
         assert INTEGRATION_BRANCH in headline
-        assert "test" in headline
+        # Anchor on the rendered ``failed_names`` position, not a bare
+        # ``test`` substring: that would also match a branch name or a
+        # check command mentioning tests, so it could not tell "the red
+        # check's name reached the headline" from "something else did".
+        assert "tip: test." in headline
+        # ...and the *green* check is not named, so the operator reading
+        # the headline knows which check to fix.
+        assert "lint" not in headline
 
     def test_headline_excludes_the_output_tails(
         self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
@@ -2187,6 +2194,66 @@ class TestEscalateGreenGateToHITL:
                 current_phase=PipelineModelsPhase.IMPLEMENT,
             )
         assert len(load_contract(ESCALATION_PIPELINE_ID, tmp_path).decisions) == 1
+
+    def test_a_red_that_recurs_after_the_operator_answered_re_asks(self, tmp_path: Path) -> None:
+        """The carry-forward half of #3427 must not apply to this gate.
+
+        The motivating scenario in ``_escalate_green_gate_to_hitl``'s
+        docstring is a gate-wiring red that recurs on every close. The
+        operator resolves ``cq-1``, restarts the phase, the slice
+        re-reaches consensus, and the close reds again with the same
+        deterministic headline. Resolving the Decision has no mechanical
+        effect today (nothing dispatches on the ``[#3398 green-gate]``
+        marker), so if ``find_resolved_question`` adopted the prior
+        answer the phase would go FAILED with an empty
+        ``pending_decisions`` — the exact pre-#3572 shape this
+        escalation closes. The operator must be asked again.
+        """
+        from egg_contracts.loader import load_contract, save_contract
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_green_gate_to_hitl
+
+        headline = "slice slice-2: green gate failed: test."
+        _blank_contract(tmp_path)
+        _escalate_green_gate_to_hitl(
+            pipeline_id=ESCALATION_PIPELINE_ID,
+            slice_id="slice-2",
+            failure_headline=headline,
+            worktree_repo_path=tmp_path,
+            current_phase=PipelineModelsPhase.IMPLEMENT,
+        )
+        # The operator answers cq-1 and restarts the phase.
+        contract = load_contract(ESCALATION_PIPELINE_ID, tmp_path)
+        assert len(contract.decisions) == 1
+        contract.decisions[0].resolved = True
+        contract.decisions[0].resolution = "Restart slice from scratch"
+        save_contract(contract, tmp_path)
+        # The restart hits the same red.
+        _escalate_green_gate_to_hitl(
+            pipeline_id=ESCALATION_PIPELINE_ID,
+            slice_id="slice-2",
+            failure_headline=headline,
+            worktree_repo_path=tmp_path,
+            current_phase=PipelineModelsPhase.IMPLEMENT,
+        )
+        reloaded = load_contract(ESCALATION_PIPELINE_ID, tmp_path)
+        assert len(reloaded.decisions) == 2, (
+            "a red recurring after the operator answered is a fresh physical "
+            "event, not a re-derivation of the answered one; carrying the "
+            "resolution forward leaves the phase FAILED with nothing on "
+            "pending_decisions"
+        )
+        assert [d.resolved for d in reloaded.decisions] == [True, False]
+        # And the second escalation still dedupes against its own open
+        # decision — re-opening must not become one-per-retry.
+        _escalate_green_gate_to_hitl(
+            pipeline_id=ESCALATION_PIPELINE_ID,
+            slice_id="slice-2",
+            failure_headline=headline,
+            worktree_repo_path=tmp_path,
+            current_phase=PipelineModelsPhase.IMPLEMENT,
+        )
+        assert len(load_contract(ESCALATION_PIPELINE_ID, tmp_path).decisions) == 2
 
     def test_varying_output_tails_would_defeat_the_dedupe(self, tmp_path: Path) -> None:
         """Negative control for the headline decision.

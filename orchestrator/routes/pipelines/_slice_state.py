@@ -734,6 +734,7 @@ def _escalate_layer_c_hitl(
     worktree_repo_path: _pkg.Path,
     current_phase: _pkg.PipelinePhase | None,
     question: str,
+    carry_forward: bool = True,
 ) -> None:
     """Create an HITL Decision on the contract for a Layer-C anomaly (slice-4 TASK-4-4).
 
@@ -775,6 +776,34 @@ def _escalate_layer_c_hitl(
     dispatch handler in
     ``routes/decisions.py`` can route on a stable discriminator if
     one is added in a follow-up.
+
+    **``carry_forward`` (default ``True``)** selects which half of the
+    #3427 guard applies. The open-question half
+    (``find_duplicate_open_question``) always applies: an operator who
+    has not answered yet must see one decision, not one per re-run. The
+    resolved-question half (``find_resolved_question``) is conditional,
+    because it encodes an execution model not every caller has.
+
+    ``find_resolved_question`` was built for the converge-before-advance
+    loop (#3392): a refine/plan agent re-registers a question that was
+    already answered, the answer is folded into the artifact, and
+    minting a fresh ``cq-N`` would keep the loop off its fixpoint.
+    Re-registration there is a *re-derivation* of one event, so adopting
+    the prior answer is idempotence.
+
+    The close-path gate escalations
+    (``_escalate_evidence_gate_to_hitl``, ``_escalate_green_gate_to_hitl``)
+    are not that shape and pass ``carry_forward=False``. Each of their
+    occurrences is a discrete physical event — a fresh close attempt,
+    after the operator already acted, where the world is demonstrably
+    still red. Resolving the Decision has no mechanical effect today
+    (nothing dispatches on the ``[#3572 evidence-gate]`` /
+    ``[#3398 green-gate]`` markers), so adopting the prior answer would
+    not be idempotence but suppression: the phase would go FAILED with
+    zero pending decisions on the contract, which is exactly the
+    pre-#3572 shape those escalations exist to close. Re-opening on
+    each fresh red re-asks the operator only when their previous answer
+    demonstrably did not take.
     """
     try:
         from egg_contracts.decisions import (
@@ -829,7 +858,16 @@ def _escalate_layer_c_hitl(
                     decision_id=getattr(duplicate, "id", None),
                 )
                 return
-            carried = find_resolved_question(existing_decisions, question, decision_phase)
+            # The carry-forward half is opt-out (see the docstring): a
+            # caller whose re-escalation is a fresh physical event rather
+            # than a re-derivation of the same one passes
+            # ``carry_forward=False``, so an answer that demonstrably did
+            # not take cannot silence the next occurrence.
+            carried = (
+                find_resolved_question(existing_decisions, question, decision_phase)
+                if carry_forward
+                else None
+            )
             if carried is not None:
                 _pkg.logger.info(
                     "Layer-C HITL escalation skipped: identical question "
@@ -983,14 +1021,24 @@ def _escalate_evidence_gate_to_hitl(
     the literal substring, mirroring the Layer-C case-4/case-5
     wrappers above. The text embeds the gate's failure summary (task
     ids + cited SHAs), which is deterministic per incident, so the
-    ``_escalate_layer_c_hitl`` dedupe/carry-forward guard (#3427)
-    holds across close retries and phase restarts.
+    ``_escalate_layer_c_hitl`` open-question dedupe (#3427) holds
+    across close retries and phase restarts: an operator who has not
+    answered yet sees one decision, not one per retry.
+
+    ``carry_forward=False`` opts out of the *resolved*-question half of
+    that guard. A red that recurs after the operator answered is a
+    fresh physical event, not a re-derivation — resolving the Decision
+    has no mechanical effect today, so carrying the answer forward
+    would leave the phase FAILED with nothing on ``pending_decisions``,
+    the pre-#3572 shape this escalation exists to close. See
+    ``_escalate_layer_c_hitl``'s docstring for the full argument.
     """
     _pkg._escalate_layer_c_hitl(
         pipeline_id=pipeline_id,
         slice_id=slice_id,
         worktree_repo_path=worktree_repo_path,
         current_phase=current_phase,
+        carry_forward=False,
         question=(
             f"[#3572 evidence-gate] Slice {slice_id} of pipeline "
             f"{pipeline_id} reached full consensus, but its close is "
@@ -1036,16 +1084,26 @@ def _escalate_green_gate_to_hitl(
     string: the headline is deterministic per incident (slice id +
     integration branch + red check names) while the blocks after it
     carry per-check output tails that vary between closes. The
-    ``_escalate_layer_c_hitl`` dedupe/carry-forward guard (#3427) matches
-    on question text, so embedding the tails would mint a fresh ``cq-N``
-    on every close retry and phase restart and re-ask the operator a
-    question they had already answered.
+    ``_escalate_layer_c_hitl`` open-question dedupe (#3427) matches on
+    question text, so embedding the tails would mint a fresh ``cq-N``
+    on every close retry within one unanswered incident and re-ask the
+    operator a question already sitting on the contract.
+
+    ``carry_forward=False`` opts out of the *resolved*-question half of
+    that guard, for the reason the evidence-gate wrapper above gives:
+    determinism must dedupe retries of one unanswered incident without
+    also silencing a red that recurs *after* the operator answered.
+    That second case is the motivating scenario in the paragraph above
+    — a gate-wiring red recurs on every close, and an operator whose
+    ``restart_phase`` hit the same red must get the question back
+    rather than a FAILED phase with an empty ``pending_decisions``.
     """
     _pkg._escalate_layer_c_hitl(
         pipeline_id=pipeline_id,
         slice_id=slice_id,
         worktree_repo_path=worktree_repo_path,
         current_phase=current_phase,
+        carry_forward=False,
         question=(
             f"[#3398 green-gate] Slice {slice_id} of pipeline "
             f"{pipeline_id} reached full consensus, but its close is "

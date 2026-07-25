@@ -531,7 +531,14 @@ def _slice_close_green_gate(
     try:
         import slice_green_gate as _green_gate
     except ImportError:
-        from ... import slice_green_gate as _green_gate  # type: ignore[no-redef]
+        # Absolute fallback, not a relative one. ``slice_green_gate``
+        # lives at ``orchestrator/slice_green_gate.py``, so from this
+        # package neither ``from ..`` (``routes.slice_green_gate``) nor
+        # ``from ...`` (beyond top-level under the deployed layout this
+        # module's own ``import routes.pipelines`` implies) names it.
+        # Mirrors the ``global_slice_admit`` pair in ``_run_implement.py``,
+        # the module this helper was extracted from.
+        from orchestrator import slice_green_gate as _green_gate  # type: ignore[no-redef]
 
     green_gate_failure = _green_gate.run_slice_green_gate(
         pipeline_id,

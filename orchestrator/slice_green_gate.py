@@ -1250,12 +1250,18 @@ def failure_headline(failure: str) -> str:
     two different strings.
 
     That distinction is load-bearing for the HITL escalation
-    (``_escalate_green_gate_to_hitl``): the #3427 dedupe/carry-forward
-    guard matches on question text, so a question built from the whole
-    failure string would mint a fresh ``cq-N`` on every close retry and
-    re-ask the operator a question they already answered. Escalation
-    callers embed *this* value; operators still get the tails through
-    the phase failure message and the runner logs.
+    (``_escalate_green_gate_to_hitl``): the #3427 open-question dedupe
+    matches on question text, so a question built from the whole failure
+    string would mint a fresh ``cq-N`` on every close retry and stack up
+    duplicates of a question already sitting unanswered on the contract.
+    Escalation callers embed *this* value; operators still get the tails
+    through the phase failure message and the runner logs.
+
+    Determinism here buys dedupe of retries within one *unanswered*
+    incident, and nothing more. A red that recurs after the operator
+    answered must still re-ask, so the escalation opts out of the
+    guard's resolved-question half (``carry_forward=False``) — see
+    ``_escalate_layer_c_hitl``'s docstring.
     """
     return failure.split(_FAILURE_BLOCK_SEPARATOR, 1)[0]
 
@@ -1613,10 +1619,20 @@ def run_slice_green_gate(
                     f"at integration branch {integration_branch} tip: {failed_names}."
                 ),
                 f"{_format_failed_checks(genuine_failed)}{autofix_note}",
+                # Conditional phrasing on the decision: raising it is the
+                # caller's job (``_slice_close_green_gate``), not this
+                # function's, and that escalation is best-effort on every
+                # axis — it no-ops when ``egg_contracts`` will not import,
+                # adopts an existing open decision instead of minting one,
+                # and swallows load/save failures into a warning. A public
+                # module-level function must not promise an artifact its
+                # caller may never have landed, so the message degrades
+                # honestly when there is no decision to find.
                 (
-                    f"Fix the failures on {integration_branch}, then resolve the "
-                    f"green-gate decision this close raises on the contract; "
-                    f"set {GREEN_GATE_ENV_VAR}=off to bypass the gate entirely."
+                    f"If this close raised a green-gate decision on the contract, "
+                    f"resolve it; otherwise fix the named checks at the "
+                    f"{integration_branch} tip and restart the slice. Set "
+                    f"{GREEN_GATE_ENV_VAR}=off to bypass the gate entirely."
                 ),
             )
         )
