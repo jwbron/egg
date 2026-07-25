@@ -179,3 +179,22 @@ Add a deterministic detector to the detection plane that fires when an agent has
 - **Git subprocess cost**: Counting commits and diffstat requires `git log` / `git diff` calls on the worktree. Mitigation: cap commit count at a reasonable number (e.g., 100), use `--oneline` format, run with a timeout.
 - **HealthMonitor coupling**: Reading from `HealthMonitor._last_heartbeat` requires importing the health monitor singleton. Mitigation: defensive imports with fallback to `None`.
 - **agent_log_store dependency**: Reading from Redis adds a dependency. Mitigation: best-effort, degrade to empty on failure.
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+Approved. The analysis is strong and its prior-art verification was independently spot-checked against the tree before approval. Four notes to carry into planning.
+
+1. GAP 5 IS CONFIRMED, AND IS WORSE THAN STATED. Verified independently: snapshot_from_health_context builds RunningAgent(role=..., state=..., lifecycle_owner=...) only, so last_tool_call_age_s and last_heartbeat_age_s stay None, and detect_heartbeat_stall (health_checks/tier1/consensus_stall.py:238-239) can never fire in production. Correct finding. There is a SECOND defect in those same three lines that the analysis did not flag: role=str(cid) populates the role field with a CONTAINER ID drawn from live_container_ids, not a role name. Any detector keying on role name is matching a UUID. Plan should audit the other tier-1 detectors for the same assumption and fix both defects together, since they share a construction site.
+
+2. PRIOR-ART VERIFICATION WAS CORRECT AND SHOULD BE TRUSTED. agent_log_store.py (#3547, closed) does provide Redis-backed pod-log retention at Job removal, and GET /pipelines/{id}/health/alerts does serve active alerts. Both were verified. Do NOT rebuild either. The operator's own earlier analysis wrongly claimed log retention was absent; the refiner's reading is the correct one.
+
+3. ONE GAP SURVIVES THAT THE ANALYSIS UNDERSTATES. Session TRANSCRIPTS (the Claude Code session JSONL, distinct from pod logs) are pushed to the session store only on event-pod EXIT. An agent that never exits therefore has no stored transcript at all, not merely a stale one. This is the specific gap that destroyed the decisive evidence in the incident that motivated this issue: a refiner wedged for 94 minutes never exited, so nothing was ever captured, and get_agent_transcript returned found:false for that role while its peers had transcripts. agent_log_store does not cover this because it captures at Job removal. Worth scoping explicitly rather than folding into item 4.
+
+4. SCOPE IS ACCEPTED AS PROPOSED. Six items, with the deferred design choices (commit counting scope, tool-call proxy, alert payload shape, log TTL configurability) correctly left to planning. When those come up, raise them as contract decisions rather than choosing silently; the operator will answer them.
+
+One constraint to preserve from the original brief: distinguish null from zero. A missing measurement must not render as a real zero. This bug class already exists in the tree (occ=0 reported where the contract expects None on LiteLLM routes) and is being tracked separately; do not add more of it. Any new progress field must be null when unmeasurable, never 0.
+
+Context: this analysis and its findings are recorded in issue #3595, which is the single source of truth for this run. Root cause 7 there is the dead-detector finding above.
