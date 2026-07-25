@@ -183,16 +183,22 @@ class HealthMonitor:
         # Like every other ``now - last_*`` in this module this is wall-clock,
         # not monotonic. A backward clock step (NTP correction, host suspend)
         # shrinks ``monitor_age``, but that alone does not break the guard's
-        # inequality: only a step larger than the monitor's own age pushes
-        # ``now`` behind ``_created_at``, collapsing ``monitor_age`` to 0.0
-        # and making ``_sanitize_elapsed`` flag-and-clamp every anchor
-        # written *after* the step until the skew window passes. A smaller
-        # step — an ordinary sub-second NTP correction — flags nothing at
-        # all, and anchors written before any backward step shrink by the
-        # same delta and stay unflagged either way. Forward steps do not
-        # defeat this guard either: ``now`` inflates ``elapsed`` and
-        # ``monitor_age`` by the same amount, so ``elapsed <= monitor_age``
-        # survives. They are not harmless, though — every ``elapsed`` grows
+        # inequality: only a step exceeding the monitor's own age *plus*
+        # ``_ELAPSED_SANITY_SLACK_SECONDS`` drags post-step anchors behind
+        # ``_created_at`` far enough to make ``_sanitize_elapsed``
+        # flag-and-clamp them. A smaller step — an ordinary sub-second NTP
+        # correction — flags nothing at all, and anchors written before any
+        # backward step shrink by the same delta and stay unflagged either
+        # way. Nor is such flagging self-limiting: once ``now`` climbs back
+        # past ``_created_at`` the condition reduces to ``anchor <
+        # _created_at - slack``, which no longer involves ``now``, so a
+        # ``_job_active_since`` anchor written inside the skew window keeps
+        # being flagged (and keeps bypassing the alive-signal gate) after
+        # the window closes — until the Job ends, the role heartbeats, or
+        # ``reset_agent`` drops it. Forward steps do not defeat this guard
+        # either: ``now`` inflates ``elapsed`` and ``monitor_age`` by the
+        # same amount, so ``elapsed <= monitor_age`` survives. They are not
+        # harmless, though — every ``elapsed`` grows
         # by the step, so a role that heartbeated seconds ago can trip the
         # timeout itself, and the guard cannot catch that precisely because
         # ``monitor_age`` inflated too. Worth revisiting if this module ever
@@ -855,9 +861,15 @@ class HealthMonitor:
             #
             # #3605: anchor those roles at the time their Job was first
             # observed active, NOT at 0.0; ``now - 0.0`` reported a Unix
-            # epoch timestamp as the elapsed stall time. ``setdefault``
-            # covers the case where the role entered ``_active_jobs`` on a
-            # path that never reached ``set_active_roles``.
+            # epoch timestamp as the elapsed stall time.
+            #
+            # ``set_active_roles`` is the sole writer of ``_active_jobs``, so
+            # it normally anchors every role reached here. ``setdefault``
+            # covers the gap ``reset_agent`` opens: it drops the anchor while
+            # deliberately leaving the role in ``_active_jobs``, so a poll
+            # landing before the next ``set_active_roles`` tick re-anchors at
+            # check time (≈ the restart) instead of raising ``KeyError`` or
+            # resurrecting the dead Job's clock.
             known_agent_ids = {a_id for a_id, _, _ in snapshot}
             for role in self._active_jobs:
                 if role not in known_agent_ids:
