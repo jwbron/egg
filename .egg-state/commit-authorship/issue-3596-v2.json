@@ -16,6 +16,14 @@
       "repo": null,
       "role": "architect"
     },
+    "3bf07c9eaac3c4c5a6d22675c7fcd9377f3d321c": {
+      "branch": "egg/issue-3596-v2/work",
+      "patch_id": "2d7b5166270a7e23ca6ff7fe9f705330544f8629",
+      "pipeline_id": "issue-3596-v2",
+      "registered_at": "2026-07-25T00:48:11.818578+00:00",
+      "repo": null,
+      "role": "risk_analyst"
+    },
     "3ce5ee246f4adc1249a0e388bd52b27390071415": {
       "branch": "egg/issue-3596-v2/work",
       "patch_id": "53fd908d734dc067a5a6bf283a8f58e2c71ab4f0",
