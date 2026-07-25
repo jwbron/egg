@@ -1,0 +1,116 @@
+{
+  "pipeline_id": "issue-3596-v2",
+  "producer": "risk_analyst",
+  "phase": "plan",
+  "summary_of_assessment": "The architect's plan for issue #3596 is well-structured and addresses the core visibility gaps. Six tasks across six slices, with clear dependencies. The plan correctly identifies that most infrastructure already exists but is not wired or surfaced. However, there are several risks that need mitigation, particularly around the detection plane wiring claim, the snapshot enrichment scope, and the consumption breaker's data source.",
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Detection plane wiring claim conflicts with operator's cq-1 resolution",
+      "severity": "HIGH",
+      "description": "The plan's task-1 says 'Wire detection plane into runtime tick' and describes the detectors as 'dormant because the plane is unwired.' However, the operator's cq-1 resolution states: 'The plane IS wired and IS evaluated in production... do NOT add a new tick or a new invocation path.' My code verification shows that _run_overseer_detection_plane is defined at orchestrator/routes/pipelines/_overseer.py:309 but is NEVER called from any production code path. Similarly, HealthCheckRunner.run_detection_plane() (runner.py:159) is never invoked from _run_runtime_tick_checks. The detection plane IS dormant — the plan's framing is correct, but it conflicts with the operator's resolution. This needs a HITL decision: either the plan is correct and the operator's resolution was wrong, or there's a wiring path I missed.",
+      "files_verified": [
+        "orchestrator/routes/pipelines/_overseer.py:309 (function defined, never called)",
+        "orchestrator/health_checks/runner.py:159 (method defined, never called)",
+        "orchestrator/kubernetes_monitor.py:221 (_run_runtime_tick_checks calls runner.run() but NOT runner.run_detection_plane())",
+        "orchestrator/routes/pipelines/__init__.py:1269 (import only, no call site)"
+      ],
+      "mitigation": "Raise as a contract decision (cq-2) before implementation. The plan should either: (a) proceed with wiring the detection plane into the runtime tick as task-1 describes, OR (b) if the operator's resolution is correct and there's a wiring path I missed, adjust task-1 to only enrich the snapshot builder."
+    },
+    {
+      "id": "R2",
+      "title": "role=str(cid) defect confirmed — container UUID in role field",
+      "severity": "HIGH",
+      "description": "The plan's task-1 correctly identifies the role=str(cid) defect. snapshot_from_health_context (detection_plane.py:536) builds RunningAgent(role=str(cid), ...) from live_container_ids, putting a container UUID in the role field. Any detector keying on role name (e.g., detect_container_death, detect_overseer_self_injection) is silently matching the wrong thing. This is confirmed by code reading.",
+      "files_verified": [
+        "orchestrator/health_checks/detection_plane.py:536 (RunningAgent construction with role=str(cid))",
+        "orchestrator/health_checks/tier1/container_k8s.py:108-111 (detect_container_death reads agent.role)",
+        "orchestrator/health_checks/tier1/container_k8s.py:174-175 (detect_overseer_self_injection reads agent.role)"
+      ],
+      "mitigation": "Fix in task-1 by mapping container IDs to agent roles via the pipeline's phase execution state (AgentExecution.container_id -> AgentExecution.role). The fix must be in the same change as the snapshot enrichment."
+    },
+    {
+      "id": "R3",
+      "title": "Snapshot builder doesn't populate 5 of 7 required fields",
+      "severity": "HIGH",
+      "description": "snapshot_from_health_context (detection_plane.py:511-546) only populates phase_state and running_agents. It does NOT populate: container_transitions, git_state, decision_state, cost_counters, gateway_error_counters, midturn_messages. The 25+ tier-1 detectors that read these fields are confirmed dead code in production. The plan correctly identifies this but the scope of enrichment is large — each field requires a different data source.",
+      "files_verified": [
+        "orchestrator/health_checks/detection_plane.py:511-546 (snapshot_from_health_context — only populates 2 of 10 fields)",
+        "orchestrator/health_checks/detection_plane.py:80-128 (EventStreamSnapshot with 10 fields, only 2 populated)",
+        "orchestrator/health_checks/tier1/container_k8s.py:67 (reads container_transitions)",
+        "orchestrator/health_checks/tier1/runtime_liveness.py:64 (reads container_transitions)",
+        "orchestrator/health_checks/tier1/cost_budget.py (reads cost_counters)",
+        "orchestrator/health_checks/tier1/gateway_health.py (reads gateway_error_counters)",
+        "orchestrator/health_checks/tier1/decision_queue.py (reads decision_state)"
+      ],
+      "mitigation": "Task-1 should be split into sub-tasks by data source: (1a) container_transitions from kubernetes_monitor, (1b) git_state from worktree, (1c) decision_state from contract, (1d) cost_counters from cost_callback, (1e) gateway_error_counters from gateway. Each should be best-effort with defensive fallbacks."
+    },
+    {
+      "id": "R4",
+      "title": "detect_heartbeat_stall is dead code — confirmed",
+      "severity": "HIGH",
+      "description": "detect_heartbeat_stall (health_checks/tier1/consensus_stall.py:238) reads last_tool_call_age_s and last_heartbeat_age_s from RunningAgent, but snapshot_from_health_context never populates them. The detector can never fire in production. This is the specific gap that destroyed the decisive evidence in the incident that motivated this issue (root cause 7 in #3595).",
+      "files_verified": [
+        "orchestrator/health_checks/tier1/consensus_stall.py:238-239 (detector reads last_tool_call_age_s, last_heartbeat_age_s)",
+        "orchestrator/health_checks/detection_plane.py:89-90 (RunningAgent fields exist but default to None)",
+        "orchestrator/health_checks/detection_plane.py:536 (snapshot builder doesn't populate them)"
+      ],
+      "mitigation": "Task-1 must populate these fields from HealthMonitor._last_heartbeat and the progress store. The HealthMonitor singleton tracks last_heartbeat per agent_id — this is the data source."
+    },
+    {
+      "id": "R5",
+      "title": "Plan claims '25+ dormant detectors' — count needs auditing",
+      "severity": "MEDIUM",
+      "description": "The plan and analysis claim 25+ tier-1 detectors are dormant. The operator's cq-1 resolution correctly asks for an audit of which detectors are actually starved. There are 17 files under health_checks/tier1/ but not all may be starved — some may read only fields that ARE populated (e.g., phase_state.status). The actual count of starved detectors determines the scope of task-1.",
+      "files_verified": [
+        "orchestrator/health_checks/tier1/ (17 files)",
+        "orchestrator/health_checks/detection_plane.py:410-500 (_register_coverage_gap_detectors registers 25 detectors)"
+      ],
+      "mitigation": "Before implementation, audit each of the 25 registered detectors: name the snapshot fields its predicate reads and state whether the builder populates them. This determines the actual scope of task-1's snapshot enrichment."
+    },
+    {
+      "id": "R6",
+      "title": "Consumption breaker (task-5) has no data source for cost_counters",
+      "severity": "MEDIUM",
+      "description": "The consumption breaker detector reads cost_counters from the snapshot, but snapshot_from_health_context does not populate cost_counters, and there is no mechanism to feed cost_callback data into the detection plane. The plan says 'Both metrics are already in every cost_callback log line' but cost_callback logs to stdout/logs, not to a queryable store. The snapshot builder would need to parse cost logs or query a cost store that may not exist.",
+      "files_verified": [
+        "orchestrator/health_checks/detection_plane.py:124 (cost_counters field, never populated)",
+        "orchestrator/cost_callback.py (logs to stdout, no queryable store)",
+        "orchestrator/health_checks/tier1/cost_budget.py (reads cost_counters from snapshot)"
+      ],
+      "mitigation": "Task-5 should be scoped to: (a) create a cost counter store that the cost_callback writes to, and (b) have the snapshot builder read from it. If no such store exists, task-5's data source is unimplemented and the task should be deferred or redesigned."
+    },
+    {
+      "id": "R7",
+      "title": "Peer-progress gate fix (task-3) is in the old HealthMonitor path",
+      "severity": "MEDIUM",
+      "description": "The peer-progress gate fix targets HealthMonitor._has_recent_peer_progress, which is the OLD overseer path. The new detection plane (detection_plane.py) is the intended replacement architecture (#2270 Option C). Fixing the old path may be wasted effort if the new path supersedes it. The plan should clarify whether HealthMonitor is still active or if the fix should go in the detection plane instead.",
+      "files_verified": [
+        "orchestrator/health_monitor.py:318-435 (_has_recent_peer_progress — old overseer path)",
+        "orchestrator/health_checks/detection_plane.py (new detection plane — intended replacement)",
+        "orchestrator/overseer/monitor/_poll.py:78-86 (overseer poll cycle uses alerts, not HealthMonitor directly)"
+      ],
+      "mitigation": "Clarify the architecture: is HealthMonitor still active, or has it been superseded by the detection plane? If the detection plane is the future, the peer-progress gate fix should be a detector in the detection plane, not a fix to HealthMonitor."
+    },
+    {
+      "id": "R8",
+      "title": "Session transcripts only pushed on exit — agent that never exits has no transcript",
+      "severity": "LOW",
+      "description": "The plan correctly identifies in its deferred list that session transcripts are pushed only on event-pod EXIT. An agent that never exits (e.g., wedged) has no stored transcript. agent_log_store captures at Job removal but does not cover this. This is the specific gap that destroyed decisive evidence in the motivating incident. It's correctly deferred but should be tracked as a separate follow-up issue.",
+      "files_verified": [
+        "orchestrator/agent_log_store.py (captures at Job removal, not at exit)",
+        "shared/egg_agent/session.py (pushes transcript on exit)",
+        "orchestrator/mcp_tools/_health.py:235 (_handle_get_agent_transcript reads from session-state store)"
+      ],
+      "mitigation": "Create a follow-up issue for periodic session-state push (e.g., every N minutes or every M tokens) so a wedged agent's transcript is preserved even if it never exits."
+    }
+  ],
+  "verdict": "PROCEED_WITH_MITIGATIONS",
+  "mitigations_required": [
+    "R1: Raise cq-2 to resolve the detection plane wiring conflict before implementation",
+    "R3: Split task-1 into sub-tasks by data source (container_transitions, git_state, decision_state, cost_counters, gateway_error_counters)",
+    "R5: Audit all 25 registered detectors to determine which are actually starved",
+    "R6: Verify cost_counters data source exists before implementing task-5",
+    "R7: Clarify whether HealthMonitor is still active or superseded by the detection plane"
+  ]
+}
