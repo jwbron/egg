@@ -822,22 +822,31 @@ re-derives `next-action` once before invoking the agent so a pod spawned
 against an event that another actor has already superseded falls through to
 a no-op rather than acting on stale state.
 
-**First-propose gate ([#3478](https://github.com/jwbron/egg/issues/3478)):**
-a dual-role producer builds on the artifacts of the producers it reviews.
-This is phase-agnostic — in the default implement graph it is the `tester`
-(producer of tests, reviewer of the `coder`); in the default plan graph it
-is the `risk_analyst` (producer of the risk register, reviewer of
-`architect` + `task_planner`). While every one of those upstream producers
-is still pre-first-propose (WORKING at proposal version 0), the derivation
-returns `wait` instead of `propose`; spawning at
-that state could only orient-and-exit, burning the #3425 no-op streak and
-parking the arm. The gate lifts on the upstream's first proposal (the next
-poll tick derives `propose`; the #2749 R11a propose-own-work-first ordering
-is unchanged from that point). Wake-only edges are exempt (the de-roled
-simplifier is deliberately woken by its own propose arm), and the gate only
-engages when at least one upstream producer is terminal (reviews no
-producers itself), so cyclic custom graphs cannot mutually `wait` into a
-deadlock. See `_pre_propose_upstream_producers` in
+**First-propose gate ([#3478](https://github.com/jwbron/egg/issues/3478),
+[#3603](https://github.com/jwbron/egg/issues/3603)):** a producer that sits
+downstream of another producer builds on that producer's artifact. This is
+phase-agnostic — in the default implement graph it is the `tester` (producer
+of tests, gated on the `coder`); in the default plan graph the `risk_analyst`
+(producer of the risk register, gated on `architect` + `task_planner`) and the
+`simplifier` (producer of the human companion, gated on `task_planner`); in
+the default refine graph the `simplifier` again (gated on the `refiner`).
+While every one of those upstream producers is still pre-first-propose
+(WORKING at proposal version 0), the derivation returns `wait` instead of
+`propose`; spawning at that state could only orient-and-exit, burning the
+#3425 no-op streak and parking the arm. The gate lifts on the upstream's
+first proposal (the next poll tick derives `propose`; the #2749 R11a
+propose-own-work-first ordering is unchanged from that point).
+
+The upstream set is every producer edge the role has, **including `wake_only`
+edges**: `wake_only` means "casts no verdict" (#3381), not "no dependency".
+#3478 originally exempted them, leaving the de-roled `simplifier` to poll —
+re-deriving `propose` every tick and orienting-and-exiting until the upstream
+draft appeared — which is exactly what the #3425 park counts; #3595 root cause
+2 reproduced the resulting mis-park 4/4 across the refine and plan phases,
+alerting `[high]` at the correctly-behaving agent. The gate only engages when
+at least one upstream producer is terminal (has no upstream producers itself),
+judged over that same edge set, so cyclic custom graphs cannot mutually `wait`
+into a deadlock. See `_pre_propose_upstream_producers` in
 `orchestrator/routes/consensus.py`.
 
 **No-op park release delta ([#3537](https://github.com/jwbron/egg/issues/3537)):**
