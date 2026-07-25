@@ -158,13 +158,25 @@ def is_agent_live(agent: object) -> bool:
 
 
 # Evidence keys that can name the subject of a finding, most specific first.
-# ``container`` is last because it is the only one the container-lifecycle
-# detectors populate — they observe a pod, and the pod's ``role`` label is
-# ``None`` whenever the transition was recorded before the role was known.
+#
+# ``container`` is last, and is the one key that is only *best-effort* a role:
+# the container-lifecycle detectors observe a pod, and
+# ``container_transitions.record_transition`` falls back to the pod id when the
+# pod's ``agent_role`` label was not yet known at transition time. A pod id
+# reaching ``CorrectiveExecutor`` as ``target_role`` would be interpolated into
+# ``POST /pipelines/<pid>/agents/<role>/restart``, i.e. a restart request
+# against a UUID — the same defect class task-1-9 removed from the snapshot
+# builder's ``role=str(cid)``. :func:`finding_target_role` therefore filters
+# this key against the caller-supplied set of real roles.
 TARGET_ROLE_EVIDENCE_KEYS = ("agent_role", "agent_id", "role", "container")
 
+# Keys in :data:`TARGET_ROLE_EVIDENCE_KEYS` whose value is an agent role by
+# construction — the detectors that set them read them off an ``AgentExecution``
+# or a role-keyed map, so no validation is warranted.
+_AUTHORITATIVE_TARGET_ROLE_KEYS = frozenset({"agent_role", "agent_id", "role"})
 
-def finding_target_role(finding: object) -> str:
+
+def finding_target_role(finding: object, known_roles: object = None) -> str:
     """Derive the agent/container a :class:`Finding` is about, or ``""``.
 
     Both authority-plane dispatch paths — the monitor's routine-corrective loop
@@ -178,15 +190,31 @@ def finding_target_role(finding: object) -> str:
     the key, so the derivation returned ``""`` — ``respawn_cohort`` was
     dispatched with no target, and the idempotency key collapsed to
     ``"container_death:"``, making every death after the first in a pipeline
-    look like a duplicate of whichever container died first (#3596 task-2-3).
+    look like a duplicate of whichever container died first (#3596 task-1-1).
+
+    Args:
+        finding: the :class:`Finding` to derive a target from.
+        known_roles: optional collection of the roles that exist for this
+            pipeline. When supplied, an ``evidence["container"]`` value outside
+            it is rejected rather than returned — it is a pod id, not a role,
+            and dispatching a restart at it would target a UUID. When omitted
+            the ``container`` fallback is returned unvalidated, which is the
+            right default for read-only callers (logging, idempotency keys)
+            that do not interpolate the value into a control-plane URL.
     """
     evidence = getattr(finding, "evidence", None) or {}
     if not isinstance(evidence, dict):
         return ""
+    roles = frozenset(str(r) for r in known_roles) if known_roles is not None else None
     for key in TARGET_ROLE_EVIDENCE_KEYS:
         value = evidence.get(key)
-        if value:
-            return str(value)
+        if not value:
+            continue
+        candidate = str(value)
+        if key not in _AUTHORITATIVE_TARGET_ROLE_KEYS and roles is not None:
+            if candidate not in roles:
+                continue
+        return candidate
     return ""
 
 

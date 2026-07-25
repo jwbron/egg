@@ -536,6 +536,15 @@ class KubernetesMonitor:
         running_agent_count = detection_plane.live_agent_count(snapshot)
         phase = getattr(getattr(pipeline, "current_phase", None), "value", None)
         issue_number = getattr(pipeline, "issue_number", None)
+        # Roles that actually exist for this pipeline, used to reject a pod id
+        # masquerading as a target role (see ``finding_target_role``).
+        # ``running_agents`` carries both live and recently-exited agents, so it
+        # is the widest in-hand set — and a role absent from it cannot be
+        # respawned by role name anyway.
+        known_roles = {
+            str(getattr(a, "role", "") or "") for a in getattr(snapshot, "running_agents", ())
+        }
+        known_roles.discard("")
 
         needs_adjudication: list[Any] = []
         routine: list[tuple[Any, str]] = []
@@ -568,7 +577,7 @@ class KubernetesMonitor:
                     executor=executor,
                 )
             for finding, action in routine:
-                target_role = types.finding_target_role(finding)
+                target_role = types.finding_target_role(finding, known_roles)
                 finding_class = str(getattr(finding, "finding_class", ""))
                 executor.execute(
                     action,
@@ -586,22 +595,32 @@ class KubernetesMonitor:
                 error=str(e),
             )
 
+    @staticmethod
+    def _adjudication_key(pipeline_id: str, finding: Any) -> tuple[str, str, str]:
+        """The ``(pipeline, finding_class, target)`` triple a claim is keyed by."""
+        from health_checks.types import finding_target_role
+
+        return (
+            pipeline_id,
+            str(getattr(finding, "finding_class", "") or ""),
+            finding_target_role(finding),
+        )
+
     def _claim_adjudication(self, pipeline_id: str, finding: Any) -> bool:
-        """Whether this finding may spawn an adjudicator now (#3596 task-2-2).
+        """Whether this finding may spawn an adjudicator now (#3596 task-1-1).
 
         Compare-and-set on a per-``(pipeline, finding_class, target)`` monotonic
         timestamp, mirroring :meth:`_claim_detection_plane_tick`. The routine
         corrective path is deduplicated by ``CorrectiveExecutor``'s idempotency
         set; the adjudication path has no equivalent, so an unchanging condition
         would spawn an agent every tick for as long as it holds.
-        """
-        from health_checks.types import finding_target_role
 
-        key = (
-            pipeline_id,
-            str(getattr(finding, "finding_class", "") or ""),
-            finding_target_role(finding),
-        )
+        A claim is a *reservation*, not a record of a spawn: the caller must
+        :meth:`_release_adjudication` it on any path that does not actually
+        reach a verdict, or a single transient gateway failure silences that
+        triple for the whole cooldown with no retry.
+        """
+        key = self._adjudication_key(pipeline_id, finding)
         now = time.monotonic()
         with self._detection_plane_lock:
             last = self._adjudication_last_spawn.get(key)
@@ -609,6 +628,18 @@ class KubernetesMonitor:
                 return False
             self._adjudication_last_spawn[key] = now
         return True
+
+    def _release_adjudication(self, pipeline_id: str, finding: Any) -> None:
+        """Undo a claim that did not result in an adjudicator verdict.
+
+        The cooldown exists to bound *spawns*, so a claim that never became one
+        must not be spent: gateway/spawner preparation failures, an escalation
+        that raised, and a ``None`` verdict all leave the condition unexamined
+        and should be retried on the next tick.
+        """
+        key = self._adjudication_key(pipeline_id, finding)
+        with self._detection_plane_lock:
+            self._adjudication_last_spawn.pop(key, None)
 
     def _adjudicate_findings(
         self,
@@ -622,6 +653,12 @@ class KubernetesMonitor:
         Findings inside their per-triple cooldown window are dropped before any
         gateway or spawner work happens, so a persistent condition costs nothing
         beyond the detector run that produced it.
+
+        Every path that does *not* produce a verdict releases the claim it took,
+        so the cooldown only ever counts adjudicators that actually ran. Without
+        that, one transient gateway round-trip failure would silence the triple
+        for ``ADJUDICATION_COOLDOWN_SECONDS`` with no retry — the opposite of
+        task-1-1's "route findings to the adjudicator" requirement.
 
         The gateway-mode lookup can cost a gateway round-trip, so it is resolved
         lazily here — only once at least one finding actually needs an
@@ -637,6 +674,8 @@ class KubernetesMonitor:
             gateway_mode, _visibility = pipelines_pkg._compute_gateway_mode(pipeline)
             spawner = pipelines_pkg._get_spawner()
         except Exception as e:  # noqa: BLE001
+            for finding in eligible:
+                self._release_adjudication(pipeline_id, finding)
             logger.warning(
                 "Could not prepare overseer adjudication",
                 pipeline_id=pipeline_id,
@@ -657,6 +696,7 @@ class KubernetesMonitor:
                     pipeline_repos=list(repos) if repos else None,
                 )
             except Exception as e:  # noqa: BLE001 — one bad finding must not
+                self._release_adjudication(pipeline_id, finding)
                 logger.warning(  # stop the rest from being adjudicated
                     "Overseer adjudication failed for finding",
                     pipeline_id=pipeline_id,
@@ -664,8 +704,12 @@ class KubernetesMonitor:
                     error=str(e),
                 )
                 continue
-            if verdict is not None:
-                results.append((finding, verdict))
+            if verdict is None:
+                # No verdict means no adjudicator opinion was recorded; do not
+                # spend the cooldown on it.
+                self._release_adjudication(pipeline_id, finding)
+                continue
+            results.append((finding, verdict))
         return results
 
     def _get_corrective_executor(self, pipeline_id: str, issue_number: int | None) -> Any:
