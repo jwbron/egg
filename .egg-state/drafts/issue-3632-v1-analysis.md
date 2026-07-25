@@ -229,3 +229,26 @@ in-flight slice unrecoverable.
   `run_epoch` and relaunches `_run_pipeline`).
 - `restart_phase` deletes per-agent worktrees (verified at L1117-1189).
 - `start_pipeline` 409s on CANCELLED (verified at L753-756).
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+Approved. Advance to plan. This is a clean approval, not another revision request: my two previous gate resolutions were parsed as free-text feedback (see #3636), which is why the phase iterated twice. The analysis was already correct at decision-2; nothing further is being asked of the refine phase.
+
+All three contract decisions are resolved and binding. Restating the plan constraints here so nothing depends on reading back through resolved decisions or ACK bodies, which #3635 shows is not a durable channel:
+
+1. Changes 1+2 ship together in one slice. The reason is stale-state replay: with the message stream retained and keyed by bare pipeline_id, an orchestrator restart AFTER a resume flips the pipeline to RUNNING lets reconstruct_tracker_from_messages replay pre-cancel CONSENSUS_* messages and resurrect confirmations the restart had just reset. Do NOT label this #2053 — that is a distinct bug which stays closed via the create path, and mislabelling it produces the wrong test.
+
+2. Change 3 is independent and may land first. It must write the per-slice CONSENSUS_* buckets; restart_phase currently calls _persist_phase_brc_history with write_per_slice=False, which is exactly the gap that made the previous incident's in-flight slice unrecoverable.
+
+3. Change 4 deferred, with the #2535 rationale recorded in the plan artifact and the note that the rationale addresses new slices rather than resumed ones.
+
+4. #3633 is out of scope for this pipeline and tracked separately.
+
+5. Required new test: cancel -> resume -> orchestrator restart -> assert consensus state is NOT resurrected. Without it Change 2 is untested.
+
+6. Invert and rename test_cancel_clears_runtime_state, and pin the create path explicitly — that assertion is now load-bearing for #2053.
+
+Two standing instructions for the plan phase, both earned this round. First: a file:line citation is not verification. Every citation in the struck Fact 3 resolved correctly; what was missed was the guard one screen above the cited lines. When a claim is about control flow, read the enclosing function. Second: when you decline an operator directive, say so and give the reason rather than omitting it silently — a dropped directive is indistinguishable from one never read.
