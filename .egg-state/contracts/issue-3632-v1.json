@@ -10,9 +10,87 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "Should the refiner raise a HITL decision on the critical safety finding that start_pipeline does NOT bump run_epoch on CANCELLED recovery (only on FAILED), meaning Change 1 alone would reintroduce #2053?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 raise as HITL decision, require operator sign-off before implementing Change 1 without Change 2",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No \u2014 document in proposal, let implementer handle",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer to plan phase",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-07-25T23:25:40.359345Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "Should the refiner raise a HITL decision on the critical safety finding that start_pipeline does NOT bump run_epoch on CANCELLED recovery (only on FAILED), meaning Change 1 alone would reintroduce #2053?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 raise as HITL decision, require operator sign-off before implementing Change 1 without Change 2",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No \u2014 document in proposal, let implementer handle",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer to plan phase",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the refiner raise a HITL decision on the cr...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
