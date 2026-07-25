@@ -9,7 +9,561 @@
   "pipeline_id": "issue-3596-v2",
   "current_phase": "plan",
   "acceptance_criteria": [],
-  "slices": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Wire detection plane into runtime tick + enrich snapshot builder",
+      "goal": "Foundation slice: wire the detection plane into _run_runtime_tick_checks (1a),\nthen enrich snapshot_from_health_context with all data sources the 27\nstarved detectors need. This is the critical foundation \u2014 without it, no\nother detector can fire.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Wire the detection plane into the runtime tick. Call\nHealthCheckRunner.run_detection_plane() from\n_run_runtime_tick_checks in kubernetes_monitor.py. The detection plane\n(DetectionPlane.default()) has 27 registered detectors but is never\ninvoked in production. Guard against double-evaluation since\n_run_runtime_tick_checks fires from two call sites (_check_pod on\ncontainer transitions + _reconciliation_sweep on periodic interval).\nMake evaluation idempotent per tick.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- run_detection_plane() is called from _run_runtime_tick_checks for running pipelines\n- Evaluation is idempotent per tick (no double-evaluation from two call sites)\n- Findings are emitted on the EventBus as DETECTION_FINDING events\n- Findings with requires_adjudication=True are routed to _escalate_finding_to_adjudicator\n- Routine findings (requires_adjudication=False) are executed by CorrectiveExecutor\n- Test: detection plane runs on RUNTIME_TICK and emits findings",
+          "files_affected": [
+            "orchestrator/kubernetes_monitor.py",
+            "orchestrator/health_checks/runner.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-2",
+          "description": "Test for detection plane wiring into runtime tick.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Test verifies run_detection_plane() is called from _run_runtime_tick_checks\n- Test verifies findings are emitted as DETECTION_FINDING events\n- Test verifies idempotent evaluation (no double-firing from two call sites)",
+          "files_affected": [
+            "orchestrator/tests/test_detection_plane_runtime_wiring.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-3",
+          "description": "Populate container_transitions in snapshot_from_health_context. Enrich\nto populate container_transitions from kubernetes_monitor's container\nevent history. Each transition: {container, role, from, to, reason,\nexit_code, restart_count, transient, timestamp}. Best-effort: failures\ndegrade to empty tuple, never crash.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- container_transitions populated with transition events from kubernetes_monitor\n- Each transition has: container, role, from, to, reason, exit_code, restart_count\n- Best-effort: failures degrade to empty tuple, never crash\n- Test: detect_container_death receives populated container_transitions",
+          "files_affected": [
+            "orchestrator/health_checks/detection_plane.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-4",
+          "description": "Test for container_transitions population in snapshot builder.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Test verifies container_transitions are populated from kubernetes_monitor\n- Test verifies detect_container_death receives populated transitions\n- Test verifies best-effort degradation on failure",
+          "files_affected": [
+            "orchestrator/tests/test_detection_plane_container_transitions.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-5",
+          "description": "Populate git_state in snapshot_from_health_context. Enrich to populate\ngit_state with: commit_count (git rev-list --count), last_commit_at\n(git log -1 --format=%aI), last_commit_sha, patch_id_matches, branch,\nis_ancestor_of_base, pr_head_sha, last_pushed_sha, pushed_age_s,\npr_externally_mutated, fsck_errors, index_lock_present, lock_age_s.\nBest-effort: git failures degrade to empty dict, never crash.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- git_state populated with commit_count, last_commit_at, last_commit_sha, branch\n- git_state populated with patch_id_matches, is_ancestor_of_base for divergence detection\n- git_state populated with fsck_errors, index_lock_present, lock_age_s for corruption detection\n- Best-effort: git failures degrade to empty dict, never crash\n- Test: detect_worktree_corruption and detect_pushed_pr_not_updated receive populated git_state",
+          "files_affected": [
+            "orchestrator/health_checks/detection_plane.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-6",
+          "description": "Test for git_state population in snapshot builder.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Test verifies git_state is populated with commit_count, last_commit_at, branch\n- Test verifies detect_worktree_corruption and detect_pushed_pr_not_updated receive populated git_state\n- Test verifies best-effort degradation on git failure",
+          "files_affected": [
+            "orchestrator/tests/test_detection_plane_git_state.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-7",
+          "description": "Populate decision_state in snapshot_from_health_context. Enrich to\npopulate decision_state with: pending_hitl, open_decisions,\napproved_unapplied, oldest_open_age_s, replay_pending, replay_count,\nreplayed_resolved_id, auto_advance_pending, auto_advance_age_s.\nData source: contract store + decision queue.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- decision_state populated with pending_hitl, open_decisions from contract\n- decision_state populated with approved_unapplied, oldest_open_age_s from decision queue\n- decision_state populated with replay_pending, replay_count from session state\n- Test: detect_approved_decision_orphaned and detect_hitl_queue_backlog receive populated decision_state",
+          "files_affected": [
+            "orchestrator/health_checks/detection_plane.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-8",
+          "description": "Test for decision_state population in snapshot builder.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Test verifies decision_state is populated from contract + decision queue\n- Test verifies detect_approved_decision_orphaned and detect_hitl_queue_backlog receive populated decision_state",
+          "files_affected": [
+            "orchestrator/tests/test_detection_plane_decision_state.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-9",
+          "description": "Populate RunningAgent liveness fields + fix role=str(cid) defect in\nsnapshot_from_health_context. Populate last_tool_call_age_s (from\nworking_heartbeat emitter or agent session), last_heartbeat_age_s (from\nHealthMonitor._last_heartbeat), exit_code, exit_reason (from container\nexit info). CRITICAL FIX: role=str(cid) currently puts a container UUID\nin the role field \u2014 map container IDs to agent roles via the pipeline's\nphase execution state (AgentExecution.container_id -> AgentExecution.role).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- RunningAgent.role is populated with the agent role name, not a container UUID\n- RunningAgent.last_heartbeat_age_s populated from HealthMonitor._last_heartbeat\n- RunningAgent.last_tool_call_age_s populated from working_heartbeat or agent session\n- RunningAgent.exit_code and exit_reason populated from container exit info\n- Test: detect_heartbeat_stall can fire when both age fields are stale\n- Test: detect_container_death reads correct role names, not container UUIDs",
+          "files_affected": [
+            "orchestrator/health_checks/detection_plane.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-10",
+          "description": "Test for RunningAgent liveness fields + role=str(cid) fix in snapshot builder.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Test verifies RunningAgent.role is populated with agent role name, not container UUID\n- Test verifies last_heartbeat_age_s and last_tool_call_age_s are populated\n- Test verifies detect_heartbeat_stall can fire when both age fields are stale\n- Test verifies detect_container_death reads correct role names",
+          "files_affected": [
+            "orchestrator/tests/test_detection_plane_liveness_fields.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-11",
+          "description": "Populate phase_state.expected_duration_s + raw.runtime in\nsnapshot_from_health_context. Populate phase_state.expected_duration_s\nfrom PipelineConfig phase budgets, and raw.runtime with:\nrun_pipeline_thread_alive (from driver_heartbeat),\nthread_last_tick_age_s (from driver_heartbeat),\nrestart_propagation (from event loop supervisor).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- phase_state.expected_duration_s populated from PipelineConfig\n- raw.runtime.run_pipeline_thread_alive populated from driver_heartbeat\n- raw.runtime.thread_last_tick_age_s populated from driver_heartbeat\n- raw.runtime.restart_propagation populated from event loop supervisor\n- Test: detect_duration_drift receives expected_duration_s\n- Test: detect_run_pipeline_thread_liveness receives runtime liveness fields",
+          "files_affected": [
+            "orchestrator/health_checks/detection_plane.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-12",
+          "description": "Test for phase_state.expected_duration_s + raw.runtime population in snapshot builder.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Test verifies phase_state.expected_duration_s is populated from PipelineConfig\n- Test verifies raw.runtime fields are populated from driver_heartbeat\n- Test verifies detect_duration_drift and detect_run_pipeline_thread_liveness receive populated fields",
+          "files_affected": [
+            "orchestrator/tests/test_detection_plane_phase_state.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-13",
+          "description": "Correct health_checks/README.md:88. The README documents\n_run_overseer_detection_plane as the thing that \"builds the snapshot,\nevaluates\" \u2014 implying it's wired in production. Correct this line to\nreflect that the detection plane is NOT currently wired into the\nruntime tick, and that task-1a adds that wiring.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- README line 88 corrected to state the detection plane is not yet wired\n- README updated to describe the wiring path via _run_runtime_tick_checks",
+          "files_affected": [
+            "orchestrator/health_checks/README.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "Add forward-progress detector (commit count + worktree activity rate)",
+      "goal": "New deterministic detector detect_forward_progress_stall that fires when\nan agent has been running >N seconds with zero commits, zero progress\nevents, and zero file modifications. Depends on 1a (plane wired),\n1c (git_state), 1e (RunningAgent liveness).",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add a new deterministic detector detect_forward_progress_stall to the\ndetection plane. The detector fires when an agent has been running\n>N seconds (configurable, default 600s) with zero new commits AND\nzero progress events AND zero file modifications. Reads commit_count\nand last_commit_at from git_state, progress_event_count from\nProgressStore, and worktree file mtime from git_state. Directly\naddresses the issue's key diagnostic: \"a hand-rolled loop counting\ncommits on the agent's worktree.\"",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- New detector detect_forward_progress_stall registered in DetectionPlane.default()\n- Detector fires when agent runs >600s with zero commits, zero progress events, and zero file modifications\n- Detector stays silent when agent is making any of: commits, progress events, or file modifications\n- Configurable threshold via PipelineConfig (orchestrator_forward_progress_stall_seconds)\n- requires_adjudication=True (stuck vs. legitimately slow is ambiguous)\n- Test: detector fires on zero-progress agent, stays silent on active agent",
+          "files_affected": [
+            "orchestrator/health_checks/tier1/forward_progress.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-2",
+          "description": "Test for forward-progress detector.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Test verifies detector fires on zero-progress agent running >600s\n- Test verifies detector stays silent on active agent (commits/progress/file mods)\n- Test verifies configurable threshold via PipelineConfig",
+          "files_affected": [
+            "orchestrator/tests/test_forward_progress_detector.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "Fix peer-progress gate to be dependency-aware",
+      "goal": "Issue #3595 root cause 1: _has_recent_peer_progress defers on ANY peer's\nheartbeat, including the overseer's own, which suppresses alerts about\nthe very agent the overseer watches. Fix: scope to only defer on peers\nthe agent actually depends on (from BRC review_edges). HealthMonitor IS\nstill active in production \u2014 this fix is NOT wasted.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Fix _has_recent_peer_progress in HealthMonitor to only defer on\npeers that the agent actually depends on, per the BRC review graph's\nreview_edges. Currently the gate defers on ANY peer's heartbeat,\nincluding the overseer's own, which suppresses alerts about the agent\nthe overseer watches. The dependency structure exists in the consensus\ntracker's review_edges and in heartbeat metadata (waiting_on).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- _has_recent_peer_progress only defers on peers in the dependent set (from review_edges)\n- Overseer's own heartbeat no longer suppresses alerts about agents it watches\n- Gate still suppresses false positives on busy pipelines (peers A depends on are active)\n- Test: a wedged agent with an active overseer peer no longer gets suppressed\n- Test: a busy pipeline with active upstream peers still suppresses false positives",
+          "files_affected": [
+            "orchestrator/health_monitor.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-2",
+          "description": "Test for dependency-aware peer-progress gate fix.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Test verifies gate only defers on peers in the dependent set\n- Test verifies overseer's own heartbeat no longer suppresses alerts\n- Test verifies busy pipeline with active upstream peers still suppresses false positives",
+          "files_affected": [
+            "orchestrator/tests/test_peer_progress_gate.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-4",
+      "name": "Enrich get_status with forward-progress signals and active alerts",
+      "goal": "Add a progress sub-object to each entry in concurrent.agents with:\nlast_heartbeat_age_s, last_progress_age_s, commit_count, last_commit_at,\nlast_commit_sha, progress_event_count. Add an alerts array to the\ntop-level status response (capped at 10) sourced from\nHealthMonitor.get_active_alerts(). Add phase timing fields.\nDepends on 1e for liveness fields (HealthMonitor, ProgressStore, git).",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Enrich get_status with forward-progress signals and active alerts.\nAdd a progress sub-object to each entry in concurrent.agents with:\nlast_heartbeat_age_s, last_progress_age_s, commit_count, last_commit_at,\nlast_commit_sha, progress_event_count. Add an alerts array to the\ntop-level status response (capped at 10) sourced from\nHealthMonitor.get_active_alerts(). Add phase timing (phase_started_at,\nphase_elapsed_seconds) to the concurrent block. All fields are null\nwhen unmeasurable (per operator constraint: distinguish null from zero).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- concurrent.agents[].progress contains commit_count, last_commit_at, last_heartbeat_age_s, last_progress_age_s, progress_event_count\n- Top-level alerts array present with alert_type, agent_id, message, severity, timestamp\n- concurrent.phase_started_at and concurrent.phase_elapsed_seconds present\n- All progress fields are null when unmeasurable, never 0\n- Best-effort: git subprocess failures degrade to null, never crash the status endpoint\n- Test: /status response includes progress sub-object and alerts array",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_status_view.py",
+            "orchestrator/routes/pipelines/_routes_status.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-2",
+          "description": "Test for get_status enrichment with forward-progress signals and alerts.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Test verifies /status response includes progress sub-object with commit_count, last_commit_at, last_heartbeat_age_s, last_progress_age_s, progress_event_count\n- Test verifies top-level alerts array present with alert_type, agent_id, message, severity, timestamp\n- Test verifies all progress fields are null when unmeasurable, never 0\n- Test verifies best-effort degradation on git subprocess failure",
+          "files_affected": [
+            "orchestrator/tests/test_status_progress_enrichment.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-5",
+      "name": "Record sampling params in cost_callback (DEFERRED)",
+      "goal": "Issue #3595 root cause 5: sampling configuration is unset and unrecorded.\nExtend cost_callback.py to log optional_params alongside the cost and\ncache stats it already emits. Pin explicit temperature/top_p per model.\nFully independent and deferred \u2014 can be done in parallel or as a follow-up.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Record sampling params in cost_callback. Extend cost_callback.py to\nlog optional_params (temperature, top_p, top_k, presence_penalty,\nfrequency_penalty, reasoning_effort) per call. Pin explicit\ntemperature/top_p per model in litellm_settings.yaml. Log format is\nbackward-compatible (new fields are additive).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- cost_callback logs optional_params (temperature, top_p, top_k, presence_penalty, frequency_penalty, reasoning_effort) per call\n- Per-model temperature/top_p pinned in litellm_settings.yaml\n- Log format is backward-compatible (new fields are additive)\n- Test: cost_callback output includes optional_params field",
+          "files_affected": [
+            "orchestrator/cost_callback.py",
+            "config/litellm/litellm_settings.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-2",
+          "description": "Test for sampling params logging in cost_callback.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Test verifies cost_callback output includes optional_params field\n- Test verifies per-model temperature/top_p pinned in litellm_settings.yaml\n- Test verifies backward-compatible log format",
+          "files_affected": [
+            "orchestrator/tests/test_cost_callback_sampling_params.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "decision-1",
@@ -116,6 +670,64 @@
       "resolution": "Split task-1: wire the plane in slice-1a, enrich the snapshot in slice-1b\n\nMY cq-1 RESOLUTION WAS WRONG. You were right to challenge it instead of complying. Retracting the premise correction in full:\n\nI claimed the detection plane was already wired, citing `_run_overseer_detection_plane` at `routes/pipelines/_overseer.py:309` and its appearance at `routes/pipelines/__init__.py:1269`. That second citation is an **import/re-export, not a call site**, and I treated it as evidence of wiring without checking. Re-verified now:\n\n- `_run_overseer_detection_plane` has **zero call sites** in production code. Only the `def`, the re-export, and a `health_checks/README.md:88` line describing it as though it runs.\n- `HealthCheckRunner.run_detection_plane` has **zero non-def references**.\n- Both `active_plane.evaluate(snapshot)` calls I cited (`_overseer.py:335`, `health_checks/runner.py:178`) live *inside* those two never-called functions. Both paths are dead.\n\nSo the deterministic detection plane **does not run in production at all**. That is a strictly larger finding than the sparse-snapshot problem I substituted for it, and my instruction \"do NOT add a new tick or invocation path\" would have blocked the correct fix. Disregard it.\n\nI also verified your integration point: `_run_runtime_tick_checks` (`orchestrator/kubernetes_monitor.py:221`) is live, invoked from `_check_pod` (:219) on container state changes and from `_reconciliation_sweep` (:621) on the periodic interval, and already resolves a health-check runner. It is the right place.\n\nWHY SPLIT RATHER THAN A SINGLE TASK. Both changes are needed \u2014 wiring alone leaves detectors evaluating a sparse snapshot, so some still cannot fire \u2014 but they are separable, and the ordering buys you something:\n\n- **slice-1a, wire the plane.** Small, self-contained, independently testable. Guard against double-evaluation: `_run_runtime_tick_checks` fires from two call sites, so make evaluation idempotent per tick and confirm you are not also re-entering via the reconciliation sweep.\n- **slice-1b, enrich the snapshot builder.** Once 1a lands, you can *observe* which detectors fire against the sparse snapshot and which stay silent. That turns the \"which detectors are starved\" audit from static analysis into an empirical result, and tells you exactly which fields to populate and in what order. Please still report the audit explicitly: per detector, the snapshot fields its predicate reads and whether the builder populates them.\n\nCARRY INTO 1b, unchanged: fix `RunningAgent(role=str(cid), ...)` in `snapshot_from_health_context` \u2014 the `role` field currently carries a container UUID from `live_container_ids`, so any detector keying on role name matches the wrong thing. Same construction site as the enrichment.\n\nALSO NOTE: `health_checks/README.md:88` documents `_run_overseer_detection_plane` as the thing that \"builds the snapshot, evaluates\" \u2014 i.e. the docs describe a wired system that isn't. Correct that line as part of 1a so the next reader is not misled the way I was.\n\nEverything else from cq-1 stands: null is not zero; session transcripts remain a distinct gap from `agent_log_store` (pushed only on event-pod exit, so a never-exiting agent has none); do not rebuild `agent_log_store.py` or `/health/alerts`; raise the deferred design choices as contract decisions rather than choosing silently.\n\nGood catch. Verifying an operator directive against the tree and escalating the conflict, rather than either complying or silently working around it, is exactly the right behaviour.",
       "resolved_by": "human",
       "resolved_at": "2026-07-25T00:53:26.413635Z",
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "The refiner attests the refine phase deliberately raises no operator decisions (#3462):\n\n> This is a refinement proposal, not a production-phase proposal. The four decisions (commit counting scope, tool-call counting proxy, alert surface format, log retention TTL) are operator-facing design choices that should be resolved during planning, not refinement. The refiner's job is to surface the gap and propose scope, not to make these binding decisions.\n\nCandidates considered and dispositioned away:\n\n- **Should commit counting use local worktree commits or remote-pushed commits?** (deferred to plan): The implementer needs to decide whether to shell out to git in the orchestrator worktree or read from the agent's worktree mount; this is a plan-phase implementation detail.\n- **Should tool-call counting use progress events as a proxy or add a new event type?** (deferred to plan): Requires either reusing existing ProgressStore data or adding a new CONTAINER_ACTIVITY-like event; the plan phase should evaluate the trade-offs.\n- **Should get_status include all active alerts or just a summary?** (deferred to plan): Affects API response size and client rendering; the plan phase should specify the exact payload shape.\n- **Should agent_log_store TTL be configurable?** (deferred to plan): Requires a PipelineConfig field addition and plumbing through the store; the plan phase should decide the default and configurability.\n\nConfirm to proceed to the phase gate, or choose \u201cRe-run phase to register decisions\u201d to send the phase back so its agents register the decisions as first-class contract entries (cq-N). Any free-text reply is treated as a re-run directive and forwarded to the agents.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Confirm \u2014 no open decisions this phase",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Re-run phase to register decisions",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Confirm \u2014 no open decisions this phase",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-25T00:03:21.651904Z",
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Consensus timed out; consensus incomplete; agents never confirmed: risk_analyst, simplifier, architect, reviewer_plan, task_planner. 'Retry phase' re-runs the phase from the shared work branch tip (work pushed to the shared branch is preserved; unpushed per-role commits are salvaged best-effort to egg/recovered/*). How to proceed?",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Retry phase",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Accept current state",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Abort phase",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Retry phase\", \"context\": \"RETRY, with a corrected directive for task_planner specifically. Preserved work: the architect's v2 plan (ac390d79a, addressing reviewer_plan's NACK) plus .egg-state/drafts/issue-3596-v2-architect-plan.json and -architect-plan-slices.yaml, and the risk_analyst's assessment (3bf07c9ea, -risk-analyst-plan.json). Do NOT re-derive those from scratch; build on them.\\n\\nWHY THE PHASE TIMED OUT: task_planner never emitted CONSENSUS_PROPOSE in 180 minutes across two sessions. Two distinct causes, in order:\\n\\n1. First session livelocked: 603 tool calls, 480 of them the identical `cat orchestrator/health_checks/tier1/consensus_stall.py`, zero MCP calls, the text 'Now I have a thorough understanding of the codebase. Let me now create the plan' repeated verbatim 16 times. Restarted with a fresh session.\\n\\n2. Second session was healthy but went out of role. After an operator bus message it made 300 tool calls whose top entries were `pytest -x -q` (61x), grep (28x), and Edit (23x) \u2014 it started writing and testing production code during the PLAN phase, and still never proposed. Note for the record: the operator's message said 'your analysis is sufficient, do not continue re-reading source files', which may itself have pushed it toward implementation. Phrasing below is corrected accordingly.\\n\\nDIRECTIVE FOR task_planner ON RETRY:\\n\\nYour deliverable is a TASK BREAKDOWN ARTIFACT and a CONSENSUS_PROPOSE. Nothing else. Do not edit source files. Do not run pytest. Do not implement anything. Writing code during the plan phase is out of role; the implement phase does that, and it cannot start until you propose.\\n\\nYour attestation is already satisfiable. The refine phase deferred four candidates into plan, and a plan-phase attestation may not defer them. All four are ANSWERED by the operator, so disposition each as `not_operator_grade` citing this resolution:\\n\\n  A. Commit counting scope \u2014 count LOCAL worktree commits ahead of PhaseExecution.phase_start_sha, not remote-pushed. The diagnostic that worked during the incident was `git rev-list --count base..HEAD` against the agent's worktree; counting only pushed commits would miss the discard case entirely.\\n  B. Tool-call counting proxy \u2014 reuse existing progress-event data. Do not add a new event type.\\n  C. Alert surface format \u2014 a capped list, newest-first, cap 10 and configurable, each entry carrying subject/severity/dedup key. Not a summary, not a bare count.\\n  D. Log retention TTL \u2014 configurable via a PipelineConfig field, default unchanged at 24h.\\n\\nThen attest `--decisions-registered cq-1 cq-2` (both already resolved) plus those four `--considered` entries, and propose.\\n\\nSCOPE, unchanged from cq-1 and cq-2: four items, with task-1 split into slice-1a (wire the detection plane into _run_runtime_tick_checks, guarding against double-evaluation from its two call sites) and slice-1b (enrich snapshot_from_health_context and fix RunningAgent(role=str(cid)) which puts a container UUID in the role field). Null is not zero: any new field must be null when unmeasurable, never 0. Do not rebuild agent_log_store.py or GET /pipelines/{id}/health/alerts; both exist and were verified.\\n\\nIf you find yourself unable to satisfy the propose contract for any reason, register that as a contract decision and stop, rather than continuing to work. A blocked producer that says so is recoverable; one that silently keeps busy is not.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-25T03:06:08.484410Z",
       "debounce_until": null,
       "redirect_seed": null
     }
@@ -229,7 +841,14 @@
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
-  "pr": null,
+  "pr": {
+    "title": "Wire detection plane + enrich status for agent visibility (#3596)",
+    "description": "Operators cannot distinguish a working agent from a wedged one via get_status\n\u2014 every agent reports WORKING with no forward-progress signal. The codebase has\n27 deterministic detectors in the detection plane, but none can fire because\n(1) the plane is never invoked from the runtime tick, and (2) the snapshot\nbuilder populates only 5 of 13 top-level fields and 3 of 7 RunningAgent fields.\nThis plan wires the detection plane into the runtime tick, enriches the snapshot\nbuilder with data from 8 existing data sources, adds a forward-progress detector,\nfixes the peer-progress gate, and enriches get_status with per-agent progress\nsignals and active alerts.",
+    "test_plan": "- Automated: per-slice test suites covering detection plane wiring, snapshot\n  enrichment, forward-progress detector, peer-progress gate fix, and status\n  endpoint enrichment. `make test` narrows to reachable suites.\n- Manual: verify /status response includes progress sub-object and alerts\n  array; verify detection plane findings appear on the event bus.",
+    "manual_steps": "Pre-merge: none.\nPost-merge: watch the first real pipeline run to confirm detection plane\nfindings appear in /health/alerts and get_status surfaces progress signals.",
+    "context_pr_number": null,
+    "deferred_actions": []
+  },
   "feedback": null,
   "phase_configs": null,
   "agent_executions": []
