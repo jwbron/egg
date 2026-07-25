@@ -45,10 +45,22 @@ def _handle_restart_agent(self, args: dict[str, Any]) -> dict[str, Any]:
             data=data,
             timeout=60,
         )
+        # Surface the route's teardown/delegation reporting instead of a
+        # ``container_id`` that is always "" (#3164 deliberately spawns no
+        # resident pod here, but an empty id reads as a failure — #3597).
+        # ``respawn`` / ``live_event_loop`` say whether anything will actually
+        # respawn the role; ``jobs_torn_down`` / ``teardown_confirmed``
+        # distinguish "killed a stuck pod and watched it go" from "there was
+        # nothing to tear down" and from "the delete has not landed yet".
+        payload = result.get("data", {})
         return {
             "restarted": True,
             "agent_role": args["agent_role"],
-            "container_id": result.get("data", {}).get("container_id", ""),
+            "respawn": payload.get("respawn"),
+            "live_event_loop": payload.get("live_event_loop"),
+            "jobs_torn_down": payload.get("jobs_torn_down"),
+            "teardown_confirmed": payload.get("teardown_confirmed"),
+            "restart_count": payload.get("restart_count"),
             "message": f"Agent {args['agent_role']} restarted successfully",
         }
     except (TimeoutError, OSError) as e:

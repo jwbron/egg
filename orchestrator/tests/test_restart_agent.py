@@ -750,6 +750,149 @@ class TestRestartAgentEndpoint:
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
+    def test_restart_waits_for_deleted_job_to_actually_be_gone(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """Teardown is observed, not merely requested (#3597).
+
+        Job deletion is asynchronous: ``remove_agent_job`` returns as soon
+        as the API server accepts it, and the Job then lingers in
+        ``Terminating`` — still reporting RUNNING — until its pods are gone.
+        The event loop polls every ~5s, so returning immediately let the
+        next poll match the corpse on its dedupe-key label, adopt it, and
+        decline to respawn: the role silently vanished. The route must wait
+        for the delete it issued to be observed before handing the respawn
+        to the loop, and say so in its response.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        live_job = MagicMock()
+        live_job.job_name = "egg-agent-issue-100-coder-15de0e94"
+        live_job.container_id = "uid-1"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [live_job]
+        mock_spawner.k8s.namespace = "egg-agents"
+        mock_spawner.k8s.wait_for_job_gone.return_value = True
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        live_loop = MagicMock()
+        live_loop.slice_id = None
+        live_loop.invalidate_role_arms.return_value = []
+
+        with patch("event_loop.get_live_event_loops", return_value=[live_loop]):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        mock_spawner.remove_agent_job.assert_called_once_with(
+            "egg-agent-issue-100-coder-15de0e94", force=True
+        )
+        # The deletion we issued was waited out before returning.
+        wait_call = mock_spawner.k8s.wait_for_job_gone.call_args
+        assert wait_call.args[0] == "egg-agent-issue-100-coder-15de0e94"
+        assert wait_call.kwargs["timeout_s"] > 0
+        data = response.get_json()["data"]
+        assert data["jobs_torn_down"] == 1
+        assert data["teardown_confirmed"] is True
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_reports_unconfirmed_teardown_instead_of_claiming_success(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """A teardown that outlives the wait budget is reported, not hidden (#3597).
+
+        The operator-facing complaint in the incident was that the working
+        and the vanished case were indistinguishable. A Job that is still
+        terminating when the route gives up is exactly the case where the
+        respawn may be delayed, so it must not be reported as a clean
+        restart.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        live_job = MagicMock()
+        live_job.job_name = "egg-agent-issue-100-coder-15de0e94"
+        live_job.container_id = "uid-1"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [live_job]
+        mock_spawner.k8s.namespace = "egg-agents"
+        mock_spawner.k8s.wait_for_job_gone.return_value = False
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with patch("event_loop.get_live_event_loops", return_value=[]):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["jobs_torn_down"] == 1
+        assert data["teardown_confirmed"] is False
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_with_nothing_to_tear_down_says_so(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """ "Nothing to kill" is distinguishable from "killed it" (#3597)."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = []
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with patch("event_loop.get_live_event_loops", return_value=[]):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["jobs_torn_down"] == 0
+        # Nothing was deleted, so there is nothing outstanding to wait for.
+        assert data["teardown_confirmed"] is True
+        mock_spawner.k8s.wait_for_job_gone.assert_not_called()
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
     def test_restart_tolerates_live_job_listing_failure(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
     ):

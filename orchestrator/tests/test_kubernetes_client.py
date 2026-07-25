@@ -84,12 +84,14 @@ def _make_mock_job(
     active: int | None = None,
     start_time: datetime | None = None,
     completion_time: datetime | None = None,
+    deletion_timestamp: datetime | None = None,
 ) -> MagicMock:
     """Create a mock Job object matching the k8s SDK shape."""
     job = MagicMock()
     job.metadata.name = name
     job.metadata.uid = uid
     job.metadata.labels = labels or {LABEL_ORCHESTRATOR: "true"}
+    job.metadata.deletion_timestamp = deletion_timestamp
     job.status.succeeded = succeeded
     job.status.failed = failed
     job.status.active = active
@@ -1571,6 +1573,38 @@ class TestListJobs:
         assert jobs[1].status == ContainerStatus.FAILED
         assert jobs[2].status == ContainerStatus.RUNNING
         assert jobs[3].status == ContainerStatus.PENDING
+
+    def test_list_jobs_reports_deletion_timestamp(
+        self,
+        k8s_client: KubernetesClient,
+        mock_batch_api: MagicMock,
+    ):
+        """A Terminating Job is reported as such, not just as RUNNING (#3597).
+
+        Job deletion is asynchronous: the API server stamps
+        ``metadata.deletionTimestamp`` and the object keeps reporting
+        ``active > 0`` (⇒ RUNNING) until its pods finish terminating. Status
+        alone therefore cannot distinguish a live Job from one on its way
+        out, which is what let the event loop adopt a corpse and silently
+        drop the role. Surfacing the stamp is what makes that distinction
+        possible for callers.
+        """
+        stamp = datetime(2026, 7, 25, 1, 49, 8, tzinfo=UTC)
+        terminating = _make_mock_job(
+            name="j-terminating", uid="uid-t", active=1, deletion_timestamp=stamp
+        )
+        healthy = _make_mock_job(name="j-live", uid="uid-l", active=1)
+
+        mock_result = MagicMock()
+        mock_result.items = [terminating, healthy]
+        mock_batch_api.list_namespaced_job.return_value = mock_result
+
+        jobs = k8s_client.list_jobs("test-ns")
+
+        # Both still report RUNNING — that is exactly the ambiguity.
+        assert [j.status for j in jobs] == [ContainerStatus.RUNNING, ContainerStatus.RUNNING]
+        assert jobs[0].deletion_timestamp == stamp
+        assert jobs[1].deletion_timestamp is None
 
     def test_list_jobs_with_label_selector(
         self,

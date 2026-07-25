@@ -145,6 +145,37 @@ class TestHandleRestartAgent:
         assert result["restarted"] is True
         assert result["agent_role"] == "coder"
 
+    def test_surfaces_teardown_and_delegation_instead_of_empty_container_id(self, handler):
+        """The result says what happened, not ``container_id: ""`` (#3597).
+
+        ``restart_agent`` deliberately spawns no resident pod (#3164), so the
+        old ``container_id`` was always empty — which reads as a failure and,
+        during the #3597 incident, looked identical whether the role was
+        respawned or had silently vanished. Pass the route's own reporting
+        through instead.
+        """
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.return_value = {
+                "success": True,
+                "data": {
+                    "respawn": "delegated to orchestrator event loop",
+                    "live_event_loop": True,
+                    "jobs_torn_down": 1,
+                    "teardown_confirmed": True,
+                    "restart_count": 2,
+                },
+            }
+            result = handler.handle_tool_call(
+                "restart_agent",
+                {"task_id": "issue-42", "agent_role": "coder"},
+            )
+
+        assert result["respawn"] == "delegated to orchestrator event loop"
+        assert result["live_event_loop"] is True
+        assert result["jobs_torn_down"] == 1
+        assert result["teardown_confirmed"] is True
+        assert result["restart_count"] == 2
+
     def test_returns_error_on_failure(self, handler):
         """Failed restart returns error dict."""
         with patch.object(handler, "_make_request") as mock_req:

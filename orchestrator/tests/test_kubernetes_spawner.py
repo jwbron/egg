@@ -2389,6 +2389,140 @@ class TestSpawnEventJobOneShot:
         # create_container was NOT called a second time — the Job was adopted.
         assert mock_k8s_client.create_container.call_count == 1
 
+    @staticmethod
+    def _terminating_job(name="egg-agent-pipe-1-slice-2-coder-ev"):
+        """A Job that has been deleted but has not gone away yet.
+
+        Deliberately ``RUNNING``: that is the whole point — a Job under
+        deletion keeps reporting its pre-delete status until its pods finish
+        terminating, so only ``deletion_timestamp`` distinguishes it.
+        """
+        return ContainerInfo(
+            container_id="uid-terminating",
+            container_name=name,
+            job_name=name,
+            namespace="test-ns",
+            status=ContainerStatus.RUNNING,
+            deletion_timestamp=datetime(2026, 7, 25, 1, 49, 8, tzinfo=UTC),
+        )
+
+    def test_terminating_job_is_not_adopted(self, spawner, mock_k8s_client):
+        """A Job under deletion must NOT be adopted (#3597).
+
+        The incident: ``restart_agent`` deletes the role's one-shot Job and
+        delegates the respawn to the event loop. Deletion is asynchronous, so
+        for a few seconds the Job sits in ``Terminating`` still reporting
+        ``RUNNING``. The next poll (~5s) matched it on the dedupe-key label,
+        adopted it, and declined to spawn a replacement — then the adopted Job
+        finished terminating. Net result: no pod, no Job, and because
+        adoption re-arms the key in the loop's live set (where a missing Job
+        reads as "still running"), the role stayed vanished indefinitely with
+        the pipeline still reporting ``status: running``.
+        """
+        mock_k8s_client.list_jobs.return_value = [self._terminating_job()]
+        mock_k8s_client.wait_for_job_gone.return_value = True
+
+        spawner.spawn_event_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            action="propose",
+            dedupe_key=self._KEY,
+            slice_id="slice-2",
+            phase="implement",
+            repos=["owner/repo"],
+        )
+
+        assert mock_k8s_client.create_container.call_count == 1, (
+            "a terminating Job must not be adopted — the role would vanish"
+        )
+
+    def test_terminating_job_is_waited_out_before_respawn(self, spawner, mock_k8s_client):
+        """The replacement waits for the deleted Job's name to be free (#3597).
+
+        A one-shot Job's name is derived from the dedupe key, so the
+        replacement carries the SAME name as the Job being torn down.
+        Creating into the deletion window returns 409 ``AlreadyExists`` (the
+        #2655 race), so the spawn waits the corpse out first.
+        """
+        mock_k8s_client.list_jobs.return_value = [self._terminating_job()]
+        mock_k8s_client.wait_for_job_gone.return_value = True
+        call_order: list[str] = []
+        mock_k8s_client.wait_for_job_gone.side_effect = lambda *a, **k: (
+            call_order.append("wait"),
+            True,
+        )[1]
+        created = mock_k8s_client.create_container.return_value
+        mock_k8s_client.create_container.side_effect = lambda **kw: (
+            call_order.append("create"),
+            created,
+        )[1]
+
+        spawner.spawn_event_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            action="propose",
+            dedupe_key=self._KEY,
+            slice_id="slice-2",
+            phase="implement",
+            repos=["owner/repo"],
+        )
+
+        assert call_order == ["wait", "create"]
+        waited_name = mock_k8s_client.wait_for_job_gone.call_args.args[0]
+        assert waited_name == "egg-agent-pipe-1-slice-2-coder-ev"
+
+    def test_spawn_proceeds_when_terminating_job_outlives_the_wait(self, spawner, mock_k8s_client):
+        """A wait timeout is reported, never fatal (#3597).
+
+        Overrunning the bounded wait degrades to "the create may 409 and the
+        event loop retries next poll", which is recoverable; refusing to
+        spawn would reproduce the silent-vanish this path exists to prevent.
+        """
+        mock_k8s_client.list_jobs.return_value = [self._terminating_job()]
+        mock_k8s_client.wait_for_job_gone.return_value = False
+
+        spawner.spawn_event_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            action="propose",
+            dedupe_key=self._KEY,
+            slice_id="slice-2",
+            phase="implement",
+            repos=["owner/repo"],
+        )
+
+        assert mock_k8s_client.create_container.call_count == 1
+
+    def test_live_job_is_adopted_without_any_wait(self, spawner, mock_k8s_client):
+        """The unchanged common path: a genuinely live Job is still adopted.
+
+        Guards the #3597 fix against over-reach — only a Job carrying a
+        deletion stamp loses adoptability; a healthy RUNNING one must still
+        suppress the duplicate spawn (and must not pay for a wait).
+        """
+        live = ContainerInfo(
+            container_id="uid-live",
+            container_name="egg-agent-pipe-1-slice-2-coder-ev",
+            job_name="egg-agent-pipe-1-slice-2-coder-ev",
+            namespace="test-ns",
+            status=ContainerStatus.RUNNING,
+        )
+        mock_k8s_client.list_jobs.return_value = [live]
+
+        result = spawner.spawn_event_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            action="propose",
+            dedupe_key=self._KEY,
+            slice_id="slice-2",
+            phase="implement",
+            repos=["owner/repo"],
+        )
+
+        assert result is None, "a live Job must still be adopted"
+        mock_k8s_client.create_container.assert_not_called()
+        mock_k8s_client.wait_for_job_gone.assert_not_called()
+
     def test_terminated_job_does_not_block_respawn(self, spawner, mock_k8s_client):
         """A label-matching but TERMINATED Job (EXITED/FAILED) lingering under
         the finished-TTL must NOT be adopted — a re-derived identical event
@@ -2675,9 +2809,28 @@ class _StatefulEventJobs:
         # Idempotent pre-spawn cleanup; our generated names never collide.
         self.jobs = [j for j in self.jobs if j.job_name != name]
 
+    def wait_for_job_gone(self, name, namespace=None, timeout_s=0.0):
+        """Model the reap completing: the Terminating Job finally disappears."""
+        before = len(self.jobs)
+        self.jobs = [j for j in self.jobs if j.job_name != name]
+        return len(self.jobs) < before or before == 0
+
     # --- test helpers -----------------------------------------------------
     def crash_all(self):
         self.jobs = [j.model_copy(update={"status": ContainerStatus.FAILED}) for j in self.jobs]
+
+    def begin_delete_all(self):
+        """Model an ACCEPTED but not-yet-complete k8s delete (#3597).
+
+        This is what ``restart_agent``'s teardown looks like from the event
+        loop's side for the seconds that follow: the Job is stamped with a
+        ``deletionTimestamp`` and keeps reporting its pre-delete status
+        until its pods finish terminating.
+        """
+        self.jobs = [
+            j.model_copy(update={"deletion_timestamp": datetime(2026, 7, 25, 1, 49, 8, tzinfo=UTC)})
+            for j in self.jobs
+        ]
 
     @property
     def names(self):
@@ -2719,6 +2872,7 @@ class TestEventJobCrashRespawn:
         mock_k8s_client.create_container.side_effect = store.create_container
         mock_k8s_client.remove_container.side_effect = store.remove_container
         mock_k8s_client.delete_job.side_effect = store.delete_job
+        mock_k8s_client.wait_for_job_gone.side_effect = store.wait_for_job_gone
 
     def test_crash_then_respawn_creates_a_fresh_job(self, spawner, mock_k8s_client, mock_gateway):
         import event_loop
@@ -2796,6 +2950,40 @@ class TestEventJobCrashRespawn:
         # lingers alongside the fresh Job.
         assert corpse_name not in store.names
         assert store.statuses == [ContainerStatus.RUNNING]
+
+    def test_restart_deleted_job_mid_termination_respawns(self, spawner, mock_k8s_client):
+        """The restart race, end to end against the real spawner (#3597).
+
+        ``restart_agent`` deletes the role's live Job and delegates the
+        respawn to the event loop. k8s deletion is asynchronous, so for the
+        next few seconds the Job is Terminating but still reports RUNNING.
+        The loop's very next poll re-derives the same event — and used to
+        adopt that corpse, create nothing, and leave the role with no pod
+        and no Job while the pipeline still reported ``running``.
+
+        Drives the real ``spawn_event_job`` against the stateful Job store so
+        the adoption filter, the terminating-Job wait, and Job creation are
+        exercised together rather than through a fake that always spawns.
+        """
+        store = _StatefulEventJobs()
+        self._wire(store, mock_k8s_client)
+
+        # 1. The role has a live one-shot Job.
+        assert self._spawn(spawner) is not None
+        assert store.statuses == [ContainerStatus.RUNNING]
+
+        # 2. restart_agent deletes it; the delete is accepted but not complete.
+        store.begin_delete_all()
+        assert store.statuses == [ContainerStatus.RUNNING], "still reports RUNNING"
+
+        # 3. The event loop's next poll lands inside the deletion window.
+        assert self._spawn(spawner) is not None, "the respawn must not adopt a corpse"
+
+        # A real replacement exists, and the corpse was waited out first so the
+        # create could not 409 on the recycled Job name.
+        assert mock_k8s_client.create_container.call_count == 2
+        assert store.statuses == [ContainerStatus.RUNNING]
+        assert all(j.deletion_timestamp is None for j in store.jobs)
 
     def test_live_job_still_blocks_respawn(self, spawner, mock_k8s_client):
         """Regression guard: a genuinely RUNNING Job for the key is still
