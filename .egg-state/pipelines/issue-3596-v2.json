@@ -313,10 +313,27 @@
       "resolution": "auto-withdrawn: the stall cleared (blocked arms recovered) before this decision was resolved",
       "phase": "implement",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Driver liveness alert (driver_no_progress): The driver is alive and ticking, but nothing has spawned for 6349s (grace 2700s), no agent container is live, and no HITL decision is pending; the phase is silently spinning (#3540). The pipeline reads RUNNING but nothing is driving it; without intervention it will sit here indefinitely. 'Retry phase' tears down and re-runs the current phase in-process. Dismiss if you can see legitimate progress (the alert re-fires if the stall persists); use cancel_task to stop the pipeline instead.",
+      "context": "driver_liveness_stall",
+      "options": [
+        "Retry phase",
+        "Dismiss (recorded only)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-07-25T18:44:46.470719Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "implement",
+      "content_changed": null
     }
   ],
   "created_at": "2026-07-24T23:26:12.128692Z",
-  "updated_at": "2026-07-25T16:55:13.456274Z",
+  "updated_at": "2026-07-25T18:44:46.470812Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -329,7 +346,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-25T04:50:56.529222Z",
-  "version": 49,
+  "version": 50,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
