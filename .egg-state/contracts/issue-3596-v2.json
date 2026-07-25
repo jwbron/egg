@@ -130,7 +130,7 @@
           "id": "task-1-6",
           "description": "Test for git_state population in snapshot builder.",
           "status": "pending",
-          "commit": null,
+          "commit": "4a02ece9b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Test verifies git_state is populated with commit_count, last_commit_at, branch\n- Test verifies detect_worktree_corruption and detect_pushed_pr_not_updated receive populated git_state\n- Test verifies best-effort degradation on git failure",
@@ -1183,6 +1183,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T06:46:28.473692Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.5.commit",
+      "old_value": null,
+      "new_value": "4a02ece9b",
+      "reason": "Linked commit 4a02ece to task-1-6",
       "checkpoint_id": null
     }
   ],
