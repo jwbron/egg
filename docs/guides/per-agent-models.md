@@ -715,6 +715,28 @@ kubectl logs -n egg-system deploy/litellm \
 >         effort: "high"
 > ```
 >
+> **Prefer form 2 on OpenRouter routes.** Form 1 gets the parameter past
+> LiteLLM, which is a different claim from the provider honouring it:
+> `supports_reasoning: true` asserts *"LiteLLM, stop dropping this"*, and what
+> it then puts on the wire is the OpenAI-style `reasoning_effort`. Not every
+> OpenRouter endpoint accepts that key. OpenRouter is the authority, and it
+> answers **per endpoint**, not per model:
+>
+> ```bash
+> curl -s https://openrouter.ai/api/v1/models/<vendor>/<slug>/endpoints \
+>   | jq '.data.endpoints[] | {provider: .provider_name, params: .supported_parameters}'
+> ```
+>
+> Verified 2026-07-25: all 33 of `z-ai/glm-5.2`'s endpoints list **both**
+> `reasoning` and `reasoning_effort`, but `poolside/laguna-s-2.1` (sole
+> endpoint, Poolside) lists `reasoning` and `include_reasoning` and **not**
+> `reasoning_effort`. Since every entry here carries a `provider.order` pin
+> with `allow_fallbacks: false`, what matters is the endpoint you pinned — not
+> the model-level union that `/api/v1/models` reports, which is a union across
+> endpoints and so over-reports for a pinned route. Form 2 sends `reasoning`,
+> the key OpenRouter itself documents, which in this sample is supported
+> everywhere `reasoning_effort` is *plus* where it is absent.
+>
 > Do **not** reach for `drop_params: false` to force it through — that flag is
 > what stops Anthropic-only fields LiteLLM cannot translate (e.g. `thinking`)
 > from 400ing tool-heavy turns, and turning it off does not pass the parameter

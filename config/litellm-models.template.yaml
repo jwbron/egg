@@ -70,7 +70,8 @@
 # no-op: the agent runs at the provider's default depth and nothing
 # anywhere says so.
 #
-# Two forms that DO reach the wire (both verified against 1.86.2):
+# Two forms that DO reach the wire (both verified against 1.86.2).
+# PREFER FORM 2 — see the caveat under form 1.
 #
 #   1. Flag the model, then set the param. `model_info` is a sibling of
 #      `litellm_params`, not a key inside it — and like `litellm_params`
@@ -97,6 +98,22 @@
 #      This is enforced in CI by tests/config/test_litellm_template.py
 #      for entries in this template.
 #
+#      CAVEAT: this only gets the param past LiteLLM. It sends the
+#      OpenAI-style `reasoning_effort`, which not every OpenRouter
+#      endpoint accepts — the flag asserts "LiteLLM, stop dropping
+#      this", not "the provider honours it". Check the model's real
+#      capabilities before relying on it:
+#
+#        curl -s https://openrouter.ai/api/v1/models/<vendor>/<slug>/endpoints \
+#          | jq '.data.endpoints[] | {provider: .provider_name, params: .supported_parameters}'
+#
+#      Verified 2026-07-25: every one of glm-5.2's 33 endpoints lists
+#      BOTH `reasoning` and `reasoning_effort`, but poolside/laguna-s-2.1
+#      (sole endpoint) lists `reasoning` and `include_reasoning` and NOT
+#      `reasoning_effort`. Support is per-model AND per-endpoint, so with
+#      a `provider.order` pin what matters is the endpoint you pinned,
+#      not the model-level union that `/api/v1/models` reports.
+#
 #   2. Bypass the mapper with OpenRouter's native shape, which does not
 #      consult the model map at all (see the qwen3-max entry below).
 #      This goes inside `litellm_params`, on BOTH rows:
@@ -104,6 +121,10 @@
 #        extra_body:
 #          reasoning:
 #            effort: "high"
+#
+#      Preferred: `reasoning` is the parameter OpenRouter itself
+#      documents, and in the sample above it is supported everywhere
+#      `reasoning_effort` is, plus on endpoints where it is not.
 #
 # Do NOT reach for `drop_params: false` to force it through. That flag
 # is what stops Anthropic-only fields LiteLLM cannot translate (e.g.
