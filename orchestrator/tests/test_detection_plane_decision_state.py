@@ -8,11 +8,7 @@ Verifies that:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-from datetime import UTC, datetime, timedelta
-
-import pytest
-
+from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
 # AC-1: decision_state populated from contract + decision queue

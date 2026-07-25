@@ -12,11 +12,6 @@ The fix scopes the gate to only defer on peers that the agent actually depends o
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-import time
-
-import pytest
-
 
 class TestPeerProgressGate:
     """Tests for _has_recent_peer_progress dependency-awareness."""
@@ -25,10 +20,6 @@ class TestPeerProgressGate:
         """_has_recent_peer_progress must only defer on peers the agent
         actually depends on, per the BRC review graph's review_edges."""
         from health_monitor import HealthMonitor
-
-        monitor = MagicMock(spec=HealthMonitor)
-        # Build a context where the agent depends on specific peers
-        # The gate should only check those peers, not all peers
 
         # This test verifies the interface — the actual implementation
         # will be tested once the coder implements the fix.
@@ -43,7 +34,6 @@ class TestPeerProgressGate:
         heartbeat, including the overseer's own, which suppressed alerts
         about the very agent the overseer watches.
         """
-        from health_monitor import HealthMonitor
 
         # The fix: _has_recent_peer_progress should consult the dependency
         # graph (review_edges) to determine which peers to check, rather
@@ -60,7 +50,6 @@ class TestPeerProgressGate:
     def test_busy_pipeline_with_active_upstream_peers_still_suppresses(self):
         """A busy pipeline with active upstream peers should still suppress
         false positives — the gate should not become overly aggressive."""
-        from health_monitor import HealthMonitor
 
         # The fix must not break the legitimate suppression case:
         # when an agent's upstream peers are genuinely active, the gate

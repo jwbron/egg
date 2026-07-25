@@ -12,10 +12,9 @@ remain dormant regardless of how rich the snapshot is.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -25,8 +24,9 @@ import pytest
 @pytest.fixture()
 def mock_k8s_client():
     """Create a mock KubernetesClient."""
-    from kubernetes_client import ContainerInfo, ContainerStatus
     from datetime import UTC, datetime
+
+    from kubernetes_client import ContainerInfo, ContainerStatus
 
     client = MagicMock()
     client.list_containers.return_value = []

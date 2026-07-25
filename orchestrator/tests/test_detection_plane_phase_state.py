@@ -11,9 +11,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-
 # ---------------------------------------------------------------------------
 # AC-1: phase_state.expected_duration_s populated from PipelineConfig
 # ---------------------------------------------------------------------------

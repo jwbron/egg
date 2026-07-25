@@ -10,10 +10,7 @@ Verifies that:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-import pytest
-
+from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
 # AC-1: git_state populated with commit_count, last_commit_at, branch

@@ -9,12 +9,9 @@ Verifies that:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-from datetime import UTC, datetime, timedelta
 import time
-
-import pytest
-
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # AC-1: RunningAgent.role is populated with agent role name, not container UUID

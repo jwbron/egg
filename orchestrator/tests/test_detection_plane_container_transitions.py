@@ -14,10 +14,7 @@ The container_transitions field is required by 4 detectors:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-import pytest
-
+from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
 # AC-1: container_transitions populated from kubernetes_monitor
@@ -121,7 +118,6 @@ class TestContainerDeathDetectorReceivesTransitions:
         detect_container_death must fire."""
         from health_checks.detection_plane import (
             EventStreamSnapshot,
-            RunningAgent,
         )
         from health_checks.tier1.container_k8s import detect_container_death
 

@@ -13,10 +13,6 @@ will implement this in routes/pipelines/_status_view.py and _routes_status.py.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-import pytest
-
 
 class TestStatusProgressEnrichment:
     """Tests for /status endpoint progress sub-object."""

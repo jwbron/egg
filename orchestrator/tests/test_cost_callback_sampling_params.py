@@ -12,10 +12,6 @@ config/litellm/litellm_settings.yaml.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-import pytest
-
 
 class TestCostCallbackSamplingParams:
     """Tests for sampling params logging in cost_callback."""

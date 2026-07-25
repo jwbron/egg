@@ -14,8 +14,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 # Add orchestrator and shared to path
 _orchestrator_path = Path(__file__).parent.parent
 _shared_path = _orchestrator_path.parent / "shared"
