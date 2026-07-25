@@ -34,11 +34,13 @@ LITELLM_DOCKERFILE = REPO_ROOT / "config" / "litellm" / "Dockerfile"
 _ALIAS_SUFFIX = "[1m]"
 
 # The litellm version every provider-config claim in this file was read
-# against. ``test_provider_tables_match_the_pinned_litellm`` fails the build if
-# the image is bumped past it, because which providers gate a reasoning knob —
-# and on what — is version-specific: providers get added, and a gate can flip
-# from fail-closed to fail-open in a patch release. A bump means re-reading the
-# ``get_supported_openai_params`` of each prefix below, then moving this string.
+# against.
+# ``TestProviderTablesTrackThePinnedLitellm::test_verified_version_matches_the_image_pin``
+# fails the build if the image is bumped past it, because which providers gate a
+# reasoning knob — and on what — is version-specific: providers get added, and a
+# gate can flip from fail-closed to fail-open in a patch release. A bump means
+# re-reading the ``get_supported_openai_params`` of each prefix below, then
+# moving this string.
 _VERIFIED_LITELLM_VERSION = "1.86.2"
 
 # The reasoning knobs LiteLLM can silently drop. Both are appended under the
@@ -49,7 +51,8 @@ _VERIFIED_LITELLM_VERSION = "1.86.2"
 _REASONING_KNOBS = ("reasoning_effort", "thinking")
 
 # Provider prefix -> the reasoning knobs that provider's LiteLLM chat config
-# decides to advertise by consulting ``litellm.supports_reasoning(model, …)``.
+# decides to advertise by consulting ``litellm.supports_reasoning(model, …)``,
+# AND whose gate call is reachable by the entry's own ``model_info``.
 #
 # For these prefix/knob combinations ``model_info: {supports_reasoning: true}``
 # on the entry is the thing that makes the knob reach the wire:
@@ -58,6 +61,25 @@ _REASONING_KNOBS = ("reasoning_effort", "thinking")
 # dynamically added deployments at ``:7897-7923``), which is exactly what
 # ``supports_reasoning`` → ``_get_model_info_helper`` reads back
 # (``litellm/utils.py:2775-2781``). Nothing in that path is OpenRouter-specific.
+#
+# MEMBERSHIP CRITERION — BOTH halves, not just the first:
+#
+#   1. the provider's ``get_supported_openai_params`` consults
+#      ``litellm.supports_reasoning`` for that knob, and
+#   2. the gate call passes ``custom_llm_provider``, spelled the same as the
+#      prefix an operator writes in ``litellm_params.model``.
+#
+# (2) is what was silently assumed for several rounds, and it is not free.
+# The router files ``model_info`` under the *written* model string
+# (``custom_llm_provider + "/" + model`` when that field is set, raw ``model``
+# otherwise). Request-time lookup builds its candidate keys from
+# ``custom_llm_provider + "/" + <stripped model>``
+# (``_get_potential_model_names``, ``litellm/utils.py:5551-5586``) — but ONLY
+# when the gate passed one. A gate that calls ``supports_reasoning(model)`` bare
+# gets ``custom_llm_provider=None``, and that branch never prefixes any
+# candidate, so the registered ``openrouter/…``-shaped key is not a candidate at
+# all. Those providers go in ``_GATE_UNREACHABLE_BY_MODEL_INFO`` below — the
+# gate is real, but ``model_info`` cannot satisfy it.
 #
 # CLASSIFY BY SHAPE, NOT BY COUNT. A hard count ("nine providers do this") is a
 # claim that rots on every litellm bump and tells you nothing about the entry in
@@ -68,14 +90,14 @@ _REASONING_KNOBS = ("reasoning_effort", "thinking")
 #   (a) pure gate — the ``supports_reasoning`` call is the only condition, so
 #       an unmapped model fails closed and the knob is dropped in silence.
 #       ``model_info`` is REQUIRED. Most rows below are this shape.
-#   (b) gate AND a name heuristic — ``github_copilot`` advertises the knobs
-#       only for a model whose name contains "claude" *and* which answers the
-#       gate. ``model_info`` is necessary but not sufficient there.
-#   (c) name heuristics OR gate — ``anthropic`` and ``bedrock`` (converse) let
-#       a recognised name (``claude-3-7``, ``claude-sonnet-4``, ``deepseek.r1``,
-#       …) through without consulting the map at all, and fall back to the gate
-#       for every other name. ``model_info`` is what carries those other names;
-#       on a recognised name it is merely redundant.
+#   (b) name heuristics OR gate — ``anthropic`` lets a recognised name
+#       (``claude-3-7-sonnet``, the Claude 4.6/4.7 families) through without
+#       consulting the map at all, and falls back to the gate for every other
+#       name. ``model_info`` is what carries those other names; on a recognised
+#       name it is merely redundant.
+#
+# A third shape — gated, but on a key ``model_info`` cannot reach — is NOT here;
+# see ``_GATE_UNREACHABLE_BY_MODEL_INFO``.
 #
 # The contrast case, and the reason the shape matters more than the call:
 # azure's o-series config calls ``supports_reasoning`` too
@@ -97,12 +119,11 @@ _REASONING_KNOBS = ("reasoning_effort", "thinking")
 # advertise ``reasoning_effort`` at all, so a per-provider tuple would be wrong
 # for them. That is why this maps to knobs rather than to a bare prefix list.
 _SUPPORTS_REASONING_GATED_KNOBS: dict[str, tuple[str, ...]] = {
-    # (a) pure gate, both knobs under one ``if``
+    # (a) pure gate, both knobs under one ``if``; passes ``custom_llm_provider``
     "openrouter/": ("reasoning_effort", "thinking"),  # llms/openrouter/chat/transformation.py:41-48
     "gemini/": ("reasoning_effort", "thinking"),  # llms/gemini/chat/transformation.py:96-98
-    # llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py:328-330
-    "vertex_ai/": ("reasoning_effort", "thinking"),
-    # (a) pure gate, one knob
+    # (a) pure gate, one knob; each passes ``custom_llm_provider`` spelled
+    # exactly as the prefix below (``self.custom_llm_provider`` or a literal)
     "groq/": ("reasoning_effort",),  # llms/groq/chat/transformation.py:107-110
     "xai/": ("reasoning_effort",),  # llms/xai/chat/transformation.py:77-80
     "deepinfra/": ("reasoning_effort",),  # llms/deepinfra/chat/transformation.py:80-84
@@ -112,12 +133,49 @@ _SUPPORTS_REASONING_GATED_KNOBS: dict[str, tuple[str, ...]] = {
     "bedrock_mantle/": ("reasoning_effort",),  # llms/bedrock_mantle/chat/transformation.py:55-59
     "zai/": ("thinking",),  # llms/zai/chat/transformation.py:51-54
     "minimax/": ("thinking",),  # llms/minimax/chat/transformation.py:97
-    # (b) gate AND ``"claude" in model``
-    # llms/github_copilot/chat/transformation.py:122-129
-    "github_copilot/": ("reasoning_effort", "thinking"),
-    # (c) name heuristics OR gate
+    # (b) name heuristics OR gate; gate passes ``custom_llm_provider``
+    # ("anthropic", matching the prefix)
     "anthropic/": ("reasoning_effort", "thinking"),  # llms/anthropic/chat/transformation.py:454-464
-    # llms/bedrock/chat/converse_transformation.py:556-575
+}
+
+# Provider prefix -> reasoning knobs that provider gates on
+# ``litellm.supports_reasoning`` **on a key the entry's own ``model_info`` can
+# never land on**. Half the criterion above holds and the other half does not,
+# which is why these cannot sit in the map above: demanding ``model_info`` here
+# would certify a config that still drops the knob in silence.
+#
+# ``vertex_ai`` and ``github_copilot`` call the gate with no
+# ``custom_llm_provider``, so ``_get_potential_model_names`` takes its
+# ``custom_llm_provider is None`` branch (``litellm/utils.py:5554-5565``) and
+# every candidate key is derived from the bare model string — no candidate can
+# ever equal the ``vertex_ai/…`` / ``github_copilot/…`` key the router
+# registered. ``bedrock`` fails the same way one step further along: the
+# converse config's ``custom_llm_provider`` property returns
+# ``"bedrock_converse"`` (``llms/bedrock/chat/converse_transformation.py:124-126``)
+# while the operator must write the ``bedrock/`` prefix — ``bedrock_converse``
+# is not in ``LlmProviders``, so there is no spelling that makes the write key
+# and the read key meet.
+#
+# Nothing in ``litellm_params`` / ``model_info`` fixes these. What can still put
+# the knob on the wire is the provider config's own name heuristics
+# (``anthropic.claude-3-7`` / ``claude-sonnet-4`` / ``claude-opus-4`` /
+# ``deepseek.r1`` / ``gpt-oss`` / Nova 2 on bedrock converse, ``"claude" in
+# model`` on github_copilot) — a property of the model name, not of the config —
+# so the guard fails closed and asks for empirical verification against the
+# ``request_params`` log line rather than pretending a YAML key will do it.
+#
+# Verified at ``_VERIFIED_LITELLM_VERSION``; line numbers are from that tag.
+_GATE_UNREACHABLE_BY_MODEL_INFO: dict[str, tuple[str, ...]] = {
+    # llms/vertex_ai/gemini/vertex_and_google_ai_studio_gemini.py:328-330
+    # — ``supports_reasoning(model)``, no provider
+    "vertex_ai/": ("reasoning_effort", "thinking"),
+    # llms/github_copilot/chat/transformation.py:122-129 — ``"claude" in model``
+    # AND ``supports_reasoning(model=model.lower())``, no provider
+    "github_copilot/": ("reasoning_effort", "thinking"),
+    # llms/bedrock/chat/converse_transformation.py:555-575 — provider passed but
+    # spelled ``bedrock_converse``. Note also that the ``gpt-oss`` and Nova-2
+    # branches short-circuit the ``elif`` chain and append ``reasoning_effort``
+    # ONLY, so on those name families ``thinking`` is never advertised at all.
     "bedrock/": ("reasoning_effort", "thinking"),
 }
 
@@ -129,8 +187,9 @@ _SUPPORTS_REASONING_GATED_KNOBS: dict[str, tuple[str, ...]] = {
 # deployment name absent from LiteLLM's map) but is *conditionally* fail-open —
 # a mapped, non-reasoning deployment name is still gated — so it is deliberately
 # left out rather than half-recorded here. This is not the same category as the
-# map above — here ``model_info`` is unnecessary, there it is
-# required. A provider in neither map is one where the knob is popped silently
+# two maps above — here ``model_info`` is unnecessary; in the first it is
+# required, in the second it is unreachable. A provider in none of the three is
+# one where the knob is popped silently
 # whatever the config says: ``TogetherAIConfig.get_supported_openai_params``
 # (``llms/together_ai/chat.py:18-46``) only *subtracts* from
 # ``OpenAIGPTConfig``'s base list, and that base list
@@ -217,7 +276,13 @@ def _model_info_reaches_the_gate(entry: dict) -> bool:
     gate looks up ``openrouter/qwen/qwen3-max`` (prefix stripped, then re-added
     once). The flag is written and read at different keys, so
     ``supports_reasoning`` still answers False and the knob is still dropped in
-    silence — with the config now *looking* correct. Spell the provider once."""
+    silence — with the config now *looking* correct. Spell the provider once.
+
+    This models the *entry*-shaped way the two keys diverge. The other way is
+    provider-shaped — a gate that passes no ``custom_llm_provider`` at all, or
+    passes a different one than the operator can write — and no entry can fix
+    that, which is why it lives in ``_GATE_UNREACHABLE_BY_MODEL_INFO`` rather
+    than in this predicate."""
     return _registered_model_key(entry) == _entry_model(entry)
 
 
@@ -242,9 +307,12 @@ def _reasoning_knob_offenders(entries: list[dict]) -> list[str]:
 
     Keyed off ``_SUPPORTS_REASONING_GATED_KNOBS`` rather than a single provider,
     because the gate is not OpenRouter-specific — a range of other provider
-    configs consult the same call, and for all of them ``model_info`` is what
-    satisfies it. Knobs the provider does not gate are not this predicate's
-    business; ``_unverified_provider_reasoning_knob`` has them.
+    configs consult the same call, and for every prefix in that table
+    ``model_info`` is what satisfies it. Knobs the provider does not gate are
+    not this predicate's business (``_unverified_provider_reasoning_knob`` has
+    them), and neither are providers whose gate ``model_info`` cannot reach
+    (``_gate_unreachable_reasoning_knob``) — demanding the flag there would
+    certify a config that still drops the knob.
 
     ``model_info`` only counts when it lands on the key the gate reads
     (``_model_info_reaches_the_gate``): a double-spelled provider registers it
@@ -261,10 +329,26 @@ def _reasoning_knob_offenders(entries: list[dict]) -> list[str]:
     )
 
 
+def _gate_unreachable_reasoning_knob(entries: list[dict]) -> list[str]:
+    """Names of entries whose reasoning knob is gated on
+    ``litellm.supports_reasoning`` at a key the entry's ``model_info`` can never
+    reach — see ``_GATE_UNREACHABLE_BY_MODEL_INFO``.
+
+    Separate from ``_reasoning_knob_offenders`` because the remedy differs and
+    getting that wrong is how this guard has previously certified the defect it
+    exists to catch: there ``model_info`` is the fix, here it is a placebo that
+    *looks* like the fix. Deliberately ignores ``model_info`` for that reason."""
+    return sorted(
+        entry["model_name"]
+        for entry in entries
+        if set(_reasoning_knobs_set(entry))
+        & set(_knobs_for_provider(_entry_model(entry), _GATE_UNREACHABLE_BY_MODEL_INFO))
+    )
+
+
 def _unverified_provider_reasoning_knob(entries: list[dict]) -> list[str]:
     """Names of entries setting a reasoning knob their provider is not known to
-    advertise at all — neither gated on ``supports_reasoning`` nor
-    unconditional.
+    advertise at all — in none of the three tables above.
 
     Deliberately ignores ``model_info``: these providers never consult
     ``litellm.supports_reasoning`` for this knob, so accepting the flag here
@@ -274,6 +358,7 @@ def _unverified_provider_reasoning_knob(entries: list[dict]) -> list[str]:
         for entry in entries
         if set(_reasoning_knobs_set(entry))
         - set(_knobs_for_provider(_entry_model(entry), _SUPPORTS_REASONING_GATED_KNOBS))
+        - set(_knobs_for_provider(_entry_model(entry), _GATE_UNREACHABLE_BY_MODEL_INFO))
         - set(_knobs_for_provider(_entry_model(entry), _UNCONDITIONAL_REASONING_KNOBS))
     )
 
@@ -379,15 +464,23 @@ class TestReasoningKnobIsNotASilentNoop:
 
     The gate is **not** OpenRouter-specific. A range of other provider configs
     consult the same ``litellm.supports_reasoning`` call when deciding whether
-    to advertise a reasoning knob — ``gemini`` and ``vertex_ai`` with exactly
-    OpenRouter's fail-closed shape, ``anthropic`` / ``bedrock`` /
-    ``github_copilot`` in combination with a model-name heuristic — and on all
-    of them ``model_info`` is what satisfies it, because
+    to advertise a reasoning knob — ``gemini`` with exactly OpenRouter's
+    fail-closed shape, ``groq`` / ``xai`` / ``deepinfra`` / ``cerebras`` /
+    ``fireworks_ai`` / ``perplexity`` / ``bedrock_mantle`` on
+    ``reasoning_effort``, ``zai`` / ``minimax`` on ``thinking``, ``anthropic``
+    behind a name heuristic — and on those ``model_info`` satisfies it, because
     ``Router._create_deployment`` registers ``model_info`` into
     ``litellm.model_cost`` under a key built from ``litellm_params``, nothing
     provider-specific. ``_SUPPORTS_REASONING_GATED_KNOBS`` records which knob
-    each of them gates and which shape it is. Providers outside that map get the
-    separate check below, where ``model_info`` genuinely is a placebo."""
+    each of them gates and which shape it is.
+
+    Consulting the gate is necessary but not sufficient for membership: the gate
+    call must also pass a ``custom_llm_provider`` the operator can spell, or the
+    flag is registered under a key the lookup never forms.
+    ``vertex_ai`` / ``github_copilot`` / ``bedrock`` fail that second half and
+    get ``TestReasoningKnobUnreachableByModelInfo`` below; providers in no table
+    at all get ``TestReasoningKnobOnUnverifiedProvider``. In both of those
+    ``model_info`` is a placebo, for different reasons."""
 
     def test_predicate_flags_the_silent_noop(self):
         # A guard that cannot fire is not a guard. Exercise it against the
@@ -478,18 +571,23 @@ class TestReasoningKnobIsNotASilentNoop:
         # One case per (prefix, knob) pair in the table, so a row added without
         # thinking cannot ride in untested — and the per-knob splits (`zai` and
         # `minimax` gate `thinking` only) are exercised rather than assumed.
-        # `model_info` is the fix on every one of them: the registration path
-        # (`Router._create_deployment` -> `litellm.model_cost`) is not
-        # provider-specific.
+        # `model_info` is the fix on every row in THIS table: the registration
+        # path (`Router._create_deployment` -> `litellm.model_cost`) is not
+        # provider-specific, and each of these gates passes a
+        # `custom_llm_provider` matching the prefix, so the key it registers
+        # under is the key the gate reads back. Rows failing that second half
+        # live in `_GATE_UNREACHABLE_BY_MODEL_INFO` and must not appear here.
         bare = {
             "model_name": "m",
             "litellm_params": {"model": f"{prefix}vendor/model", knob: "high"},
         }
         assert _reasoning_knob_offenders([bare]) == ["m"]
         assert _unverified_provider_reasoning_knob([bare]) == []
+        assert _gate_unreachable_reasoning_knob([bare]) == []
         flagged = {**bare, "model_info": {"supports_reasoning": True}}
         assert _reasoning_knob_offenders([flagged]) == []
         assert _unverified_provider_reasoning_knob([flagged]) == []
+        assert _gate_unreachable_reasoning_knob([flagged]) == []
 
     @pytest.mark.parametrize(
         ("prefix", "knob"),
@@ -574,8 +672,10 @@ class TestReasoningKnobIsNotASilentNoop:
             "no-op and the agent runs at the provider's default depth. Add "
             "`model_info: {supports_reasoning: true}` to the entry (it is "
             "registered into the model-cost map under a key built from "
-            "`litellm_params`, so it satisfies the gate on every provider in "
-            "`_SUPPORTS_REASONING_GATED_KNOBS`), or on `openrouter/*` use the "
+            "`litellm_params`, and every provider in "
+            "`_SUPPORTS_REASONING_GATED_KNOBS` passes a matching "
+            "`custom_llm_provider` to the gate, so the flag lands on the key "
+            "the gate reads back), or on `openrouter/*` use the "
             "native `extra_body.reasoning.effort` instead. Pin the flag even "
             "for a model currently in the map: map membership changes under you "
             "on a litellm bump, the config does not. If the entry already "
@@ -585,11 +685,103 @@ class TestReasoningKnobIsNotASilentNoop:
         )
 
 
+class TestReasoningKnobUnreachableByModelInfo:
+    """Where a provider gates the knob on ``litellm.supports_reasoning`` but at
+    a key the entry's own ``model_info`` cannot land on, the flag is a placebo
+    wearing the fix's clothes — so this needs its own guard and its own advice.
+
+    The write key is the model string as written
+    (``Router._create_deployment``, ``litellm/router.py:7195-7199``). The read
+    keys are built by ``_get_potential_model_names``
+    (``litellm/utils.py:5551-5586``) from the *stripped* model plus whatever
+    ``custom_llm_provider`` the gate passed — and when the gate passes none,
+    that function's first branch prefixes nothing, so no candidate can ever
+    equal a ``vertex_ai/…``-shaped key. ``bedrock`` (converse) passes one, but
+    spelled ``bedrock_converse`` while the operator must write ``bedrock/``.
+
+    Telling those operators to add ``model_info`` would be this guard certifying
+    the exact defect it exists to catch, one taxonomy branch over — so the
+    predicate ignores ``model_info`` entirely and the message sends them to the
+    provider's native request shape or to empirical verification against the
+    ``request_params`` log line instead."""
+
+    @pytest.mark.parametrize(
+        ("prefix", "knob"),
+        [
+            (prefix, knob)
+            for prefix, knobs in sorted(_GATE_UNREACHABLE_BY_MODEL_INFO.items())
+            for knob in knobs
+        ],
+    )
+    def test_model_info_does_not_clear_the_flag(self, prefix, knob):
+        # One case per (prefix, knob) pair, so a row cannot be added to the
+        # table without the "model_info doesn't rescue it" property being
+        # exercised — that property is the whole reason the table is separate.
+        entry = {
+            "model_name": "m",
+            "litellm_params": {"model": f"{prefix}vendor/model", knob: "high"},
+        }
+        assert _gate_unreachable_reasoning_knob([entry]) == ["m"]
+        flagged = {**entry, "model_info": {"supports_reasoning": True}}
+        assert _gate_unreachable_reasoning_knob([flagged]) == ["m"]
+        # And it must not be double-reported by the other two guards, whose
+        # advice would be wrong for it.
+        assert _reasoning_knob_offenders([flagged]) == []
+        assert _unverified_provider_reasoning_knob([flagged]) == []
+
+    def test_predicate_ignores_entries_without_a_reasoning_knob(self):
+        assert (
+            _gate_unreachable_reasoning_knob(
+                [{"model_name": "plain", "litellm_params": {"model": "vertex_ai/gemini-3-pro"}}]
+            )
+            == []
+        )
+
+    def test_predicate_ignores_reachable_gated_providers(self):
+        # `gemini/` passes `custom_llm_provider="gemini"` to the gate and
+        # `vertex_ai/` passes nothing — same Google model family, opposite
+        # answers. Pin the pair so a future edit cannot merge the two rows.
+        gemini = {
+            "model_name": "g",
+            "litellm_params": {"model": "gemini/gemini-3-pro", "reasoning_effort": "high"},
+            "model_info": {"supports_reasoning": True},
+        }
+        vertex = {
+            "model_name": "v",
+            "litellm_params": {"model": "vertex_ai/gemini-3-pro", "reasoning_effort": "high"},
+            "model_info": {"supports_reasoning": True},
+        }
+        assert _gate_unreachable_reasoning_knob([gemini]) == []
+        assert _reasoning_knob_offenders([gemini]) == []
+        assert _gate_unreachable_reasoning_knob([vertex]) == ["v"]
+
+    def test_no_reasoning_knob_where_model_info_cannot_reach_the_gate(self):
+        offenders = _gate_unreachable_reasoning_knob(_load_model_list())
+        assert not offenders, (
+            "model_list entries setting `litellm_params.reasoning_effort` (or "
+            "`thinking`) on a provider that gates the knob on "
+            f"`litellm.supports_reasoning` at a key `model_info` cannot reach: "
+            f"{offenders} — do NOT add `model_info: {{supports_reasoning: "
+            "true}}` here. LiteLLM registers it under the model string as "
+            "written, while these gates look the model up with no "
+            "`custom_llm_provider` (`vertex_ai`, `github_copilot`) or with a "
+            "different one than you can write (`bedrock`, whose converse config "
+            "reports `bedrock_converse`), so the flag is filed where nothing "
+            "reads it. What can still carry the knob is the provider config's "
+            "own model-name heuristics, which no YAML key controls. Either use "
+            "the provider's native request shape, or confirm empirically that "
+            "the knob survives — `cost_callback` logs post-mapping "
+            "`request_params` per call, so grep the LiteLLM pod stream for the "
+            "knob on real traffic before trusting it. See "
+            "`_GATE_UNREACHABLE_BY_MODEL_INFO` for the per-provider reason."
+        )
+
+
 class TestReasoningKnobOnUnverifiedProvider:
     """Where a provider does not advertise the knob at all,
     ``model_info.supports_reasoning`` is not the fix — it is not read.
 
-    This is the complement of ``_SUPPORTS_REASONING_GATED_KNOBS``, not "anything
+    This is the complement of the two tables above, not "anything
     that isn't OpenRouter". ``TogetherAIConfig.get_supported_openai_params``
     (``llms/together_ai/chat.py:18-46``) only *subtracts* ``response_format`` /
     tool params from ``OpenAIGPTConfig``'s base list, and that base list carries
@@ -600,16 +792,18 @@ class TestReasoningKnobOnUnverifiedProvider:
     waved over them.
 
     There is no config-shaped fix to assert here, so the guard demands a
-    human-verified entry in one of the two tables instead: someone has to read
+    human-verified entry in one of the three tables instead: someone has to read
     that provider's ``get_supported_openai_params`` against the pinned litellm
-    before the build goes green. The two escape hatches are not interchangeable
-    — a provider that consults ``litellm.supports_reasoning`` at all belongs in
+    before the build goes green. The escape hatches are not interchangeable — a
+    provider that consults ``litellm.supports_reasoning`` at all belongs in
     ``_SUPPORTS_REASONING_GATED_KNOBS`` (where ``model_info`` is then
-    *required*); listing it in ``_UNCONDITIONAL_REASONING_KNOBS`` instead would
-    stop checking it entirely and let the genuine silent no-op through. When in
-    doubt, the gated table is the fail-safe classification.
+    *required*) or, if its gate call cannot see a key ``model_info`` produces,
+    in ``_GATE_UNREACHABLE_BY_MODEL_INFO``; listing it in
+    ``_UNCONDITIONAL_REASONING_KNOBS`` instead would stop checking it entirely
+    and let the genuine silent no-op through. When in doubt, the gated table is
+    the fail-safe classification.
 
-    Being in neither table means "nobody has read this provider's config yet",
+    Being in no table means "nobody has read this provider's config yet",
     not "this provider is broken" — the guard fails closed on ignorance."""
 
     def test_predicate_flags_an_unverified_provider(self):
@@ -676,9 +870,13 @@ class TestReasoningKnobOnUnverifiedProvider:
             "this one's `get_supported_openai_params` against the pinned "
             "litellm version, then: if it consults "
             "`litellm.supports_reasoning` for that knob (however it combines "
-            "the call with name heuristics), add the prefix/knob to "
+            "the call with name heuristics) AND passes a `custom_llm_provider` "
+            "spelled like the prefix you write, add the prefix/knob to "
             "`_SUPPORTS_REASONING_GATED_KNOBS` and set "
             "`model_info: {supports_reasoning: true}` on the entry; if it "
+            "consults the gate but with no `custom_llm_provider` or a "
+            "different one, `model_info` cannot reach it — add the prefix/knob "
+            "to `_GATE_UNREACHABLE_BY_MODEL_INFO` instead; if it "
             "advertises the knob unconditionally, add it to "
             "`_UNCONDITIONAL_REASONING_KNOBS`; note the version you checked "
             "either way. Only if it advertises the knob nowhere is dropping it "
@@ -689,16 +887,26 @@ class TestReasoningKnobOnUnverifiedProvider:
 class TestProviderTablesTrackThePinnedLitellm:
     """The provider tables above are a reading of litellm source at one version.
 
-    Which providers gate a reasoning knob, on which knob, and whether the gate
-    fails closed or open are all version-specific facts: providers get added,
-    and the ``gemini`` / ``vertex_ai`` omission this guard shipped with in an
-    earlier round is what an un-re-read table looks like. So pin the reading to
-    the image tag and fail the build when they diverge, rather than trusting a
-    comment nobody re-reads on a bump."""
+    Which providers gate a reasoning knob, on which knob, whether the gate fails
+    closed or open, and whether the call passes a ``custom_llm_provider`` are all
+    version-specific facts, and providers get added between releases. So pin the
+    reading to the image tag and fail the build when they diverge, rather than
+    trusting a comment nobody re-reads on a bump.
+
+    What this guard does NOT catch is a table that was incomplete when written —
+    the ``gemini`` / ``vertex_ai`` omissions earlier in this PR's review happened
+    *at* the pinned version, with no bump involved, and only a re-read of the
+    source found them. This forces that re-read at the one moment it is
+    guaranteed to be needed; it does not substitute for it."""
 
     def test_verified_version_matches_the_image_pin(self):
+        # Tolerate the shapes a pin legitimately takes — a trailing
+        # `AS <stage>`, and a `@sha256:` digest suffix — so a Dockerfile edit
+        # that keeps the same version gets silence rather than a confusing
+        # "version mismatch: 1.86.2@sha256:…" or a spurious "no FROM line".
         pinned = re.search(
-            r"^FROM\s+ghcr\.io/berriai/litellm:v(?P<version>\S+)\s*$",
+            r"^FROM\s+ghcr\.io/berriai/litellm:v(?P<version>[^\s@]+)"
+            r"(?:@sha256:[0-9a-f]+)?(?:\s+[Aa][Ss]\s+\S+)?\s*$",
             LITELLM_DOCKERFILE.read_text(),
             re.MULTILINE,
         )

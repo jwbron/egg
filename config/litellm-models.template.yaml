@@ -114,30 +114,60 @@
 #
 # THIS IS NOT AN OPENROUTER-ONLY TRAP, and `model_info` is not an
 # OpenRouter-only fix. Many other provider configs consult the same
-# `litellm.supports_reasoning` call — at litellm 1.86.2: `gemini` and
-# `vertex_ai` with exactly OpenRouter's shape (a bare gate, both knobs);
-# `groq`, `xai`, `deepinfra`, `cerebras`, `fireworks_ai`, `perplexity`,
+# `litellm.supports_reasoning` call — at litellm 1.86.2: `gemini` with
+# exactly OpenRouter's shape (a bare gate, both knobs); `groq`, `xai`,
+# `deepinfra`, `cerebras`, `fireworks_ai`, `perplexity`,
 # `bedrock_mantle` gating `reasoning_effort`; `zai` and `minimax` gating
-# `thinking` and never advertising `reasoning_effort` at all;
-# `github_copilot` gating both but only for a "claude" model name; and
-# `anthropic` / `bedrock` falling back to the gate for any name their
-# heuristics don't already recognise. On all of them form 1 works,
-# because LiteLLM registers `model_info` into its model-cost map under a
-# key derived from `litellm_params` — `custom_llm_provider + "/" + model`
-# when that field is set, the raw `model` string otherwise — and the gate
-# reads that same map. Nothing on the path is OpenRouter-specific.
+# `thinking` and never advertising `reasoning_effort` at all; and
+# `anthropic` falling back to the gate for any name its own heuristics
+# don't already recognise. On those, form 1 works: LiteLLM registers
+# `model_info` into its model-cost map under a key derived from
+# `litellm_params` — `custom_llm_provider + "/" + model` when that field
+# is set, the raw `model` string otherwise — and the gate reads that same
+# map back. Nothing on the path is OpenRouter-specific.
+#
+# BUT "the provider gates the knob" is only half of what makes form 1
+# work. The other half is that the gate must look the model up WITH a
+# `custom_llm_provider`, spelled like the prefix you write — that is what
+# makes the lookup form the same key the router filed `model_info` under.
+# Three providers at 1.86.2 fail that half, and for them form 1 is a
+# placebo that looks exactly like the fix:
+#
+#   - `vertex_ai` and `github_copilot` call `supports_reasoning(model)`
+#     with no provider at all. LiteLLM's candidate-key builder then
+#     prefixes nothing, so the `vertex_ai/…` key your entry registered is
+#     never even a candidate.
+#   - `bedrock` (converse) does pass one, but its config reports
+#     `bedrock_converse` while the only prefix you can write is
+#     `bedrock/`. There is no third spelling that makes the two meet.
+#
+# On those routes the knob reaches the wire only if the provider config's
+# own model-name heuristics recognise the name (`claude-3-7`,
+# `claude-sonnet-4`, `claude-opus-4`, `deepseek.r1`, `gpt-oss`, Nova 2 on
+# bedrock; a "claude" name on github_copilot) — nothing in this file
+# changes that. Use the provider's native request shape, or verify
+# empirically against `request_params` as below. The CI guard fails the
+# build on these rather than telling you to set a flag that does nothing.
 #
 # LOOK FOR THE SHAPE, NOT THE PROVIDER NAME. Any list here is a snapshot
-# of one litellm version; the durable question is what that provider's
-# `get_supported_openai_params` does when the model is ABSENT from
-# LiteLLM's map. Fails closed (drops the knob) — set `model_info`. Fails
-# open — you don't need it: azure's o-series config calls
-# `supports_reasoning` too, but assumes an unrecognised deployment name
-# IS reasoning-capable, so the same call has the opposite failure mode.
-# Advertises the knob nowhere — nothing in this file helps: that is
-# `TogetherAIConfig`, which only subtracts from `OpenAIGPTConfig`'s base
-# list, and that base list carries no reasoning knob at all, so on a
-# `together_ai/*` row the parameter is popped silently whatever you set.
+# of one litellm version; the durable questions about a provider you are
+# about to configure are what its `get_supported_openai_params` does when
+# the model is ABSENT from LiteLLM's map, and — if it consults the map —
+# whether it passes a `custom_llm_provider` when doing so:
+#
+#   - Fails closed, gate passes the provider — set `model_info`.
+#   - Fails closed, gate passes no (or a different) provider — nothing in
+#     this file helps; see the three named above.
+#   - Fails open — you don't need it: azure's o-series config calls
+#     `supports_reasoning` too, but assumes an unrecognised deployment
+#     name IS reasoning-capable, so the same call has the opposite
+#     failure mode.
+#   - Advertises the knob nowhere — nothing in this file helps either:
+#     that is `TogetherAIConfig`, which only subtracts from
+#     `OpenAIGPTConfig`'s base list, and that base list carries no
+#     reasoning knob at all, so on a `together_ai/*` row the parameter is
+#     popped silently whatever you set.
+#
 # The answer is also per-knob, not per-provider (see `zai` above). The CI
 # guard tracks these cases separately, and pins the litellm version its
 # reading was done at — bump the image and the guard tells you to re-read

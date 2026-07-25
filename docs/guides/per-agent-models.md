@@ -707,33 +707,55 @@ kubectl logs -n egg-system deploy/litellm \
 >
 > **This is not an OpenRouter-only trap, and form 1 is not an OpenRouter-only
 > fix.** Many other provider configs consult the same
-> `litellm.supports_reasoning` call. At litellm 1.86.2: `gemini` and
-> `vertex_ai` with exactly OpenRouter's shape — a bare gate on both knobs;
+> `litellm.supports_reasoning` call. At litellm 1.86.2: `gemini` with exactly
+> OpenRouter's shape — a bare gate on both knobs;
 > `groq`, `xai`, `deepinfra`, `cerebras`, `fireworks_ai`, `perplexity` and
 > `bedrock_mantle` gating `reasoning_effort`; `zai` and `minimax` gating
-> `thinking` and never advertising `reasoning_effort` at all;
-> `github_copilot` gating both but only for a `claude`-named model; and
-> `anthropic` / `bedrock` (converse) falling back to the gate for any name
-> their own heuristics don't recognise. On all of them `model_info` is the
-> working fix, because `Router._create_deployment` registers it into LiteLLM's
+> `thinking` and never advertising `reasoning_effort` at all; and
+> `anthropic` falling back to the gate for any name its own heuristics don't
+> recognise. On those, `model_info` is the working fix, because
+> `Router._create_deployment` registers it into LiteLLM's
 > model-cost map under a key built from `litellm_params`
 > (`custom_llm_provider + "/" + model` when that field is set, the raw `model`
 > string otherwise) and the gate reads back that same map — nothing on the path
 > is OpenRouter-specific.
 >
+> **"Gates the knob" is only half of what makes form 1 work.** The other half is
+> that the gate must look the model up *with* a `custom_llm_provider` spelled
+> like the prefix you write — that is what makes its lookup build the same key
+> the router filed `model_info` under. Three providers at 1.86.2 fail that half,
+> and there form 1 is a placebo indistinguishable from the fix:
+>
+> - `vertex_ai` and `github_copilot` call `supports_reasoning(model)` with no
+>   provider, so LiteLLM's candidate-key builder prefixes nothing
+>   (`litellm/utils.py:5554-5565`) and the `vertex_ai/…` key your entry
+>   registered is never a candidate.
+> - `bedrock` (converse) does pass one, but its config reports
+>   `bedrock_converse` while the only prefix you can write is `bedrock/` —
+>   and `bedrock_converse` is not a provider prefix, so there is no third
+>   spelling that makes the write key and the read key meet.
+>
+> On those routes only the provider config's own name heuristics can carry the
+> knob (`claude-3-7`, `claude-sonnet-4`, `claude-opus-4`, `deepseek.r1`,
+> `gpt-oss`, Nova 2 on bedrock; a `claude` name on github_copilot) — a property
+> of the model name, not of your config. Use the provider's native request
+> shape, or verify empirically against `request_params` below. The CI guard
+> fails the build on these rather than sending you to a flag that does nothing.
+>
 > **Look for the shape, not the provider name.** Any such list is a snapshot of
 > one litellm version, and a hard count of providers rots on the next bump. The
-> durable question about a provider you are about to configure is what its
+> durable questions about a provider you are about to configure are what its
 > `get_supported_openai_params` does when the model is *absent* from LiteLLM's
-> map:
+> map, and — if it consults the map — whether it passes a `custom_llm_provider`:
 >
-> - **Fails closed** (drops the knob) → set `model_info`. Every provider named
->   above is this case.
+> - **Fails closed, gate passes the provider** → set `model_info`.
+> - **Fails closed, gate passes no (or a different) provider** → nothing in the
+>   config helps; the three named above are this case.
 > - **Fails open** → you don't need it. Azure's o-series config calls
 >   `supports_reasoning` too but *assumes* an unrecognised deployment name is
 >   reasoning-capable — the same call with the opposite failure mode, which is
 >   why the call alone isn't the test.
-> - **Never advertises the knob** → nothing in the config helps.
+> - **Never advertises the knob** → nothing in the config helps either.
 >   `TogetherAIConfig` only subtracts from `OpenAIGPTConfig`'s base list, and
 >   that base list carries no reasoning knob under any condition, so on a
 >   `together_ai/*` route the parameter is popped silently whatever you set.
