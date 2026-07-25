@@ -75,7 +75,7 @@
 - `restart_phase` deletes per-agent worktrees (verified at L1117-1189).
 - `start_pipeline` 409s on CANCELLED (verified at L753-756).
 
-## Recommendation (to be proposed as a decision)
+## Recommendation (proposed as decisions cq-1, cq-2, cq-3)
 
 The issue asks me to decide which changes are worth doing and in what order. My assessment:
 
@@ -93,3 +93,10 @@ The issue asks me to decide which changes are worth doing and in what order. My 
 - **Defer Change 4** to a follow-up.
 
 This preserves #2053 (namespacing ensures isolation) while making `cancel_task(cleanup=false)` truly lossless for resume.
+
+## Proposal submitted
+- **Commit:** b1523c62f906ff3b20b871e3da6899f69acba291
+- **Version:** 1
+- **Reviewers:** reviewer_refine, reviewer_agent_design, first_principles_reviewer, simplifier
+- **Status:** proposed
+- **Decisions registered:** cq-1 (safety finding), cq-2 (test update), cq-3 (scope adoption)
