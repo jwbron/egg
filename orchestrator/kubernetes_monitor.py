@@ -506,8 +506,13 @@ class KubernetesMonitor:
         per-tick executor would re-fire the same nudge every interval.
         """
         import routes.pipelines as pipelines_pkg
+        from health_checks import detection_plane
 
-        running_agent_count = len(getattr(snapshot, "running_agents", ()) or ())
+        # Live agents only. ``running_agents`` also carries recently-exited
+        # agents (the container-death detectors read their exit codes), and
+        # CorrectiveExecutor's zero-agent HITL park bar keys on this count —
+        # counting corpses would keep the bar open after the last agent died.
+        running_agent_count = detection_plane.live_agent_count(snapshot)
         phase = getattr(getattr(pipeline, "current_phase", None), "value", None)
         issue_number = getattr(pipeline, "issue_number", None)
 

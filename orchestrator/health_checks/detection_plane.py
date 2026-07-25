@@ -324,8 +324,11 @@ class PhaseStallDetector:
             return None
 
         # Agents are live → not a zero-agent stall (their own liveness/heartbeat
-        # detectors own that case).
-        if getattr(snapshot, "running_agents", ()):
+        # detectors own that case). Counted rather than tested for emptiness:
+        # ``running_agents`` also carries recently-exited agents so the
+        # container-death detectors can read their exit codes, and an exited
+        # agent must not mask a genuine zero-agent stall (#3596 task-1-9).
+        if live_agent_count(snapshot):
             return None
 
         # #3230: the orchestrator (or an agent) owns the lifecycle and is about
@@ -552,9 +555,9 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
     # HealthMonitor. Null when unmeasurable — never 0 (#3596 operator directive).
     progress_ages = _query_progress_ages(pipeline_id)
     heartbeat_ages = _query_heartbeat_ages(pipeline_id)
-    container_exit_info = _query_container_exit_info(pipeline, phase_value, live_ids)
+    container_exit_info = _query_container_exit_info(pipeline, phase_value)
 
-    running_agents = tuple(
+    live_agents = tuple(
         _build_running_agent(
             cid,
             lifecycle_owner,
@@ -564,6 +567,15 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
             container_exit_info,
         )
         for cid in live_ids
+    )
+    # Agents whose container has already exited are appended with
+    # ``state="exited"``. They are absent from ``live_container_ids`` by
+    # definition, and the container-death / self-injection detectors read their
+    # exit_code and exit_reason — without them those detectors can never fire
+    # (#3596 task-1-9). Callers that want "is anything still running?" use
+    # live_agent_count(), not len(running_agents).
+    running_agents = live_agents + _build_exited_agents(
+        container_exit_info, {a.role for a in live_agents}
     )
 
     # Enrich with git_state, container_transitions, decision_state, consensus,
@@ -725,39 +737,151 @@ def _query_heartbeat_ages(pipeline_id: str) -> dict[str, float]:
         return {}
 
 
-def _query_container_exit_info(
-    pipeline: Any, phase_value: str, live_ids: set[str]
-) -> dict[str, dict[str, Any]]:
-    """Return ``{container_id: {exit_code, exit_reason}}`` for exited containers.
+# Container statuses that mean the agent's container is no longer running.
+_EXITED_CONTAINER_STATUSES = frozenset({"exited", "failed", "removed"})
 
-    Reads from the pipeline's phase execution state — agents that have exited
-    carry their exit info in ``AgentExecution``. Returns an empty dict when
-    unavailable.
+# ``RunningAgent.state`` values that mean the agent is NOT live. Compared
+# case-insensitively: the production builder writes ``running`` / ``exited``,
+# while the calibration corpus uses ``WORKING`` / ``EXITED``.
+_DEAD_AGENT_STATES = frozenset({"EXITED", "TERMINATED", "FAILED", "DEAD", "REMOVED"})
+
+# 137 is SIGKILL, which on Kubernetes is overwhelmingly an OOM kill. The
+# container-lifecycle detectors match on the Kubernetes reason vocabulary, so an
+# exit code is translated into it here (mirrors kubernetes_monitor).
+_EXIT_CODE_REASONS: dict[int, str] = {137: "OOMKilled", 143: "Completed"}
+
+
+def live_agent_count(snapshot: Any) -> int:
+    """Number of agents in ``running_agents`` that are actually still live.
+
+    ``running_agents`` deliberately carries recently-exited agents too — the
+    container-death and self-injection detectors read their ``exit_code`` /
+    ``exit_reason`` as corroborating evidence, and an agent that exited is
+    exactly the one they need to see. Callers asking "is anything still
+    running?" must therefore filter rather than take ``len()``.
+    """
+    live = 0
+    for agent in getattr(snapshot, "running_agents", ()) or ():
+        state = str(getattr(agent, "state", "") or "").upper()
+        if state not in _DEAD_AGENT_STATES:
+            live += 1
+    return live
+
+
+def _query_container_exit_info(pipeline: Any, phase_value: str) -> dict[str, dict[str, Any]]:
+    """Return ``{role: {exit_code, exit_reason, exited}}`` for the phase's agents.
+
+    Exit info is read from ``AgentExecution.container_info`` (a
+    :class:`ContainerInfo`, which carries ``exit_code`` and ``status``) and from
+    ``PhaseExecution.agent_exits`` (the frozen-at-exit :class:`AgentExitInfo`
+    snapshots, #2205) — **not** from ``AgentExecution`` itself, which has no
+    ``exit_code`` field, so the previous ``getattr(agent, "exit_code", None)``
+    was unconditionally ``None`` and every consumer saw an empty mapping
+    (#3596 task-1-9). ``agent_exits`` is consulted second and wins where it has
+    a code: it survives the container cleanup that clears the live structures.
+
+    Keyed by **role** rather than container id on purpose. The two container-id
+    vocabularies in play do not join: ``create_container`` stamps the *Job* uid
+    onto the pipeline model, while ``list_containers`` reports the *Pod* uid, so
+    a container-id-keyed lookup misses in production. Role is stable across
+    both.
+
+    Returns an empty dict when the pipeline model is unavailable.
     """
     try:
         phases = getattr(pipeline, "phases", {}) or {}
         phase_exec = phases.get(phase_value)
         if phase_exec is None:
             return {}
-        agents = getattr(phase_exec, "agents", []) or []
         result: dict[str, dict[str, Any]] = {}
-        for agent in agents:
-            cid = getattr(agent, "container_id", None)
-            if cid is None:
-                ci = getattr(agent, "container_info", None)
-                if ci is not None:
-                    cid = getattr(ci, "container_id", None)
-            if cid:
-                exit_code = getattr(agent, "exit_code", None)
-                exit_reason = getattr(agent, "error", None)
-                if exit_code is not None or exit_reason is not None:
-                    result[str(cid)] = {
-                        "exit_code": exit_code,
-                        "exit_reason": exit_reason,
-                    }
+        for agent in getattr(phase_exec, "agents", []) or []:
+            role = _role_name(getattr(agent, "role", None))
+            if not role:
+                continue
+            info = getattr(agent, "container_info", None)
+            exit_code = getattr(info, "exit_code", None) if info is not None else None
+            status = _enum_value(getattr(info, "status", None)).lower()
+            exited = status in _EXITED_CONTAINER_STATUSES
+            reason = _exit_reason(exit_code, getattr(agent, "error", None))
+            if exit_code is None and reason is None and not exited:
+                continue
+            result[role] = {
+                "exit_code": exit_code,
+                "exit_reason": reason,
+                "exited": exited,
+            }
+
+        # Frozen post-mortem snapshots. Recorded once per observed exit and
+        # never mutated, so they outlive the live agent/container structures.
+        for exit_info in getattr(phase_exec, "agent_exits", []) or []:
+            role = _role_name(getattr(exit_info, "role", None))
+            if not role:
+                continue
+            exit_code = getattr(exit_info, "exit_code", None)
+            existing = result.get(role, {})
+            result[role] = {
+                "exit_code": exit_code if exit_code is not None else existing.get("exit_code"),
+                "exit_reason": _exit_reason(exit_code, existing.get("exit_reason")),
+                "exited": True,
+            }
         return result
     except Exception:  # noqa: BLE001 — defensive
         return {}
+
+
+def _enum_value(value: Any) -> str:
+    """Render an enum-or-string as its string value (``""`` for ``None``)."""
+    return str(getattr(value, "value", value) or "")
+
+
+def _role_name(role: Any) -> str:
+    """Render an ``AgentRole``-or-string role as a plain role name."""
+    return _enum_value(role)
+
+
+def _exit_reason(exit_code: int | None, fallback: Any) -> str | None:
+    """Best available ``exit_reason`` for an exited container.
+
+    The Kubernetes reason implied by the exit code wins over the orchestrator's
+    own failure prose: the container-lifecycle detectors match on the Kubernetes
+    vocabulary (``OOMKilled``, ``Error``, ...), and ``AgentExecution.error`` is
+    a human sentence ("Container exited with code 137") that matches nothing.
+    """
+    if isinstance(exit_code, int):
+        reason = _EXIT_CODE_REASONS.get(exit_code)
+        if reason is not None:
+            return reason
+        if exit_code != 0:
+            return "Error"
+    return str(fallback) if fallback else None
+
+
+def _build_exited_agents(
+    exit_info: dict[str, dict[str, Any]],
+    live_roles: set[str],
+) -> tuple[RunningAgent, ...]:
+    """Build ``RunningAgent`` records for phase agents whose container has exited.
+
+    Without these the container-death and overseer-self-injection detectors are
+    structurally blind: both read ``exit_code`` / ``exit_reason`` off the agent
+    set, and an agent that has exited is by definition absent from the live
+    container list the set used to be built from (#3596 task-1-9). Marked with
+    ``state="exited"`` so :func:`live_agent_count` can tell them apart.
+    """
+    exited: list[RunningAgent] = []
+    for role, info in sorted(exit_info.items()):
+        if role in live_roles or not info.get("exited"):
+            continue
+        exited.append(
+            RunningAgent(
+                role=role,
+                state="exited",
+                lifecycle_owner=LifecycleOwner.NONE.value,
+                exit_code=info.get("exit_code"),
+                exit_reason=info.get("exit_reason"),
+            )
+        )
+    return tuple(exited)
 
 
 def _build_running_agent(
@@ -768,13 +892,17 @@ def _build_running_agent(
     heartbeat_ages: dict[str, float],
     container_exit_info: dict[str, dict[str, Any]],
 ) -> RunningAgent:
-    """Build a single RunningAgent with all available liveness fields.
+    """Build a single RunningAgent for a **live** container.
 
     Fixes the ``role=str(cid)`` defect: maps the container ID to the agent
     role via the pipeline state. Liveness fields are null when unmeasurable.
+
+    ``container_exit_info`` is keyed by role, not container id: the pipeline
+    model records the *Job* uid while ``live_container_ids`` carries *Pod* uids,
+    so a container-id-keyed lookup never joins (#3596 task-1-9).
     """
     role = cid_to_role.get(str(container_id), str(container_id))
-    exit_info = container_exit_info.get(str(container_id), {})
+    exit_info = container_exit_info.get(role, {})
 
     return RunningAgent(
         role=role,
@@ -1281,5 +1409,6 @@ __all__ = [
     "default_detection_plane",
     "detect_phase_stall",
     "escalate_findings",
+    "live_agent_count",
     "snapshot_from_health_context",
 ]

@@ -54,8 +54,11 @@ _DEATH_STATES = frozenset({"Terminated", "Waiting"})
 _DEATH_REASONS = frozenset(
     {"OOMKilled", "CrashLoopBackOff", "Error", "DeadlineExceeded", "BackOff"}
 )
-# A non-zero, non-None exit code is fatal (exit 0 is a clean exit — the
-# self-injection loop exits 0 and is caught by its own detector instead).
+# Exit codes that are NOT a death. 0 is a clean exit (the self-injection loop
+# exits 0 and is caught by its own detector instead); 143 is SIGTERM, i.e. the
+# orchestrator stopping the container on purpose — the same pair
+# ``routes/pipelines`` uses to mark an agent COMPLETE rather than FAILED.
+_CLEAN_EXIT_CODES = frozenset({0, 143})
 _RUNNING_STATE = "Running"
 
 # Default number of restarts of one role before a non-fatal crash-loop is itself
@@ -101,13 +104,13 @@ def detect_container_death(snapshot: Any) -> Finding | None:
             fatal_reason = reason
             fatal_container = t.get("container")
 
-    # An agent that has EXITED with a fatal (non-zero) code is corroborating
-    # evidence — but a clean exit (code 0) is NOT a death here (the overseer
-    # self-injection loop exits 0; that path has its own detector).
+    # An agent that has EXITED with a fatal code is corroborating evidence — but
+    # a clean exit is NOT a death here (the overseer self-injection loop exits 0
+    # and has its own detector; 143 is a deliberate orchestrator stop).
     fatal_exit_agent = None
     for agent in _running_agents(snapshot):
         code = getattr(agent, "exit_code", None)
-        if code is not None and int(code) != 0:
+        if code is not None and int(code) not in _CLEAN_EXIT_CODES:
             fatal_exit_agent = agent
             break
 
