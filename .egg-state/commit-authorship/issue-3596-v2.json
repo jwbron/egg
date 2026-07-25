@@ -40,6 +40,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "489001497081b6d43f804518b7f2a9d57d381bb2": {
+      "branch": "egg/issue-3596-v2/slice-1",
+      "patch_id": "06c30202359cf43869c4af7164070f8864cc9b85",
+      "pipeline_id": "issue-3596-v2",
+      "registered_at": "2026-07-25T06:33:49.116405+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "5462fe0c1eb21b333adc3debbc0bc198d977e232": {
       "branch": "egg/issue-3596-v2/work",
       "patch_id": "993c9bf9904bbd12763563c6eab518e200ce90aa",
