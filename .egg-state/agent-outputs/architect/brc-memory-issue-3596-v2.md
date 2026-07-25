@@ -271,23 +271,16 @@ wasted effort. The detection plane is the future, but HealthMonitor is the
 present. Both need the fix: HealthMonitor for immediate effect, detection plane
 for the future.
 
-## Revised proposal (v2)
+## Revised proposal (v2) — re-proposed after NACK from reviewer_plan
 
-### Slice 1a: Wire detection plane into runtime tick
-- Call HealthCheckRunner.run_detection_plane() from _run_runtime_tick_checks
-- Guard against double-evaluation (two call sites: _check_pod + _reconciliation_sweep)
-- Make evaluation idempotent per tick
-
-### Slice 1b: Enrich snapshot builder — data sources
-Split into sub-tasks by data source:
-- 1b: container_transitions from kubernetes_monitor container event history
-- 1c: git_state from worktree git operations (commit count, last commit, patch-id)
-- 1d: decision_state from contract + decision queue
-- 1e: RunningAgent liveness fields (last_tool_call_age_s, last_heartbeat_age_s, exit_code, exit_reason)
-- 1f: phase_state.expected_duration_s from PipelineConfig
-- 1g: raw.runtime from driver_heartbeat + kubernetes_monitor
-- 1h: Fix role=str(cid) defect
-- 1i: Correct health_checks/README.md:88
+### Slice 1: Wire detection plane + enrich snapshot builder (9 sub-tasks)
+- 1a: Wire detection plane into _run_runtime_tick_checks (idempotent per tick)
+- 1b: Populate container_transitions from kubernetes_monitor
+- 1c: Populate git_state from worktree git operations
+- 1d: Populate decision_state from contract + decision queue
+- 1e: Populate RunningAgent liveness fields + fix role=str(cid) defect
+- 1f: Populate phase_state.expected_duration_s + raw.runtime from driver_heartbeat
+- 1g: Correct health_checks/README.md:88 (docs claim plane is wired)
 
 ### Slice 2: Forward-progress detector
 New detector: detect_forward_progress_stall — fires when agent runs >N seconds
@@ -295,13 +288,14 @@ with zero commits, zero progress events, zero file modifications.
 
 ### Slice 3: Peer-progress gate fix
 Fix _has_recent_peer_progress to only defer on peers the agent depends on
-(from BRC review_edges). Also fix in detection plane when it becomes active.
+(from BRC review_edges). HealthMonitor IS still active (12+ call sites).
 
 ### Slice 4: Status endpoint enrichment
 Add progress sub-object to concurrent.agents + alerts array to top-level.
 
 ### Slice 5: Consumption breaker (DEFERRED)
-Requires a cost counter store that doesn't exist. Create as a follow-up task.
+No cost counter store exists — cost_callback logs to stdout, not queryable.
+Deferred as implementation constraint, not operator decision.
 
 ### Slice 6: Record sampling params
 Extend cost_callback.py to log optional_params. Pin temperature/top_p per model.
@@ -310,8 +304,22 @@ Extend cost_callback.py to log optional_params. Pin temperature/top_p per model.
 The codebase has substantial observability infrastructure but it is entirely
 dormant — the detection plane is never invoked, and the snapshot builder
 populates only 5 of 13 top-level fields (and only 3 of 7 RunningAgent fields).
-ALL 27 registered detectors are starved. The fix is to (1) wire the detection
-plane into the runtime tick, (2) enrich the snapshot builder with data from
-the 8 existing data sources, (3) add a forward-progress detector, (4) fix the
-peer-progress gate, (5) enrich the status endpoint, and (6) record sampling params.
-Task-5 (consumption breaker) is deferred pending a cost counter store.
+ALL 27 registered detection-plane detectors are starved. The fix is to (1) wire
+the detection plane into the runtime tick, (2) enrich the snapshot builder with
+data from the existing data sources, (3) add a forward-progress detector,
+(4) fix the peer-progress gate, (5) enrich the status endpoint, and (6) record
+sampling params. Task-5 (consumption breaker) is deferred pending a cost counter
+store.
+
+## Proposal status
+- v1 proposed, NACKed by reviewer_plan with 7 points
+- cq-2 registered by risk_analyst, resolved by operator: detection plane is NOT
+  wired in production, cq-1 premise retracted
+- v2 re-proposed with all 7 NACK points addressed:
+  - R1: cq-2 resolved, task-1a wires the plane
+  - R3: task-1 split into 9 sub-tasks (1a-1g)
+  - R5: full detector audit included (all 27 starved)
+  - R6: task-5 deferred (no cost counter store)
+  - R7: HealthMonitor confirmed active (12+ call sites)
+- Commit SHA: ac390d79aee3179c818527fdf27b8a522e7ff52f
+- Awaiting ACK from reviewer_plan and risk_analyst
