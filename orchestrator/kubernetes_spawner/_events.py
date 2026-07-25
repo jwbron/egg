@@ -132,6 +132,12 @@ def _await_terminating_event_jobs(
     ``KubernetesSpawnError``, which the event loop isolates per-role and
     retries on the next poll, so a slow reap costs a poll interval rather
     than the silent vanish this whole path exists to prevent.
+
+    The wait runs on the event-loop poll thread, so it delays the roles
+    handled later in the same ``poll_once`` pass by up to the budget. That
+    is the accepted tradeoff: the wait is bounded, only reachable right
+    after a restart (nothing else stamps a Job mid-poll), and the
+    alternative is the role vanishing outright.
     """
     terminating = [j for j in jobs if _job_is_terminating(j)]
     if not terminating:

@@ -168,7 +168,12 @@ def test_audit_window_retains_documented_ble001_population() -> None:
     # Upper bound guards against a future PR re-introducing swallow-all handlers
     # en masse without re-running the audit. The file has carried ~80 documented
     # swallows through the overhaul; a jump well past that needs an audit pass.
-    assert len(noqa_lines) <= 120, (
+    # Raised 120 -> 121 by #3597, which added one audited site: the restart
+    # route's bounded teardown wait catches a raising ``wait_for_job_gone`` so
+    # it degrades to ``teardown_confirmed: false`` instead of falling through to
+    # the outer handler and logging a misleading "failed to list" — mirroring
+    # ``_await_terminating_event_jobs`` on the event-loop path.
+    assert len(noqa_lines) <= 121, (
         f"Found {len(noqa_lines)} ``# noqa: BLE001`` swallows in "
         f"routes/pipelines.py, well past the documented population — a future "
         f"PR appears to have re-introduced swallow-all handlers without "

@@ -387,17 +387,20 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
     teardown_confirmed = True
     try:
         live_jobs = spawner.k8s.list_containers(labels=job_labels)
-        deleted_names: list[str] = []
+        # ``(name, addressable_by_job_name)`` — the flag is what makes the
+        # wait below honest; see the fallback branch there.
+        deleted_names: list[tuple[str, bool]] = []
         for job in live_jobs:
             try:
                 # Mirror the cleanup call sites: prefer the explicit
                 # ``job_name`` (already Job-prefixed), fall back to the
                 # container id which ``remove_agent_job`` -> ``remove_container``
                 # resolves to a Job name.
-                target = job.job_name or job.container_id
+                job_name = job.job_name
+                target = job_name or job.container_id
                 spawner.remove_agent_job(target, force=True)
                 removed_jobs += 1
-                deleted_names.append(target)
+                deleted_names.append((target, bool(job_name)))
             except Exception as job_err:  # noqa: BLE001 - best-effort teardown
                 _pkg.logger.warning(
                     "Failed to delete live one-shot Job during restart (best-effort)",
@@ -424,12 +427,52 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
         # unconfirmed teardown rather than raising into the list-failure
         # handler below (which would log a misleading "failed to list").
         waiter = getattr(spawner.k8s, "wait_for_job_gone", None)
-        for name in deleted_names:
+        for name, addressable in deleted_names:
+            if not addressable:
+                # The listing carried no ``job_name``, so the only handle we
+                # have is the container id. ``wait_for_job_gone`` normalizes
+                # it into a Job name that never existed, 404s on the first
+                # read, and reports "gone" without having observed the real
+                # teardown. Report it unconfirmed instead of claiming an
+                # observation we never made — ``job_name`` is populated for
+                # one-shot Jobs on the normal path, so this is an edge case.
+                teardown_confirmed = False
+                _pkg.logger.warning(
+                    "restart_agent: deleted Job carried no job_name; its "
+                    "teardown cannot be observed",
+                    pipeline_id=pipeline_id,
+                    agent_role=agent_role,
+                    slice_id=slice_id,
+                    container_id=name,
+                )
+                continue
             remaining = deadline - _pkg.time.monotonic()
             gone = False
             if remaining > 0 and waiter is not None:
-                gone = bool(waiter(name, spawner.k8s.namespace, timeout_s=remaining))
+                try:
+                    gone = bool(waiter(name, spawner.k8s.namespace, timeout_s=remaining))
+                except Exception as wait_err:  # noqa: BLE001 - the wait is best-effort
+                    # Handled locally, mirroring the event-loop path's
+                    # ``_await_terminating_event_jobs``: a raising waiter is an
+                    # unconfirmed teardown, not a listing failure. Letting it
+                    # reach the outer handler would log the misleading
+                    # "Failed to list live one-shot Jobs". (``wait_for_job_gone``
+                    # swallows its own exceptions today, so this is future-proofing.)
+                    _pkg.logger.warning(
+                        "restart_agent: teardown wait raised; treating the teardown as unconfirmed",
+                        pipeline_id=pipeline_id,
+                        agent_role=agent_role,
+                        slice_id=slice_id,
+                        job_name=name,
+                        error=str(wait_err),
+                    )
             if not gone:
+                # This also fires under a benign race: once the corpse is
+                # reaped, the event loop can recreate the SAME deterministic
+                # Job name inside this window, so the wait sees a live Job and
+                # times out even though the respawn already succeeded.
+                # ``teardown_confirmed: false`` therefore means "not observed
+                # gone", never "the restart failed" — it under-claims by design.
                 teardown_confirmed = False
                 _pkg.logger.warning(
                     "restart_agent: Job still terminating after teardown wait; "
@@ -690,7 +733,10 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
         # with ``teardown_confirmed: true`` says "the pod is gone and the
         # respawn starts clean". ``teardown_confirmed: false`` means the
         # delete was issued but not observed to finish within the route's
-        # budget — the respawn may take an extra poll.
+        # budget — the respawn may take an extra poll. It is a deliberate
+        # under-claim, never a failure signal: it also fires when the event
+        # loop recreates the same deterministic Job name inside the wait
+        # window, i.e. when the respawn has in fact already succeeded.
         "jobs_torn_down": removed_jobs,
         "teardown_confirmed": teardown_confirmed,
         "restart_count": new_restart_count,
