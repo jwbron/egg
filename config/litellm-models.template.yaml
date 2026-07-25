@@ -44,6 +44,15 @@
 # tunable budget), so per-provider reasoning behavior will differ even
 # after tuning. Leave temperature / top_p / penalties at defaults for
 # cleaner cross-provider comparisons.
+#
+# Whatever you set here (or leave unset), the bundled `cost_callback`
+# records the sampling config each call actually ran under as
+# `request_params` on its per-call log line (#3599) — including which
+# knobs were NOT sent, and therefore fell back to the provider's own
+# server-side default. Two uses: a model-behaviour incident (repetition,
+# degeneration) becomes analysable after the fact, and a knob you set
+# below that `drop_params` silently discarded shows up as missing from
+# the line instead of quietly never taking effect.
 
 data:
   config.yaml: |

@@ -4,11 +4,13 @@ Private submodule of the ``kubernetes_spawner`` sub-package; import through
 the barrel (``from kubernetes_spawner import ...``), not directly.
 """
 
+from datetime import datetime
 from typing import Any
 
 import kubernetes_spawner as _pkg
 from kubernetes_spawner import (
     _EVENT_JOB_NAME_DISCRIMINATOR_LEN,
+    _EVENT_JOB_TERMINATION_WAIT_S,
     ENV_EVENT_ACTION,
     ENV_EVENT_DEDUPE_KEY,
     ENV_EVENT_PAYLOAD_REFS,
@@ -19,24 +21,13 @@ from kubernetes_spawner import (
 from models import LIVE_POD_STATUSES, AgentRole
 
 
-def _event_dedupe_key_live(self, dedupe_key: str) -> bool:
-    """Return True iff a Job already carries this dedupe-key label.
+def _list_event_jobs(self, dedupe_key: str) -> list[Any]:
+    """Return every Job carrying ``dedupe_key``'s label, or ``[]``.
 
-    The reconciliation handle: a fresh orchestrator process re-derives
-    every event and the spawner asks this before creating a Job, so an
-    in-flight Job from a prior process (or a racing duplicate request) is
-    adopted rather than duplicated. No spawn state is persisted — the
-    label IS the state. Queried via a label selector so the API returns
-    only matching Jobs; best-effort (a list failure ⇒ "not live" ⇒ spawn
-    proceeds rather than wedging).
-
-    Only Jobs in a non-terminal status (``PENDING``/``RUNNING``) count as
-    live. ``list_jobs`` returns *all* label-matching Jobs regardless of
-    status, and one-shot event Jobs linger for ``ttl_seconds_after_finished``
-    (10 min) after completing, so a terminated Job (``EXITED``/``FAILED``)
-    must NOT adopt a re-derived identical event — otherwise an event whose
-    pod failed without advancing the tracker would be silently swallowed
-    for the TTL window instead of respawned.
+    Queried via a label selector so the API returns only matching Jobs;
+    best-effort (a list failure ⇒ ``[]`` ⇒ callers treat the key as
+    un-owned and spawn rather than wedging). A non-sequence (e.g. an
+    unconfigured mock) is normalized to ``[]`` for the same reason.
     """
     # The selector value MUST use the same label-safe shortening applied
     # to the label on the spawn side, or it can never match the live Job.
@@ -49,21 +40,217 @@ def _event_dedupe_key_live(self, dedupe_key: str) -> bool:
             dedupe_key=dedupe_key,
             error=str(exc),
         )
-        return False
-    # Count only Jobs whose pod is still doing work (PENDING / CREATING /
-    # RUNNING). A *terminal* Job — FAILED (crashed) or EXITED (clean rc=0)
-    # — lingers for the ~600s ``ttlSecondsAfterFinished`` window, and
-    # adopting one would dead-end the supervisor's bounded respawn: a
-    # crashed propose arm would be "adopted" (no new pod) for the whole TTL
-    # while its FAILED status keeps re-incrementing the abort streak, so a
-    # transient crash falsely escalates to AGENT_FAILED without ever
-    # retrying (#3181). Mirrors ``LIVE_POD_STATUSES`` — the single
-    # source of truth shared with ``_count_live_pods_for_pipeline`` /
-    # startup reconciliation. A non-sequence (e.g. an unconfigured mock) is
-    # treated as "no live Job" so the spawn proceeds.
+        return []
     if not isinstance(jobs, (list, tuple)):
-        return False
-    return any(getattr(j, "status", None) in LIVE_POD_STATUSES for j in jobs)
+        return []
+    return list(jobs)
+
+
+def _job_is_terminating(job: Any) -> bool:
+    """Return True iff *job* has been deleted but has not gone away yet.
+
+    Kubernetes Job deletion is asynchronous: the API server stamps
+    ``metadata.deletionTimestamp`` and the object lingers — still
+    reporting ``active > 0`` ⇒ ``RUNNING`` — until its dependent pods
+    finish terminating.
+
+    Tested with ``isinstance`` rather than ``is not None`` because
+    ``ContainerInfo.deletion_timestamp`` is a ``datetime | None`` and
+    anything else is not a real stamp — most notably an auto-attribute on
+    an unconfigured mock, which would otherwise read as "terminating" and
+    silently disable adoption. Same "a mock is not evidence" convention
+    the live-Job list already applies to a non-sequence ``list_jobs``.
+    """
+    return isinstance(getattr(job, "deletion_timestamp", None), datetime)
+
+
+def _job_is_live(job: Any) -> bool:
+    """Return True iff *job* still has a pod that will do the event's work."""
+    return getattr(job, "status", None) in LIVE_POD_STATUSES and not _job_is_terminating(job)
+
+
+def _event_dedupe_key_live(self, dedupe_key: str) -> bool:
+    """Return True iff a *live* Job already carries this dedupe-key label.
+
+    The reconciliation handle: a fresh orchestrator process re-derives
+    every event and the spawner asks this before creating a Job, so an
+    in-flight Job from a prior process (or a racing duplicate request) is
+    adopted rather than duplicated. No spawn state is persisted — the
+    label IS the state.
+
+    "Live" means a Job that still has a pod which will do this event's
+    work. Three states must NOT qualify:
+
+    * *terminal* — ``list_jobs`` returns all label-matching Jobs regardless
+      of status, and one-shot event Jobs linger for
+      ``ttl_seconds_after_finished`` (10 min) after completing. Adopting a
+      ``FAILED``/``EXITED`` Job would dead-end the supervisor's bounded
+      respawn: a crashed propose arm would be "adopted" (no new pod) for
+      the whole TTL while its FAILED status keeps re-incrementing the abort
+      streak, so a transient crash falsely escalates to AGENT_FAILED
+      without ever retrying (#3181);
+    * *terminating* — a deleted Job keeps reporting ``RUNNING``/``PENDING``
+      until its pod actually terminates, so status alone cannot see that it
+      is on its way out. ``restart_agent`` deletes the role's Job and
+      delegates the respawn to the event loop; if the next poll landed
+      inside that deletion window the loop adopted the corpse, declined to
+      spawn, and the role silently vanished — no pod, no Job, state still
+      ``running`` (#3597). Adoption is only ever correct for a Job that
+      will still run the event, which a terminating one never will;
+    * *unknown* — a list failure yields no Jobs, which spawns (a duplicate
+      Job is recoverable; a swallowed event is not).
+
+    The live status set mirrors ``LIVE_POD_STATUSES`` — the single source
+    of truth shared with ``_count_live_pods_for_pipeline`` / startup
+    reconciliation.
+    """
+    return any(_job_is_live(j) for j in self._list_event_jobs(dedupe_key))
+
+
+def _await_terminating_event_jobs(
+    self,
+    jobs: list[Any],
+    *,
+    pipeline_id: str,
+    role: str,
+    action: str,
+    dedupe_key: str,
+) -> None:
+    """Block until the terminating Jobs among *jobs* are gone (bounded) (#3597).
+
+    A one-shot event Job's name is derived from the dedupe key, so the
+    replacement this spawn is about to create carries the *same* name as
+    the Job that was just deleted. ``delete_job`` returns as soon as the
+    deletion is accepted, and the object then lingers with its finalizer
+    until its pods finish terminating — creating into that window returns
+    409 ``AlreadyExists`` (the #2655 race, which ``restart_agent_job``
+    already waits out on its own path).
+
+    Best-effort and bounded by ``_EVENT_JOB_TERMINATION_WAIT_S`` shared
+    across all matching Jobs: on timeout (or a k8s client without the wait
+    helper) we log and let the spawn proceed — a 409 there is raised as a
+    ``KubernetesSpawnError``, which the event loop isolates per-role and
+    retries on the next poll, so a slow reap costs a poll interval rather
+    than the silent vanish this whole path exists to prevent.
+
+    Each of those outcomes is logged for what it actually is, matching the
+    taxonomy the restart route applies: "still present" is only claimed
+    after a wait ran and observed the Job, and every path that skips the
+    wait entirely — a Job the listing did not name, no helper on the
+    client, budget already spent — says so instead of borrowing an
+    observation it never made.
+
+    The wait runs on the event-loop poll thread, so it delays the roles
+    handled later in the same ``poll_once`` pass by up to the budget. That
+    is the accepted tradeoff: the wait is bounded, only reachable when a
+    matching Job is mid-deletion, and the alternative is the role
+    vanishing outright. Mid-deletion is usually a restart, but not only:
+    ``_job_is_terminating`` does not filter on status, so the TTL
+    controller reaping a finished prior Job with the same dedupe key
+    (one-shot Jobs carry ``ttl_seconds_after_finished``) also enters the
+    wait. That case is harmless and wanted — its pods are already gone so
+    the wait returns near-instantly, and the 409 protection still applies
+    to the recycled name.
+    """
+    terminating = [j for j in jobs if _job_is_terminating(j)]
+    if not terminating:
+        return
+    # Partition before anything reports a count: a Job the listing did not
+    # name is not one we could ever have waited on, so it gets its own line
+    # rather than being folded into the counts the skip-paths below report.
+    #
+    # Defensive: ``KubernetesClient.list_jobs`` always populates ``job_name``
+    # (and mirrors it onto ``container_name``), so the unnamed branch is
+    # unreachable against the production lister — it guards a future/alternate
+    # backend whose listing is thinner, mirroring the restart route's
+    # ``addressable=False`` branch.
+    pending: list[str] = []
+    unnamed: list[str] = []
+    for job in terminating:
+        job_name = getattr(job, "job_name", None) or getattr(job, "container_name", None)
+        if job_name:
+            pending.append(job_name)
+        else:
+            # No name to wait on, but the listing still carries a container id
+            # (``KubernetesClient.list_jobs`` sets it from the Job's uid). Carry
+            # it through so this line hands the operator the same actionable
+            # handle the restart route's counterpart does, rather than a bare
+            # count they cannot trace back to an object.
+            unnamed.append(str(getattr(job, "container_id", None) or "<unknown>"))
+    if unnamed:
+        logger.warning(
+            "Event spawn: teardown wait not performed; terminating Job(s) unobserved",
+            pipeline_id=pipeline_id,
+            role=role,
+            action=action,
+            dedupe_key=dedupe_key,
+            terminating=len(unnamed),
+            container_ids=unnamed,
+            reason="unaddressable",
+        )
+    if not pending:
+        return
+    waiter = getattr(self.k8s, "wait_for_job_gone", None)
+    if waiter is None:
+        # Defensive: ``KubernetesClient`` implements ``wait_for_job_gone``,
+        # so this guards a future/alternate backend. Logged rather than
+        # returned silently — the spawn proceeds into a window that may 409,
+        # and the operator should be able to see why nothing waited.
+        logger.warning(
+            "Event spawn: teardown wait not performed; terminating Job(s) unobserved",
+            pipeline_id=pipeline_id,
+            role=role,
+            action=action,
+            dedupe_key=dedupe_key,
+            terminating=len(pending),
+            reason="no_wait_helper",
+        )
+        return
+    logger.info(
+        "Event spawn: waiting for terminating Job(s) to be reaped before respawn",
+        pipeline_id=pipeline_id,
+        role=role,
+        action=action,
+        dedupe_key=dedupe_key,
+        terminating=len(pending),
+    )
+    deadline = _pkg.time.monotonic() + _EVENT_JOB_TERMINATION_WAIT_S
+    for job_name in pending:
+        remaining = deadline - _pkg.time.monotonic()
+        if remaining <= 0:
+            # No wait ran for this Job, so "still present" is not ours to
+            # claim — the snapshot said terminating, nothing observed since.
+            logger.warning(
+                "Event spawn: teardown wait not performed; terminating Job unobserved",
+                pipeline_id=pipeline_id,
+                role=role,
+                action=action,
+                dedupe_key=dedupe_key,
+                job_name=job_name,
+                reason="budget_exhausted",
+            )
+            continue
+        try:
+            gone = bool(waiter(job_name, self._namespace, timeout_s=remaining))
+        except Exception as exc:  # noqa: BLE001 — the wait is best-effort
+            logger.warning(
+                "Failed to wait out a terminating event Job; spawning anyway",
+                pipeline_id=pipeline_id,
+                role=role,
+                dedupe_key=dedupe_key,
+                job_name=job_name,
+                error=str(exc),
+            )
+            continue
+        if not gone:
+            logger.warning(
+                "Terminating event Job still present; spawn may 409 and retry next poll",
+                pipeline_id=pipeline_id,
+                role=role,
+                action=action,
+                dedupe_key=dedupe_key,
+                job_name=job_name,
+            )
 
 
 def create_event_job_status_view(self) -> _pkg._EventJobStatusView:
@@ -113,7 +300,9 @@ def spawn_event_job(
     **Adoption**: requesting a spawn for an already-live dedupe key
     returns ``None`` (the existing Job is adopted) rather than creating a
     duplicate — the defense-in-depth backstop for the loop's own dedupe
-    set racing a restart.
+    set racing a restart. A Job that is merely *terminating* is not live
+    (see :meth:`_event_dedupe_key_live`): adopting one produced a role
+    with no pod at all (#3597), so we wait it out and spawn instead.
 
     Everything else (worktree create-with-retry, gateway-session
     registration) flows through :meth:`spawn_agent_job` unchanged; this
@@ -131,7 +320,8 @@ def spawn_event_job(
             "agent-free, wait is a no-op)."
         )
 
-    if self._event_dedupe_key_live(dedupe_key):
+    existing_jobs = self._list_event_jobs(dedupe_key)
+    if any(_job_is_live(j) for j in existing_jobs):
         logger.info(
             "Adopting existing live Job for event (dedupe hit)",
             pipeline_id=pipeline_id,
@@ -140,6 +330,20 @@ def spawn_event_job(
             dedupe_key=dedupe_key,
         )
         return None
+
+    # #3597: no live Job owns this key, but a *terminating* one may still be
+    # holding its name. The Job name is deterministic in the dedupe key, so
+    # creating now would 409 ``AlreadyExists`` against the corpse. Wait for
+    # the API server to actually reap it (same reasoning as the #2655
+    # restart-path wait) before spawning the replacement.
+    _await_terminating_event_jobs(
+        self,
+        existing_jobs,
+        pipeline_id=pipeline_id,
+        role=agent_role.value,
+        action=action,
+        dedupe_key=dedupe_key,
+    )
 
     # --- Attempt worktree re-attach + session reuse ---
     reuse_worktree_id: str | None = None

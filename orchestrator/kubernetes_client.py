@@ -874,6 +874,16 @@ class KubernetesClient:
 
                 started_at = _parse_k8s_datetime(job.status.start_time if job.status else None)
 
+                # A deleted Job keeps reporting its pre-delete status
+                # (``active > 0`` ⇒ RUNNING) for as long as its pods take to
+                # terminate, so status alone cannot tell a live Job from one
+                # on its way out. Surface the deletion stamp so callers that
+                # care — the event-loop dedupe predicate (#3597) — can tell
+                # the difference.
+                deletion_timestamp = _parse_k8s_datetime(
+                    getattr(job.metadata, "deletion_timestamp", None)
+                )
+
                 results.append(
                     ContainerInfo(
                         container_id=uid,
@@ -883,6 +893,7 @@ class KubernetesClient:
                         exited_at=exited_at,
                         namespace=namespace,
                         job_name=job_name,
+                        deletion_timestamp=deletion_timestamp,
                     )
                 )
 

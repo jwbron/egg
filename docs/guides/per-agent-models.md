@@ -608,6 +608,67 @@ data:
 > line to the LiteLLM pod stream, visible via `get_service_logs` / the
 > structured-logging stream.
 
+> **Which decoding config did this run under?** Every `cost_callback` line
+> also carries `request_params` — the sampling configuration that actually
+> went upstream on that call (`temperature`, `top_p`, `top_k`, the penalty
+> family, `seed`, `max_tokens`, `reasoning_effort`, and the OpenRouter
+> provider pin under `extra_body`). This exists because repetition and
+> degeneration are decoding-sensitive failure modes: without it, "was that
+> livelock inherent to the model or an unlucky sampling config?" is
+> unanswerable once the pod is gone (issue #3599; it blocked the #3598
+> post-mortem). Three things to know when reading it:
+>
+> - **An absent key was never sent**, so the provider's server-side default
+>   applied. egg pins no sampling parameters today, so on a stock setup you
+>   will see `max_tokens` and `stream` and nothing else — that is the
+>   expected shape, and it means the effective sampling config is the
+>   provider's and can change under you with no egg change.
+> - **It is read after `drop_params` has acted**, so it reports what the wire
+>   carried, not what your config asked for. A knob you set in
+>   `litellm_params` that does not appear here was silently discarded or
+>   relocated into `extra_body` by LiteLLM's parameter mapper — which is the
+>   fastest way to catch a tuning change that never took effect.
+> - **A `<…>` value is a degradation marker, not a recorded value.** Every
+>   field is bounded so one pathological param cannot cost you the line —
+>   cost data included — when it fails to serialize. `<N chars omitted>` means
+>   the value (or `extra_body` key name) exceeded the size cap,
+>   `<non-finite: nan>` that something was set to `NaN`/`Inf`,
+>   `<unserializable>` that the value could not be encoded at all, and
+>   `<egg:truncated>` that `extra_body` carried more keys than the cap. The
+>   OpenRouter provider pin degrades last, not never: it is ordered ahead of
+>   the key-count cap and gets a 2048-char value budget instead of the usual
+>   512, but a pin larger than that still becomes a `<N chars omitted>`
+>   marker. The block as a whole is capped too, at 12KiB — a line above
+>   ~16KiB is split into unparseable fragments by the container log driver, so
+>   an oversized line is dropped by the `fromjson?` query below exactly like a
+>   malformed one. If that cap binds, the largest entries are marked down
+>   first, so a `<N chars omitted>` on a *small* field means the block was
+>   over budget rather than that field being oversized on its own.
+>
+> Prompt-bearing fields (`messages`, `tools`, `tool_choice`) are excluded by
+> allowlist: the cost stream is not a transcript sink.
+
+The `request_params` field on a stock (nothing pinned) OpenRouter route:
+
+```json
+"request_params": {
+  "max_tokens": 32000,
+  "stream": true,
+  "extra_body": {"provider": {"order": ["Alibaba"], "allow_fallbacks": false}}
+}
+```
+
+So, to pull the decoding config for one agent role out of an incident window:
+
+```bash
+# -R + fromjson?: the pod stream interleaves LiteLLM's own non-JSON logging.
+kubectl logs -n egg-system deploy/litellm \
+  | jq -Rc 'fromjson? | select(.component == "cost_callback")
+            | select(.context.agent_role == "task_planner")
+            | {model: .context.model, params: .context.request_params}' \
+  | sort -u
+```
+
 > **Why the paired `<name>[1m]` row?** Claude Code registers the
 > custom model with a `[1m]` context-window-opt-in suffix
 > (`ANTHROPIC_CUSTOM_MODEL_OPTION=qwen3-max[1m]`) and strips the

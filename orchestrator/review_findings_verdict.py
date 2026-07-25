@@ -30,14 +30,17 @@ discarded — surfacing it (to the producer via the rendered reason, and to HITL
 on escalation) is the point.
 
 **Staged rollout.** The whole path is gated behind ``EGG_REVIEW_FINDINGS_MODE``,
-resolved EXACTLY like ``slice_green_gate.green_gate_mode()`` (``off`` default,
-unknown => ``off``, ``log`` records the computed-vs-legacy verdict into the BRC
-artifacts without acting, ``on`` uses the computed verdict). Everything in this
-module is a pure function of its inputs; it never reads/writes matrix state or
-the environment except through :func:`review_findings_mode`. The caller (a
-later wiring slice) decides — based on the mode — whether to *act* on the
-computed verdict or merely *log* it, which is what keeps ``off``/``log``
-outcomes byte-identical to the legacy prose-NACK path.
+resolved with the shared staged ``off``/``log``/``on`` pattern but keeping an
+``off``-default (unknown => ``off``; note ``slice_green_gate.green_gate_mode()``
+now defaults to ``on`` and degrades unknown to ``on`` — this resolver
+deliberately does not, so a typo leaves the legacy path authoritative). ``log``
+records the computed-vs-legacy verdict into the BRC artifacts without acting;
+``on`` uses the computed verdict. Everything in this module is a pure function
+of its inputs; it never reads/writes matrix state or the environment except
+through :func:`review_findings_mode`. The caller (a later wiring slice) decides
+— based on the mode — whether to *act* on the computed verdict or merely *log*
+it, which is what keeps ``off``/``log`` outcomes byte-identical to the legacy
+prose-NACK path.
 """
 
 from __future__ import annotations
@@ -60,7 +63,7 @@ VERDICT_ACK = "ACK"
 VERDICT_NACK = "NACK"
 
 
-# --- staged-flag resolution (mirrors slice_green_gate.green_gate_mode) --------
+# --- staged-flag resolution (shared off/log/on pattern, off-default) ---------
 
 # Operator switch for the findings-computed verdict path. Three-state,
 # default off during rollout (#3523 S3): "off"/unset => the legacy
@@ -77,9 +80,13 @@ _LOG_ONLY_VALUES = frozenset({"log", "log-only", "log_only"})
 def review_findings_mode() -> Literal["off", "log", "on"]:
     """Resolve the operator switch to one of ``off`` / ``log`` / ``on``.
 
-    Resolved EXACTLY like ``slice_green_gate.green_gate_mode()``: unknown
-    values resolve to ``off`` so an operator typo degrades to "legacy path
-    unchanged", never to "computed verdict silently drives consensus".
+    Shares the staged ``off``/``log``/``on`` shape but keeps an ``off``-default:
+    unknown values resolve to ``off`` so an operator typo degrades to "legacy
+    path unchanged", never to "computed verdict silently drives consensus".
+    (Unlike ``slice_green_gate.green_gate_mode()``, which now defaults to
+    ``on`` and degrades unknown values to ``on`` + a warning: a wrong
+    resolution there blocks a slice visibly and recoverably, whereas a wrong
+    resolution here would silently drive consensus off a computed verdict.)
     """
     raw = os.environ.get(FINDINGS_MODE_ENV_VAR, "off").strip().lower()
     if raw in _ENABLED_VALUES:

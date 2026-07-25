@@ -692,30 +692,34 @@ def test_wake_only_simplifier_confirms_without_verdict(client, simplifier_refine
     assert entry is None or entry.state == ApprovalState.PENDING
 
 
-def test_wake_only_simplifier_woken_to_propose_by_propose_arm(client, simplifier_refine_tracker):
-    """#3382 non-blocking-3: the simplifier's wake-to-propose is the producer
-    ``propose`` arm, NOT its wake-only advisory edge.
+def test_wake_only_simplifier_woken_to_propose_by_upstream_proposal(
+    client, simplifier_refine_tracker
+):
+    """#3382 non-blocking-3, revised by #3603: the simplifier's wake-to-propose
+    is its own producer ``propose`` arm — derived once the upstream proposes.
 
     The two tests above ``_propose(t, "simplifier")`` first, driving the FSM
     straight to PROPOSED and skipping the WORKING-state wake. This test covers
-    the actual wake mechanism the corrected comments point at: a WORKING
-    producer re-derives ``propose`` on every poll (the event loop's re-spawn
-    of a legitimate orient-and-exit is what wakes it — see
-    ``test_event_loop.py::test_stale_exit_is_a_non_trigger_through_loop``).
-    The wake-only edge over the refiner contributes nothing here: the
-    simplifier derives ``propose`` regardless of whether the refiner has
-    proposed, so it is never gated on (and never ``ack``s) the advisory edge.
+    the wake itself. Pre-#3603 the wake was a poll loop: a WORKING simplifier
+    re-derived ``propose`` every tick and oriented-and-exited until the draft
+    appeared, which the #3425 no-op park counted and parked (#3595 root cause
+    2). It is now level-triggered on the upstream's proposal, so repeated
+    derivations before that proposal stay ``wait`` and spawn nothing.
+
+    Unchanged from #3382: the wake-only edge itself contributes no review —
+    the simplifier is woken to propose its OWN companion, never routed to
+    ``ack`` the refiner.
     """
     t = simplifier_refine_tracker
 
-    # WORKING simplifier, refiner has NOT yet proposed: the simplifier is woken
-    # to propose its companion by the propose arm, not by any upstream event.
+    # WORKING simplifier, refiner has NOT yet proposed: no draft to summarize,
+    # so every poll derives wait and no arm is spawned.
     for _ in range(3):
         resp = _post_next_action(client, "simplifier", tracker=t)
-        _assert_action(resp, "propose")
+        _assert_action(resp, "wait")
 
-    # The refiner proposing does not change the simplifier's own wake-to-propose
-    # (it is not routed to ``ack`` for the wake-only edge).
+    # The refiner's proposal IS the wake: the simplifier derives its own
+    # propose (not an ``ack`` on the wake-only edge).
     _propose(t, "refiner")
     resp = _post_next_action(client, "simplifier", tracker=t)
     _assert_action(resp, "propose")
@@ -961,10 +965,14 @@ def test_next_action_mutual_producer_review_does_not_wait(client):
         _assert_action(resp, "propose")
 
 
-def test_next_action_wake_only_upstream_never_gates(client):
-    """The de-roled simplifier (#3381) is woken by its own propose-arm
-    re-spawning until the upstream draft exists, so its wake-only edge
-    must never convert to a ``wait``."""
+def test_next_action_wake_only_upstream_gates_first_propose(client):
+    """#3603: a wake-only edge carries no review obligation but IS a
+    dependency, so it gates the de-roled simplifier's first propose.
+
+    Before #3603 the simplifier polled — it re-derived ``propose`` every
+    tick and oriented-and-exited until the upstream draft appeared — and
+    the #3425 no-op park counted those clean exits and parked it with a
+    ``[high]`` wedge alert (#3595 root cause 2, reproduced 4/4)."""
     graph = ReviewGraph(
         [
             ReviewEdge("simplifier", "refiner", ReviewCriticality.ADVISORY, wake_only=True),
@@ -976,11 +984,147 @@ def test_next_action_wake_only_upstream_never_gates(client):
     for role in ("refiner", "simplifier", "reviewer_plan"):
         tracker.register_agent(role)
 
-    # refiner is WORKING at v0, but the simplifier's only edge to it is
-    # wake-only: the simplifier must keep deriving propose (it self-gates
-    # in-pod on the draft existing).
+    # refiner is WORKING at v0: the companion has no draft to summarize.
+    resp = _post_next_action(client, "simplifier", tracker=tracker)
+    payload = _assert_action(resp, "wait")
+    waiting_on = (payload.get("event_payload") or {}).get("waiting_on_producers") or []
+    assert waiting_on == ["refiner"], payload
+
+    # The upstream's first proposal is the wake: the very next derivation
+    # spawns the simplifier's propose arm.
+    _propose(tracker, "refiner")
     resp = _post_next_action(client, "simplifier", tracker=tracker)
     _assert_action(resp, "propose")
+
+
+def test_next_action_wake_only_edge_still_casts_no_verdict(client):
+    """#3603 must not re-roll #3381: gating on a wake-only edge is an
+    ordering decision only. Once the upstream has proposed, the simplifier
+    derives its OWN ``propose`` — never a spawn-able ``ack`` on the
+    upstream it can never satisfy — and after proposing it waits rather
+    than being handed a review."""
+    graph = ReviewGraph(
+        [
+            ReviewEdge("simplifier", "refiner", ReviewCriticality.ADVISORY, wake_only=True),
+            ReviewEdge("reviewer_plan", "refiner", ReviewCriticality.CRITICAL),
+            ReviewEdge("reviewer_plan", "simplifier", ReviewCriticality.CRITICAL),
+        ]
+    )
+    tracker = PeerConsensusTracker(PIPELINE_ID, graph, cooldown_seconds=0)
+    for role in ("refiner", "simplifier", "reviewer_plan"):
+        tracker.register_agent(role)
+
+    _propose(tracker, "refiner")
+    _assert_action(_post_next_action(client, "simplifier", tracker=tracker), "propose")
+    _propose(tracker, "simplifier")
+    # The refiner's proposal is still open, but the wake-only edge assigns
+    # no review, so the simplifier waits instead of deriving ``ack``.
+    _assert_action(_post_next_action(client, "simplifier", tracker=tracker), "wait")
+
+
+def test_next_action_mutual_wake_only_producers_do_not_deadlock(client):
+    """Acyclicity guard for #3603: with mutual wake-only producer edges
+    neither role is terminal, so neither gates and both derive
+    ``propose`` — the same protection the mutual-review case gets.
+
+    Terminality must be judged over the same edge set the upstream
+    computation uses. Judging it over review-bearing edges only would
+    call each role terminal (its sole inbound edge is wake-only), gate
+    both, and wedge the phase with no producer able to move."""
+    graph = ReviewGraph(
+        [
+            ReviewEdge("simplifier", "refiner", ReviewCriticality.ADVISORY, wake_only=True),
+            ReviewEdge("refiner", "simplifier", ReviewCriticality.ADVISORY, wake_only=True),
+            ReviewEdge("reviewer_plan", "refiner", ReviewCriticality.CRITICAL),
+            ReviewEdge("reviewer_plan", "simplifier", ReviewCriticality.CRITICAL),
+        ]
+    )
+    tracker = PeerConsensusTracker(PIPELINE_ID, graph, cooldown_seconds=0)
+    for role in ("refiner", "simplifier", "reviewer_plan"):
+        tracker.register_agent(role)
+
+    for role in ("refiner", "simplifier"):
+        _assert_action(_post_next_action(client, role, tracker=tracker), "propose")
+
+
+def test_next_action_refine_phase_simplifier_gated_on_refiner(client):
+    """#3603 against the REAL refine graph: the simplifier waits for the
+    refiner's proposal instead of polling into the #3425 park, and the
+    refiner (terminal) is unaffected.
+
+    This is the shape #3595 reproduced 4/4 across the assessment series."""
+    from review_graph import get_default_refine_graph
+
+    graph = get_default_refine_graph()
+    tracker = PeerConsensusTracker(PIPELINE_ID, graph, cooldown_seconds=0)
+    for role in (
+        "refiner",
+        "simplifier",
+        "reviewer_refine",
+        "reviewer_agent_design",
+        "first_principles_reviewer",
+    ):
+        tracker.register_agent(role)
+
+    resp = _post_next_action(client, "simplifier", tracker=tracker)
+    payload = _assert_action(resp, "wait")
+    waiting_on = (payload.get("event_payload") or {}).get("waiting_on_producers") or []
+    assert waiting_on == ["refiner"], payload
+
+    _assert_action(_post_next_action(client, "refiner", tracker=tracker), "propose")
+
+    _propose(tracker, "refiner")
+    _assert_action(_post_next_action(client, "simplifier", tracker=tracker), "propose")
+
+
+def test_next_action_wake_only_gate_dissolves_when_upstream_excused(client):
+    """Liveness for #3603: excusing the upstream producer removes every edge
+    targeting it — including the wake-only one — so the simplifier stops
+    waiting and derives ``propose``.
+
+    Load-bearing only since #3603: before the gate the simplifier polled
+    regardless, so an excused upstream could not strand it."""
+    from review_graph import get_default_refine_graph
+
+    graph = get_default_refine_graph()
+    tracker = PeerConsensusTracker(PIPELINE_ID, graph, cooldown_seconds=0)
+    for role in (
+        "refiner",
+        "simplifier",
+        "reviewer_refine",
+        "reviewer_agent_design",
+        "first_principles_reviewer",
+    ):
+        tracker.register_agent(role)
+
+    _assert_action(_post_next_action(client, "simplifier", tracker=tracker), "wait")
+
+    tracker.excuse_producer("refiner", reason="never delivered a draft")
+    _assert_action(_post_next_action(client, "simplifier", tracker=tracker), "propose")
+
+
+def test_next_action_plan_phase_simplifier_gated_on_task_planner(client):
+    """#3603 against the REAL plan graph: the plan companion waits on
+    ``task_planner`` (its wake-only upstream). ``architect``'s proposal
+    alone does NOT lift the gate — the companion summarizes the plan
+    draft, and that is the edge the graph models."""
+    from review_graph import get_default_plan_graph
+
+    graph = get_default_plan_graph()
+    tracker = PeerConsensusTracker(PIPELINE_ID, graph, cooldown_seconds=0)
+    for role in ("architect", "task_planner", "risk_analyst", "reviewer_plan", "simplifier"):
+        tracker.register_agent(role)
+
+    resp = _post_next_action(client, "simplifier", tracker=tracker)
+    payload = _assert_action(resp, "wait")
+    waiting_on = (payload.get("event_payload") or {}).get("waiting_on_producers") or []
+    assert waiting_on == ["task_planner"], payload
+
+    _propose(tracker, "architect")
+    _assert_action(_post_next_action(client, "simplifier", tracker=tracker), "wait")
+
+    _propose(tracker, "task_planner")
+    _assert_action(_post_next_action(client, "simplifier", tracker=tracker), "propose")
 
 
 def test_next_action_multi_upstream_gate_lifts_on_any_upstream_propose(client):

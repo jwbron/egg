@@ -2,8 +2,8 @@
 
 Covers:
 
-* ``green_gate_mode`` — the three-state operator switch (off default,
-  log soak mode, on; unknown values degrade to off).
+* ``green_gate_mode`` — the three-state operator switch (on default,
+  explicit off/log; unrecognised values degrade to the default).
 * ``_gate_checks`` / ``_repo_requires_prebuilt`` — config-driven check
   selection (skip set, default ``security``) and the prebuilt-toolchain
   requirement derived from ``build_commands.persist_dirs``.
@@ -20,6 +20,13 @@ Covers:
 * ``_build_runner_job_manifest`` — labels (NetworkPolicy component
   label present; monitor/agent-supervision labels absent), env, mounts,
   deadline.
+* ``_submit_runner_job`` — the manifest-dict -> V1 object translation,
+  asserted on the ``create_namespaced_job`` body: the function copies a
+  fixed field list, so a field present in the manifest but absent from
+  that list is dropped silently (including the pod-level deadline
+  #3622 tracks). A reflection pass over the whole manifest closes that
+  class of drop generally, with a negative control for the dict-only
+  shape of #3622's fix.
 * ``run_slice_green_gate`` — gate wiring: kill switch, fail-open on
   every infrastructure failure (worktree, session, submit, timeout,
   unparseable verdict), fail-closed only on a definitive red verdict,
@@ -85,8 +92,16 @@ def gate_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
 
 
 class TestGreenGateMode:
-    def test_default_is_off(self, gate_env: pytest.MonkeyPatch) -> None:
-        assert sgg.green_gate_mode() == "off"
+    def test_default_is_on(self, gate_env: pytest.MonkeyPatch) -> None:
+        """Unset resolves to the product default: a blocking gate.
+
+        The #3398 switch shipped defaulting to ``off`` and was never set
+        in any deployment, so the check-runner path never executed. The
+        default is the rollout, and #3602 — a task marked ``complete``
+        over five failing tests on the slice tip — is a shape only a
+        *blocking* gate prevents.
+        """
+        assert sgg.green_gate_mode() == "on"
 
     @pytest.mark.parametrize("value", ["on", "ON", " true ", "1", "yes"])
     def test_enabled_values(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
@@ -98,10 +113,86 @@ class TestGreenGateMode:
         gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, value)
         assert sgg.green_gate_mode() == "log"
 
-    @pytest.mark.parametrize("value", ["off", "0", "false", "", "banana", "enabled"])
-    def test_everything_else_is_off(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
+    @pytest.mark.parametrize("value", ["off", "OFF", " off ", "0", "false", "no"])
+    def test_disabled_values(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
+        """Turning the gate off now takes an explicit disable value."""
         gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, value)
         assert sgg.green_gate_mode() == "off"
+
+    @pytest.mark.parametrize(
+        ("value", "logged"),
+        [
+            ("banana", "banana"),
+            ("enabled", "enabled"),
+            ("tru", "tru"),
+            ("onn", "onn"),
+            # The disable-side typo — the direction that matters now
+            # that the default blocks.
+            ("offf", "offf"),
+            # Padded/uppercase inputs pin what the resolver actually
+            # logs — the post-strip/lower value, not the raw env string.
+            # Without these the assertion below passes either way.
+            (" Onn ", "onn"),
+            ("BANANA", "banana"),
+        ],
+    )
+    def test_unrecognised_values_degrade_to_default_with_a_warning(
+        self, gate_env: pytest.MonkeyPatch, value: str, logged: str
+    ) -> None:
+        """A typo cannot silently weaken the gate.
+
+        ``"tru"`` / ``"onn"`` are the realistic shapes: an operator
+        reaching for ``on`` must not land on "gate does nothing".
+        ``"offf"`` is the other direction and the reason the resolved
+        value is pinned to ``on`` rather than merely "not off": someone
+        reaching for the escape hatch and missing gets the product
+        default, loudly, instead of a silently ungated deployment. The
+        warning is asserted alongside the return value because a
+        misconfiguration that resolves silently is the failure mode this
+        default flip exists to close.
+        """
+        gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, value)
+        with patch.object(sgg.logger, "warning") as warn:
+            assert sgg.green_gate_mode() == sgg._DEFAULT_MODE == "on"
+        assert warn.call_count == 1
+        assert warn.call_args.kwargs["value"] == logged
+        assert warn.call_args.kwargs["env_var"] == sgg.GREEN_GATE_ENV_VAR
+        # Resolved value as a structured field, matching the shape
+        # ``_infra_fail_open_enabled``'s warning uses (``fail_open=``),
+        # so both typo warnings are greppable the same way.
+        assert warn.call_args.kwargs["mode"] == "on"
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("on", "on"),
+            ("log", "log"),
+            ("off", "off"),
+            ("", "on"),
+            ("   ", "on"),
+        ],
+    )
+    def test_recognised_values_do_not_warn(
+        self, gate_env: pytest.MonkeyPatch, value: str, expected: str
+    ) -> None:
+        """Only genuinely unrecognised values warn.
+
+        ``""`` / ``"   "`` are deliberately in this list rather than the
+        one above: both resolvers short-circuit on a falsy value
+        (``green_gate_mode``'s ``if not raw`` / ``_infra_fail_open_enabled``'s
+        ``if not raw or ...``), so an unset-equivalent value resolves to
+        the default *silently* on both sides. Pinning it here keeps that
+        symmetry from drifting — an empty value is "unset", not a typo,
+        and should not page an operator.
+
+        The resolved mode is asserted alongside the warn count so that
+        the ``""`` / ``"   "`` rows still pin *what* the falsy
+        short-circuit returns, not merely that it is quiet about it.
+        """
+        gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, value)
+        with patch.object(sgg.logger, "warning") as warn:
+            assert sgg.green_gate_mode() == expected
+        assert warn.call_count == 0
 
 
 # ----------------------------------------------------------------------
@@ -169,10 +260,52 @@ class TestInfraFailOpenEnabled:
         gate_env.setenv(sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, value)
         assert sgg._infra_fail_open_enabled() is False
 
-    @pytest.mark.parametrize("value", ["on", "1", "true", "", "banana"])
-    def test_everything_else_is_on(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
+    @pytest.mark.parametrize("value", ["on", "ON", " 1 ", "true", "yes", "", "   "])
+    def test_enabled_values(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
         gate_env.setenv(sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, value)
         assert sgg._infra_fail_open_enabled() is True
+
+    @pytest.mark.parametrize(
+        ("value", "logged"),
+        [
+            ("banana", "banana"),
+            ("offf", "offf"),
+            ("disabled", "disabled"),
+            ("fals", "fals"),
+            # Padded/uppercase inputs pin what the resolver actually
+            # logs — it warns with the post-strip/lower value, not the
+            # raw env string. Without these the assertion below passes
+            # for either choice.
+            (" Offf ", "offf"),
+            ("BANANA", "banana"),
+        ],
+    )
+    def test_unrecognised_values_degrade_to_default_with_a_warning(
+        self, gate_env: pytest.MonkeyPatch, value: str, logged: str
+    ) -> None:
+        """A typo resolves to the lenient default, but never silently.
+
+        ``"offf"`` / ``"fals"`` are the realistic shapes: an operator
+        reaching for the strict every-red-blocks posture lands back on
+        fail-open, so the resolution needs a log line — same posture
+        ``green_gate_mode`` takes on its own unrecognised values.
+        """
+        gate_env.setenv(sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, value)
+        with patch.object(sgg.logger, "warning") as warn:
+            assert sgg._infra_fail_open_enabled() is True
+        assert warn.call_count == 1
+        assert warn.call_args.kwargs["value"] == logged
+        assert warn.call_args.kwargs["env_var"] == sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR
+        # Resolved value carried as a structured field, mirroring
+        # ``green_gate_mode``'s ``mode=`` kwarg.
+        assert warn.call_args.kwargs["fail_open"] is True
+
+    @pytest.mark.parametrize("value", ["on", "off", ""])
+    def test_recognised_values_do_not_warn(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
+        gate_env.setenv(sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, value)
+        with patch.object(sgg.logger, "warning") as warn:
+            sgg._infra_fail_open_enabled()
+        assert warn.call_count == 0
 
 
 class TestGateTimeout:
@@ -753,6 +886,199 @@ class TestBuildRunnerJobManifest:
 
 
 # ----------------------------------------------------------------------
+# _submit_runner_job
+# ----------------------------------------------------------------------
+
+
+def _real_k8s_sdk_available() -> bool:
+    """True only for the genuine kubernetes SDK, not the conftest stub.
+
+    ``conftest`` installs a hand-rolled stub package under
+    ``sys.modules`` when ``kubernetes`` is absent, so
+    ``pytest.importorskip("kubernetes")`` would *succeed* and then fail
+    on the first missing class. The stub defines nine V1 classes;
+    ``_submit_runner_job`` needs six more, and the reflection test below
+    needs ``attribute_map``, which only the real SDK models carry.
+    """
+    try:
+        from kubernetes import client as k8s_client_pkg
+    except ImportError:  # pragma: no cover — SDK is in the ``dev`` extra
+        return False
+    return hasattr(getattr(k8s_client_pkg, "V1Job", None), "attribute_map")
+
+
+def _assert_manifest_value_reaches(submitted: Any, expected: Any, path: str) -> None:
+    """Assert every key of ``expected`` survives into ``submitted``.
+
+    Walks the manifest dict and the submitted V1 object in lockstep,
+    translating camelCase keys through each model's ``attribute_map``
+    (present on every kubernetes SDK model, so no hand-maintained name
+    table can drift). A manifest key that ``_submit_runner_job`` does
+    not copy shows up as a ``None`` attribute or a value mismatch.
+    """
+    if isinstance(expected, dict):
+        attribute_map = getattr(type(submitted), "attribute_map", None)
+        if attribute_map is None:
+            # A plain-dict field (e.g. ``labels``) — compare wholesale.
+            assert submitted == expected, f"{path} != {expected!r}"
+            return
+        inverse = {camel: attr for attr, camel in attribute_map.items()}
+        for camel, value in expected.items():
+            assert camel in inverse, f"{path}.{camel} is not a field of {type(submitted).__name__}"
+            got = getattr(submitted, inverse[camel])
+            assert got is not None, f"{path}.{camel} dropped by _submit_runner_job"
+            _assert_manifest_value_reaches(got, value, f"{path}.{camel}")
+    elif isinstance(expected, list):
+        assert isinstance(submitted, list), f"{path} is not a list"
+        assert len(submitted) == len(expected), f"{path} length {len(submitted)} != {len(expected)}"
+        for i, item in enumerate(expected):
+            _assert_manifest_value_reaches(submitted[i], item, f"{path}[{i}]")
+    else:
+        assert submitted == expected, f"{path} is {submitted!r}, manifest says {expected!r}"
+
+
+@pytest.mark.skipif(
+    not _real_k8s_sdk_available(),
+    reason="needs the real kubernetes SDK (the conftest stub lacks V1PodSecurityContext "
+    "and attribute_map); it ships in the dev extra CI installs",
+)
+class TestSubmitRunnerJob:
+    """Pin the manifest-dict -> V1 object translation.
+
+    ``_submit_runner_job`` hand-copies a *fixed* field list out of the
+    manifest dict; anything it does not name is silently dropped, and
+    every ``run_slice_green_gate`` test patches it out. So a manifest
+    assertion alone cannot prove a field reaches the apiserver — the
+    concrete trap being #3622's cheapest option ("move
+    ``activeDeadlineSeconds`` onto ``spec.template.spec``"), which would
+    pass ``test_one_shot_job_shape`` while this function dropped the
+    field and the submitted Job carried no pod deadline at all.
+
+    ``test_every_manifest_field_reaches_the_body`` is what actually
+    closes that trap, and closes it for the whole class of fields rather
+    than one field: it walks the manifest and the submitted body in
+    lockstep. The per-field tests below stay because they name the
+    values that matter (deadline arithmetic, the security posture) in
+    terms a reader recognises; the reflection test is the one that goes
+    red when a *new* key is added to the dict and not to the whitelist.
+    """
+
+    @staticmethod
+    def _submit(manifest: dict[str, Any] | None = None, **overrides: Any) -> Any:
+        manifest = _manifest(**overrides) if manifest is None else manifest
+        k8s = MagicMock()
+        sgg._submit_runner_job(k8s, "egg-ns", manifest)
+        k8s.batch_api.create_namespaced_job.assert_called_once()
+        kwargs = k8s.batch_api.create_namespaced_job.call_args.kwargs
+        assert kwargs["namespace"] == "egg-ns"
+        return kwargs["body"]
+
+    def test_job_spec_fields_reach_the_apiserver(self) -> None:
+        body = self._submit(timeout_seconds=600)
+        assert body.api_version == "batch/v1"
+        assert body.kind == "Job"
+        assert body.metadata.labels[sgg._GATE_ID_LABEL] == "abc123def456"
+        assert body.spec.active_deadline_seconds == 660
+        assert body.spec.backoff_limit == 0
+        assert body.spec.ttl_seconds_after_finished == 300
+
+    def test_pod_spec_fields_reach_the_apiserver(self) -> None:
+        body = self._submit(host_uid=1234, host_gid=5678)
+        pod = body.spec.template.spec
+        assert pod.restart_policy == "Never"
+        assert pod.automount_service_account_token is False
+        assert pod.security_context.run_as_user == 1234
+        assert pod.security_context.run_as_group == 5678
+        assert pod.security_context.fs_group == 5678
+        assert body.spec.template.metadata.labels[sgg._GATE_ID_LABEL] == "abc123def456"
+
+    def test_container_and_volumes_reach_the_apiserver(self) -> None:
+        body = self._submit()
+        container = body.spec.template.spec.containers[0]
+        assert container.name == "green-gate"
+        assert container.image_pull_policy == "IfNotPresent"
+        assert container.command[:2] == ["python3", "-c"]
+        assert container.security_context.allow_privilege_escalation is False
+        assert container.security_context.capabilities.drop == ["ALL"]
+        env = {e.name: e.value for e in container.env}
+        assert env["EGG_GREEN_GATE_REPO_DIR"] == "/home/egg/repos/egg"
+        assert json.loads(env["EGG_GREEN_GATE_CHECKS"]) == CHECKS
+        volume = body.spec.template.spec.volumes[0]
+        assert volume.host_path.path == "/home/host/.egg-worktrees/x/egg"
+        mount = container.volume_mounts[0]
+        assert mount.mount_path == "/home/egg/repos/egg"
+        assert mount.name == volume.name
+
+    def test_pod_level_deadline_is_not_set_today(self) -> None:
+        """The deadline is Job-level only — the defect #3622 tracks.
+
+        This records *where the deadline is today*; it does not enforce
+        that #3622's fix arrives at the apiserver. It cannot: the
+        assertion below stays true whether the fix is complete or the
+        manifest dict grew a pod-level deadline that
+        ``_submit_runner_job`` then dropped on the floor. That trap is
+        closed by ``test_every_manifest_field_reaches_the_body``, which
+        goes red on the dict-only version.
+
+        When #3622 lands, flip this to ``== <budget>``.
+        """
+        body = self._submit(timeout_seconds=600)
+        assert body.spec.active_deadline_seconds == 660
+        assert body.spec.template.spec.active_deadline_seconds is None
+
+    def test_every_manifest_field_reaches_the_body(self) -> None:
+        """No manifest key may be dropped by the copy whitelist.
+
+        The generalised form of the #3622 trap: add a key to
+        ``_build_runner_job_manifest`` and forget the matching line in
+        ``_submit_runner_job``, and the manifest tests stay green while
+        the apiserver never sees the field.
+        """
+        manifest = _manifest()
+        _assert_manifest_value_reaches(self._submit(manifest), manifest, "body")
+
+    def test_a_dict_only_pod_deadline_is_caught(self) -> None:
+        """Negative control for #3622 option 1, landed dict-only.
+
+        This is the exact edit the follow-up is most likely to make —
+        pod-level ``activeDeadlineSeconds`` in the manifest, no matching
+        line in ``_submit_runner_job``. Without this the suite has no
+        way to distinguish it from the complete fix.
+        """
+        manifest = _manifest(timeout_seconds=600)
+        manifest["spec"]["template"]["spec"]["activeDeadlineSeconds"] = 660
+        with pytest.raises(AssertionError, match="activeDeadlineSeconds dropped"):
+            _assert_manifest_value_reaches(self._submit(manifest), manifest, "body")
+
+    @pytest.mark.parametrize(
+        ("path", "value"),
+        [
+            (("automountServiceAccountToken",), True),
+            (("containers", 0, "securityContext", "allowPrivilegeEscalation"), True),
+            (("containers", 0, "securityContext", "capabilities", "drop"), []),
+        ],
+    )
+    def test_security_fields_follow_the_manifest_not_a_constant(
+        self, path: tuple[Any, ...], value: Any
+    ) -> None:
+        """The three fields that used to be hardcoded in the submitter.
+
+        They agreed with the manifest, so there was no live bug — but
+        the assertions on them passed against a constant and would have
+        held with the manifest saying the opposite, which is the
+        non-discriminating shape ``TestSubmitRunnerJob`` exists to
+        replace. Loosening the manifest here must loosen the submitted
+        pod; if it does not, the dict is decorative again.
+        """
+        manifest = _manifest()
+        target: Any = manifest["spec"]["template"]["spec"]
+        for key in path[:-1]:
+            target = target[key]
+        target[path[-1]] = value
+        _assert_manifest_value_reaches(self._submit(manifest), manifest, "body")
+
+
+# ----------------------------------------------------------------------
 # run_slice_green_gate
 # ----------------------------------------------------------------------
 
@@ -834,6 +1160,13 @@ class TestRunSliceGreenGate:
     def test_kill_switch_off_skips_everything(
         self, gate_env: pytest.MonkeyPatch, configured_checks: None
     ) -> None:
+        """``off`` still short-circuits before any spawn side effect.
+
+        This must set the switch explicitly: the default is ``on``, so
+        an implicit-off assertion here would silently start exercising
+        the runner.
+        """
+        gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, "off")
         spawner = _spawner()
         assert _run_gate(spawner) is None
         spawner.gateway.create_worktrees.assert_not_called()
@@ -967,6 +1300,31 @@ class TestRunSliceGreenGate:
         delete_job.assert_called_once()
         spawner.gateway.delete_session_by_container.assert_called_once()
         spawner.gateway.delete_worktrees.assert_called_once()
+
+    def test_unset_switch_blocks_on_a_red_verdict(
+        self, gate_env: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        """The default deployment — nothing set — withholds the PR.
+
+        Every other blocking test here sets the switch to ``on``
+        explicitly, so without this one the resolver's ``on`` default
+        could regress to ``log`` and the whole suite would stay green.
+        This is the seam that makes the default load-bearing.
+        """
+        spawner = _spawner()
+        log = _verdict_line([{"name": "test", "ok": False, "exit_code": 2, "output_tail": "x"}])
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+        ):
+            failure = _run_gate(spawner)
+        assert failure is not None
+        assert "test" in failure
+        # The bypass is quoted in the message itself: an operator who
+        # hits an unexpected red must not have to find the env var.
+        assert sgg.GREEN_GATE_ENV_VAR in failure
 
     def test_red_verdict_in_log_mode_does_not_block(
         self, gate_env: pytest.MonkeyPatch, configured_checks: None

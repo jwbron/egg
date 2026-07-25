@@ -110,7 +110,7 @@ orchestrator/
 ├── slice_scheduler.py      # Wave-based scheduler for the implement-phase slice DAG: computes execution waves, caps concurrency, two-tier max_cycles accounting, failure-cascade detection (#2137)
 ├── stacked_pr_reconciler.py # Stacked-PR rebase reconciler: detects child slice PRs whose base branch was deleted after a parent merge and retargets them via gateway rebase_onto (#2137)
 ├── cross_repo_merge_gate.py # Cross-repo merge-sequencing gate for multi-repo pipelines: auto-readies (or HITL-holds) a dependent slice's draft PR once its cross-repo upstream PR merges; rides the stacked-PR reconciler cadence (#3393 slice-5)
-├── slice_green_gate.py     # Per-slice green gate: sandboxed one-shot Job runs the repo's configured checks at the integration-branch tip and blocks PR-open on red; staged rollout via EGG_SLICE_GREEN_GATE (off/log/on), fail-open on infra errors (#3398) and on infra-signature-tagged reds inside check execution (#3417)
+├── slice_green_gate.py     # Per-slice green gate: sandboxed one-shot Job runs the repo's configured checks at the integration-branch tip; staged rollout via EGG_SLICE_GREEN_GATE (off/log/on, default on — on withholds the slice PR on a red verdict, log runs the checks and logs the verdict without blocking), fail-open on infra errors (#3398) and on infra-signature-tagged reds inside check execution (#3417)
 ├── action_guards.py        # Formal BRC state machine action guards (preconditions for propose/ack/nack/confirm/withdraw)
 ├── approval_matrix.py      # Per-reviewer ACK/NACK matrix for BRC consensus
 ├── attestation_schemas.py  # Attestation payload validation for BRC proposals
@@ -542,7 +542,7 @@ config/
 ├── litellm/                     # egg-litellm image sources
 │   ├── Dockerfile               # Builds egg-litellm: stock LiteLLM + prompt-cache patches
 │   ├── patch_litellm_cache.py   # Build-time patches for cache_control passthrough on Qwen/DeepSeek routes
-│   └── cost_callback.py         # LiteLLM custom logger: upstream + estimated cost, per-role attribution (x-egg-* headers), cache hit rate -> pod stdout
+│   └── cost_callback.py         # LiteLLM custom logger: upstream + estimated cost, per-role attribution (x-egg-* headers), cache hit rate, per-call decoding config -> pod stdout
 ├── repo_config.py               # Python API for repo access
 └── README.md
 ```

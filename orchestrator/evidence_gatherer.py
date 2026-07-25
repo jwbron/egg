@@ -62,13 +62,14 @@ EVIDENCE_PACK_SCHEMA_VERSION = 1
 # ---------------------------------------------------------------------------
 #
 # The shared-evidence prefix ships behind the same ``off -> log -> on`` staged
-# flag every #3523 behaviour-shift rides, resolved EXACTLY like
-# ``slice_green_gate.green_gate_mode()``: an operator typo must degrade to
-# "reviewer prompts unchanged", never to "one gatherer silently anchors every
-# lens". The resolver lives HERE, with the feature's core, and is imported by
-# the S7 wiring (``_criteria.py`` assembly seam, ``consensus_wrapper.py`` log
-# recording) — mirroring how ``risk_router`` owns ``ReviewStance`` for the S6
-# wiring to consume.
+# flag every #3523 behaviour-shift rides, using that shared pattern but keeping
+# an ``off``-default (``slice_green_gate.green_gate_mode()`` now defaults to
+# ``on`` and degrades unknown to ``on`` — this resolver deliberately does
+# not): an operator typo must degrade to "reviewer prompts unchanged", never
+# to "one gatherer silently anchors every lens". The resolver lives HERE, with
+# the feature's core, and is imported by the S7 wiring (``_criteria.py``
+# assembly seam, ``consensus_wrapper.py`` log recording) — mirroring how
+# ``risk_router`` owns ``ReviewStance`` for the S6 wiring to consume.
 
 EVIDENCE_PREFIX_ENV_VAR = "EGG_REVIEW_EVIDENCE_PREFIX"
 _ENABLED_VALUES = frozenset({"on", "1", "true", "yes"})
