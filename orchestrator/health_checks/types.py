@@ -133,6 +133,63 @@ class Finding:
         }
 
 
+# ``RunningAgent.state`` values that mean the agent is NOT live. Compared
+# case-insensitively: the production snapshot builder writes ``running`` /
+# ``exited`` while the calibration corpus uses ``WORKING`` / ``EXITED``.
+DEAD_AGENT_STATES = frozenset({"EXITED", "TERMINATED", "FAILED", "DEAD", "REMOVED"})
+
+
+def is_agent_live(agent: object) -> bool:
+    """Whether a ``running_agents`` entry is an agent that is still running.
+
+    ``running_agents`` deliberately carries recently-*exited* agents too: the
+    container-death and self-injection detectors read their ``exit_code`` /
+    ``exit_reason``, and an agent that exited is exactly the one they need to
+    see (#3596 task-1-9). Every other consumer — anything asking "is this agent
+    doing work?" — must filter with this rather than iterate the set whole,
+    otherwise a corpse either masks a genuine zero-agent stall or draws a nudge
+    of its own.
+
+    Lives here rather than in ``detection_plane`` so the ``tier1/`` detectors
+    can use it without importing the module that imports *them*.
+    """
+    state = str(getattr(agent, "state", "") or "").upper()
+    return state not in DEAD_AGENT_STATES
+
+
+# Evidence keys that can name the subject of a finding, most specific first.
+# ``container`` is last because it is the only one the container-lifecycle
+# detectors populate — they observe a pod, and the pod's ``role`` label is
+# ``None`` whenever the transition was recorded before the role was known.
+TARGET_ROLE_EVIDENCE_KEYS = ("agent_role", "agent_id", "role", "container")
+
+
+def finding_target_role(finding: object) -> str:
+    """Derive the agent/container a :class:`Finding` is about, or ``""``.
+
+    Both authority-plane dispatch paths — the monitor's routine-corrective loop
+    and ``_execute_overseer_verdicts`` — feed this to ``CorrectiveExecutor`` as
+    both ``target_role`` and half of the idempotency key, so they have to agree
+    on the derivation. They previously did not: one fell back to ``agent_id``,
+    the other to ``role``, and *neither* looked at ``container``.
+
+    That last gap was the load-bearing one. On the common ``container_death``
+    path ``evidence["role"]`` is ``None`` and ``evidence["container"]`` holds
+    the key, so the derivation returned ``""`` — ``respawn_cohort`` was
+    dispatched with no target, and the idempotency key collapsed to
+    ``"container_death:"``, making every death after the first in a pipeline
+    look like a duplicate of whichever container died first (#3596 task-2-3).
+    """
+    evidence = getattr(finding, "evidence", None) or {}
+    if not isinstance(evidence, dict):
+        return ""
+    for key in TARGET_ROLE_EVIDENCE_KEYS:
+        value = evidence.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
 @dataclass(frozen=True)
 class HealthResult:
     """Result produced by a health check.

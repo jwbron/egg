@@ -681,6 +681,8 @@ def _execute_overseer_verdicts(
     the per-verdict :class:`CorrectiveOutcome` list (empty when nothing was
     adjudicated or actioned).
     """
+    from health_checks.types import finding_target_role
+
     active = executor or _pkg._build_overseer_corrective_executor(issue_number=issue_number)
     outcomes: list[_pkg.Any] = []
     for finding, verdict in results:
@@ -689,10 +691,9 @@ def _execute_overseer_verdicts(
         action = str(getattr(verdict, "recommended_action", "") or "").strip()
         if action in ("", "none"):
             continue  # adjudicator advised no action — nothing to execute
-        evidence = getattr(finding, "evidence", None) or {}
-        target_role = str(getattr(verdict, "target", "") or "") or str(
-            evidence.get("agent_role") or evidence.get("agent_id") or ""
-        )
+        # Shared derivation with the monitor's routine path — see
+        # ``health_checks.types.finding_target_role`` for why the two must agree.
+        target_role = str(getattr(verdict, "target", "") or "") or finding_target_role(finding)
         finding_class = str(getattr(finding, "finding_class", "") or "")
         outcomes.append(
             active.execute(

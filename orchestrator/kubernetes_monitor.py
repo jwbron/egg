@@ -506,7 +506,7 @@ class KubernetesMonitor:
         per-tick executor would re-fire the same nudge every interval.
         """
         import routes.pipelines as pipelines_pkg
-        from health_checks import detection_plane
+        from health_checks import detection_plane, types
 
         # Live agents only. ``running_agents`` also carries recently-exited
         # agents (the container-death detectors read their exit codes), and
@@ -547,8 +547,7 @@ class KubernetesMonitor:
                     executor=executor,
                 )
             for finding, action in routine:
-                evidence = getattr(finding, "evidence", None) or {}
-                target_role = str(evidence.get("agent_role") or evidence.get("role") or "")
+                target_role = types.finding_target_role(finding)
                 finding_class = str(getattr(finding, "finding_class", ""))
                 executor.execute(
                     action,

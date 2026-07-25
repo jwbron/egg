@@ -46,7 +46,7 @@ except ImportError:  # pragma: no cover - logging shim
         return logging.getLogger(name)
 
 
-from health_checks.types import Finding, FindingClass, Severity
+from health_checks.types import Finding, FindingClass, Severity, is_agent_live
 
 logger = get_logger("orchestrator.health_checks.detection_plane")
 
@@ -564,7 +564,6 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
             cid_to_role,
             progress_ages,
             heartbeat_ages,
-            container_exit_info,
         )
         for cid in live_ids
     )
@@ -740,11 +739,6 @@ def _query_heartbeat_ages(pipeline_id: str) -> dict[str, float]:
 # Container statuses that mean the agent's container is no longer running.
 _EXITED_CONTAINER_STATUSES = frozenset({"exited", "failed", "removed"})
 
-# ``RunningAgent.state`` values that mean the agent is NOT live. Compared
-# case-insensitively: the production builder writes ``running`` / ``exited``,
-# while the calibration corpus uses ``WORKING`` / ``EXITED``.
-_DEAD_AGENT_STATES = frozenset({"EXITED", "TERMINATED", "FAILED", "DEAD", "REMOVED"})
-
 # 137 is SIGKILL, which on Kubernetes is overwhelmingly an OOM kill. The
 # container-lifecycle detectors match on the Kubernetes reason vocabulary, so an
 # exit code is translated into it here (mirrors kubernetes_monitor).
@@ -760,12 +754,7 @@ def live_agent_count(snapshot: Any) -> int:
     exactly the one they need to see. Callers asking "is anything still
     running?" must therefore filter rather than take ``len()``.
     """
-    live = 0
-    for agent in getattr(snapshot, "running_agents", ()) or ():
-        state = str(getattr(agent, "state", "") or "").upper()
-        if state not in _DEAD_AGENT_STATES:
-            live += 1
-    return live
+    return sum(1 for agent in getattr(snapshot, "running_agents", ()) or () if is_agent_live(agent))
 
 
 def _query_container_exit_info(pipeline: Any, phase_value: str) -> dict[str, dict[str, Any]]:
@@ -890,26 +879,27 @@ def _build_running_agent(
     cid_to_role: dict[str, str],
     progress_ages: dict[str, float],
     heartbeat_ages: dict[str, float],
-    container_exit_info: dict[str, dict[str, Any]],
 ) -> RunningAgent:
     """Build a single RunningAgent for a **live** container.
 
     Fixes the ``role=str(cid)`` defect: maps the container ID to the agent
     role via the pipeline state. Liveness fields are null when unmeasurable.
 
-    ``container_exit_info`` is keyed by role, not container id: the pipeline
-    model records the *Job* uid while ``live_container_ids`` carries *Pod* uids,
-    so a container-id-keyed lookup never joins (#3596 task-1-9).
+    Carries **no** exit info by construction. ``PhaseExecution.agent_exits``
+    records are frozen at exit and never cleared, so after a same-role restart
+    the role's newest exit record is stale — stamping it onto the live agent
+    made ``detect_container_death`` select a *running* agent as its
+    ``fatal_exit_agent`` and report a healthy container as dead. The policy is
+    the mirror image of :func:`_build_exited_agents`' ``live_roles`` skip:
+    ``live_container_ids`` is authoritative for liveness, and exit records only
+    describe roles absent from it (#3596 task-1-9).
     """
     role = cid_to_role.get(str(container_id), str(container_id))
-    exit_info = container_exit_info.get(role, {})
 
     return RunningAgent(
         role=role,
         state="running",
         lifecycle_owner=lifecycle_owner,
-        exit_code=exit_info.get("exit_code"),
-        exit_reason=exit_info.get("exit_reason"),
         last_tool_call_age_s=progress_ages.get(role),
         last_heartbeat_age_s=heartbeat_ages.get(role),
     )

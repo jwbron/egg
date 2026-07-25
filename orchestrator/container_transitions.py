@@ -19,9 +19,15 @@ Two derived fields are computed at **read** time rather than stored, so they are
 always consistent with the whole retained history:
 
 ``restart_count``
-    How many times the record's container had already transitioned *into*
-    ``Running`` before this record. ``detect_container_restart_loop`` groups on
-    the ``container`` key, so that key is the agent **role** when known.
+    How many times the record's container had already *crash*-restarted before
+    this record — a transition into ``Running`` that followed a **non-transient**
+    termination. It matches the Kubernetes ``restartCount`` convention (0 on a
+    first run), which is what ``detect_container_restart_loop``'s threshold is
+    calibrated against, and it is what makes the ``transient`` flag load-bearing:
+    a one-shot BRC agent exits cleanly on every event, so counting *every*
+    re-entry into ``Running`` turned ordinary event-handler churn into a
+    crash-loop finding after four invocations. ``detect_container_restart_loop``
+    groups on the ``container`` key, so that key is the agent **role** when known.
 
 ``recovered``
     Whether any later transition for the same container went back to
@@ -46,6 +52,7 @@ from typing import Any
 MAX_TRANSITIONS = 1000
 
 _RUNNING_STATE = "Running"
+_TERMINATED_STATE = "Terminated"
 
 _lock = threading.Lock()
 _transitions: deque[dict[str, Any]] = deque(maxlen=MAX_TRANSITIONS)
@@ -137,17 +144,27 @@ def transitions_for(
         wanted = {str(p) for p in pod_ids}
         records = [r for r in records if r["pod"] in wanted]
 
-    # Derive restart_count (prior Running entries per container) and recovered
+    # Derive restart_count (prior *crash* restarts per container) and recovered
     # (a later Running entry for the same container) in one pass each.
-    running_seen: dict[str, int] = {}
+    #
+    # A re-entry into Running only counts as a restart when the termination it
+    # followed was NOT transient. Clean one-shot exits are flagged transient by
+    # the monitor precisely so the lifecycle detectors skip them, but the flag
+    # lands on the Terminated record while the count is driven by the Running
+    # records — so without this the skip was inert and five ordinary BRC
+    # invocations of one role tripped the crash-loop threshold.
+    crash_restarts: dict[str, int] = {}
+    crashed_pending: dict[str, bool] = {}
     annotated: list[dict[str, Any]] = []
     for record in records:
         key = record["container"]
         entry = dict(record)
-        entry["restart_count"] = running_seen.get(key, 0)
+        if record["to"] == _RUNNING_STATE and crashed_pending.pop(key, False):
+            crash_restarts[key] = crash_restarts.get(key, 0) + 1
+        entry["restart_count"] = crash_restarts.get(key, 0)
         annotated.append(entry)
-        if record["to"] == _RUNNING_STATE:
-            running_seen[key] = running_seen.get(key, 0) + 1
+        if record["to"] == _TERMINATED_STATE and not record.get("transient"):
+            crashed_pending[key] = True
 
     later_running: set[str] = set()
     for entry in reversed(annotated):

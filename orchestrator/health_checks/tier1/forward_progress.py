@@ -50,7 +50,7 @@ _shared_path = Path(__file__).parent.parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
-from health_checks.types import Finding, Severity
+from health_checks.types import Finding, Severity, is_agent_live
 
 # Finding-class strings (matched structurally on the raw string by the plane).
 FINDING_FORWARD_PROGRESS_STALL = "forward_progress_stall"
@@ -349,11 +349,20 @@ def _detect_commit_stall(
     # Build a set of roles to check: from running_agents if available,
     # otherwise fall back to git_state keys (for backward compat with tests
     # that only set git_state).
+    #
+    # Only *live* agents are stall candidates. ``running_agents`` also carries
+    # recently-exited agents so the container-death detectors can read their
+    # exit codes (#3596 task-1-9); an exited role has no commits by definition,
+    # so counting it here produced a HIGH stall whose recommended action is to
+    # nudge an agent that no longer exists — and, because the collection was
+    # non-empty, suppressed the git_state fallback that covers the real
+    # every-agent-has-exited case. Container death and the zero-agent phase
+    # stall already own that scenario.
     roles_to_check: dict[str, dict[str, Any]] = {}
 
     for agent in running_agents:
         role = getattr(agent, "role", "")
-        if not role:
+        if not role or not is_agent_live(agent):
             continue
         roles_to_check[role] = {
             "tool_call_age": _as_float(getattr(agent, "last_tool_call_age_s", None)),
@@ -487,6 +496,10 @@ def _detect_commit_stall(
         # Check if any agent has recent activity (commits or tool calls)
         any_recent_activity = False
         for agent in running_agents:
+            # Exited agents are not "recent activity" — see the liveness note
+            # on ``roles_to_check`` above (#3596 task-1-9).
+            if not is_agent_live(agent):
+                continue
             tool_call_age = _as_float(getattr(agent, "last_tool_call_age_s", None))
             if tool_call_age is not None and tool_call_age < tool_call_recent_threshold_s:
                 any_recent_activity = True
