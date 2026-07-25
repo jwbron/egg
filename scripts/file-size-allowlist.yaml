@@ -32,3 +32,9 @@ files:
     issue: "3587"
   orchestrator/routes/pipelines/_slice_state.py:
     issue: "3586"
+  # Went over the cap only on the #3609 x #3409 merge: main (1165) and
+  # the Stage-A autofix branch (1421) each sat under it, the union
+  # (1594) does not. Most of the growth is module-docstring prose from
+  # both sides.
+  orchestrator/slice_green_gate.py:
+    issue: "3627"
