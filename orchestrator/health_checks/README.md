@@ -85,13 +85,43 @@ The plane is a registry + evaluator:
 
 ### Runtime wiring
 
-`routes/pipelines._run_overseer_detection_plane` builds the snapshot, evaluates
-the default plane, and routes findings:
-`_escalate_finding_to_adjudicator` spawns a normal on-demand OVERSEER agent for
-each `requires_adjudication` finding (which **advises** only), and
-`escalate_findings` is the canonical escalation gate. Routine findings are
-executed by the `CorrectiveExecutor` (see
-[overseer/README.md](../overseer/README.md)).
+> **⚠️ Not yet wired into the runtime tick.** The detection plane machinery
+> exists — `HealthCheckRunner.run_detection_plane()` evaluates
+> `DetectionPlane.default()` over a snapshot, and
+> `routes/pipelines._overseer._run_overseer_detection_plane` provides the
+> escalation path (`_escalate_finding_to_adjudicator` spawns an on-demand
+> OVERSEER agent for `requires_adjudication` findings; `escalate_findings` is
+> the canonical gate; routine findings flow to `CorrectiveExecutor` — see
+> [overseer/README.md](../overseer/README.md)) — **but no call site invokes
+> `run_detection_plane()` from `_run_runtime_tick_checks` in
+> `kubernetes_monitor.py`.** All 27 registered detectors are therefore starved
+> in production: they only fire when driven directly by the calibration corpus
+> in tests. Task 1a of [#3596](https://github.com/jwbron/egg/issues/3596)
+> wires the plane into the runtime tick.
+
+The intended wiring path is:
+
+1. `KubernetesMonitor._run_runtime_tick_checks` (called from both
+   `_check_pod` on container transitions and `_reconciliation_sweep` on the
+   periodic interval) builds a `PipelineHealthContext` and calls
+   `HealthCheckRunner.run(ctx, HealthTrigger.RUNTIME_TICK)`.
+2. `HealthCheckRunner.run_detection_plane(snapshot, plane)` evaluates
+   `DetectionPlane.default()` over the snapshot and emits findings on the
+   EventBus as `DETECTION_FINDING` events.
+3. Findings with `requires_adjudication=True` are routed to
+   `_escalate_finding_to_adjudicator`; routine findings are executed by
+   `CorrectiveExecutor`.
+
+The snapshot is built by `snapshot_from_health_context(context)` in
+`detection_plane.py`. Currently this builder only populates `phase_state`
+and `running_agents` (with `role`, `state`, `lifecycle_owner`); the remaining
+fields (`container_transitions`, `git_state`, `decision_state`,
+`cost_counters`, `gateway_error_counters`, `midturn_messages`, `raw.*`,
+and the `RunningAgent` liveness fields `last_tool_call_age_s` /
+`last_heartbeat_age_s` / `exit_code` / `exit_reason`) are left at their
+empty defaults. This means most detectors cannot fire even after the plane
+is wired — they read fields that the snapshot builder does not yet populate.
+Task 1b-g of #3596 enriches the snapshot builder.
 
 ### Detector catalogue
 
@@ -127,10 +157,13 @@ executed by the `CorrectiveExecutor` (see
 | LLM substrate | `anthropic_5xx` | — |
 | overseer self-health | `overseer_self_health` | — |
 
-> A detector only fires in a live run once `snapshot_from_health_context()`
-> populates the field it reads; until then it stays silent. The calibration
-> corpus ([overseer-calibration-corpus.md](../../docs/architecture/overseer-calibration-corpus.md))
-> drives every detector with fully-populated fixtures.
+> **Two conditions must both hold for a detector to fire in a live run:**
+> (1) the detection plane must be invoked from the runtime tick (see
+> [Runtime wiring](#runtime-wiring) — not yet wired as of this writing), and
+> (2) `snapshot_from_health_context()` must populate the field the detector
+> reads. Until both are true, detectors stay silent in production. The
+> calibration corpus ([overseer-calibration-corpus.md](../../docs/architecture/overseer-calibration-corpus.md))
+> drives every detector with fully-populated fixtures regardless.
 
 ### Adding a new detector
 
