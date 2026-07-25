@@ -1417,6 +1417,30 @@ class TestGreenGateAutofixWiring:
         log = _red_lint_verdict(fix=_fixed(), final=None)
         self._assert_blocks_without_autofix(_spawner(), log)
 
+    def test_missing_worktree_host_path_blocks_with_an_explanation(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # #3409: the orchestrator stages from the runner's hostPath
+        # worktree, so an empty host path leaves nothing to commit. This
+        # is defence in depth (the gateway always returns a path), but it
+        # must block *with* a reason rather than silently — a fixable
+        # verdict that blocks with no note is the failure mode the
+        # self-heal explanation exists to prevent.
+        log = _red_lint_verdict(fix=_fixed(), final=_final_verification())
+        spawner = _spawner(worktrees={REPO: ""})
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+            patch.object(sgg, "_commit_and_push_autofix") as autofix,
+        ):
+            failure = _run_gate(spawner)
+        autofix.assert_not_called()
+        assert failure is not None
+        assert "did not self-heal" in failure
+        assert "runner worktree host path is unavailable" in failure
+
 
 def _infra_plus_fixable_verdict(*, final: dict[str, Any]) -> str:
     """An infra-tagged red (#3417) co-occurring with a fixable red (#3409)."""
@@ -1552,7 +1576,16 @@ class TestInfraFailOpenAutofixComposition:
             failure = _run_gate(spawner)
         autofix.assert_not_called()
         assert failure is not None
-        assert "test" in failure
+        # Both reds are now *presented*: the header names the infra check
+        # alongside the fixable one and its output tail is no longer
+        # filtered out. That is the behavioural difference from the
+        # narrowed case above, where `test` surfaces only as the cause of
+        # the autofix refusal and its tail stays out of the message.
+        assert "tip: test, lint" in failure
+        assert "GATEWAY SIDECAR NOT AVAILABLE" in failure
+        # `test` carries no fix, so the reds shown are the operator's own
+        # to fix and no self-heal explanation is appended.
+        assert "did not self-heal" not in failure
 
 
 class TestAutofixReady:

@@ -1330,6 +1330,15 @@ def run_slice_green_gate(
         # every check plus a no-new-untracked-files check, not just each
         # failed check's own intermediate re-run — see its docstring.
         autofix_ready, autofix_block_reason = _autofix_ready(verdict, genuine_failed)
+        if autofix_ready and not repo_host_dir:
+            # Defence in depth: the loop above always sets ``repo_host_dir``
+            # (the gate returns at the empty-``worktrees`` check before
+            # reaching it), so this is unreachable today. Folding it into
+            # the block reason rather than guarding the branch below keeps
+            # it from becoming the one path that blocks the slice with no
+            # explanation — the exact gap the note below exists to close.
+            autofix_ready = False
+            autofix_block_reason = "the runner worktree host path is unavailable"
         logger.error(
             "Green gate red: configured checks failed at the slice tip (#3398)",
             pipeline_id=pipeline_id,
@@ -1342,7 +1351,7 @@ def run_slice_green_gate(
             mode=mode,
         )
         autofix_note = ""
-        if autofix_ready and mode == "on" and repo_host_dir:
+        if autofix_ready and mode == "on":
             autofix_error = _commit_and_push_autofix(
                 spawner.gateway,
                 pipeline_id=pipeline_id,
