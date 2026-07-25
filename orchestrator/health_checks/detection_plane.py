@@ -26,6 +26,7 @@ core) so the ``phase_stall`` corpus rows flip to strict.
 from __future__ import annotations
 
 import sys
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -441,6 +442,7 @@ def _register_coverage_gap_detectors(plane: DetectionPlane) -> None:
         detect_hitl_queue_backlog,
         detect_restarted_decision_replay,
     )
+    from health_checks.tier1.forward_progress import detect_forward_progress
     from health_checks.tier1.gateway_health import (
         detect_gateway_error_spike,
         detect_gateway_repeated_denial,
@@ -476,6 +478,7 @@ def _register_coverage_gap_detectors(plane: DetectionPlane) -> None:
         detect_approved_decision_orphaned,
         detect_restarted_decision_replay,
         detect_hitl_queue_backlog,
+        detect_forward_progress,
         detect_worktree_corruption,
         detect_disk_inode_pressure,
         detect_pr_external_mutation,
@@ -513,8 +516,12 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
 
     Best-effort and defensive: the detection plane runs on the event loop and
     must never crash on a partially-populated context. Fields the live state
-    doesn't expose yet stay empty (a detector simply won't fire on them); slices
-    7/8 enrich this builder as their detectors need more signal.
+    doesn't expose yet stay empty (a detector simply won't fire on them).
+
+    Enriches the snapshot with the data sources that starved detectors
+    require (#3596): container-to-role mapping (fixing the ``role=str(cid)``
+    defect), RunningAgent liveness fields, ``git_state``,
+    ``container_transitions``, and ``decision_state``.
     """
     pipeline = getattr(context, "pipeline", None)
     pipeline_id = getattr(context, "pipeline_id", "") or getattr(pipeline, "id", "")
@@ -529,13 +536,41 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
         or _getattr_chain(pipeline, "event_loop_owner"),
         "started_age_s": getattr(context, "phase_started_age_s", None),
         "awaiting_spawn": getattr(context, "awaiting_spawn", None),
+        "expected_duration_s": _query_expected_duration(pipeline, phase_value),
     }
 
     live_ids = getattr(context, "live_container_ids", None) or set()
+
+    # Build container_id -> agent_role mapping from the pipeline's phase execution
+    # state. Fixes the role=str(cid) defect (#3596): previously the role field
+    # carried a container UUID, so any detector keying on role name was matching
+    # the wrong thing. Falls back to str(cid) only when the pipeline model is
+    # unavailable (best-effort).
+    cid_to_role = _build_container_role_map(pipeline, phase_value)
+
+    # Populate RunningAgent liveness fields from the progress store and
+    # HealthMonitor. Null when unmeasurable — never 0 (#3596 operator directive).
+    progress_ages = _query_progress_ages(pipeline_id)
+    heartbeat_ages = _query_heartbeat_ages(pipeline_id)
+    container_exit_info = _query_container_exit_info(pipeline, phase_value, live_ids)
+
     running_agents = tuple(
-        RunningAgent(role=str(cid), state="running", lifecycle_owner=lifecycle_owner)
+        _build_running_agent(
+            cid,
+            lifecycle_owner,
+            cid_to_role,
+            progress_ages,
+            heartbeat_ages,
+            container_exit_info,
+        )
         for cid in live_ids
     )
+
+    # Enrich with git_state, container_transitions, decision_state, raw.runtime.
+    git_state = _build_git_state(context, pipeline, phase_value, cid_to_role)
+    container_transitions = _build_container_transitions(pipeline_id)
+    decision_state = _build_decision_state(pipeline_id, pipeline)
+    raw = _build_raw_runtime(pipeline_id, pipeline, phase_value)
 
     return EventStreamSnapshot(
         snapshot_id=f"{pipeline_id}:{phase_value}",
@@ -543,6 +578,10 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
         phase=str(phase_value),
         running_agents=running_agents,
         phase_state=phase_state,
+        git_state=git_state,
+        container_transitions=container_transitions,
+        decision_state=decision_state,
+        raw=raw,
     )
 
 
@@ -579,6 +618,526 @@ def _getattr_chain(obj: Any, name: str) -> Any:
         return getattr(obj, name, None)
     except Exception:  # noqa: BLE001
         return None
+
+
+# ---------------------------------------------------------------------------
+# Snapshot enrichment helpers (#3596)
+#
+# Each helper is best-effort: on any failure it returns an empty/default
+# value so a detector simply won't fire on the missing field rather than
+# crashing the event loop. The detection plane's "stop crying wolf"
+# discipline (#2270 §2) means these must never raise.
+# ---------------------------------------------------------------------------
+
+
+def _build_container_role_map(pipeline: Any, phase_value: str) -> dict[str, str]:
+    """Build a ``container_id -> agent_role`` mapping from pipeline state.
+
+    Walks ``pipeline.phases[phase].agents`` and indexes each agent's
+    ``container_id`` (or ``container_info.container_id``) to its ``role``.
+    Returns an empty dict when the pipeline model is unavailable.
+    """
+    try:
+        phases = getattr(pipeline, "phases", {}) or {}
+        phase_exec = phases.get(phase_value)
+        if phase_exec is None:
+            return {}
+        agents = getattr(phase_exec, "agents", []) or []
+        mapping: dict[str, str] = {}
+        for agent in agents:
+            cid = getattr(agent, "container_id", None)
+            if cid is None:
+                ci = getattr(agent, "container_info", None)
+                if ci is not None:
+                    cid = getattr(ci, "container_id", None)
+            if cid:
+                role = str(getattr(agent, "role", ""))
+                if role:
+                    mapping[str(cid)] = role
+        return mapping
+    except Exception:  # noqa: BLE001 — defensive
+        return {}
+
+
+def _query_progress_ages(pipeline_id: str) -> dict[str, float]:
+    """Return ``{agent_role: seconds_since_last_progress_event}``.
+
+    Queries the in-memory ``ProgressStore`` for the most recent progress event
+    per agent role. Returns an empty dict when the store is unavailable.
+    """
+    try:
+        from progress_store import get_progress_store
+
+        store = get_progress_store()
+        events = store.get_latest_per_agent(pipeline_id)
+        now = time.time()
+        result: dict[str, float] = {}
+        for event in events:
+            ts = event.timestamp
+            if ts is None:
+                continue
+            if hasattr(ts, "timestamp"):
+                ts_float = ts.timestamp()
+            else:
+                ts_float = float(ts)
+            result[event.agent_role] = now - ts_float
+        return result
+    except Exception:  # noqa: BLE001 — defensive
+        return {}
+
+
+def _query_heartbeat_ages(pipeline_id: str) -> dict[str, float]:
+    """Return ``{agent_role: seconds_since_last_heartbeat}``.
+
+    Queries the HealthMonitor singleton's ``_last_heartbeat`` dict, but only
+    when the singleton is tracking the requested pipeline (the monitor is
+    per-pipeline). Returns an empty dict when the monitor is unavailable,
+    tracking a different pipeline, or the dict is empty.
+    """
+    try:
+        from health_monitor import get_health_monitor
+
+        monitor = get_health_monitor()
+        if monitor is None:
+            return {}
+        # The HealthMonitor is a per-pipeline singleton; only use it when
+        # it's tracking the pipeline we're snapshotting.
+        if getattr(monitor, "_pipeline_id", None) != pipeline_id:
+            return {}
+        now = time.time()
+        result: dict[str, float] = {}
+        for role, ts in getattr(monitor, "_last_heartbeat", {}).items():
+            result[str(role)] = now - float(ts)
+        return result
+    except Exception:  # noqa: BLE001 — defensive
+        return {}
+
+
+def _query_container_exit_info(
+    pipeline: Any, phase_value: str, live_ids: set[str]
+) -> dict[str, dict[str, Any]]:
+    """Return ``{container_id: {exit_code, exit_reason}}`` for exited containers.
+
+    Reads from the pipeline's phase execution state — agents that have exited
+    carry their exit info in ``AgentExecution``. Returns an empty dict when
+    unavailable.
+    """
+    try:
+        phases = getattr(pipeline, "phases", {}) or {}
+        phase_exec = phases.get(phase_value)
+        if phase_exec is None:
+            return {}
+        agents = getattr(phase_exec, "agents", []) or []
+        result: dict[str, dict[str, Any]] = {}
+        for agent in agents:
+            cid = getattr(agent, "container_id", None)
+            if cid is None:
+                ci = getattr(agent, "container_info", None)
+                if ci is not None:
+                    cid = getattr(ci, "container_id", None)
+            if cid:
+                exit_code = getattr(agent, "exit_code", None)
+                exit_reason = getattr(agent, "error", None)
+                if exit_code is not None or exit_reason is not None:
+                    result[str(cid)] = {
+                        "exit_code": exit_code,
+                        "exit_reason": exit_reason,
+                    }
+        return result
+    except Exception:  # noqa: BLE001 — defensive
+        return {}
+
+
+def _build_running_agent(
+    container_id: str,
+    lifecycle_owner: str,
+    cid_to_role: dict[str, str],
+    progress_ages: dict[str, float],
+    heartbeat_ages: dict[str, float],
+    container_exit_info: dict[str, dict[str, Any]],
+) -> RunningAgent:
+    """Build a single RunningAgent with all available liveness fields.
+
+    Fixes the ``role=str(cid)`` defect: maps the container ID to the agent
+    role via the pipeline state. Liveness fields are null when unmeasurable.
+    """
+    role = cid_to_role.get(str(container_id), str(container_id))
+    exit_info = container_exit_info.get(str(container_id), {})
+
+    return RunningAgent(
+        role=role,
+        state="running",
+        lifecycle_owner=lifecycle_owner,
+        exit_code=exit_info.get("exit_code"),
+        exit_reason=exit_info.get("exit_reason"),
+        last_tool_call_age_s=progress_ages.get(role),
+        last_heartbeat_age_s=heartbeat_ages.get(role),
+    )
+
+
+def _build_git_state(
+    context: Any, pipeline: Any, phase_value: str, cid_to_role: dict[str, str]
+) -> dict[str, Any]:
+    """Populate ``git_state`` with commit counts and branch info.
+
+    Runs ``git rev-list --count`` per agent worktree to get per-agent commit
+    counts, plus branch-level info for divergence detection. Best-effort:
+    any git failure degrades to an empty dict.
+    """
+    try:
+        repo_path = getattr(context, "repo_path", None)
+        if repo_path is None:
+            return {}
+
+        git_state: dict[str, Any] = {}
+
+        # Per-agent commit counts (for forward-progress detector)
+        agent_commit_counts: dict[str, int] = {}
+        agent_last_commit_age_s: dict[str, float] = {}
+        for _cid, role in cid_to_role.items():
+            count, last_commit_ts = _count_commits_and_last_age(repo_path, pipeline, phase_value, role)
+            if count is not None:
+                agent_commit_counts[role] = count
+            if last_commit_ts is not None:
+                agent_last_commit_age_s[role] = time.time() - last_commit_ts
+        if agent_commit_counts:
+            git_state["agent_commit_counts"] = agent_commit_counts
+        if agent_last_commit_age_s:
+            git_state["agent_last_commit_age_s"] = agent_last_commit_age_s
+
+        # Branch-level info (for worktree_branch detectors)
+        branch_info = _query_branch_git_state(repo_path, pipeline, phase_value)
+        git_state.update(branch_info)
+
+        return git_state
+    except Exception:  # noqa: BLE001 — defensive
+        return {}
+
+
+def _count_commits_and_last_age(
+    repo_path: Any, pipeline: Any, phase_value: str, role: str
+) -> tuple[int | None, float | None]:
+    """Count commits and get the age of the last commit for an agent's worktree.
+
+    Returns ``(commit_count, last_commit_ts)`` where ``last_commit_ts`` is the
+    Unix epoch timestamp of the most recent commit. Either value may be None
+    if it cannot be determined.
+    """
+    try:
+        import subprocess
+
+        # Resolve the worktree path for this agent's role
+        worktree_path = _resolve_agent_worktree(repo_path, pipeline, phase_value, role)
+        if worktree_path is None:
+            return None, None
+
+        base_ref = _resolve_base_ref(pipeline, worktree_path)
+
+        # Commit count
+        count_result = subprocess.run(
+            ["git", "rev-list", "--count", f"{base_ref}..HEAD"],
+            cwd=str(worktree_path),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        count = None
+        if count_result.returncode == 0:
+            count = int(count_result.stdout.strip())
+
+        # Last commit timestamp (Unix epoch)
+        ts_result = subprocess.run(
+            ["git", "log", "-1", "--format=%at"],
+            cwd=str(worktree_path),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        last_commit_ts = None
+        if ts_result.returncode == 0 and ts_result.stdout.strip():
+            last_commit_ts = float(ts_result.stdout.strip())
+
+        return count, last_commit_ts
+    except Exception:  # noqa: BLE001 — defensive
+        pass
+    return None, None
+
+
+def _resolve_agent_worktree(
+    repo_path: Any, pipeline: Any, phase_value: str, role: str
+) -> Any:
+    """Resolve the worktree path for a specific agent role.
+
+    Under orchestrator-owned spawning, each agent gets a worktree under
+    ``<repo_path>/.egg-state/worktrees/<role>``. Falls back to the main
+    repo path when the worktree doesn't exist.
+    """
+    try:
+        from pathlib import Path
+
+        rp = Path(str(repo_path))
+        # Try the standard worktree path
+        worktree = rp / ".egg-state" / "worktrees" / role
+        if worktree.exists():
+            return worktree
+        # Try repo-name-prefixed path (for multi-repo pipelines)
+        repo_name = getattr(pipeline, "repo", "")
+        if repo_name and "/" in repo_name:
+            repo_short = repo_name.split("/")[-1]
+            worktree = rp / repo_short / ".egg-state" / "worktrees" / role
+            if worktree.exists():
+                return worktree
+        # Fall back to the repo path itself
+        if rp.exists():
+            return rp
+    except Exception:  # noqa: BLE001 — defensive
+        pass
+    return None
+
+
+def _resolve_base_ref(pipeline: Any, worktree_path: Any) -> str:
+    """Resolve the ``origin/<branch>`` ref for commit counting."""
+    try:
+        import subprocess
+
+        base = getattr(pipeline, "base_branch", None)
+        if isinstance(base, str) and base.strip():
+            return f"origin/{base.strip()}"
+
+        result = subprocess.run(
+            ["git", "symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
+            cwd=str(worktree_path),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        ref = result.stdout.strip() if result.returncode == 0 else ""
+        if ref:
+            return ref
+    except Exception:  # noqa: BLE001 — defensive
+        pass
+    return "origin/main"
+
+
+def _query_branch_git_state(
+    repo_path: Any, pipeline: Any, phase_value: str
+) -> dict[str, Any]:
+    """Query branch-level git state for divergence/corruption detectors."""
+    try:
+        import subprocess
+
+        # Resolve the worktree path
+        worktree = _resolve_agent_worktree(repo_path, pipeline, phase_value, "")
+        if worktree is None:
+            return {}
+
+        result: dict[str, Any] = {}
+
+        # Branch name
+        branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(worktree),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if branch.returncode == 0:
+            result["branch"] = branch.stdout.strip()
+
+        # Commit count beyond base
+        base_ref = _resolve_base_ref(pipeline, worktree)
+        count = subprocess.run(
+            ["git", "rev-list", "--count", f"{base_ref}..HEAD"],
+            cwd=str(worktree),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if count.returncode == 0:
+            result["commit_count"] = int(count.stdout.strip())
+
+        # Last commit SHA and timestamp
+        last_commit = subprocess.run(
+            ["git", "log", "-1", "--format=%H|%aI"],
+            cwd=str(worktree),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if last_commit.returncode == 0 and "|" in last_commit.stdout:
+            parts = last_commit.stdout.strip().split("|", 1)
+            result["last_commit_sha"] = parts[0]
+            result["last_commit_at"] = parts[1] if len(parts) > 1 else None
+
+        # fsck errors (worktree corruption)
+        fsck = subprocess.run(
+            ["git", "fsck", "--full"],
+            cwd=str(worktree),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if fsck.returncode != 0:
+            # Count error lines
+            errors = [line for line in fsck.stderr.splitlines() if line.strip()]
+            result["fsck_errors"] = len(errors)
+
+        # Index lock check
+        import os
+
+        index_lock = os.path.join(str(worktree), ".git", "index.lock")
+        if os.path.exists(index_lock):
+            result["index_lock_present"] = True
+            result["lock_age_s"] = time.time() - os.path.getmtime(index_lock)
+        else:
+            result["index_lock_present"] = False
+
+        return result
+    except Exception:  # noqa: BLE001 — defensive
+        return {}
+
+
+def _build_container_transitions(pipeline_id: str) -> tuple[dict[str, Any], ...]:
+    """Populate ``container_transitions`` from kubernetes_monitor's event history.
+
+    Returns a tuple of transition dicts:
+    ``{container, role, from, to, reason, exit_code, restart_count, transient, timestamp}``
+
+    NOTE: The kubernetes_monitor currently tracks only the *current* pod state
+    (``_pod_states``), not a transition history. The container death / restart-loop
+    detectors require a history of from→to transitions to function. Until the
+    monitor is enhanced to track transitions, this returns an empty tuple — the
+    detectors degrade gracefully to "no finding" rather than crashing.
+    """
+    # The kubernetes_monitor does not currently maintain a transition history.
+    # Returning () is the correct best-effort result: detectors that read
+    # container_transitions simply won't fire on this snapshot.
+    return ()
+
+
+def _build_decision_state(pipeline_id: str, pipeline: Any) -> dict[str, Any]:
+    """Populate ``decision_state`` from the pipeline's decision list.
+
+    Returns a dict with: ``pending_hitl``, ``open_decisions``,
+    ``approved_unapplied``, ``oldest_open_age_s``, ``replay_pending``,
+    ``replay_count``.
+
+    Reads from ``pipeline.decisions`` — the same source the PhaseStallDetector
+    and other checks consult. Best-effort: any failure degrades to empty dict.
+    """
+    try:
+        decisions = getattr(pipeline, "decisions", []) or []
+        if not decisions:
+            return {}
+
+        now = time.time()
+
+        # Pending HITL decisions (status == PENDING)
+        pending_hitl = [d for d in decisions if str(getattr(d, "status", "")).upper() == "PENDING"]
+        open_decisions = list(pending_hitl)
+
+        # Oldest open decision age
+        oldest_age_s = None
+        for d in open_decisions:
+            created = getattr(d, "created_at", None)
+            if created is None:
+                continue
+            if hasattr(created, "timestamp"):
+                age = now - created.timestamp()
+            elif isinstance(created, (int, float)):
+                age = now - float(created)
+            else:
+                continue
+            if oldest_age_s is None or age > oldest_age_s:
+                oldest_age_s = age
+
+        # Approved but unapplied (resolved decisions)
+        approved_unapplied = []
+        for d in decisions:
+            status = str(getattr(d, "status", "")).upper()
+            if status == "RESOLVED":
+                resolved_at = getattr(d, "resolved_at", None)
+                if resolved_at is not None:
+                    if hasattr(resolved_at, "timestamp"):
+                        age = now - resolved_at.timestamp()
+                    elif isinstance(resolved_at, (int, float)):
+                        age = now - float(resolved_at)
+                    else:
+                        age = 0.0
+                    approved_unapplied.append({
+                        "id": str(getattr(d, "id", "")),
+                        "age_s": age,
+                    })
+
+        return {
+            "pending_hitl": len(pending_hitl) > 0,
+            "open_decisions": len(open_decisions),
+            "approved_unapplied": approved_unapplied,
+            "oldest_open_age_s": oldest_age_s,
+            "replay_pending": False,  # Not tracked on pipeline model
+            "replay_count": 0,  # Not tracked on pipeline model
+        }
+    except Exception:  # noqa: BLE001 — defensive
+        return {}
+
+
+# Default expected phase durations (seconds) when no config is available.
+# Used by detect_duration_drift to compute drift_ratio.
+_DEFAULT_PHASE_DURATIONS_S: dict[str, float] = {
+    "refine": 600.0,       # 10 minutes
+    "plan": 900.0,         # 15 minutes
+    "apply": 300.0,        # 5 minutes
+    "implement": 3600.0,   # 1 hour
+}
+
+
+def _query_expected_duration(pipeline: Any, phase_value: str) -> float | None:
+    """Query the expected duration for a phase from the pipeline config.
+
+    Falls back to phase-specific defaults when the config is unavailable.
+    Returns None when the phase is unknown.
+    """
+    try:
+        config = getattr(pipeline, "config", None)
+        if config is not None:
+            # Check for a per-phase duration override
+            duration = getattr(config, f"{phase_value}_expected_duration_s", None)
+            if duration is not None:
+                return float(duration)
+        # Fall back to defaults
+        return _DEFAULT_PHASE_DURATIONS_S.get(phase_value)
+    except Exception:  # noqa: BLE001 — defensive
+        return _DEFAULT_PHASE_DURATIONS_S.get(phase_value)
+
+
+def _build_raw_runtime(pipeline_id: str, pipeline: Any, phase_value: str) -> dict[str, Any]:
+    """Populate ``raw.runtime`` with driver-liveness signals (#3540).
+
+    Fields:
+    - ``run_pipeline_thread_alive``: whether the driver thread is registered
+    - ``thread_last_tick_age_s``: seconds since the last driver heartbeat
+    - ``spawn_age_s``: seconds since the last agent spawn
+    """
+    try:
+        import driver_heartbeat
+
+        raw: dict[str, Any] = {}
+
+        tick_age = driver_heartbeat.tick_age_seconds(pipeline_id)
+        if tick_age is not None:
+            raw["run_pipeline_thread_alive"] = True
+            raw["thread_last_tick_age_s"] = tick_age
+        else:
+            raw["run_pipeline_thread_alive"] = False
+            raw["thread_last_tick_age_s"] = None
+
+        spawn_age = driver_heartbeat.spawn_age_seconds(pipeline_id)
+        if spawn_age is not None:
+            raw["spawn_age_s"] = spawn_age
+
+        return {"runtime": raw}
+    except Exception:  # noqa: BLE001 — defensive
+        return {}
 
 
 __all__ = [

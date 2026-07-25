@@ -29,6 +29,7 @@ from health_checks.tier1.decision_queue import (
     detect_restarted_decision_replay,
 )
 from health_checks.tier1.driver_liveness import DriverLivenessCheck
+from health_checks.tier1.forward_progress import detect_forward_progress
 from health_checks.tier1.gateway_health import (
     detect_gateway_error_spike,
     detect_gateway_repeated_denial,
@@ -76,6 +77,7 @@ __all__ = [
     "detect_disk_inode_pressure",
     "detect_duration_drift",
     "detect_effective_model_drift",
+    "detect_forward_progress",
     "detect_gateway_error_spike",
     "detect_gateway_repeated_denial",
     "detect_gateway_token_expiry",
