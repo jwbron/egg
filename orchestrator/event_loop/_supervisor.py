@@ -608,7 +608,11 @@ def restart_propagation_report(
     now = self.clock()
     worst: dict[str, Any] | None = None
     worst_overdue = 0.0
-    for key, aborted_at in self._last_abort_time.items():
+    # Snapshot before iterating: unlike the sibling ``*_report`` readers, this
+    # one is called from the kubernetes-monitor thread while ``record_abort``
+    # writes from the event-loop thread, so iterating the live dict risks a
+    # "dictionary changed size during iteration" RuntimeError.
+    for key, aborted_at in list(self._last_abort_time.items()):
         if key in live or key in self._exhausted or self._streaks.get(key, 0) <= 0:
             continue
         # Overdue is measured from the moment the respawn became *due* — the

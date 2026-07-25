@@ -2793,3 +2793,35 @@ class TestRestartPropagationReport:
         assert supervisor.restart_propagation_report([], deadline_s=self.DEADLINE) == {
             "deadline_exceeded": False
         }
+
+    def test_concurrent_abort_during_report_does_not_raise(self):
+        """This is the first reader on the kubernetes-monitor thread.
+
+        ``record_abort`` writes ``_last_abort_time`` from the event-loop thread
+        while this runs, so iterating the live dict would raise
+        ``RuntimeError: dictionary changed size during iteration``. The
+        exception is swallowed upstream, but it costs a whole tick's report —
+        a snapshot removes the flake outright.
+        """
+        clock = _SettableClock()
+        supervisor = self._supervisor(clock)
+        supervisor.record_abort("key-1", "propose", "coder")
+        clock.now += 100_000.0
+
+        # ``backoff_seconds`` is called once per candidate key, inside the loop,
+        # so wrapping it stands in for the racing writer on the other thread.
+        real_backoff = supervisor.backoff_seconds
+        raced = {"done": False}
+
+        def _racing_backoff(key: str) -> float:
+            if not raced["done"]:
+                raced["done"] = True
+                supervisor.record_abort("key-racer", "review", "tester")
+            return real_backoff(key)
+
+        supervisor.backoff_seconds = _racing_backoff
+
+        report = supervisor.restart_propagation_report([], deadline_s=self.DEADLINE)
+
+        assert raced["done"] is True
+        assert report["dedupe_key"] == "key-1"

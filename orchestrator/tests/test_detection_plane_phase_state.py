@@ -117,22 +117,68 @@ class TestExpectedDuration:
         assert snap.phase_state.get("expected_duration_s") is None
 
     def test_expected_duration_null_for_terminal_phases(self):
-        """Phases with no consensus budget get no drift bar at all.
+        """A string that is not a real phase gets no drift bar at all.
 
-        A pipeline parked in ``pr`` / ``done`` has no expected duration, and
-        inventing one would make it accrue a drift finding on every tick for
-        as long as it sits there.
+        A pipeline parked on a terminal / synthetic marker such as ``pr`` or
+        ``done`` — neither is a ``PipelinePhase`` — has no expected duration,
+        and inventing one would make it accrue a drift finding on every tick
+        for as long as it sits there.
         """
         from health_checks.detection_plane import snapshot_from_health_context
         from models import PipelineConfig
 
-        for phase in ("pr", "done", "apply"):
+        for phase in ("pr", "done"):
             snap = snapshot_from_health_context(
                 _phase_state_ctx(phase, PipelineConfig(consensus_timeout_minutes=20))
             )
 
             assert snap.phase_state.get("expected_duration_s") is None, (
-                f"Phase {phase} has no consensus budget and must not get a drift bar"
+                f"Phase {phase} is not a real pipeline phase and must not get a drift bar"
+            )
+
+    def test_apply_keeps_a_drift_bar(self):
+        """``apply`` is a live phase, so it must not lose drift coverage.
+
+        It is absent from ``PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN`` but present
+        in ``PipelinePhase`` — the epic Jira-mutation phase (#1557), which
+        spawns the APPLIER role and can wedge like any other. Gating the bar on
+        the defaults map would mean a wedged apply phase never accrues a drift
+        finding.
+        """
+        from health_checks.detection_plane import snapshot_from_health_context
+        from models import PipelineConfig
+
+        snap = snapshot_from_health_context(
+            _phase_state_ctx("apply", PipelineConfig(consensus_timeout_minutes=20))
+        )
+
+        assert snap.phase_state["expected_duration_s"] == 20 * 60.0
+
+    def test_apply_falls_back_to_the_resolver_default(self):
+        """With no operator override ``apply`` inherits the resolver's fallback.
+
+        ``resolve_consensus_timeout_minutes`` maps any phase outside the
+        defaults map to the ``refine`` budget — the smallest calibrated one —
+        so the number is still the operator's, not an invented constant.
+        """
+        from health_checks.detection_plane import snapshot_from_health_context
+        from models import PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN
+
+        snap = snapshot_from_health_context(_phase_state_ctx("apply"))
+
+        expected = PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN["refine"] * 60.0
+        assert snap.phase_state["expected_duration_s"] == expected
+
+    def test_every_real_phase_gets_a_drift_bar(self):
+        """No ``PipelinePhase`` member may be silently exempt from drift."""
+        from egg_contracts.models import PipelinePhase
+        from health_checks.detection_plane import snapshot_from_health_context
+
+        for phase in PipelinePhase:
+            snap = snapshot_from_health_context(_phase_state_ctx(phase.value))
+
+            assert snap.phase_state.get("expected_duration_s"), (
+                f"Phase {phase.value} is a real phase and must get a drift bar"
             )
 
 
@@ -333,6 +379,32 @@ class TestRawRuntime:
         from health_checks.detection_plane import snapshot_from_health_context
 
         with patch("event_loop.get_live_event_loops", side_effect=RuntimeError("boom")):
+            snap = snapshot_from_health_context(_phase_state_ctx("implement"))
+
+        assert "restart_propagation" not in snap.raw.get("runtime", {})
+
+    def test_restart_propagation_absent_when_no_live_event_loop(self):
+        """A pipeline with no live loop is unobservable, not observed-healthy.
+
+        ``deadline_exceeded: False`` is a claim that a supervisor was asked and
+        reported nothing overdue. With no loop to ask, no key is written — the
+        same contract as the raising path.
+        """
+        from health_checks.detection_plane import snapshot_from_health_context
+
+        with patch("event_loop.get_live_event_loops", return_value=[]):
+            snap = snapshot_from_health_context(_phase_state_ctx("implement"))
+
+        assert "restart_propagation" not in snap.raw.get("runtime", {})
+
+    def test_restart_propagation_absent_when_every_loop_raises(self):
+        """If no loop produced a report, nothing was observed."""
+        from health_checks.detection_plane import snapshot_from_health_context
+
+        bad = MagicMock()
+        bad.live_dedupe_keys.side_effect = RuntimeError("boom")
+
+        with patch("event_loop.get_live_event_loops", return_value=[bad]):
             snap = snapshot_from_health_context(_phase_state_ctx("implement"))
 
         assert "restart_propagation" not in snap.raw.get("runtime", {})

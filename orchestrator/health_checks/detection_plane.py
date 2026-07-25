@@ -585,6 +585,14 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
     consensus = _build_consensus_state(pipeline_id)
     midturn_messages = _build_midturn_messages(pipeline_id)
     raw = _build_raw_runtime(pipeline_id, pipeline, phase_value)
+    # Containers with no entry in ``cid_to_role`` carry ``role=str(cid)`` — a pod
+    # id in the role field, by construction of :func:`_build_running_agent`'s
+    # fallback. Record them so the authority plane can subtract them from the
+    # role set it validates finding targets against, rather than admitting a pod
+    # id as a "known role" (#3596 task-1-9).
+    unmapped_container_ids = tuple(str(cid) for cid in live_ids if str(cid) not in cid_to_role)
+    if unmapped_container_ids:
+        raw["unmapped_container_ids"] = unmapped_container_ids
 
     snap = EventStreamSnapshot(
         snapshot_id=f"{pipeline_id}:{phase_value}",
@@ -1340,12 +1348,24 @@ def _query_expected_duration(pipeline: Any, phase_value: str) -> float | None:
     → :data:`models.PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN` — so that is what
     this reads (#3596 task-1-11).
 
-    Returns ``None`` for a phase with no consensus budget (``pr``, ``done``,
-    and anything else outside the defaults map). Drift is undefined there and
-    the detector skips a ``None``, which is the right outcome: a pipeline
-    parked in a terminal phase must not accrue a drift finding per tick.
+    Every *real* phase gets a bar. The gate is membership in
+    :class:`egg_contracts.models.PipelinePhase`, not in
+    ``PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN`` — the defaults map omits ``apply``,
+    but ``apply`` is a live phase (the epic Jira-mutation phase, #1557) that
+    spawns the APPLIER role and can wedge like any other. Gating on the defaults
+    map would silently retire drift coverage for it. ``resolve_consensus_timeout_minutes``
+    already resolves an unlisted phase through the operator's own precedence
+    (per-phase override → global → the ``refine`` default), so ``apply`` gets the
+    operator's number rather than an invented constant.
+
+    Returns ``None`` only for a phase string that is not a ``PipelinePhase`` at
+    all (a terminal / synthetic marker such as ``done``, or a typo). Drift is
+    undefined there and the detector skips a ``None``, which is the right
+    outcome: a pipeline parked outside the phase machine must not accrue a
+    drift finding per tick.
     """
     try:
+        from egg_contracts.models import PipelinePhase
         from models import (
             PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN,
             resolve_consensus_timeout_minutes,
@@ -1353,9 +1373,18 @@ def _query_expected_duration(pipeline: Any, phase_value: str) -> float | None:
     except Exception:  # noqa: BLE001 — defensive
         return None
 
-    if phase_value not in PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN:
+    if phase_value not in {p.value for p in PipelinePhase}:
         return None
-    fallback = float(PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN[phase_value]) * 60.0
+    # Mirrors the resolver's own unlisted-phase fallback so a missing config and
+    # a present one agree on the number for a phase outside the defaults map.
+    fallback = (
+        float(
+            PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN.get(
+                phase_value, PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN["refine"]
+            )
+        )
+        * 60.0
+    )
 
     config = getattr(pipeline, "config", None)
     if config is None:
@@ -1375,9 +1404,16 @@ def _query_restart_propagation(pipeline_id: str) -> dict[str, Any]:
     worst-overdue arm across loops wins, matching the detector's single-finding
     shape.
 
-    Returns ``{}`` when the event loop is unavailable, so ``raw.runtime`` gains
-    no key at all and ``detect_agent_restart_propagation`` stays on its legacy
-    ``phase_state`` fallback rather than reading a falsely-negative report.
+    Returns ``{}`` when *no* report could be obtained — the import failed, the
+    pipeline has no live event loop, or every loop raised — so ``raw.runtime``
+    gains no key at all and ``detect_agent_restart_propagation`` stays on its
+    legacy ``phase_state`` fallback rather than reading a falsely-negative
+    report. ``{"deadline_exceeded": False}`` is returned only when a supervisor
+    was actually asked and reported nothing overdue: absent means unobservable,
+    present-and-false means observed-healthy. The detector treats the two alike
+    today (:mod:`health_checks.tier1.runtime_liveness` falls through to the
+    ``phase_state`` fallback on any falsy ``deadline_exceeded``), so this is a
+    contract for future readers, not a behaviour change.
     """
     try:
         import event_loop as event_loop_pkg
@@ -1390,6 +1426,7 @@ def _query_restart_propagation(pipeline_id: str) -> dict[str, Any]:
         return {}
 
     worst: dict[str, Any] = {}
+    observed = False
     for loop in loops or ():
         try:
             report = loop.supervisor.restart_propagation_report(
@@ -1398,11 +1435,14 @@ def _query_restart_propagation(pipeline_id: str) -> dict[str, Any]:
             )
         except Exception:  # noqa: BLE001 — one bad loop must not blind the rest
             continue
+        observed = True
         if not report.get("deadline_exceeded"):
             continue
         if not worst or float(report.get("age_s") or 0.0) > float(worst.get("age_s") or 0.0):
             worst = report
-    return worst or {"deadline_exceeded": False}
+    if worst:
+        return worst
+    return {"deadline_exceeded": False} if observed else {}
 
 
 def _build_raw_runtime(pipeline_id: str, pipeline: Any, phase_value: str) -> dict[str, Any]:

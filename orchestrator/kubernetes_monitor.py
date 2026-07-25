@@ -545,6 +545,13 @@ class KubernetesMonitor:
             str(getattr(a, "role", "") or "") for a in getattr(snapshot, "running_agents", ())
         }
         known_roles.discard("")
+        # A container the snapshot builder could not map to a role appears in
+        # ``running_agents`` with ``role=str(container_id)``. Admitting that into
+        # the validation set would let the guard pass the very pod id it exists
+        # to reject, so drop it back out.
+        raw = getattr(snapshot, "raw", None)
+        if isinstance(raw, dict):
+            known_roles -= {str(cid) for cid in (raw.get("unmapped_container_ids") or ())}
 
         needs_adjudication: list[Any] = []
         routine: list[tuple[Any, str]] = []
@@ -576,9 +583,29 @@ class KubernetesMonitor:
                     phase=phase,
                     executor=executor,
                 )
-            for finding, action in routine:
-                target_role = types.finding_target_role(finding, known_roles)
-                finding_class = str(getattr(finding, "finding_class", ""))
+        except Exception as e:  # noqa: BLE001 — corrective execution is advisory
+            logger.warning(
+                "Detection-plane corrective execution failed",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+
+        # Each routine finding is executed under its own guard. A handler that
+        # raises (``respawn_cohort`` rejects an empty cohort, the gateway is
+        # down) must cost only that finding: sharing one ``try`` with the rest
+        # abandoned every finding sorting after it, and since the executor's
+        # idempotency key is only recorded on success, the same raise repeated
+        # on every subsequent tick — a permanent block, not a skipped tick.
+        for finding, action in routine:
+            # ``known_roles or None`` — an empty set means "no roles observed",
+            # not "no role is valid". Passing it as a validation set would
+            # reject every ``evidence["container"]`` candidate, collapsing the
+            # idempotency key to ``"<class>:"`` and dispatching target-less
+            # corrective actions; ``None`` is the documented unknown-roles
+            # sentinel that falls back to the unvalidated candidate.
+            target_role = types.finding_target_role(finding, known_roles or None)
+            finding_class = str(getattr(finding, "finding_class", ""))
+            try:
                 executor.execute(
                     action,
                     pipeline_id=pipeline_id,
@@ -588,12 +615,14 @@ class KubernetesMonitor:
                     finding=finding,
                     idempotency_key=f"{finding_class}:{target_role}",
                 )
-        except Exception as e:  # noqa: BLE001 — corrective execution is advisory
-            logger.warning(
-                "Detection-plane corrective execution failed",
-                pipeline_id=pipeline_id,
-                error=str(e),
-            )
+            except Exception as e:  # noqa: BLE001 — corrective execution is advisory
+                logger.warning(
+                    "Detection-plane corrective execution failed",
+                    pipeline_id=pipeline_id,
+                    finding_class=finding_class,
+                    target_role=target_role,
+                    error=str(e),
+                )
 
     @staticmethod
     def _adjudication_key(pipeline_id: str, finding: Any) -> tuple[str, str, str]:

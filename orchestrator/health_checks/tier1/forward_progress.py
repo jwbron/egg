@@ -149,7 +149,7 @@ def _has_brc_progress(
                     age = now - dt.timestamp()
                     if age < brc_progress_window_s:
                         return True
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 # If we can't parse the timestamp, assume it's recent
                 return True
 
@@ -282,9 +282,7 @@ def detect_forward_progress(
     return None
 
 
-def _detect_commit_reset(
-    git_state: dict[str, Any], pipeline_id: str
-) -> list[Finding]:
+def _detect_commit_reset(git_state: dict[str, Any], pipeline_id: str) -> list[Finding]:
     """Detect when an agent's commit count decreased (work discarded)."""
     current_counts = git_state.get("agent_commit_counts", {})
     prev_counts = git_state.get("agent_prev_commit_counts", {})
@@ -296,25 +294,27 @@ def _detect_commit_reset(
     for role, current in current_counts.items():
         prev = prev_counts.get(role)
         if prev is not None and int(current) < int(prev):
-            findings.append(Finding(
-                finding_class=FINDING_FORWARD_PROGRESS_RESET,
-                severity=Severity.HIGH,
-                evidence={
-                    "pipeline_id": pipeline_id,
-                    "agent_role": role,
-                    "previous_commit_count": int(prev),
-                    "current_commit_count": int(current),
-                    "commit_delta": int(current) - int(prev),
-                },
-                recommended_action=(
-                    f"Agent '{role}' commit count decreased from {int(prev)} to "
-                    f"{int(current)} — work may have been silently discarded "
-                    f"(#3506/#3596). Check the worktree for discarded commits "
-                    f"and verify the agent's session state."
-                ),
-                requires_adjudication=True,
-                detector_key="forward_progress",
-            ))
+            findings.append(
+                Finding(
+                    finding_class=FINDING_FORWARD_PROGRESS_RESET,
+                    severity=Severity.HIGH,
+                    evidence={
+                        "pipeline_id": pipeline_id,
+                        "agent_role": role,
+                        "previous_commit_count": int(prev),
+                        "current_commit_count": int(current),
+                        "commit_delta": int(current) - int(prev),
+                    },
+                    recommended_action=(
+                        f"Agent '{role}' commit count decreased from {int(prev)} to "
+                        f"{int(current)} — work may have been silently discarded "
+                        f"(#3506/#3596). Check the worktree for discarded commits "
+                        f"and verify the agent's session state."
+                    ),
+                    requires_adjudication=True,
+                    detector_key="forward_progress",
+                )
+            )
     return findings
 
 
@@ -391,10 +391,7 @@ def _detect_commit_stall(
         commit_count = agent_commit_counts.get(role, 0)
 
         # Check if commit is stalled (no commits for too long)
-        commit_stalled = (
-            commit_age is not None
-            and commit_age >= stall_seconds
-        )
+        commit_stalled = commit_age is not None and commit_age >= stall_seconds
 
         # Check if agent has zero commits and stalled
         zero_commits = (
@@ -408,14 +405,10 @@ def _detect_commit_stall(
             continue
 
         # Check if the agent has ANY activity (multi-signal, per directive #2)
-        has_activity = _has_activity(
-            git_state, running_agents, tool_call_recent_threshold_s
-        )
+        has_activity = _has_activity(git_state, running_agents, tool_call_recent_threshold_s)
 
         # Check if the agent has BRC progress
-        has_brc = _has_brc_progress(
-            snapshot, consensus, midturn_messages, brc_progress_window_s
-        )
+        has_brc = _has_brc_progress(snapshot, consensus, midturn_messages, brc_progress_window_s)
 
         # If the agent has BRC progress, it's not stalled — even if commits
         # are stale (operator directive #2: "must not key on commits alone").
@@ -433,58 +426,59 @@ def _detect_commit_stall(
         # deadlocked_contract or generic stall
         pending_hitl = decision_state.get("pending_hitl", False)
         blocking_agents = consensus.get("blocking_agents", [])
-        is_sole_blocker = (
-            len(blocking_agents) == 1
-            and blocking_agents[0] == role
-        )
+        is_sole_blocker = len(blocking_agents) == 1 and blocking_agents[0] == role
 
         if pending_hitl and is_sole_blocker:
-            findings.append(Finding(
-                finding_class=FINDING_FORWARD_PROGRESS_STALL,
-                severity=Severity.HIGH,
-                evidence={
-                    "pipeline_id": pipeline_id,
-                    "agent_role": role,
-                    "last_commit_age_s": commit_age,
-                    "last_tool_call_age_s": tool_call_age,
-                    "stall_threshold_seconds": stall_seconds,
-                    "pending_hitl": pending_hitl,
-                    "open_decisions": decision_state.get("open_decisions", 0),
-                    "oldest_open_age_s": decision_state.get("oldest_open_age_s"),
-                    "stall_mode": "deadlocked_contract",
-                },
-                recommended_action=(
-                    f"Agent '{role}' is the sole blocker with a pending HITL "
-                    f"decision that has been open for "
-                    f"{decision_state.get('oldest_open_age_s', '?')}s. "
-                    f"The contract may be unsatisfiable. Adjudicate whether to "
-                    f"open an operator HITL or re-scope the task."
-                ),
-                requires_adjudication=True,
-                detector_key="forward_progress",
-            ))
+            findings.append(
+                Finding(
+                    finding_class=FINDING_FORWARD_PROGRESS_STALL,
+                    severity=Severity.HIGH,
+                    evidence={
+                        "pipeline_id": pipeline_id,
+                        "agent_role": role,
+                        "last_commit_age_s": commit_age,
+                        "last_tool_call_age_s": tool_call_age,
+                        "stall_threshold_seconds": stall_seconds,
+                        "pending_hitl": pending_hitl,
+                        "open_decisions": decision_state.get("open_decisions", 0),
+                        "oldest_open_age_s": decision_state.get("oldest_open_age_s"),
+                        "stall_mode": "deadlocked_contract",
+                    },
+                    recommended_action=(
+                        f"Agent '{role}' is the sole blocker with a pending HITL "
+                        f"decision that has been open for "
+                        f"{decision_state.get('oldest_open_age_s', '?')}s. "
+                        f"The contract may be unsatisfiable. Adjudicate whether to "
+                        f"open an operator HITL or re-scope the task."
+                    ),
+                    requires_adjudication=True,
+                    detector_key="forward_progress",
+                )
+            )
         else:
             # Generic stall — agent is not active and not making progress
-            findings.append(Finding(
-                finding_class=FINDING_FORWARD_PROGRESS_STALL,
-                severity=Severity.HIGH,
-                evidence={
-                    "pipeline_id": pipeline_id,
-                    "agent_role": role,
-                    "last_commit_age_s": commit_age,
-                    "last_tool_call_age_s": tool_call_age,
-                    "stall_threshold_seconds": stall_seconds,
-                    "stall_mode": "generic_stall",
-                },
-                recommended_action=(
-                    f"Agent '{role}' has not produced new commits for "
-                    f"{int(commit_age or 0)}s (threshold {int(stall_seconds)}s). "
-                    f"The agent is RUNNING but making no forward progress. "
-                    f"Check container logs and agent activity."
-                ),
-                requires_adjudication=True,
-                detector_key="forward_progress",
-            ))
+            findings.append(
+                Finding(
+                    finding_class=FINDING_FORWARD_PROGRESS_STALL,
+                    severity=Severity.HIGH,
+                    evidence={
+                        "pipeline_id": pipeline_id,
+                        "agent_role": role,
+                        "last_commit_age_s": commit_age,
+                        "last_tool_call_age_s": tool_call_age,
+                        "stall_threshold_seconds": stall_seconds,
+                        "stall_mode": "generic_stall",
+                    },
+                    recommended_action=(
+                        f"Agent '{role}' has not produced new commits for "
+                        f"{int(commit_age or 0)}s (threshold {int(stall_seconds)}s). "
+                        f"The agent is RUNNING but making no forward progress. "
+                        f"Check container logs and agent activity."
+                    ),
+                    requires_adjudication=True,
+                    detector_key="forward_progress",
+                )
+            )
 
     # Also check for BRC-progress-absence without commit stall:
     # agent has recent commits but no BRC progress for >1 hour
@@ -514,34 +508,34 @@ def _detect_commit_stall(
                     break
 
         if any_recent_activity:
-            findings.append(Finding(
-                finding_class=FINDING_FORWARD_PROGRESS_BRC_ABSENCE,
-                severity=Severity.HIGH,
-                evidence={
-                    "pipeline_id": pipeline_id,
-                    "brc_progress_age_s": latest_proposal_age_s,
-                    "brc_progress_window_s": brc_progress_window_s,
-                    "has_proposed": consensus.get("has_proposed", False),
-                    "producer_phases": consensus.get("producer_phases", {}),
-                    "stall_mode": "livelocked",
-                },
-                recommended_action=(
-                    f"No BRC progress (no CONSENSUS_PROPOSE/CONSENSUS_CONFIRMED) "
-                    f"for {int(latest_proposal_age_s)}s (threshold "
-                    f"{int(brc_progress_window_s)}s) despite recent agent activity. "
-                    f"The agent may be working out-of-phase or livelocked. "
-                    f"Check whether the agent should be proposing."
-                ),
-                requires_adjudication=True,
-                detector_key="forward_progress",
-            ))
+            findings.append(
+                Finding(
+                    finding_class=FINDING_FORWARD_PROGRESS_BRC_ABSENCE,
+                    severity=Severity.HIGH,
+                    evidence={
+                        "pipeline_id": pipeline_id,
+                        "brc_progress_age_s": latest_proposal_age_s,
+                        "brc_progress_window_s": brc_progress_window_s,
+                        "has_proposed": consensus.get("has_proposed", False),
+                        "producer_phases": consensus.get("producer_phases", {}),
+                        "stall_mode": "livelocked",
+                    },
+                    recommended_action=(
+                        f"No BRC progress (no CONSENSUS_PROPOSE/CONSENSUS_CONFIRMED) "
+                        f"for {int(latest_proposal_age_s)}s (threshold "
+                        f"{int(brc_progress_window_s)}s) despite recent agent activity. "
+                        f"The agent may be working out-of-phase or livelocked. "
+                        f"Check whether the agent should be proposing."
+                    ),
+                    requires_adjudication=True,
+                    detector_key="forward_progress",
+                )
+            )
 
     return findings
 
 
-def _detect_no_commits_at_completion(
-    pipeline: Any, git_state: dict[str, Any]
-) -> list[Finding]:
+def _detect_no_commits_at_completion(pipeline: Any, git_state: dict[str, Any]) -> list[Finding]:
     """Check if any COMPLETE agent has zero commits."""
     from models import AgentExecutionStatus
 
@@ -559,22 +553,24 @@ def _detect_no_commits_at_completion(
                     role = str(getattr(agent, "role", ""))
                     count = agent_commit_counts.get(role, 0)
                     if count == 0:
-                        findings.append(Finding(
-                            finding_class=FINDING_FORWARD_PROGRESS_NO_COMMITS,
-                            severity=Severity.MEDIUM,
-                            evidence={
-                                "agent_role": role,
-                                "commit_count": 0,
-                                "phase": str(getattr(phase_exec, "phase", "")),
-                            },
-                            recommended_action=(
-                                f"Agent '{role}' completed with zero commits — "
-                                f"it may have done nothing. Check its outputs and "
-                                f"container logs for evidence of work."
-                            ),
-                            requires_adjudication=True,
-                            detector_key="forward_progress",
-                        ))
+                        findings.append(
+                            Finding(
+                                finding_class=FINDING_FORWARD_PROGRESS_NO_COMMITS,
+                                severity=Severity.MEDIUM,
+                                evidence={
+                                    "agent_role": role,
+                                    "commit_count": 0,
+                                    "phase": str(getattr(phase_exec, "phase", "")),
+                                },
+                                recommended_action=(
+                                    f"Agent '{role}' completed with zero commits — "
+                                    f"it may have done nothing. Check its outputs and "
+                                    f"container logs for evidence of work."
+                                ),
+                                requires_adjudication=True,
+                                detector_key="forward_progress",
+                            )
+                        )
     except Exception:  # noqa: BLE001 — defensive
         pass
     return findings

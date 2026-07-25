@@ -96,6 +96,49 @@ class TestRoleMapping:
         assert len(snap.running_agents) == 1
         # Falls back to str(cid) when no mapping found
         assert snap.running_agents[0].role == "unknown_cid"
+        # ...and the fallback is reported, so the authority plane can tell that
+        # "role" apart from a real one rather than admitting a pod id into the
+        # set it validates finding targets against.
+        assert snap.raw["unmapped_container_ids"] == ("unknown_cid",)
+
+    def test_mapped_container_is_not_reported_as_unmapped(self):
+        """A container with a real role mapping must not be flagged."""
+        from health_checks.detection_plane import snapshot_from_health_context
+
+        agent = MagicMock()
+        agent.role = "coder"
+        agent.container_id = "abc123def456"
+        agent.status = "running"
+        agent.exit_code = None
+        agent.error = None
+
+        phase_exec = MagicMock()
+        phase_exec.agents = [agent]
+        phase_exec.status = MagicMock()
+        phase_exec.status.value = "running"
+
+        pipeline = MagicMock()
+        pipeline.id = "test-pipeline"
+        pipeline.phases = {"implement": phase_exec}
+        pipeline.base_branch = "main"
+        pipeline.repo = "owner/repo"
+        pipeline.decisions = []
+
+        ctx = MagicMock()
+        ctx.pipeline = pipeline
+        ctx.pipeline_id = "test-pipeline"
+        ctx.current_phase = MagicMock()
+        ctx.current_phase.value = "implement"
+        ctx.phase_started_age_s = 3600.0
+        ctx.awaiting_spawn = False
+        ctx.event_loop_owner = None
+        ctx.lifecycle_owner = None
+        ctx.live_container_ids = {"abc123def456"}
+        ctx.repo_path = "/tmp/repo"
+
+        snap = snapshot_from_health_context(ctx)
+
+        assert "unmapped_container_ids" not in snap.raw
 
     def test_multiple_agents_mapped_correctly(self):
         """Multiple agents are mapped to their correct roles."""

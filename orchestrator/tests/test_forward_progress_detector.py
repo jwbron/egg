@@ -228,7 +228,10 @@ class TestForwardProgressDetector:
         snap = _FakeSnapshot(
             git_state={
                 "agent_commit_counts": {"coder": 5, "tester": 3},
-                "agent_last_commit_age_s": {"coder": 700, "tester": 30},  # Coder stalled, tester healthy
+                "agent_last_commit_age_s": {
+                    "coder": 700,
+                    "tester": 30,
+                },  # Coder stalled, tester healthy
             },
         )
         result = detect_forward_progress(snap)
@@ -473,9 +476,7 @@ class TestBrcProgressAbsence:
                 "agent_commit_counts": {"coder": 5},
                 "agent_last_commit_age_s": {"coder": 30},  # Recent commit
             },
-            running_agents=(
-                _FakeRunningAgent(role="coder", last_tool_call_age_s=30),
-            ),
+            running_agents=(_FakeRunningAgent(role="coder", last_tool_call_age_s=30),),
             consensus={
                 "latest_proposal_age_s": 3700,  # No BRC progress for >1h
                 "has_proposed": False,
@@ -497,9 +498,7 @@ class TestBrcProgressAbsence:
                 "agent_commit_counts": {"coder": 5},
                 "agent_last_commit_age_s": {"coder": 30},
             },
-            running_agents=(
-                _FakeRunningAgent(role="coder", last_tool_call_age_s=30),
-            ),
+            running_agents=(_FakeRunningAgent(role="coder", last_tool_call_age_s=30),),
             consensus={
                 "latest_proposal_age_s": 30,  # Recent BRC progress
                 "has_proposed": True,

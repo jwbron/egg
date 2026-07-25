@@ -461,3 +461,268 @@ class TestFindingRouting:
             monitor._route_detection_findings(
                 [_make_finding("heartbeat_stall")], pipeline, "test-pipeline", snapshot
             )
+
+
+# ---------------------------------------------------------------------------
+# AC-4 (cont.): target-role derivation — the value the routing loop dispatches
+# on and keys idempotency by
+# ---------------------------------------------------------------------------
+
+
+def _container_finding(container: str, finding_class: str = "container_oom_evicted"):
+    """A finding whose only target evidence is a container id.
+
+    This is the ``detect_container_oom_evicted`` shape: it fires off
+    ``container_transitions`` alone, so ``role`` is absent and ``container``
+    carries a pod id.
+    """
+    from health_checks.types import Finding, Severity
+
+    return Finding(
+        finding_class=finding_class,
+        severity=Severity.HIGH,
+        evidence={"container": container},
+        recommended_action="Respawn the evicted container",
+        detector_key="container_k8s",
+    )
+
+
+class TestFindingTargetRole:
+    """``finding_target_role`` decides both the dispatch target and half the key."""
+
+    def test_container_outside_known_roles_is_rejected(self):
+        """A pod id is not a role — dispatching a restart at it targets a UUID."""
+        from health_checks.types import finding_target_role
+
+        assert finding_target_role(_container_finding("pod-abc-123"), {"coder", "tester"}) == ""
+
+    def test_container_inside_known_roles_is_returned(self):
+        """A ``container`` value that *is* a role name is the legitimate target."""
+        from health_checks.types import finding_target_role
+
+        assert finding_target_role(_container_finding("coder"), {"coder", "tester"}) == "coder"
+
+    def test_unknown_role_set_returns_the_container_unvalidated(self):
+        """``None`` means "roles unknown", not "no role is valid".
+
+        Read-only callers (logging, idempotency keys) pass ``None`` and get the
+        raw candidate rather than an empty string.
+        """
+        from health_checks.types import finding_target_role
+
+        assert finding_target_role(_container_finding("pod-abc-123"), None) == "pod-abc-123"
+
+    @pytest.mark.parametrize("key", ["agent_role", "agent_id", "role"])
+    def test_authoritative_keys_bypass_validation(self, key):
+        """The three role-bearing keys are authoritative — never filtered.
+
+        Only the ``container`` fallback can carry a pod id, so validating the
+        authoritative keys would drop legitimate targets whose agent has already
+        left ``running_agents``.
+        """
+        from health_checks.types import Finding, Severity, finding_target_role
+
+        finding = Finding(
+            finding_class="heartbeat_stall",
+            severity=Severity.MEDIUM,
+            evidence={key: "documenter"},
+            recommended_action="Nudge the agent",
+            detector_key="liveness",
+        )
+
+        assert finding_target_role(finding, {"coder"}) == "documenter"
+
+    def test_empty_known_roles_does_not_swallow_the_container(self, monitor):
+        """An empty ``running_agents`` must not collapse every target to ``""``.
+
+        ``running_agents`` is empty whenever exit-info lookup degrades, and a
+        container-keyed finding still needs its target: an empty validation set
+        would collapse the idempotency key to ``"container_oom_evicted:"`` —
+        the exact defect ``finding_target_role`` exists to prevent — and
+        dispatch ``respawn_cohort`` with no cohort.
+        """
+        pipeline, store = _make_running_pipeline()
+        monitor._reconciliation_stores = [store]
+
+        executor = MagicMock()
+        snapshot = MagicMock()
+        snapshot.running_agents = ()
+        snapshot.raw = {}
+
+        with patch.object(monitor, "_get_corrective_executor", return_value=executor):
+            monitor._route_detection_findings(
+                [_container_finding("pod-abc-123")], pipeline, "test-pipeline", snapshot
+            )
+
+        kwargs = executor.execute.call_args.kwargs
+        assert kwargs["target_role"] == "pod-abc-123"
+        assert kwargs["idempotency_key"] == "container_oom_evicted:pod-abc-123"
+
+    def test_pod_id_in_known_roles_is_not_admitted_as_a_role(self, monitor):
+        """A container the snapshot could not map carries ``role=str(cid)``.
+
+        Leaving it in the validation set would let the guard admit the very pod
+        id it was added to reject, so the snapshot reports those ids and the
+        routing loop subtracts them.
+        """
+        pipeline, store = _make_running_pipeline()
+        monitor._reconciliation_stores = [store]
+
+        agent = MagicMock()
+        agent.role = "pod-abc-123"
+        snapshot = MagicMock()
+        snapshot.running_agents = (agent,)
+        snapshot.raw = {"unmapped_container_ids": ("pod-abc-123",)}
+
+        executor = MagicMock()
+        with patch.object(monitor, "_get_corrective_executor", return_value=executor):
+            monitor._route_detection_findings(
+                [_container_finding("pod-abc-123")], pipeline, "test-pipeline", snapshot
+            )
+
+        # Nothing else is a known role, so the set is empty and the unvalidated
+        # fallback applies — but the pod id was never treated as a *validated*
+        # role, which is what would have let it through a non-empty set.
+        assert executor.execute.call_args.kwargs["target_role"] == "pod-abc-123"
+
+    def test_unmapped_pod_id_does_not_validate_a_second_pod_id(self, monitor):
+        """With one real role present, an unmapped pod id must stay rejected."""
+        pipeline, store = _make_running_pipeline()
+        monitor._reconciliation_stores = [store]
+
+        mapped = MagicMock()
+        mapped.role = "coder"
+        unmapped = MagicMock()
+        unmapped.role = "pod-abc-123"
+        snapshot = MagicMock()
+        snapshot.running_agents = (mapped, unmapped)
+        snapshot.raw = {"unmapped_container_ids": ("pod-abc-123",)}
+
+        executor = MagicMock()
+        with patch.object(monitor, "_get_corrective_executor", return_value=executor):
+            monitor._route_detection_findings(
+                [_container_finding("pod-abc-123")], pipeline, "test-pipeline", snapshot
+            )
+
+        assert executor.execute.call_args.kwargs["target_role"] == ""
+
+    def test_one_raising_finding_does_not_abandon_the_rest(self, monitor):
+        """A handler that raises costs its own finding, not the whole tick.
+
+        ``_corrective_respawn_cohort`` raises on an empty cohort and the
+        executor does not wrap handler calls, so a shared ``try`` dropped every
+        finding sorting after it — permanently, since the idempotency key is
+        only recorded on success.
+        """
+        pipeline, store = _make_running_pipeline()
+        monitor._reconciliation_stores = [store]
+
+        executor = MagicMock()
+        executor.execute.side_effect = [RuntimeError("empty target cohort"), None]
+        snapshot = MagicMock()
+        snapshot.running_agents = ()
+        snapshot.raw = {}
+
+        findings = [_container_finding("pod-abc-123"), _make_finding("heartbeat_stall")]
+        with patch.object(monitor, "_get_corrective_executor", return_value=executor):
+            monitor._route_detection_findings(findings, pipeline, "test-pipeline", snapshot)
+
+        assert executor.execute.call_count == 2
+        assert executor.execute.call_args.kwargs["target_role"] == "coder"
+
+
+# ---------------------------------------------------------------------------
+# AC-4 (cont.): the adjudication cooldown is a reservation, not a spend
+# ---------------------------------------------------------------------------
+
+
+class TestAdjudicationClaimRelease:
+    """A claim that never became a spawn must be released, or the triple is
+    silenced for the whole cooldown with no retry."""
+
+    def test_claim_is_taken_once_then_blocked(self, monitor):
+        """The cooldown bars a second spawn for the same triple."""
+        finding = _make_finding("phase_stall", requires_adjudication=True)
+
+        assert monitor._claim_adjudication("test-pipeline", finding) is True
+        assert monitor._claim_adjudication("test-pipeline", finding) is False
+
+    def test_release_restores_the_claim(self, monitor):
+        """Releasing lets the very next tick retry the same triple."""
+        finding = _make_finding("phase_stall", requires_adjudication=True)
+
+        assert monitor._claim_adjudication("test-pipeline", finding) is True
+        monitor._release_adjudication("test-pipeline", finding)
+
+        assert monitor._claim_adjudication("test-pipeline", finding) is True
+
+    def test_gateway_prep_failure_releases_the_claim(self, monitor):
+        """A transient gateway round-trip failure must not spend the cooldown."""
+        pipeline, _store = _make_running_pipeline()
+        finding = _make_finding("phase_stall", requires_adjudication=True)
+
+        with patch("routes.pipelines._compute_gateway_mode", side_effect=RuntimeError("boom")):
+            result = monitor._adjudicate_findings([finding], pipeline, "test-pipeline", 3596)
+
+        assert result == []
+        assert monitor._claim_adjudication("test-pipeline", finding) is True
+
+    def test_raising_escalation_releases_the_claim(self, monitor):
+        """An escalation that raised left the condition unexamined — retry it."""
+        pipeline, _store = _make_running_pipeline()
+        finding = _make_finding("phase_stall", requires_adjudication=True)
+
+        with patch("routes.pipelines._compute_gateway_mode", return_value=("public", "public")):
+            with patch("routes.pipelines._get_spawner", return_value=MagicMock()):
+                with patch(
+                    "routes.pipelines._escalate_finding_to_adjudicator",
+                    side_effect=RuntimeError("spawn failed"),
+                ):
+                    result = monitor._adjudicate_findings(
+                        [finding], pipeline, "test-pipeline", 3596
+                    )
+
+        assert result == []
+        assert monitor._claim_adjudication("test-pipeline", finding) is True
+
+    def test_none_verdict_releases_the_claim(self, monitor):
+        """No verdict means no adjudicator opinion was recorded."""
+        pipeline, _store = _make_running_pipeline()
+        finding = _make_finding("phase_stall", requires_adjudication=True)
+
+        with patch("routes.pipelines._compute_gateway_mode", return_value=("public", "public")):
+            with patch("routes.pipelines._get_spawner", return_value=MagicMock()):
+                with patch("routes.pipelines._escalate_finding_to_adjudicator", return_value=None):
+                    result = monitor._adjudicate_findings(
+                        [finding], pipeline, "test-pipeline", 3596
+                    )
+
+        assert result == []
+        assert monitor._claim_adjudication("test-pipeline", finding) is True
+
+    def test_real_verdict_spends_the_claim(self, monitor):
+        """The cooldown counts adjudicators that actually ran — this one did."""
+        pipeline, _store = _make_running_pipeline()
+        finding = _make_finding("phase_stall", requires_adjudication=True)
+        verdict = MagicMock()
+
+        with patch("routes.pipelines._compute_gateway_mode", return_value=("public", "public")):
+            with patch("routes.pipelines._get_spawner", return_value=MagicMock()):
+                with patch(
+                    "routes.pipelines._escalate_finding_to_adjudicator", return_value=verdict
+                ):
+                    result = monitor._adjudicate_findings(
+                        [finding], pipeline, "test-pipeline", 3596
+                    )
+
+        assert result == [(finding, verdict)]
+        assert monitor._claim_adjudication("test-pipeline", finding) is False
+
+    def test_claim_key_separates_distinct_targets(self, monitor):
+        """Two agents stalling must not look like one repeat of the first."""
+        coder = _make_finding("phase_stall", requires_adjudication=True)
+        tester = _make_finding("phase_stall", requires_adjudication=True)
+        object.__setattr__(tester, "evidence", {"agent_role": "tester"})
+
+        assert monitor._claim_adjudication("test-pipeline", coder) is True
+        assert monitor._claim_adjudication("test-pipeline", tester) is True
