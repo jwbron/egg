@@ -80,6 +80,39 @@
       "resolved_at": "2026-07-25T00:22:53.115402Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "cq-2",
+      "question": "Issue #3596 task-1 wiring conflict: The architect's plan says \"wire detection plane into runtime tick\" but the operator's cq-1 resolution says the plane is already wired and not to add a new invocation path. Code verification shows _run_overseer_detection_plane is defined but NEVER called from production code, and HealthCheckRunner.run_detection_plane() is never invoked from _run_runtime_tick_checks. Should task-1 proceed with wiring the detection plane into the runtime tick as the plan describes?",
+      "type": "hitl",
+      "phase": "plan",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 wire the detection plane into _run_runtime_tick_checks as task-1 describes (the operator's cq-1 resolution was based on a false premise)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No \u2014 the plane is already wired somewhere I missed; adjust task-1 to only enrich the snapshot builder",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Split task-1: wire the plane in slice-1a, enrich the snapshot in slice-1b",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -141,6 +174,49 @@
         "debounce_until": null
       },
       "reason": "Created HITL decision: Issue #3596 scope: The issue describes four areas ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T00:46:47.975861Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "Issue #3596 task-1 wiring conflict: The architect's plan says \"wire detection plane into runtime tick\" but the operator's cq-1 resolution says the plane is already wired and not to add a new invocation path. Code verification shows _run_overseer_detection_plane is defined but NEVER called from production code, and HealthCheckRunner.run_detection_plane() is never invoked from _run_runtime_tick_checks. Should task-1 proceed with wiring the detection plane into the runtime tick as the plan describes?",
+        "type": "hitl",
+        "phase": "plan",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 wire the detection plane into _run_runtime_tick_checks as task-1 describes (the operator's cq-1 resolution was based on a false premise)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No \u2014 the plane is already wired somewhere I missed; adjust task-1 to only enrich the snapshot builder",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Split task-1: wire the plane in slice-1a, enrich the snapshot in slice-1b",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Issue #3596 task-1 wiring conflict: The architect'...",
       "checkpoint_id": null
     }
   ],
