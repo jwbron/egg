@@ -542,7 +542,7 @@ config/
 ├── litellm/                     # egg-litellm image sources
 │   ├── Dockerfile               # Builds egg-litellm: stock LiteLLM + prompt-cache patches
 │   ├── patch_litellm_cache.py   # Build-time patches for cache_control passthrough on Qwen/DeepSeek routes
-│   └── cost_callback.py         # LiteLLM custom logger: upstream + estimated cost, per-role attribution (x-egg-* headers), cache hit rate -> pod stdout
+│   └── cost_callback.py         # LiteLLM custom logger: upstream + estimated cost, per-role attribution (x-egg-* headers), cache hit rate, per-call decoding config -> pod stdout
 ├── repo_config.py               # Python API for repo access
 └── README.md
 ```
