@@ -1115,6 +1115,65 @@ class TestRestartAgentEndpoint:
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
+    def test_restart_does_not_fold_an_unaddressable_job_into_the_helper_count(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """Each no-observation report covers only the Jobs it is about (#3597).
+
+        A Job the listing gave no ``job_name`` for could never have been
+        waited on, whatever the backend's capabilities. Checking the wait
+        helper first swallowed it: the ``jobs=`` count claimed it as one the
+        helper's absence cost us, and its own line never fired at all.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        named = MagicMock()
+        named.job_name = "egg-agent-issue-100-coder-aaaaaaaa"
+        named.container_id = "uid-1"
+        unnamed = MagicMock()
+        unnamed.job_name = None
+        unnamed.container_id = "uid-2"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [named, unnamed]
+        mock_spawner.k8s.namespace = "egg-agents"
+        del mock_spawner.k8s.wait_for_job_gone
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with (
+            patch("event_loop.get_live_event_loops", return_value=[]),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["jobs_torn_down"] == 2
+        assert data["teardown_confirmed"] is False
+        calls = mock_logger.warning.call_args_list
+        unaddressable = [c for c in calls if c.kwargs.get("reason") == "unaddressable"]
+        assert len(unaddressable) == 1, "the unnameable Job reports for itself"
+        assert unaddressable[0].kwargs["container_id"] == "uid-2"
+        not_performed = [c for c in calls if c.kwargs.get("reason") == "no_wait_helper"]
+        assert len(not_performed) == 1
+        assert not_performed[0].kwargs["jobs"] == 1, "only the Job the helper would have waited on"
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
     def test_restart_reports_a_spent_wait_budget_as_unobserved(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
     ):

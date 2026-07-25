@@ -2558,6 +2558,52 @@ class TestSpawnEventJobOneShot:
         assert [c.kwargs.get("reason") for c in calls] == ["no_wait_helper"]
         assert not any("still present" in c.args[0] for c in calls if c.args)
 
+    def test_unnamed_terminating_job_is_reported_not_silently_skipped(
+        self, spawner, mock_k8s_client
+    ):
+        """A Job the listing did not name is a third no-observation path (#3597).
+
+        It skipped the wait with no log at all, so the taxonomy the route
+        applies held on two of the three skip-paths. It also must not be
+        folded into the counts the other two report — nothing could ever have
+        waited on it, whatever the backend's capabilities.
+        """
+        named = self._terminating_job()
+        unnamed = ContainerInfo(
+            container_id="uid-unnamed",
+            container_name="",
+            job_name=None,
+            namespace="test-ns",
+            status=ContainerStatus.RUNNING,
+            deletion_timestamp=datetime(2026, 7, 25, 1, 49, 8, tzinfo=UTC),
+        )
+        mock_k8s_client.list_jobs.return_value = [named, unnamed]
+        mock_k8s_client.wait_for_job_gone.return_value = True
+
+        with patch("kubernetes_spawner._events.logger") as mock_logger:
+            spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key=self._KEY,
+                slice_id="slice-2",
+                phase="implement",
+                repos=["owner/repo"],
+            )
+
+        assert mock_k8s_client.create_container.call_count == 1
+        warnings = mock_logger.warning.call_args_list
+        assert [c.kwargs.get("reason") for c in warnings] == ["unaddressable"]
+        assert warnings[0].kwargs["terminating"] == 1
+        # Only the nameable Job was ever waitable, so only it is counted.
+        infos = [
+            c for c in mock_logger.info.call_args_list if c.args and "waiting for" in c.args[0]
+        ]
+        assert len(infos) == 1
+        assert infos[0].kwargs["terminating"] == 1
+        mock_k8s_client.wait_for_job_gone.assert_called_once()
+        assert mock_k8s_client.wait_for_job_gone.call_args.args[0] == named.job_name
+
     def test_live_job_is_adopted_without_any_wait(self, spawner, mock_k8s_client):
         """The unchanged common path: a genuinely live Job is still adopted.
 

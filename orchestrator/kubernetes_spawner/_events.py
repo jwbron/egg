@@ -135,9 +135,10 @@ def _await_terminating_event_jobs(
 
     Each of those outcomes is logged for what it actually is, matching the
     taxonomy the restart route applies: "still present" is only claimed
-    after a wait ran and observed the Job, and the two paths that skip the
-    wait entirely — no helper on the client, budget already spent — say so
-    instead of borrowing an observation they never made.
+    after a wait ran and observed the Job, and every path that skips the
+    wait entirely — a Job the listing did not name, no helper on the
+    client, budget already spent — says so instead of borrowing an
+    observation it never made.
 
     The wait runs on the event-loop poll thread, so it delays the roles
     handled later in the same ``poll_once`` pass by up to the budget. That
@@ -154,6 +155,35 @@ def _await_terminating_event_jobs(
     terminating = [j for j in jobs if _job_is_terminating(j)]
     if not terminating:
         return
+    # Partition before anything reports a count: a Job the listing did not
+    # name is not one we could ever have waited on, so it gets its own line
+    # rather than being folded into the counts the skip-paths below report.
+    #
+    # Defensive: ``KubernetesClient.list_jobs`` always populates ``job_name``
+    # (and mirrors it onto ``container_name``), so the unnamed branch is
+    # unreachable against the production lister — it guards a future/alternate
+    # backend whose listing is thinner, mirroring the restart route's
+    # ``addressable=False`` branch.
+    pending: list[str] = []
+    unnamed = 0
+    for job in terminating:
+        job_name = getattr(job, "job_name", None) or getattr(job, "container_name", None)
+        if job_name:
+            pending.append(job_name)
+        else:
+            unnamed += 1
+    if unnamed:
+        logger.warning(
+            "Event spawn: teardown wait not performed; terminating Job(s) unobserved",
+            pipeline_id=pipeline_id,
+            role=role,
+            action=action,
+            dedupe_key=dedupe_key,
+            terminating=unnamed,
+            reason="unaddressable",
+        )
+    if not pending:
+        return
     waiter = getattr(self.k8s, "wait_for_job_gone", None)
     if waiter is None:
         # Defensive: ``KubernetesClient`` implements ``wait_for_job_gone``,
@@ -166,7 +196,7 @@ def _await_terminating_event_jobs(
             role=role,
             action=action,
             dedupe_key=dedupe_key,
-            terminating=len(terminating),
+            terminating=len(pending),
             reason="no_wait_helper",
         )
         return
@@ -176,13 +206,10 @@ def _await_terminating_event_jobs(
         role=role,
         action=action,
         dedupe_key=dedupe_key,
-        terminating=len(terminating),
+        terminating=len(pending),
     )
     deadline = _pkg.time.monotonic() + _EVENT_JOB_TERMINATION_WAIT_S
-    for job in terminating:
-        job_name = getattr(job, "job_name", None) or getattr(job, "container_name", None)
-        if not job_name:
-            continue
+    for job_name in pending:
         remaining = deadline - _pkg.time.monotonic()
         if remaining <= 0:
             # No wait ran for this Job, so "still present" is not ours to

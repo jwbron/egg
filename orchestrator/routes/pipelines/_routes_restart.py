@@ -423,18 +423,46 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
         # deadline shared across every deleted Job (the MCP client's restart
         # timeout is 60s) and best-effort: a timeout is reported, not fatal.
         deadline = _pkg.time.monotonic() + _JOB_TEARDOWN_WAIT_SECONDS
+        # Partition first, so each report covers only the Jobs it is actually
+        # about: an entry the listing gave us no ``job_name`` for could never
+        # have been waited on, whatever the backend, so it must not be folded
+        # into the helper-less count below.
+        #
+        # The listing carried no ``job_name``, so the only handle we have is
+        # the container id. ``wait_for_job_gone`` normalizes it into a Job name
+        # that never existed, 404s on the first read, and reports "gone"
+        # without having observed the real teardown. Report it unconfirmed
+        # instead of claiming an observation we never made.
+        #
+        # Defensive: ``KubernetesClient.list_containers`` always populates
+        # ``job_name`` (it derives the name from ``LABEL_CONTAINER_NAME``,
+        # which ``create_container`` applies to the pod template), so this is
+        # unreachable against the production lister — it guards a
+        # future/alternate backend whose listing is thinner.
+        pending_waits = [name for name, addressable in deleted_names if addressable]
+        for name, addressable in deleted_names:
+            if addressable:
+                continue
+            teardown_confirmed = False
+            _pkg.logger.warning(
+                "restart_agent: deleted Job carried no job_name; its teardown cannot be observed",
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+                slice_id=slice_id,
+                container_id=name,
+                reason="unaddressable",
+            )
         # ``getattr`` so a backend without the wait helper reports an
         # unconfirmed teardown rather than raising into the list-failure
         # handler below (which would log a misleading "failed to list").
         #
         # Defensive, and loop-invariant: ``KubernetesClient`` implements
         # ``wait_for_job_gone``, so this is unreachable against the production
-        # client for the same reason as the ``addressable=False`` branch below
+        # client for the same reason as the ``addressable=False`` branch above
         # — it guards a future/alternate backend. Checked ONCE, above the loop:
         # a helper-less backend is a single backend-capability fact, not N
         # per-Job teardown failures, so it earns one log line.
         waiter = getattr(spawner.k8s, "wait_for_job_gone", None)
-        pending_waits = deleted_names
         if pending_waits and waiter is None:
             teardown_confirmed = False
             _pkg.logger.warning(
@@ -446,31 +474,7 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
                 reason="no_wait_helper",
             )
             pending_waits = []
-        for name, addressable in pending_waits:
-            if not addressable:
-                # The listing carried no ``job_name``, so the only handle we
-                # have is the container id. ``wait_for_job_gone`` normalizes
-                # it into a Job name that never existed, 404s on the first
-                # read, and reports "gone" without having observed the real
-                # teardown. Report it unconfirmed instead of claiming an
-                # observation we never made.
-                #
-                # Defensive: ``KubernetesClient.list_containers`` always
-                # populates ``job_name`` (it derives the name from
-                # ``LABEL_CONTAINER_NAME``, which ``create_container`` applies
-                # to the pod template), so this branch is unreachable against
-                # the production lister — it guards a future/alternate backend
-                # whose listing is thinner.
-                teardown_confirmed = False
-                _pkg.logger.warning(
-                    "restart_agent: deleted Job carried no job_name; its "
-                    "teardown cannot be observed",
-                    pipeline_id=pipeline_id,
-                    agent_role=agent_role,
-                    slice_id=slice_id,
-                    container_id=name,
-                )
-                continue
+        for name in pending_waits:
             # Each branch below that does NOT complete a wait clears the flag
             # and ``continue``s, mirroring ``_await_terminating_event_jobs``.
             # Falling through to the "still terminating" warning would claim an
