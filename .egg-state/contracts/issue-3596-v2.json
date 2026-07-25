@@ -129,7 +129,7 @@
         {
           "id": "task-1-6",
           "description": "Test for git_state population in snapshot builder.",
-          "status": "pending",
+          "status": "complete",
           "commit": "4a02ece9b",
           "checkpoint_id": null,
           "notes": "",
@@ -1194,6 +1194,17 @@
       "old_value": null,
       "new_value": "4a02ece9b",
       "reason": "Linked commit 4a02ece to task-1-6",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T06:46:32.737497Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.5.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-6 as complete",
       "checkpoint_id": null
     }
   ],
