@@ -78,7 +78,10 @@ readable_repos:
 #     Each entry has "name" (display label), "command" (shell command) and
 #     an optional "fix" (single shell command string — a YAML list is
 #     silently coerced to its Python repr and will never run, so chain
-#     steps with "&&" or point at a make target)
+#     steps with "&&" or point at a make target; an empty or omitted
+#     value — a bare "fix:", "", false, 0 — is dropped entirely,
+#     leaving the check with no fix and a block message that never
+#     mentions "fix")
 #     These run sequentially during the tester step
 #     "fix" auto-remediates that check at the per-slice green gate: when the
 #     gate finds the check red at the slice tip it runs the fix command and
@@ -97,7 +100,12 @@ readable_repos:
 #     final-verification verdict at all and could determine that untracked
 #     count (a best-effort git failure in the runner is treated as unsafe);
 #     and the gate is running in "on" mode. Every refusal is logged as
-#     autofix_block_reason. When EVERY red is infra-tagged the gate fails
+#     autofix_block_reason on the orchestrator's "Green gate red" line —
+#     a "log"-mode refusal is not one of them (that line reads "autofix
+#     available but not applied" and carries no such field) — and the
+#     reason reaches the slice failure message only when every genuine
+#     red's own re-run went green; otherwise it stays in the structured
+#     log. When EVERY red is infra-tagged the gate fails
 #     open and returns BEFORE this decision, so even a fix that re-ran
 #     green is discarded with the worktree rather than committed.
 #     NOTE: "on" is the DEFAULT mode — no opt-in is required. Nothing in

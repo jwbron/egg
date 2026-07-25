@@ -569,11 +569,16 @@ shape:
        **Green-gate autofix (Stage A, #3409)** — the one place the
        orchestrator authors commits on a slice branch. When every
        genuine red carries an optional `fix:` command in
-       `repositories.yaml` (e.g. `lint: {fix: make lint-fix}`), the
-       runner applies the fixes in its worktree and the orchestrator
-       commits them as `egg-green-gate` and pushes to the integration
-       branch via the launcher-authed gateway push route. Reds tagged
-       with an infra signature are excluded from "genuine" only under
+       `repositories.yaml`, the runner applies the fixes in its
+       worktree and the orchestrator commits them as `egg-green-gate`
+       and pushes to the integration branch via the launcher-authed
+       gateway push route. `fix:` is a third key on a `checks:` list
+       entry — `- {name: lint, command: make lint, fix: make lint-fix}`
+       — not a name-keyed mapping; `validate_checks` drops any entry
+       missing `name`/`command` with no warning, and a repo whose
+       `checks:` all drop out gets no green gate at all, not merely no
+       autofix. Reds tagged with an infra signature are excluded from
+       "genuine" only under
        the default `EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=on`; set it
        `off` and every red must carry a fix that re-ran green. When
        *every* red is infra-tagged the gate fails open and returns
@@ -602,9 +607,14 @@ shape:
        runner reported no final-verification verdict at all
        (`final_verification.ran` false) or could not determine the
        untracked count (`new_untracked_count is None`, a best-effort
-       git failure); every refusal is logged as `autofix_block_reason`.
-       Any failure to commit or push blocks the slice exactly like an
-       unfixed red.
+       git failure); every refusal is logged as `autofix_block_reason`
+       on the orchestrator's `Green gate red` line — a `log`-mode
+       refusal is not one of them, it logs "autofix available but not
+       applied" with no such field — and the reason reaches the
+       operator-facing slice failure message only when every genuine
+       red's own re-run went green; otherwise it stays in the
+       structured log. Any failure to commit or push blocks the
+       slice exactly like an unfixed red.
     4. After the wave completes, `scheduler.poll_cascades()` drains any
        expired cascades and emits the orchestrator-side
        `OVERSEER_ALERT` for each (see "Failure cascade").
