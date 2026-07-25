@@ -80,10 +80,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "Yes \u2014 update `test_cancel_clears_runtime_state` to assert that cancel does NOT clear, and keep `test_delete_clears_runtime_state` / `test_create_clears_runtime_state` asserting that delete and create still do.\n\nRename it as you go; a test called `test_cancel_clears_runtime_state` that asserts the opposite is a trap for the next reader. `test_cancel_preserves_runtime_state` or similar.\n\nTwo additions, both required:\n\n1. The rewritten test must pin the CREATE path explicitly. Change 1's entire safety argument for #2053 rests on create still clearing, so that assertion is now load-bearing rather than incidental. If someone later \"simplifies\" `_clear_pipeline_runtime_state` out of the create path, #2053 reopens silently.\n\n2. Add a NEW test for the hazard described in cq-1's resolution, which no existing test covers: cancel \u2192 resume (`restart_agent` or `restart_phase`) \u2192 simulated orchestrator restart \u2192 assert the pre-cancel consensus state is NOT resurrected by `reconstruct_tracker_from_messages`. This is the regression that Change 2 exists to prevent, and without it Change 2 is untested.\n\nDo not delete coverage to make the suite pass. If a test's premise genuinely no longer holds, rewrite it to pin the new contract rather than dropping it.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-25T23:34:30.798031Z",
       "debounce_until": null,
       "redirect_seed": null
     },
