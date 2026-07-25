@@ -78,6 +78,12 @@ _NEVER_SEEN_ACTIVITY: float = 0.0
 # literal here to avoid pulling shared/egg_contracts into health_monitor.
 _OVERSEER_AGENT_ID: str = "overseer"
 
+# Slack (seconds) allowed when testing an elapsed value against the monitor's
+# own age. Every anchor the monitor reads is written after construction, so
+# ``elapsed > monitor_age`` can only come from a corrupt anchor; the slack
+# only absorbs float/clock jitter. See ``_sanitize_elapsed`` (#3605).
+_ELAPSED_SANITY_SLACK_SECONDS: float = 5.0
+
 
 @dataclass
 class AgentState:
@@ -157,6 +163,25 @@ class HealthMonitor:
         # idle", so all tripwires are skipped.
         self._active_jobs: set[str] = set()
 
+        # Heartbeat anchor for roles that have an active one-shot Job but have
+        # never emitted anything the monitor can key state on. Valued with the
+        # wall-clock time the role's Job was first observed active, maintained
+        # by ``set_active_roles``. Before #3605 ``check_heartbeats`` anchored
+        # these roles at 0.0, so ``now - 0`` reported a Unix epoch timestamp
+        # (1784944189s ≈ 56 years) as the elapsed stall time.
+        self._job_active_since: dict[str, float] = {}
+
+        # Roles from ``_job_active_since`` that have already produced a
+        # ``heartbeat_timeout`` escalation: the equivalent of
+        # ``AgentState.heartbeat_escalated`` for roles that have no
+        # ``AgentState`` because nothing was ever received from them (#3605).
+        self._never_seen_escalated: set[str] = set()
+
+        # Wall-clock time the monitor started observing this pipeline. Every
+        # anchor it reads is written after this instant, so an ``elapsed``
+        # larger than the monitor's own age is necessarily corrupt (#3605).
+        self._created_at: float = time.time()
+
         # Subscribe to events
         self._event_bus.subscribe(EventType.PROGRESS_EMITTED, self._on_progress)
         self._event_bus.subscribe(EventType.ERROR, self._on_error)
@@ -205,11 +230,26 @@ class HealthMonitor:
         are treated as legitimately idle and are skipped from tripwire
         checks.
 
+        Also maintains ``_job_active_since``, the heartbeat anchor
+        ``check_heartbeats`` uses for roles that have an active Job but have
+        never emitted a heartbeat (#3605). A newly-active role is anchored at
+        the time its Job was first observed here; a role that leaves the set
+        drops its anchor (and its never-seen escalation marker) so a later Job
+        for the same role re-anchors from scratch instead of inheriting the
+        previous Job's clock.
+
         Args:
             roles: Set of role names with active one-shot Jobs.
         """
+        now = time.time()
         with self._lock:
             self._active_jobs = set(roles)
+            for role in roles:
+                self._job_active_since.setdefault(role, now)
+            for role in list(self._job_active_since):
+                if role not in roles:
+                    del self._job_active_since[role]
+                    self._never_seen_escalated.discard(role)
 
     def reset_agent(self, agent_id: str) -> None:
         """Drop all per-agent tracking state for *agent_id*.
@@ -226,6 +266,11 @@ class HealthMonitor:
           * ``_agents[agent_id]`` — escalation flags, error counts, message
             timestamps, last progress payload.
           * ``_fully_acked_first_seen[agent_id]`` — BRC progress tracker.
+          * ``_job_active_since[agent_id]`` / ``_never_seen_escalated``:
+            the never-heartbeated anchor for the pre-restart Job (#3605).
+            The next ``set_active_roles`` tick re-anchors the role at the
+            time the respawned Job is first observed, so the restarted agent
+            is measured from its own restart rather than from the dead Job.
           * any ``_active_alerts`` whose ``agent_id`` matches — those
             reference the dead container's anchor.
 
@@ -235,6 +280,8 @@ class HealthMonitor:
             self._agents.pop(agent_id, None)
             self._last_heartbeat.pop(agent_id, None)
             self._fully_acked_first_seen.pop(agent_id, None)
+            self._job_active_since.pop(agent_id, None)
+            self._never_seen_escalated.discard(agent_id)
             # _active_alerts is a bounded deque (maxlen=200).  Filter in
             # place via clear()+extend to preserve the bound — rebinding to
             # ``deque(kept)`` would silently drop the maxlen and let the
@@ -506,7 +553,44 @@ class HealthMonitor:
             self._agents[agent_id].last_heartbeat = now
             self._agents[agent_id].last_progress = now
             self._last_heartbeat[agent_id] = now
+            # The role is no longer "never seen": ``_last_heartbeat`` is now
+            # its anchor, so drop the Job-start fallback (#3605).
+            self._job_active_since.pop(agent_id, None)
+            self._never_seen_escalated.discard(agent_id)
         return self._agents[agent_id]
+
+    def _sanitize_elapsed(
+        self, agent_id: str, elapsed: float, now: float, anchor_kind: str
+    ) -> tuple[float, bool]:
+        """Return ``(elapsed, anchor_corrupt)``, clamping impossible values (#3605).
+
+        Every anchor this monitor reads is written after the monitor was
+        constructed, so no real stall can be older than the monitor itself.
+        An ``elapsed`` beyond that bound means the anchor was corrupted. The
+        #3605 repro was a restarted role anchored at the Unix epoch, reporting
+        1784944189s (≈56 years) of "stall".
+
+        Such a value is a bug signal, not a measurement, so it is logged at
+        ERROR and the caller exempts the resulting alert from the alive-signal
+        gates rather than letting a peer heartbeat silently defer it. The
+        returned elapsed is clamped to the monitor's age so downstream
+        consumers keyed on magnitude (notably the ``>= 300s`` BRC
+        stall-demotion path in ``_run_concurrent``) cannot be tripped by the
+        corrupt value.
+        """
+        monitor_age = max(0.0, now - self._created_at)
+        if elapsed <= monitor_age + _ELAPSED_SANITY_SLACK_SECONDS:
+            return elapsed, False
+
+        logger.error(
+            "Corrupt health anchor: elapsed exceeds monitor age",
+            pipeline_id=self._pipeline_id,
+            agent_id=agent_id,
+            anchor_kind=anchor_kind,
+            raw_elapsed_seconds=int(elapsed),
+            monitor_age_seconds=int(monitor_age),
+        )
+        return monitor_age, True
 
     def _on_progress(self, event: Event) -> None:
         """Handle PROGRESS_EMITTED event (heartbeat or progress)."""
@@ -744,13 +828,22 @@ class HealthMonitor:
             # sent a heartbeat (pod spawned but agent never started).
             # Without this a silent mid-event pod would be invisible to the
             # snapshot and never trip the heartbeat timeout.
+            #
+            # #3605: anchor those roles at the time their Job was first
+            # observed active, NOT at 0.0; ``now - 0.0`` reported a Unix
+            # epoch timestamp as the elapsed stall time. ``setdefault``
+            # covers the case where the role entered ``_active_jobs`` on a
+            # path that never reached ``set_active_roles``.
             known_agent_ids = {a_id for a_id, _, _ in snapshot}
             for role in self._active_jobs:
                 if role not in known_agent_ids:
-                    snapshot.append((role, 0.0, False))
+                    anchor = self._job_active_since.setdefault(role, now)
+                    snapshot.append((role, anchor, role in self._never_seen_escalated))
 
         for agent_id, last_hb, already_escalated in snapshot:
-            elapsed = now - last_hb
+            elapsed, anchor_corrupt = self._sanitize_elapsed(
+                agent_id, now - last_hb, now, "heartbeat"
+            )
             if elapsed <= threshold:
                 continue
 
@@ -781,7 +874,12 @@ class HealthMonitor:
             # Overseer exemption (#2430): the watchdog's silence is the
             # signal regardless of peer activity. Without this, a healthy
             # BRC roster defers overseer escalations indefinitely.
-            if agent_id != _OVERSEER_AGENT_ID:
+            #
+            # Corrupt-anchor exemption (#3605): an impossible elapsed value is
+            # a bug in the monitor's own bookkeeping. Deferring it on a peer's
+            # liveness is how a role with no pod and no Job stayed silently
+            # suppressed for the whole pipeline; surface it instead.
+            if agent_id != _OVERSEER_AGENT_ID and not anchor_corrupt:
                 defer, gate_reason = self._has_recent_activity(agent_id, now)
                 if not defer:
                     defer, gate_reason = self._has_recent_peer_progress(agent_id, now)
@@ -795,11 +893,15 @@ class HealthMonitor:
                     )
                     continue
 
+            reason = f"No heartbeat for {int(elapsed)}s (threshold: {threshold}s)"
+            if anchor_corrupt:
+                reason += " [corrupt heartbeat anchor: elapsed clamped to monitor age]"
             action = {
                 "action": "escalate",
                 "agent_id": agent_id,
-                "reason": f"No heartbeat for {int(elapsed)}s (threshold: {threshold}s)",
+                "reason": reason,
                 "elapsed_seconds": int(elapsed),
+                "anchor_corrupt": anchor_corrupt,
             }
             actions.append(action)
 
@@ -815,6 +917,11 @@ class HealthMonitor:
                 agent_state = self._agents.get(agent_id)
                 if agent_state:
                     agent_state.heartbeat_escalated = True
+                else:
+                    # Never-seen role: it has no ``AgentState`` to carry the
+                    # flag, so dedupe through the parallel marker set (#3605).
+                    # Without this the alert re-fires on every poll tick.
+                    self._never_seen_escalated.add(agent_id)
                 self._active_alerts.append(
                     {
                         "id": str(uuid.uuid4()),
@@ -866,7 +973,9 @@ class HealthMonitor:
             ]
 
         for agent_id, last_progress, already_escalated in snapshot:
-            elapsed = now - last_progress
+            elapsed, anchor_corrupt = self._sanitize_elapsed(
+                agent_id, now - last_progress, now, "progress"
+            )
             if elapsed <= threshold:
                 continue
 
@@ -889,7 +998,8 @@ class HealthMonitor:
             #
             # Overseer exemption (#2430): see check_heartbeats — the
             # watchdog's silence must surface even when peers are alive.
-            if agent_id != _OVERSEER_AGENT_ID:
+            # Corrupt-anchor exemption (#3605): see check_heartbeats.
+            if agent_id != _OVERSEER_AGENT_ID and not anchor_corrupt:
                 defer, gate_reason = self._has_recent_activity(agent_id, now)
                 if not defer:
                     defer, gate_reason = self._has_recent_peer_progress(agent_id, now)
@@ -903,11 +1013,15 @@ class HealthMonitor:
                     )
                     continue
 
+            reason = f"No progress for {int(elapsed)}s (threshold: {threshold}s)"
+            if anchor_corrupt:
+                reason += " [corrupt progress anchor: elapsed clamped to monitor age]"
             action = {
                 "action": "escalate",
                 "agent_id": agent_id,
-                "reason": f"No progress for {int(elapsed)}s (threshold: {threshold}s)",
+                "reason": reason,
                 "elapsed_seconds": int(elapsed),
+                "anchor_corrupt": anchor_corrupt,
             }
             actions.append(action)
 

@@ -3843,3 +3843,257 @@ class TestOwnershipModeIdleBudgetAnomaly:
         assert isinstance(EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT, int)
         assert EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT == 30
         assert _IDLE_BUDGET_MIN_DEFAULT == EVENT_PUMP_IDLE_BUDGET_MIN_DEFAULT
+
+
+# ---------------------------------------------------------------------------
+# Tests: heartbeat-anchor integrity for never-heartbeated roles (issue #3605)
+# ---------------------------------------------------------------------------
+# A role with an active one-shot Job that has never emitted a heartbeat has no
+# ``AgentState`` to anchor against. #3064 slice-5 anchored it at 0.0, so
+# ``now - 0.0`` reported a Unix epoch timestamp as the elapsed stall time
+# (the repro logged ``elapsed_seconds=1784944189``, ~56 years) and the
+# alive-signal gate then deferred that alert on a peer's heartbeat, hiding a
+# role that had no pod and no Job at all. The anchor is now the time the Job
+# was first observed active, and an elapsed value that exceeds the monitor's
+# own age is treated as a bug signal: logged, clamped, and exempt from the
+# alive-signal gates.
+# ---------------------------------------------------------------------------
+
+
+class TestHeartbeatAnchorIntegrity:
+    """Issue #3605: never-heartbeated roles anchor at Job start, not epoch 0."""
+
+    ROLE = "task_planner"
+
+    def test_never_heartbeated_role_anchors_at_job_start(self):
+        """Elapsed measures from Job observation, not from the Unix epoch."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=0,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+        monitor.set_active_roles({self.ROLE})
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 300
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+        assert actions[0]["agent_id"] == self.ROLE
+        # ~300s since the Job was observed, not an epoch timestamp.
+        assert 290 <= actions[0]["elapsed_seconds"] <= 310
+        assert actions[0]["anchor_corrupt"] is False
+
+    def test_no_alert_before_threshold_elapses_from_job_start(self):
+        """A freshly observed Job is not instantly stale."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=0,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+        monitor.set_active_roles({self.ROLE})
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 30
+            actions = monitor.check_heartbeats()
+
+        assert actions == []
+
+    def test_restart_reanchors_the_role(self):
+        """``reset_agent`` drops the anchor; the next poll re-anchors it.
+
+        The #3605 repro: ``restart_agent`` reset the role's health state while
+        the role stayed in the active-Job set, leaving it never-seen and
+        anchored at 0.0.
+        """
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=0,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({self.ROLE})
+        _emit_heartbeat(bus, agent_id=self.ROLE)
+
+        base = time.time()
+        monitor.reset_agent(self.ROLE)
+        assert self.ROLE not in monitor._job_active_since
+
+        # The role still has an active Job, so the next poll tick re-anchors.
+        monitor.set_active_roles({self.ROLE})
+        assert monitor._job_active_since[self.ROLE] >= base
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 30
+            assert monitor.check_heartbeats() == []
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 300
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+        assert 290 <= actions[0]["elapsed_seconds"] <= 310
+
+    def test_anchor_dropped_when_role_leaves_active_set(self):
+        """A role that goes idle re-anchors when a later Job spawns."""
+        bus = _make_event_bus()
+        monitor = _make_monitor(bus, _make_config())
+
+        monitor.set_active_roles({self.ROLE})
+        first = monitor._job_active_since[self.ROLE]
+
+        monitor.set_active_roles(set())
+        assert self.ROLE not in monitor._job_active_since
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = first + 500
+            monitor.set_active_roles({self.ROLE})
+
+        assert monitor._job_active_since[self.ROLE] == first + 500
+
+    def test_first_signal_hands_the_anchor_over(self):
+        """Once the role emits anything, ``_last_heartbeat`` owns the clock."""
+        bus = _make_event_bus()
+        monitor = _make_monitor(bus, _make_config())
+
+        monitor.set_active_roles({self.ROLE})
+        assert self.ROLE in monitor._job_active_since
+
+        _emit_heartbeat(bus, agent_id=self.ROLE)
+
+        assert self.ROLE not in monitor._job_active_since
+        assert self.ROLE in monitor._last_heartbeat
+
+    def test_never_heartbeated_alert_is_not_repeated(self):
+        """The never-seen path dedupes like ``heartbeat_escalated`` does."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=0,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+        monitor.set_active_roles({self.ROLE})
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 300
+            first = monitor.check_heartbeats()
+            second = monitor.check_heartbeats()
+
+        assert len(first) == 1
+        assert second == []
+
+
+class TestImpossibleElapsedSurfacing:
+    """Issue #3605: an elapsed value larger than the monitor's own age is a
+    bug signal: it must be surfaced, not deferred by the alive-signal gate."""
+
+    ROLE = "task_planner"
+
+    def test_corrupt_anchor_bypasses_peer_progress_gate(self):
+        """A peer heartbeat cannot defer an alert built on a corrupt anchor.
+
+        Reproduces the issue evidence verbatim: the restarted role's anchor is
+        0.0 while a peer heartbeated seconds ago, which previously logged
+        "Heartbeat alert deferred by alive-signal gate ...
+        elapsed_seconds=1784944189" on every poll and never alerted.
+        """
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({self.ROLE, AGENT_ID_2})
+
+        base = time.time()
+        # A live peer, heartbeating right now.
+        _emit_heartbeat(bus, agent_id=AGENT_ID_2)
+        # Corrupt the restarted role's anchor the way the pre-fix code did.
+        monitor._job_active_since[self.ROLE] = 0.0
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 400
+            actions = monitor.check_heartbeats()
+
+        firing = [a for a in actions if a["agent_id"] == self.ROLE]
+        assert len(firing) == 1, "Corrupt anchor must not be gated by peer liveness"
+        assert firing[0]["anchor_corrupt"] is True
+        assert "corrupt heartbeat anchor" in firing[0]["reason"]
+
+    def test_corrupt_elapsed_is_clamped_to_monitor_age(self):
+        """The reported elapsed never leaks the epoch-scale value downstream.
+
+        ``_run_concurrent`` demotes a dual-role agent from BRC on
+        ``elapsed_seconds >= 300``; an unclamped 1.7e9 would demote instantly.
+        """
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=0,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({self.ROLE})
+
+        base = time.time()
+        monitor._job_active_since[self.ROLE] = 0.0
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 400
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+        # Clamped to the monitor's age (~400s), not ``now - 0``.
+        assert actions[0]["elapsed_seconds"] < 1000
+
+    def test_sane_anchor_is_not_flagged_corrupt(self):
+        """A normal stall keeps its exact elapsed and stays gate-eligible."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=0,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID})
+
+        base = time.time()
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 200
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1
+        assert actions[0]["anchor_corrupt"] is False
+        assert 195 <= actions[0]["elapsed_seconds"] <= 205
+
+    def test_corrupt_progress_anchor_bypasses_gate(self):
+        """The same guard applies to the progress-stall tripwire."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+        monitor.set_active_roles({AGENT_ID, AGENT_ID_2})
+
+        base = time.time()
+        _emit_progress(bus, agent_id=AGENT_ID)
+        _emit_heartbeat(bus, agent_id=AGENT_ID_2)
+        monitor._agents[AGENT_ID].last_progress = 0.0
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = base + 400
+            actions = monitor.check_progress()
+
+        firing = [a for a in actions if a["agent_id"] == AGENT_ID]
+        assert len(firing) == 1
+        assert firing[0]["anchor_corrupt"] is True
+        assert firing[0]["elapsed_seconds"] < 1000
