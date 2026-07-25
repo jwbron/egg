@@ -256,7 +256,7 @@
           "id": "task-1-12",
           "description": "Test for phase_state.expected_duration_s + raw.runtime population in snapshot builder.",
           "status": "pending",
-          "commit": null,
+          "commit": "4a02ece9b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Test verifies phase_state.expected_duration_s is populated from PipelineConfig\n- Test verifies raw.runtime fields are populated from driver_heartbeat\n- Test verifies detect_duration_drift and detect_run_pipeline_thread_liveness receive populated fields",
@@ -1249,6 +1249,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-10 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T06:46:47.397569Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.11.commit",
+      "old_value": null,
+      "new_value": "4a02ece9b",
+      "reason": "Linked commit 4a02ece to task-1-12",
       "checkpoint_id": null
     }
   ],
