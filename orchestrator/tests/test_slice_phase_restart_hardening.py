@@ -1566,37 +1566,62 @@ class TestEscalateLayerCHITLPersistence:
             reloaded = load_contract(self.PIPELINE_ID, repo_root)
             assert len(reloaded.decisions) == 1
 
-    def test_both_gate_wrappers_opt_out_of_carry_forward(self) -> None:
-        """Wiring check for the two callers that must pass ``False``.
+    def test_every_gate_wrapper_opts_out_of_carry_forward(self) -> None:
+        """Wiring check for *every* gate wrapper, discovered by name.
 
-        Guards against a future wrapper being added (or one of these
-        being edited) without the opt-out, which would silently restore
-        the suppression the behaviour tests above pin.
+        Guards against a future wrapper being added without the opt-out
+        (or one of the current two being edited), which would silently
+        restore the suppression the behaviour tests above pin. Listing
+        the two known wrappers explicitly would not do that — a third
+        ``_escalate_*_gate_to_hitl`` would sail past — so this walks the
+        barrel's namespace and drives whatever it finds, building each
+        call's kwargs from the wrapper's own signature.
         """
+        import inspect
         from unittest.mock import patch as _patch
 
+        import routes.pipelines as _rp
         from models import PipelinePhase as PipelineModelsPhase
-        from routes.pipelines import (
-            _escalate_evidence_gate_to_hitl,
-            _escalate_green_gate_to_hitl,
-        )
 
+        wrappers = {
+            name: fn
+            for name, fn in vars(_rp).items()
+            if name.startswith("_escalate_")
+            and name.endswith("_gate_to_hitl")
+            and inspect.isfunction(fn)
+        }
+        # Discovery sanity: a glob that matched nothing would make the
+        # assertion below vacuously true. Subset, not equality, so a
+        # third wrapper is exercised rather than rejected.
+        assert {
+            "_escalate_evidence_gate_to_hitl",
+            "_escalate_green_gate_to_hitl",
+        } <= set(wrappers), f"gate-wrapper discovery found only {sorted(wrappers)}"
+
+        common: dict[str, object] = {
+            "pipeline_id": self.PIPELINE_ID,
+            "slice_id": "slice-1",
+            "worktree_repo_path": Path("/tmp/worktree"),
+            "current_phase": PipelineModelsPhase.IMPLEMENT,
+        }
+        driven = sorted(wrappers)
         with _patch("routes.pipelines._escalate_layer_c_hitl") as shared:
-            _escalate_evidence_gate_to_hitl(
-                pipeline_id=self.PIPELINE_ID,
-                slice_id="slice-1",
-                failure="evidence failure",
-                worktree_repo_path=Path("/tmp/worktree"),
-                current_phase=PipelineModelsPhase.IMPLEMENT,
-            )
-            _escalate_green_gate_to_hitl(
-                pipeline_id=self.PIPELINE_ID,
-                slice_id="slice-1",
-                failure_headline="green headline",
-                worktree_repo_path=Path("/tmp/worktree"),
-                current_phase=PipelineModelsPhase.IMPLEMENT,
-            )
-        assert [c.kwargs["carry_forward"] for c in shared.call_args_list] == [False, False]
+            for name in driven:
+                params = inspect.signature(wrappers[name]).parameters
+                kwargs = {k: v for k, v in common.items() if k in params}
+                # Whatever failure-text parameter this wrapper names
+                # (``failure`` / ``failure_headline`` / a future one).
+                kwargs.update(
+                    {
+                        p.name: f"{name} failure text"
+                        for p in params.values()
+                        if p.name not in kwargs and p.default is inspect.Parameter.empty
+                    }
+                )
+                wrappers[name](**kwargs)
+        assert [c.kwargs["carry_forward"] for c in shared.call_args_list] == [False] * len(
+            driven
+        ), f"every gate wrapper must pass carry_forward=False; drove {driven}"
 
     def test_signature_no_longer_accepts_context_prefix(self) -> None:
         """Adversarial probe for the v3 signature surface — the v2

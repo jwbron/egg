@@ -804,6 +804,15 @@ def _escalate_layer_c_hitl(
     pre-#3572 shape those escalations exist to close. Re-opening on
     each fresh red re-asks the operator only when their previous answer
     demonstrably did not take.
+
+    **Revisit this default when the marker dispatch handler lands**
+    ([#3634](https://github.com/jwbron/egg/issues/3634)). The argument
+    above turns on "resolving the Decision has no mechanical effect
+    today", which nothing in the code enforces — it is a fact about the
+    absence of a handler. Once one exists, a resolution that *did* take
+    effect and still reds is a different situation from an inert one,
+    and ``False`` may stop being the right value for these two callers.
+    #3634 carries that as an explicit acceptance criterion.
     """
     try:
         from egg_contracts.decisions import (
@@ -887,6 +896,15 @@ def _escalate_layer_c_hitl(
             # allocators (see the docstring at
             # ``shared/egg_contracts/decisions.py``).
             decision_id = next_cq_id(contract_local.decisions)
+            # These labels are *recorded*, not dispatched — no handler
+            # routes on the gate markers today, so the operator's pick
+            # is an answer on the contract rather than an action the
+            # orchestrator takes. ``carry_forward=False`` makes that
+            # more visible for the gate callers (a recurring red
+            # re-asks with the same inert options), which is the right
+            # trade — a visible unanswered block beats a silent one —
+            # but the labels should either become live or narrow to
+            # what can be honoured: #3634.
             options = [
                 DecisionOption(id="opt-1", label="Mark slice complete and continue"),
                 DecisionOption(id="opt-2", label="Restart slice from scratch"),
@@ -1028,10 +1046,12 @@ def _escalate_evidence_gate_to_hitl(
     ``carry_forward=False`` opts out of the *resolved*-question half of
     that guard. A red that recurs after the operator answered is a
     fresh physical event, not a re-derivation — resolving the Decision
-    has no mechanical effect today, so carrying the answer forward
-    would leave the phase FAILED with nothing on ``pending_decisions``,
-    the pre-#3572 shape this escalation exists to close. See
-    ``_escalate_layer_c_hitl``'s docstring for the full argument.
+    has no mechanical effect today (#3634 tracks the dispatch handler
+    that would change that, and revisiting this value when it lands),
+    so carrying the answer forward would leave the phase FAILED with
+    nothing on ``pending_decisions``, the pre-#3572 shape this
+    escalation exists to close. See ``_escalate_layer_c_hitl``'s
+    docstring for the full argument.
     """
     _pkg._escalate_layer_c_hitl(
         pipeline_id=pipeline_id,

@@ -755,3 +755,15 @@ class TestEscalateEvidenceGateToHITL:
         reloaded = load_contract(self.ESCALATION_PIPELINE_ID, tmp_path)
         assert len(reloaded.decisions) == 2
         assert [d.resolved for d in reloaded.decisions] == [True, False]
+        # And the re-opened decision still dedupes against itself — the
+        # open-question half of #3427 must keep matching the *open* twin
+        # rather than tripping over the resolved one, or re-opening
+        # degrades to one decision per retry.
+        _escalate_evidence_gate_to_hitl(
+            pipeline_id=self.ESCALATION_PIPELINE_ID,
+            slice_id="slice-2",
+            failure="same deterministic failure text",
+            worktree_repo_path=tmp_path,
+            current_phase=PipelineModelsPhase.IMPLEMENT,
+        )
+        assert len(load_contract(self.ESCALATION_PIPELINE_ID, tmp_path).decisions) == 2

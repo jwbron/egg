@@ -532,12 +532,18 @@ def _slice_close_green_gate(
         import slice_green_gate as _green_gate
     except ImportError:
         # Absolute fallback, not a relative one. ``slice_green_gate``
-        # lives at ``orchestrator/slice_green_gate.py``, so from this
-        # package neither ``from ..`` (``routes.slice_green_gate``) nor
-        # ``from ...`` (beyond top-level under the deployed layout this
-        # module's own ``import routes.pipelines`` implies) names it.
-        # Mirrors the ``global_slice_admit`` pair in ``_run_implement.py``,
-        # the module this helper was extracted from.
+        # lives at ``orchestrator/slice_green_gate.py``, so ``from ..``
+        # names ``routes.slice_green_gate``, which exists under neither
+        # layout. ``from ...`` would resolve under the repo-root layout
+        # — the only layout where this fallback fires, since the flat
+        # ``import slice_green_gate`` above succeeds under the deployed
+        # one — but it is a package-depth assertion this module cannot
+        # make: under the deployed layout it reaches beyond top-level,
+        # which its own ``import routes.pipelines`` implies. The
+        # absolute form names the module under the layout that runs it
+        # and stays inert under the one that doesn't. Mirrors the
+        # ``global_slice_admit`` pair in ``_run_implement.py``, the
+        # module this helper was extracted from.
         from orchestrator import slice_green_gate as _green_gate  # type: ignore[no-redef]
 
     green_gate_failure = _green_gate.run_slice_green_gate(
