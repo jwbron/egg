@@ -135,6 +135,14 @@ class KubernetesMonitor:
         self._driver_liveness_alerted: dict[str, float] = {}
         self._driver_liveness_realert_seconds: float = 3600.0
 
+        # #3596 slice-1a: detection-plane evaluation idempotency guard.
+        # _run_runtime_tick_checks fires from two call sites (_check_pod on
+        # container transitions + _reconciliation_sweep on periodic interval).
+        # Track the last evaluation timestamp per pipeline so we don't
+        # double-evaluate within the same tick window.
+        self._detection_plane_last_eval: dict[str, float] = {}
+        self._detection_plane_eval_window: float = 30.0  # seconds
+
     def add_handler(self, handler: EventHandler) -> None:
         """Add an event handler.
 
@@ -259,6 +267,14 @@ class KubernetesMonitor:
                         results = runner.run(ctx, HealthTrigger.RUNTIME_TICK)
                         self._handle_consensus_stall_recovery(results, pipeline, store)
                         self._handle_driver_liveness_results(results, pipeline, store)
+
+                        # #3596 slice-1a: evaluate the deterministic detection
+                        # plane on each RUNTIME_TICK. Idempotent per pipeline
+                        # within the eval window to avoid double-evaluation
+                        # from the two call sites (_check_pod + _reconciliation_sweep).
+                        self._run_detection_plane_for_pipeline(
+                            runner, ctx, pipeline, store
+                        )
                     except Exception as e:
                         logger.debug(
                             "RUNTIME_TICK check failed for pipeline",
@@ -1049,6 +1065,59 @@ class KubernetesMonitor:
                 "Failed to broadcast driver-liveness alert (non-fatal)",
                 pipeline_id=pipeline_id,
                 error=str(alert_err),
+            )
+
+    def _run_detection_plane_for_pipeline(
+        self,
+        runner: Any,
+        ctx: Any,
+        pipeline: Any,
+        store: Any,
+    ) -> None:
+        """Evaluate the deterministic detection plane for a single pipeline (#3596 slice-1a).
+
+        Builds a snapshot from the health context, evaluates the default
+        detection plane, and emits findings on the event bus. Idempotent per
+        pipeline within the eval window to avoid double-evaluation from the
+        two call sites of ``_run_runtime_tick_checks``.
+
+        Best-effort: any failure logs and returns — must never crash the
+        runtime tick sweep.
+        """
+        pipeline_id = getattr(pipeline, "id", "")
+        if not pipeline_id:
+            return
+
+        now = time.monotonic()
+        last_eval = self._detection_plane_last_eval.get(pipeline_id, 0.0)
+        if now - last_eval < self._detection_plane_eval_window:
+            return
+        self._detection_plane_last_eval[pipeline_id] = now
+
+        try:
+            from health_checks.detection_plane import (
+                default_detection_plane,
+                snapshot_from_health_context,
+            )
+
+            plane = default_detection_plane()
+            snapshot = snapshot_from_health_context(ctx)
+            findings = runner.run_detection_plane(
+                snapshot, plane, pipeline_id=pipeline_id
+            )
+            for finding in findings:
+                logger.info(
+                    "Detection plane finding",
+                    pipeline_id=pipeline_id,
+                    finding_class=finding.finding_class,
+                    severity=finding.severity,
+                    requires_adjudication=finding.requires_adjudication,
+                )
+        except Exception as e:
+            logger.debug(
+                "Detection plane evaluation failed for pipeline",
+                pipeline_id=pipeline_id,
+                error=str(e),
             )
 
     @staticmethod

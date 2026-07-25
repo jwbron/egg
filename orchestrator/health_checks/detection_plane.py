@@ -566,23 +566,41 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
         for cid in live_ids
     )
 
-    # Enrich with git_state, container_transitions, decision_state, raw.runtime.
-    git_state = _build_git_state(context, pipeline, phase_value, cid_to_role)
+    # Enrich with git_state, container_transitions, decision_state, raw.runtime,
+    # consensus, and midturn_messages.
+    git_state = _build_git_state(context, pipeline, pipeline_id, phase_value, cid_to_role)
     container_transitions = _build_container_transitions(pipeline_id)
     decision_state = _build_decision_state(pipeline_id, pipeline)
     raw = _build_raw_runtime(pipeline_id, pipeline, phase_value)
+    consensus = _build_consensus_state(pipeline_id)
+    midturn_messages = _build_midturn_messages(pipeline_id)
 
-    return EventStreamSnapshot(
+    # Merge consensus and midturn_messages into raw for forward compatibility.
+    if consensus:
+        raw.setdefault("consensus", {}).update(consensus)
+    if midturn_messages:
+        raw["midturn_messages"] = midturn_messages
+
+    snapshot = EventStreamSnapshot(
         snapshot_id=f"{pipeline_id}:{phase_value}",
         pipeline_id=str(pipeline_id),
         phase=str(phase_value),
         running_agents=running_agents,
         phase_state=phase_state,
+        consensus=consensus,
         git_state=git_state,
         container_transitions=container_transitions,
         decision_state=decision_state,
+        midturn_messages=midturn_messages,
         raw=raw,
     )
+
+    # Attach the pipeline reference for detectors that need to walk the
+    # pipeline model (e.g. forward_progress no-commits-at-completion).
+    # EventStreamSnapshot is frozen, so use object.__setattr__ to bypass.
+    object.__setattr__(snapshot, "_pipeline_ref", pipeline)
+
+    return snapshot
 
 
 def _context_lifecycle_owner(context: Any, pipeline: Any) -> str:
@@ -776,13 +794,17 @@ def _build_running_agent(
 
 
 def _build_git_state(
-    context: Any, pipeline: Any, phase_value: str, cid_to_role: dict[str, str]
+    context: Any, pipeline: Any, pipeline_id: str, phase_value: str, cid_to_role: dict[str, str]
 ) -> dict[str, Any]:
     """Populate ``git_state`` with commit counts and branch info.
 
     Runs ``git rev-list --count`` per agent worktree to get per-agent commit
     counts, plus branch-level info for divergence detection. Best-effort:
     any git failure degrades to an empty dict.
+
+    Also populates ``agent_prev_commit_counts`` from the module-level
+    ``_prev_commit_counts`` tracking dict, which stores the last-seen commit
+    count per agent per pipeline across snapshot evaluations.
     """
     try:
         repo_path = getattr(context, "repo_path", None)
@@ -804,6 +826,14 @@ def _build_git_state(
             git_state["agent_commit_counts"] = agent_commit_counts
         if agent_last_commit_age_s:
             git_state["agent_last_commit_age_s"] = agent_last_commit_age_s
+
+        # Previous commit counts (for forward-progress reset detection)
+        prev_counts = _prev_commit_counts.get(pipeline_id, {})
+        if prev_counts:
+            git_state["agent_prev_commit_counts"] = dict(prev_counts)
+
+        # Update the tracking dict for the next snapshot
+        _prev_commit_counts[pipeline_id] = dict(agent_commit_counts)
 
         # Branch-level info (for worktree_branch detectors)
         branch_info = _query_branch_git_state(repo_path, pipeline, phase_value)
@@ -1079,6 +1109,88 @@ def _build_decision_state(pipeline_id: str, pipeline: Any) -> dict[str, Any]:
         }
     except Exception:  # noqa: BLE001 — defensive
         return {}
+
+
+def _build_consensus_state(pipeline_id: str) -> dict[str, Any]:
+    """Populate ``consensus`` from the PeerConsensusTracker.
+
+    Returns a dict with: ``blocking_agents``, ``is_complete``,
+    ``nack_cycles``, ``latest_proposal_age_s``, ``has_proposed``,
+    ``has_confirmed``. Best-effort: failures degrade to empty dict.
+    """
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+
+        tracker = get_peer_consensus_tracker(pipeline_id)
+        if tracker is None:
+            return {}
+
+        evaluation = tracker.evaluate()
+        result: dict[str, Any] = {
+            "blocking_agents": evaluation.get("blocking_agents", []),
+            "is_complete": evaluation.get("is_complete", False),
+            "nack_cycles": evaluation.get("nack_cycles", 0),
+        }
+
+        # Latest proposal age
+        latest_proposal = tracker.get_latest_proposal_timestamp()
+        if latest_proposal is not None:
+            from datetime import UTC, datetime
+
+            if isinstance(latest_proposal, datetime):
+                if latest_proposal.tzinfo is None:
+                    latest_proposal = latest_proposal.replace(tzinfo=UTC)
+                result["latest_proposal_age_s"] = (
+                    datetime.now(UTC) - latest_proposal
+                ).total_seconds()
+
+        # Has proposed / has confirmed
+        result["has_proposed"] = len(evaluation.get("blocking_agents", [])) > 0 or result["is_complete"]
+        result["has_confirmed"] = result["is_complete"]
+
+        return result
+    except Exception:  # noqa: BLE001 — defensive
+        return {}
+
+
+def _build_midturn_messages(pipeline_id: str) -> tuple[dict[str, Any], ...]:
+    """Populate ``midturn_messages`` from the message store.
+
+    Returns a tuple of message dicts with ``from_role``, ``message_type``,
+    ``subject``, and ``timestamp``. Limited to the most recent 100 messages
+    to keep the snapshot size bounded. Best-effort: failures degrade to
+    empty tuple.
+    """
+    try:
+        from message_store import get_message_store
+
+        store = get_message_store()
+        if store is None:
+            return ()
+
+        messages = store.get_messages(pipeline_id, limit=100)
+        result: list[dict[str, Any]] = []
+        for msg in messages:
+            result.append({
+                "from_role": str(getattr(msg, "from_role", "")),
+                "to_role": str(getattr(msg, "to_role", "")),
+                "message_type": str(getattr(msg, "message_type", "")),
+                "subject": str(getattr(msg, "subject", "")),
+                "timestamp": getattr(msg, "timestamp", None),
+            })
+        return tuple(result)
+    except Exception:  # noqa: BLE001 — defensive
+        return ()
+
+
+# Module-level tracking for previous commit counts across snapshots.
+# Keyed by pipeline_id, stores {role: commit_count} from the last evaluation.
+_prev_commit_counts: dict[str, dict[str, int]] = {}
+
+
+def _reset_prev_commit_counts(pipeline_id: str) -> None:
+    """Reset previous commit count tracking for a pipeline."""
+    _prev_commit_counts.pop(pipeline_id, None)
 
 
 # Default expected phase durations (seconds) when no config is available.

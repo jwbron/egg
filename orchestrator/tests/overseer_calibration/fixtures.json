@@ -3249,7 +3249,7 @@
       "expected": {
         "finding_class": "forward_progress_stall",
         "severity": "medium",
-        "requires_adjudication": false
+        "requires_adjudication": true
       },
       "notes": "A coder agent has been RUNNING for 15+ minutes with a stable commit count of 5. The forward-progress detector should fire a stall finding.",
       "snapshot": {
@@ -3364,7 +3364,7 @@
       "expected": {
         "finding_class": "forward_progress_reset",
         "severity": "high",
-        "requires_adjudication": false
+        "requires_adjudication": true
       },
       "notes": "A coder agent commit count decreased from 10 to 3, indicating work was silently discarded (the #3506 scenario). The forward-progress detector should fire a reset finding.",
       "snapshot": {
@@ -3411,6 +3411,152 @@
           "commit_count": 3,
           "last_commit_sha": "xyz789",
           "last_commit_at": "2026-07-25T05:00:00+00:00"
+        }
+      }
+    },
+    {
+      "row_id": "forward_progress_brc_absence__bad",
+      "label": "known_bad",
+      "incident": "agent active but no BRC progress for 1+ hours",
+      "pins": [
+        "#3596"
+      ],
+      "detector_key": "forward_progress",
+      "delivered_in_slice": 8,
+      "expected": {
+        "finding_class": "brc_progress_absence",
+        "severity": "high",
+        "requires_adjudication": true
+      },
+      "notes": "A coder agent has recent commits (last 60s) but no CONSENSUS_PROPOSE or CONSENSUS_CONFIRMED message in the current phase for 2+ hours. The forward-progress detector should fire a BRC-progress-absence finding.",
+      "snapshot": {
+        "snapshot_id": "forward_progress_brc_absence__bad",
+        "pipeline_id": "issue-3596",
+        "phase": "implement",
+        "running_agents": [
+          {
+            "role": "coder",
+            "state": "running",
+            "lifecycle_owner": "orchestrator",
+            "exit_code": null,
+            "exit_reason": null,
+            "last_tool_call_age_s": 60,
+            "last_heartbeat_age_s": 30
+          }
+        ],
+        "consensus": {},
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 7200,
+          "lifecycle_owner": "orchestrator",
+          "awaiting_spawn": false,
+          "expected_duration_s": 3600
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {},
+        "cost_counters": {},
+        "midturn_messages": [
+          {
+            "from_role": "tester",
+            "to_role": "all",
+            "message_type": "CONSENSUS_PROPOSE",
+            "subject": "Proposal from tester",
+            "timestamp": "2026-07-25T04:00:00+00:00"
+          }
+        ],
+        "git_state": {
+          "agent_commit_counts": {
+            "coder": 5
+          },
+          "agent_last_commit_age_s": {
+            "coder": 60
+          },
+          "branch": "egg/issue-3596/work",
+          "commit_count": 5,
+          "last_commit_sha": "abc123",
+          "last_commit_at": "2026-07-25T06:00:00+00:00"
+        },
+        "raw": {
+          "runtime": {
+            "run_pipeline_thread_alive": true,
+            "thread_last_tick_age_s": 15,
+            "spawn_age_s": 120
+          }
+        }
+      }
+    },
+    {
+      "row_id": "forward_progress_brc_absence__normal",
+      "label": "known_normal",
+      "incident": "agent active with recent BRC progress",
+      "pins": [
+        "#3596"
+      ],
+      "detector_key": "forward_progress",
+      "delivered_in_slice": 8,
+      "expected": null,
+      "notes": "A coder agent has recent commits (last 60s) and a recent CONSENSUS_PROPOSE message (last 120s). The forward-progress detector should not fire.",
+      "snapshot": {
+        "snapshot_id": "forward_progress_brc_absence__normal",
+        "pipeline_id": "issue-3596",
+        "phase": "implement",
+        "running_agents": [
+          {
+            "role": "coder",
+            "state": "running",
+            "lifecycle_owner": "orchestrator",
+            "exit_code": null,
+            "exit_reason": null,
+            "last_tool_call_age_s": 60,
+            "last_heartbeat_age_s": 30
+          }
+        ],
+        "consensus": {},
+        "phase_state": {
+          "status": "RUNNING",
+          "started_age_s": 7200,
+          "lifecycle_owner": "orchestrator",
+          "awaiting_spawn": false,
+          "expected_duration_s": 3600
+        },
+        "decision_state": {
+          "pending_hitl": false,
+          "open_decisions": 0
+        },
+        "container_transitions": [],
+        "gateway_error_counters": {},
+        "cost_counters": {},
+        "midturn_messages": [
+          {
+            "from_role": "coder",
+            "to_role": "all",
+            "message_type": "CONSENSUS_PROPOSE",
+            "subject": "Proposal from coder",
+            "timestamp": "2026-07-25T06:00:00+00:00"
+          }
+        ],
+        "git_state": {
+          "agent_commit_counts": {
+            "coder": 5
+          },
+          "agent_last_commit_age_s": {
+            "coder": 60
+          },
+          "branch": "egg/issue-3596/work",
+          "commit_count": 5,
+          "last_commit_sha": "abc123",
+          "last_commit_at": "2026-07-25T06:00:00+00:00"
+        },
+        "raw": {
+          "runtime": {
+            "run_pipeline_thread_alive": true,
+            "thread_last_tick_age_s": 15,
+            "spawn_age_s": 120
+          }
         }
       }
     }
