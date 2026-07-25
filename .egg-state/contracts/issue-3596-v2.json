@@ -468,7 +468,7 @@
         {
           "id": "task-4-2",
           "description": "Test for get_status enrichment with forward-progress signals and alerts.",
-          "status": "pending",
+          "status": "complete",
           "commit": "4a02ece9b",
           "checkpoint_id": null,
           "notes": "",
@@ -1326,6 +1326,17 @@
       "old_value": null,
       "new_value": "4a02ece9b",
       "reason": "Linked commit 4a02ece to task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T06:47:08.016251Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-2 as complete",
       "checkpoint_id": null
     }
   ],
