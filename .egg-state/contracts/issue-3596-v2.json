@@ -339,7 +339,7 @@
         {
           "id": "task-2-2",
           "description": "Test for forward-progress detector.",
-          "status": "pending",
+          "status": "complete",
           "commit": "4a02ece9b",
           "checkpoint_id": null,
           "notes": "",
@@ -1282,6 +1282,17 @@
       "old_value": null,
       "new_value": "4a02ece9b",
       "reason": "Linked commit 4a02ece to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T06:46:56.321442Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-2 as complete",
       "checkpoint_id": null
     }
   ],
