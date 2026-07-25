@@ -133,6 +133,12 @@ def _await_terminating_event_jobs(
     retries on the next poll, so a slow reap costs a poll interval rather
     than the silent vanish this whole path exists to prevent.
 
+    Each of those outcomes is logged for what it actually is, matching the
+    taxonomy the restart route applies: "still present" is only claimed
+    after a wait ran and observed the Job, and the two paths that skip the
+    wait entirely — no helper on the client, budget already spent — say so
+    instead of borrowing an observation they never made.
+
     The wait runs on the event-loop poll thread, so it delays the roles
     handled later in the same ``poll_once`` pass by up to the budget. That
     is the accepted tradeoff: the wait is bounded, only reachable when a
@@ -150,6 +156,19 @@ def _await_terminating_event_jobs(
         return
     waiter = getattr(self.k8s, "wait_for_job_gone", None)
     if waiter is None:
+        # Defensive: ``KubernetesClient`` implements ``wait_for_job_gone``,
+        # so this guards a future/alternate backend. Logged rather than
+        # returned silently — the spawn proceeds into a window that may 409,
+        # and the operator should be able to see why nothing waited.
+        logger.warning(
+            "Event spawn: teardown wait not performed; terminating Job(s) unobserved",
+            pipeline_id=pipeline_id,
+            role=role,
+            action=action,
+            dedupe_key=dedupe_key,
+            terminating=len(terminating),
+            reason="no_wait_helper",
+        )
         return
     logger.info(
         "Event spawn: waiting for terminating Job(s) to be reaped before respawn",
@@ -166,20 +185,30 @@ def _await_terminating_event_jobs(
             continue
         remaining = deadline - _pkg.time.monotonic()
         if remaining <= 0:
-            gone = False
-        else:
-            try:
-                gone = bool(waiter(job_name, self._namespace, timeout_s=remaining))
-            except Exception as exc:  # noqa: BLE001 — the wait is best-effort
-                logger.warning(
-                    "Failed to wait out a terminating event Job; spawning anyway",
-                    pipeline_id=pipeline_id,
-                    role=role,
-                    dedupe_key=dedupe_key,
-                    job_name=job_name,
-                    error=str(exc),
-                )
-                continue
+            # No wait ran for this Job, so "still present" is not ours to
+            # claim — the snapshot said terminating, nothing observed since.
+            logger.warning(
+                "Event spawn: teardown wait not performed; terminating Job unobserved",
+                pipeline_id=pipeline_id,
+                role=role,
+                action=action,
+                dedupe_key=dedupe_key,
+                job_name=job_name,
+                reason="budget_exhausted",
+            )
+            continue
+        try:
+            gone = bool(waiter(job_name, self._namespace, timeout_s=remaining))
+        except Exception as exc:  # noqa: BLE001 — the wait is best-effort
+            logger.warning(
+                "Failed to wait out a terminating event Job; spawning anyway",
+                pipeline_id=pipeline_id,
+                role=role,
+                dedupe_key=dedupe_key,
+                job_name=job_name,
+                error=str(exc),
+            )
+            continue
         if not gone:
             logger.warning(
                 "Terminating event Job still present; spawn may 409 and retry next poll",

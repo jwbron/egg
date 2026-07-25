@@ -2493,6 +2493,71 @@ class TestSpawnEventJobOneShot:
 
         assert mock_k8s_client.create_container.call_count == 1
 
+    def test_spent_wait_budget_is_not_reported_as_an_observation(self, spawner, mock_k8s_client):
+        """A Job the wait never ran for is "unobserved", not "still present" (#3597).
+
+        "Terminating event Job still present" asserts a wait ran and found
+        the Job there. When the shared budget is already spent, no wait ran
+        at all, so that message is unsupportable — the same taxonomy the
+        restart route applies on its side of this fix.
+        """
+        mock_k8s_client.list_jobs.return_value = [self._terminating_job()]
+        # A waiter that WOULD confirm, to prove the budget check short-circuits
+        # before it rather than the wait quietly succeeding.
+        mock_k8s_client.wait_for_job_gone.return_value = True
+
+        with (
+            patch("kubernetes_spawner._events._EVENT_JOB_TERMINATION_WAIT_S", 0.0),
+            patch("kubernetes_spawner._events.logger") as mock_logger,
+        ):
+            spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key=self._KEY,
+                slice_id="slice-2",
+                phase="implement",
+                repos=["owner/repo"],
+            )
+
+        # Exhausting the budget never blocks the spawn — that is the whole point.
+        assert mock_k8s_client.create_container.call_count == 1
+        mock_k8s_client.wait_for_job_gone.assert_not_called()
+        calls = mock_logger.warning.call_args_list
+        messages = [c.args[0] for c in calls if c.args]
+        assert any("teardown wait not performed" in m for m in messages)
+        assert [c.kwargs.get("reason") for c in calls] == ["budget_exhausted"]
+        assert not any("still present" in m for m in messages)
+
+    def test_missing_wait_helper_is_logged_not_silently_skipped(self, spawner, mock_k8s_client):
+        """A backend without the wait helper says so (#3597).
+
+        The docstring promised "on timeout (or a k8s client without the wait
+        helper) we log and let the spawn proceed"; the no-helper arm returned
+        bare, so the spawn walked into a possible 409 with nothing in the log
+        explaining why nothing waited.
+        """
+        mock_k8s_client.list_jobs.return_value = [self._terminating_job()]
+        # ``getattr(..., None)`` only yields None if the attribute is really
+        # absent — a bare MagicMock would hand back an auto-attribute.
+        del mock_k8s_client.wait_for_job_gone
+
+        with patch("kubernetes_spawner._events.logger") as mock_logger:
+            spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key=self._KEY,
+                slice_id="slice-2",
+                phase="implement",
+                repos=["owner/repo"],
+            )
+
+        assert mock_k8s_client.create_container.call_count == 1
+        calls = mock_logger.warning.call_args_list
+        assert [c.kwargs.get("reason") for c in calls] == ["no_wait_helper"]
+        assert not any("still present" in c.args[0] for c in calls if c.args)
+
     def test_live_job_is_adopted_without_any_wait(self, spawner, mock_k8s_client):
         """The unchanged common path: a genuinely live Job is still adopted.
 

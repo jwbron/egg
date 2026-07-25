@@ -1048,6 +1048,125 @@ class TestRestartAgentEndpoint:
         # And it is a wait failure, not a listing failure.
         assert not any("Failed to list live one-shot Jobs" in msg for msg in warnings)
 
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_reports_a_missing_wait_helper_once(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """A backend without the wait helper is one fact, logged once (#3597).
+
+        The capability is loop-invariant, so checking it per deleted Job would
+        emit N identical warnings for a single backend limitation. And it is a
+        no-observation path: the teardown must be reported unconfirmed, not
+        borrowed from the "still terminating" message that implies a wait ran.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        first = MagicMock()
+        first.job_name = "egg-agent-issue-100-coder-aaaaaaaa"
+        first.container_id = "uid-1"
+        second = MagicMock()
+        second.job_name = "egg-agent-issue-100-coder-bbbbbbbb"
+        second.container_id = "uid-2"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [first, second]
+        mock_spawner.k8s.namespace = "egg-agents"
+        # ``getattr(..., None)`` only yields None when the attribute is really
+        # absent — a bare MagicMock would hand back an auto-attribute.
+        del mock_spawner.k8s.wait_for_job_gone
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with (
+            patch("event_loop.get_live_event_loops", return_value=[]),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        # Both deletes landed; only the observation is missing.
+        assert data["jobs_torn_down"] == 2
+        assert data["teardown_confirmed"] is False
+        calls = mock_logger.warning.call_args_list
+        not_performed = [c for c in calls if c.args and "teardown wait not performed" in c.args[0]]
+        assert len(not_performed) == 1, "one backend-capability fact, one log line"
+        assert not_performed[0].kwargs["reason"] == "no_wait_helper"
+        assert not_performed[0].kwargs["jobs"] == 2
+        messages = [c.args[0] for c in calls if c.args]
+        assert not any("still terminating after teardown wait" in m for m in messages)
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_reports_a_spent_wait_budget_as_unobserved(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """A Job the wait never ran for is unobserved, not "still terminating" (#3597).
+
+        The budget is shared across every deleted Job, so a slow first wait can
+        leave later Jobs with nothing left. No wait ran for them, so the route
+        must not claim it looked and found them present.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        live_job = MagicMock()
+        live_job.job_name = "egg-agent-issue-100-coder-aaaaaaaa"
+        live_job.container_id = "uid-1"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [live_job]
+        mock_spawner.k8s.namespace = "egg-agents"
+        # A waiter that WOULD confirm, so a green result could only come from
+        # the budget check failing to short-circuit.
+        mock_spawner.k8s.wait_for_job_gone.return_value = True
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with (
+            patch("event_loop.get_live_event_loops", return_value=[]),
+            patch("routes.pipelines._routes_restart._JOB_TEARDOWN_WAIT_SECONDS", 0.0),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        assert response.get_json()["data"]["teardown_confirmed"] is False
+        mock_spawner.k8s.wait_for_job_gone.assert_not_called()
+        calls = mock_logger.warning.call_args_list
+        not_performed = [c for c in calls if c.args and "teardown wait not performed" in c.args[0]]
+        assert len(not_performed) == 1
+        assert not_performed[0].kwargs["reason"] == "budget_exhausted"
+        assert not_performed[0].kwargs["job_name"] == "egg-agent-issue-100-coder-aaaaaaaa"
+        messages = [c.args[0] for c in calls if c.args]
+        assert not any("still terminating after teardown wait" in m for m in messages)
+
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")

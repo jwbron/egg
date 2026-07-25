@@ -426,8 +426,27 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
         # ``getattr`` so a backend without the wait helper reports an
         # unconfirmed teardown rather than raising into the list-failure
         # handler below (which would log a misleading "failed to list").
+        #
+        # Defensive, and loop-invariant: ``KubernetesClient`` implements
+        # ``wait_for_job_gone``, so this is unreachable against the production
+        # client for the same reason as the ``addressable=False`` branch below
+        # — it guards a future/alternate backend. Checked ONCE, above the loop:
+        # a helper-less backend is a single backend-capability fact, not N
+        # per-Job teardown failures, so it earns one log line.
         waiter = getattr(spawner.k8s, "wait_for_job_gone", None)
-        for name, addressable in deleted_names:
+        pending_waits = deleted_names
+        if pending_waits and waiter is None:
+            teardown_confirmed = False
+            _pkg.logger.warning(
+                "restart_agent: teardown wait not performed; teardown unobserved",
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+                slice_id=slice_id,
+                jobs=len(pending_waits),
+                reason="no_wait_helper",
+            )
+            pending_waits = []
+        for name, addressable in pending_waits:
             if not addressable:
                 # The listing carried no ``job_name``, so the only handle we
                 # have is the container id. ``wait_for_job_gone`` normalizes
@@ -458,7 +477,7 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
             # observation the code never made — that message is only supportable
             # after a wait actually ran and reported the Job still present.
             remaining = deadline - _pkg.time.monotonic()
-            if waiter is None or remaining <= 0:
+            if remaining <= 0:
                 teardown_confirmed = False
                 _pkg.logger.warning(
                     "restart_agent: teardown wait not performed; teardown unobserved",
@@ -466,7 +485,7 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
                     agent_role=agent_role,
                     slice_id=slice_id,
                     job_name=name,
-                    reason=("no_wait_helper" if waiter is None else "budget_exhausted"),
+                    reason="budget_exhausted",
                 )
                 continue
             try:
