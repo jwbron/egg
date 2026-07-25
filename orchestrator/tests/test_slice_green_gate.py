@@ -184,10 +184,35 @@ class TestInfraFailOpenEnabled:
         gate_env.setenv(sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, value)
         assert sgg._infra_fail_open_enabled() is False
 
-    @pytest.mark.parametrize("value", ["on", "1", "true", "", "banana"])
-    def test_everything_else_is_on(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
+    @pytest.mark.parametrize("value", ["on", "ON", " 1 ", "true", "yes", "", "   "])
+    def test_enabled_values(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
         gate_env.setenv(sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, value)
         assert sgg._infra_fail_open_enabled() is True
+
+    @pytest.mark.parametrize("value", ["banana", "offf", "disabled", "fals"])
+    def test_unrecognised_values_degrade_to_default_with_a_warning(
+        self, gate_env: pytest.MonkeyPatch, value: str
+    ) -> None:
+        """A typo resolves to the lenient default, but never silently.
+
+        ``"offf"`` / ``"fals"`` are the realistic shapes: an operator
+        reaching for the strict every-red-blocks posture lands back on
+        fail-open, so the resolution needs a log line — same posture
+        ``green_gate_mode`` takes on its own unrecognised values.
+        """
+        gate_env.setenv(sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, value)
+        with patch.object(sgg.logger, "warning") as warn:
+            assert sgg._infra_fail_open_enabled() is True
+        assert warn.call_count == 1
+        assert warn.call_args.kwargs["value"] == value
+        assert warn.call_args.kwargs["env_var"] == sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR
+
+    @pytest.mark.parametrize("value", ["on", "off", ""])
+    def test_recognised_values_do_not_warn(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
+        gate_env.setenv(sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, value)
+        with patch.object(sgg.logger, "warning") as warn:
+            sgg._infra_fail_open_enabled()
+        assert warn.call_count == 0
 
 
 class TestGateTimeout:

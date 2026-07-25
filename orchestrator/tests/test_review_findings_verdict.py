@@ -16,7 +16,9 @@ Per task-3-2 acceptance, this file exercises the pure-layer half:
 - mechanism-level dedup attaches >=2 producing lenses to a merged finding and
   raises its confidence;
 - ``review_findings_mode`` resolves a flag typo to ``off`` (never silently to
-  ``on``), exactly like ``slice_green_gate.green_gate_mode``;
+  ``on``) — the shared staged ``off``/``log``/``on`` shape, but with an
+  ``off``-default, unlike ``slice_green_gate.green_gate_mode`` which now
+  defaults to ``log`` and degrades a typo to ``log`` + a warning;
 - ``verdict_log_record`` records the computed verdict against the legacy one.
 
 The matrix-integration half (``record_findings_verdict`` routing + the

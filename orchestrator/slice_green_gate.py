@@ -88,6 +88,14 @@ latency grows by the check duration (bounded by
 gate fails open). ``off`` remains available for deployments that cannot
 absorb that.
 
+Whoever watches the rollout should know the worst case is **not** a slow
+check suite: it is a runner pod that never schedules. ``_wait_for_runner_pod``
+waits ``timeout + _POD_SCHEDULING_GRACE_SECONDS`` (~32 min at the defaults)
+before failing open, so a capacity-starved cluster pays that in dead time on
+*every* slice close, in every deployment, from the moment this default lands.
+Someone should watch the first wave directly rather than discovering the cost
+from a slice-throughput drop later; ``off`` is the escape hatch.
+
 The check toolchain is the **repo-defined** one, not the sandbox
 image's: ``repositories.yaml::build_commands`` builds the repo's pinned
 dev environment at image build (e.g. egg's ``make sandbox-deps`` →
@@ -150,8 +158,11 @@ _DEFAULT_SKIP_CHECKS = "security"
 # red verdict where every failed check matches an infra signature fails
 # open instead of blocking. "off" (or 0/false/no) restores the strict
 # pre-#3417 behavior where every red blocks. Any other value degrades
-# to the default, matching green_gate_mode's typo posture.
+# to the default *and logs a warning*, matching green_gate_mode's typo
+# posture on both the resolution and the signal: the typo direction
+# here is strict -> lenient, so it must not be silent.
 GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR = "EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN"
+_INFRA_FAIL_OPEN_ENABLED_VALUES = frozenset({"on", "1", "true", "yes"})
 _INFRA_FAIL_OPEN_DISABLED_VALUES = frozenset({"off", "0", "false", "no"})
 
 # Exact output signatures that identify an infrastructure fault inside a
@@ -402,11 +413,26 @@ def _infra_fail_open_enabled() -> bool:
     """Resolve the #3417 infra-red fail-open switch (default on).
 
     Only the exact disabled values turn it off; anything else degrades
-    to the default. Mirrors ``green_gate_mode``'s posture: an operator
-    typo resolves to the documented default behavior.
+    to the default *and logs a warning*. Mirrors ``green_gate_mode``'s
+    posture on both counts: an operator typo resolves to the documented
+    default behavior, and it never does so silently. That matters more
+    here than for the mode switch, because the typo direction is
+    strict-every-red-blocks -> lenient-infra-reds-fail-open: an operator
+    reaching for ``off`` and typing ``offf`` would otherwise get the
+    lenient posture with no signal.
     """
     raw = os.environ.get(GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, "on").strip().lower()
-    return raw not in _INFRA_FAIL_OPEN_DISABLED_VALUES
+    if not raw or raw in _INFRA_FAIL_OPEN_ENABLED_VALUES:
+        return True
+    if raw in _INFRA_FAIL_OPEN_DISABLED_VALUES:
+        return False
+    logger.warning(
+        "Unrecognised green-gate infra-fail-open switch value; "
+        "falling back to the default (fail open on all-infra reds)",
+        env_var=GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR,
+        value=raw,
+    )
+    return True
 
 
 def _gate_checks(repo: str) -> list[dict[str, str]]:

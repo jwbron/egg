@@ -3,9 +3,10 @@
 Slice-5 (``orchestrator/risk_router.py``) is the PURE half — a deterministic
 function from a changed-file set to (lenses, tier, stance). Slice-6 is the
 WIRING half: it threads that pure decision into the live review machinery behind
-the ``EGG_RISK_ROUTER`` staged flag (``off`` default / ``log`` / ``on``, resolved
-exactly like ``slice_green_gate.green_gate_mode()``). The wiring lives in three
-seams:
+the ``EGG_RISK_ROUTER`` staged flag (``off`` default / ``log`` / ``on`` — the
+shared staged shape ``slice_green_gate.green_gate_mode()`` uses, but keeping an
+``off``-default, unlike that resolver which now defaults to ``log``). The wiring
+lives in three seams:
 
 * ``review_graph`` — ``risk_router_mode`` / ``resolve_risk_decision`` /
   ``apply_risk_router`` / ``risk_route_log_record`` and the ``changed_files``
