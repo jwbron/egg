@@ -124,10 +124,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "Yes \u2014 adopt Changes 1+2+3, defer Change 4. Scope confirmed, with four constraints.\n\n1. CHANGES 1 AND 2 SHIP TOGETHER, IN ONE SLICE. Not sequenced across slices, not \"1 now, 2 later\". Per cq-1's resolution the hazard is stale-state replay after resume, and a tree where 1 has landed and 2 has not is a tree where cancel preserves a message stream that reconstruction can replay into a reset round. Landing 1 alone is strictly worse than today's behaviour. If the pair is too large for one slice, that is an argument for making the slice bigger, not for splitting the pair.\n\n2. CHANGE 3 IS INDEPENDENT AND MAY LAND FIRST. Persisting BRC history on cancel has no dependency on the other two and is pure additive insurance. If the slice DAG allows, put it first \u2014 it is the change that makes the next incident diagnosable regardless of what happens to the other two.\n\n3. CHANGE 4 IS DEFERRED, NOT DROPPED. Record why in the plan artifact: per-slice tracker reconstruction is gated on `self._slice_id is None` (`concurrent_executor.py:1935`) with the #2535 rationale that a fresh slice must not inherit a same-named role's confirm. That rationale addresses NEW slices, not resumed ones, so the deferral is a scope call rather than a correctness one and someone should revisit it. Say that in the artifact so the next reader does not have to re-derive it.\n\n4. #3633 IS OUT OF SCOPE FOR THIS PIPELINE. I earlier directed the refiner to treat it as in scope; I am reversing that, and the reversal is deliberate rather than a response to it being missed. #3633 (cancel never stops the driver thread or event loop) is a distinct fix in a different code path, and bundling it would make this plan harder to verify. It stays tracked separately.\n\nOn that last point, a process note for the plan phase: the refine analysis did not address #3633 and did not say it was declining to. When you drop an operator directive, say so explicitly and give the reason. A silently omitted directive is indistinguishable from one that was never read, and this run has already shown how expensive that ambiguity is.\n\nOne more thing to carry forward: the analysis's Fact 5 \u2014 that `restart_phase` calls `_persist_phase_brc_history` with `write_per_slice=False`, so per-slice CONSENSUS_* buckets are never written \u2014 is a genuine finding that was not in the issue. It sharpens Change 3's requirement: persisting on cancel must write the per-slice buckets, or it will reproduce exactly the gap that made the last incident's in-flight slice unrecoverable. Good catch; make sure it survives into the plan.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-25T23:34:54.875935Z",
       "debounce_until": null,
       "redirect_seed": null
     }
