@@ -611,8 +611,9 @@ data:
 > **Which decoding config did this run under?** Every `cost_callback` line
 > also carries `request_params` — the sampling configuration that actually
 > went upstream on that call (`temperature`, `top_p`, `top_k`, the penalty
-> family, `seed`, `max_tokens`, `reasoning_effort`, and the OpenRouter
-> provider pin under `extra_body`). This exists because repetition and
+> family, `seed`, `max_tokens`, the reasoning family — `reasoning_effort`,
+> `reasoning`, `thinking` — and the OpenRouter provider pin under
+> `extra_body`). This exists because repetition and
 > degeneration are decoding-sensitive failure modes: without it, "was that
 > livelock inherent to the model or an unlucky sampling config?" is
 > unanswerable once the pod is gone (issue #3599; it blocked the #3598
@@ -631,47 +632,6 @@ data:
 >
 > Prompt-bearing fields (`messages`, `tools`, `tool_choice`) are excluded by
 > allowlist: the cost stream is not a transcript sink.
-
-> **Trap: `reasoning_effort` in `litellm_params` is usually a silent no-op.**
-> LiteLLM sends it only if it believes the model is reasoning-capable:
-> `OpenrouterConfig.get_supported_openai_params` advertises
-> `reasoning_effort`/`thinking` only when `litellm.supports_reasoning(model)`
-> is true, and that reads LiteLLM's built-in model-cost map. **A model absent
-> from that map answers `False`**, so the gate fails closed and
-> `drop_params: true` discards the parameter with no error and no log line.
->
-> Absent is the *normal* state for an OpenRouter slug — verified against the
-> pinned litellm 1.86.2, `qwen/qwen3-max` and `moonshotai/kimi-k2-thinking`
-> are both absent and answer `False`, while `deepseek/deepseek-r1` is present
-> and answers `True`. OpenRouter adds models faster than LiteLLM's map tracks
-> them, so a new slug is unflagged by default and the agent quietly runs at
-> the provider's default reasoning depth.
->
-> Two forms that do reach the wire:
->
-> ```yaml
-> # 1. Flag the model. `model_info` is a SIBLING of litellm_params.
-> - model_name: my-model
->   litellm_params:
->     model: openrouter/vendor/my-model
->     reasoning_effort: high
->   model_info:
->     supports_reasoning: true    # without this, the line above does nothing
->
-> # 2. Or bypass the mapper with OpenRouter's native block, which never
-> #    consults the model map:
->   litellm_params:
->     extra_body:
->       reasoning:
->         effort: "high"
-> ```
->
-> Do **not** reach for `drop_params: false` to force it through — that flag is
-> what stops Anthropic-only fields LiteLLM cannot translate (e.g. `thinking`)
-> from 400ing tool-heavy turns. You would trade a silent no-op for loud
-> request failures. `tests/config/test_litellm_template.py` guards form 1 for
-> the committed template; operator overlays are not in CI, so verify yours
-> against `request_params` in the pod stream.
 
 The `request_params` field on a stock (nothing pinned) OpenRouter route:
 
@@ -693,6 +653,70 @@ kubectl logs -n egg-system deploy/litellm \
             | {model: .context.model, params: .context.request_params}' \
   | sort -u
 ```
+
+> **Trap: on `openrouter/*`, `reasoning_effort` in `litellm_params` is a
+> silent no-op unless the model is flagged.** LiteLLM sends it only if it
+> believes the model is reasoning-capable:
+> `OpenrouterConfig.get_supported_openai_params` advertises
+> `reasoning_effort`/`thinking` — both under the same condition — only when
+> `litellm.supports_reasoning(model)` is true, and that reads LiteLLM's
+> built-in model-cost map. **A model absent from that map answers `False`**,
+> so the gate fails closed and `drop_params: true` discards the parameter with
+> no error and no log line.
+>
+> Absent is the *normal* state for an OpenRouter slug — verified against the
+> pinned litellm 1.86.2, `qwen/qwen3-max` and `moonshotai/kimi-k2-thinking`
+> are both absent and answer `False`, while `deepseek/deepseek-r1` is present
+> and answers `True`. OpenRouter adds models faster than LiteLLM's map tracks
+> them, so a new slug is unflagged by default and the agent quietly runs at
+> the provider's default reasoning depth.
+>
+> Two forms that do reach the wire. Form 1 — flag the model; `model_info` is a
+> **sibling** of `litellm_params`, not a key inside it (mirror both blocks onto
+> the paired `[1m]` row, omitted here for brevity):
+>
+> ```yaml
+> - model_name: my-model
+>   litellm_params:
+>     model: openrouter/vendor/my-model
+>     reasoning_effort: high
+>   model_info:
+>     supports_reasoning: true    # without this, the line above does nothing
+> ```
+>
+> Form 2 — bypass the mapper with OpenRouter's native block, which never
+> consults the model map:
+>
+> ```yaml
+> - model_name: my-model
+>   litellm_params:
+>     model: openrouter/vendor/my-model
+>     extra_body:
+>       reasoning:
+>         effort: "high"
+> ```
+>
+> Do **not** reach for `drop_params: false` to force it through — that flag is
+> what stops Anthropic-only fields LiteLLM cannot translate (e.g. `thinking`)
+> from 400ing tool-heavy turns, and turning it off does not pass the parameter
+> through anyway: `_check_valid_arg` raises `UnsupportedParamsError` (HTTP 500)
+> instead. You would trade a silent no-op for loud request failures.
+>
+> **Off OpenRouter, `model_info` is not the fix** — `supports_reasoning` is
+> read only by `OpenrouterConfig`. Other providers answer from a static list
+> (`TogetherAIConfig` just subtracts from `OpenAIGPTConfig`'s base list, which
+> carries no `reasoning_effort` at all), so the flag is a placebo there and the
+> parameter is still popped silently. Check that provider's
+> `get_supported_openai_params` before setting the knob; most
+> OpenAI-compatible ones never advertise it.
+>
+> `tests/config/test_litellm_template.py` guards both cases for the committed
+> template. Operator overlays are not in CI, so verify yours against
+> `request_params` above — **and grep for the right key**: form 1 logs
+> `reasoning_effort`, form 2 logs `reasoning` (`cost_callback` hoists it out of
+> `extra_body` to the flat level, so a working form-2 route shows
+> `"reasoning": {"effort": "high"}` and *never* shows `reasoning_effort`).
+> Neither key on real agent traffic means it was dropped.
 
 > **Why the paired `<name>[1m]` row?** Claude Code registers the
 > custom model with a `[1m]` context-window-opt-in suffix

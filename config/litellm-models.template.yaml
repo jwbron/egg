@@ -50,14 +50,14 @@
 #
 # ## reasoning_effort is silently dropped unless the model is flagged
 #
-# `litellm_params.reasoning_effort` reaches the wire only when LiteLLM
-# believes the model is reasoning-capable.
+# On `openrouter/*` routes, `litellm_params.reasoning_effort` reaches
+# the wire only when LiteLLM believes the model is reasoning-capable.
 # `OpenrouterConfig.get_supported_openai_params` advertises
-# `reasoning_effort` / `thinking` only if
-# `litellm.supports_reasoning(model)` is true, and that reads LiteLLM's
-# built-in model-cost map. A model ABSENT from that map answers False —
-# so the gate fails closed, and `drop_params: true` then discards the
-# parameter with no error and no log line.
+# `reasoning_effort` / `thinking` — both under the same condition — only
+# if `litellm.supports_reasoning(model)` is true, and that reads
+# LiteLLM's built-in model-cost map. A model ABSENT from that map
+# answers False — so the gate fails closed, and `drop_params: true` then
+# discards the parameter with no error and no log line.
 #
 # Absent is the NORMAL state for an OpenRouter slug: verified against
 # the pinned litellm 1.86.2, `qwen/qwen3-max` and
@@ -71,7 +71,9 @@
 # Two forms that DO reach the wire (both verified against 1.86.2):
 #
 #   1. Flag the model, then set the param. `model_info` is a sibling of
-#      `litellm_params`, not a key inside it:
+#      `litellm_params`, not a key inside it — and like `litellm_params`
+#      it must be mirrored onto the paired `[1m]` row, or probes and
+#      real traffic run at different reasoning depths:
 #
 #        - model_name: my-model
 #          litellm_params:
@@ -81,12 +83,21 @@
 #            reasoning_effort: high
 #          model_info:
 #            supports_reasoning: true    # REQUIRED, else the line above is a no-op
+#        - model_name: my-model[1m]      # paired alias — see #2832 below
+#          litellm_params:
+#            model: openrouter/vendor/my-model
+#            api_key: os.environ/OPENROUTER_API_KEY
+#            drop_params: true
+#            reasoning_effort: high
+#          model_info:
+#            supports_reasoning: true
 #
 #      This is enforced in CI by tests/config/test_litellm_template.py
 #      for entries in this template.
 #
 #   2. Bypass the mapper with OpenRouter's native shape, which does not
-#      consult the model map at all (see the qwen3-max entry below):
+#      consult the model map at all (see the qwen3-max entry below).
+#      This goes inside `litellm_params`, on BOTH rows:
 #
 #        extra_body:
 #          reasoning:
@@ -94,13 +105,28 @@
 #
 # Do NOT reach for `drop_params: false` to force it through. That flag
 # is what stops Anthropic-only fields LiteLLM cannot translate (e.g.
-# `thinking`) from 400ing tool-heavy turns; turning it off trades a
-# silent no-op for loud request failures.
+# `thinking`) from 400ing tool-heavy turns; turning it off does not pass
+# the parameter through either — `_check_valid_arg` raises
+# `UnsupportedParamsError` (HTTP 500) instead. It trades a silent no-op
+# for loud request failures.
+#
+# OFF OPENROUTER, `model_info` IS NOT THE FIX. `supports_reasoning` is
+# read only by `OpenrouterConfig`; other providers answer from a static
+# list (e.g. `TogetherAIConfig` subtracts from `OpenAIGPTConfig`'s base
+# list, which carries no `reasoning_effort` at all). Setting the flag on
+# a `together_ai/*` row changes nothing and the parameter is still
+# popped silently — so confirm the provider's chat config advertises
+# `reasoning_effort` before setting it. Most OpenAI-compatible ones do
+# not. The CI guard tracks this separately from the OpenRouter case.
 #
 # VERIFY, don't assume: the `cost_callback` logs `request_params` per
 # call, read from LiteLLM's post-mapping params — i.e. what the wire
-# actually carried (#3611). If `reasoning_effort` does not appear there
-# on real agent traffic, it was dropped, whatever this file says.
+# actually carried (#3611). Which key to grep for depends on the form:
+# form 1 shows up as `reasoning_effort`, form 2 as `reasoning` (the
+# callback hoists it out of `extra_body` to the flat level, so a working
+# form-2 route logs `"reasoning": {"effort": "high"}` and NEVER logs
+# `reasoning_effort`). Neither key present on real agent traffic means
+# it was dropped, whatever this file says.
 #
 # Whatever you set here (or leave unset), the bundled `cost_callback`
 # records the sampling config each call actually ran under as
@@ -171,12 +197,14 @@ data:
       # context compaction-math opt-in via
       # `ANTHROPIC_CUSTOM_MODEL_OPTION`; from LiteLLM's side it's
       # just a routing alias pointing at the same backend. Keep the
-      # `litellm_params` block identical to the bare row (the CI guard
-      # in tests/config/test_litellm_template.py compares them as parsed
-      # YAML): if you change any tuning above (`drop_params`, the
-      # `extra_body` provider pin / reasoning), mirror it here too.
-      # Divergence between the two rows means probes and real requests
-      # are quietly served by different configs.
+      # `litellm_params` AND `model_info` blocks identical to the bare
+      # row (the CI guard in tests/config/test_litellm_template.py
+      # compares both as parsed YAML): if you change any tuning above
+      # (`drop_params`, the `extra_body` provider pin / reasoning, or
+      # `model_info.supports_reasoning`), mirror it here too. Divergence
+      # between the two rows means probes and real requests are quietly
+      # served by different configs — for `model_info` specifically, at
+      # different reasoning depths.
       - model_name: qwen3-max[1m]
         litellm_params:
           model: openrouter/qwen/qwen3-max
