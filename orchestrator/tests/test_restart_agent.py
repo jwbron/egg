@@ -750,6 +750,541 @@ class TestRestartAgentEndpoint:
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
+    def test_restart_waits_for_deleted_job_to_actually_be_gone(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """Teardown is observed, not merely requested (#3597).
+
+        Job deletion is asynchronous: ``remove_agent_job`` returns as soon
+        as the API server accepts it, and the Job then lingers in
+        ``Terminating`` — still reporting RUNNING — until its pods are gone.
+        The event loop polls every ~5s, so returning immediately let the
+        next poll match the corpse on its dedupe-key label, adopt it, and
+        decline to respawn: the role silently vanished. The route must wait
+        for the delete it issued to be observed before handing the respawn
+        to the loop, and say so in its response.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        live_job = MagicMock()
+        live_job.job_name = "egg-agent-issue-100-coder-15de0e94"
+        live_job.container_id = "uid-1"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [live_job]
+        mock_spawner.k8s.namespace = "egg-agents"
+        mock_spawner.k8s.wait_for_job_gone.return_value = True
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        live_loop = MagicMock()
+        live_loop.slice_id = None
+        live_loop.invalidate_role_arms.return_value = []
+
+        with patch("event_loop.get_live_event_loops", return_value=[live_loop]):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        mock_spawner.remove_agent_job.assert_called_once_with(
+            "egg-agent-issue-100-coder-15de0e94", force=True
+        )
+        # The deletion we issued was waited out before returning.
+        wait_call = mock_spawner.k8s.wait_for_job_gone.call_args
+        assert wait_call.args[0] == "egg-agent-issue-100-coder-15de0e94"
+        assert wait_call.kwargs["timeout_s"] > 0
+        data = response.get_json()["data"]
+        assert data["jobs_torn_down"] == 1
+        assert data["teardown_confirmed"] is True
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_reports_unconfirmed_teardown_instead_of_claiming_success(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """A teardown that outlives the wait budget is reported, not hidden (#3597).
+
+        The operator-facing complaint in the incident was that the working
+        and the vanished case were indistinguishable. A Job that is still
+        terminating when the route gives up is exactly the case where the
+        respawn may be delayed, so it must not be reported as a clean
+        restart.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        live_job = MagicMock()
+        live_job.job_name = "egg-agent-issue-100-coder-15de0e94"
+        live_job.container_id = "uid-1"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [live_job]
+        mock_spawner.k8s.namespace = "egg-agents"
+        mock_spawner.k8s.wait_for_job_gone.return_value = False
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with patch("event_loop.get_live_event_loops", return_value=[]):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["jobs_torn_down"] == 1
+        assert data["teardown_confirmed"] is False
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_with_nothing_to_tear_down_says_so(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """ "Nothing to kill" is distinguishable from "killed it" (#3597)."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = []
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with patch("event_loop.get_live_event_loops", return_value=[]):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["jobs_torn_down"] == 0
+        # Nothing was deleted, so there is nothing outstanding to wait for.
+        assert data["teardown_confirmed"] is True
+        mock_spawner.k8s.wait_for_job_gone.assert_not_called()
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_does_not_report_a_failed_delete_as_a_clean_teardown(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """A delete that RAISED is not "there was nothing to tear down" (#3597).
+
+        The delete is best-effort and its failure is swallowed, so
+        ``jobs_torn_down`` stays 0 — byte-identical to the genuine clean-exit
+        case above. The Job is in fact still live and NOT terminating, so the
+        next event-loop poll adopts it and no respawn follows: the operator's
+        restart was a complete no-op. ``teardown_confirmed`` is the only field
+        that can carry that, so it must not stay ``True``.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        live_job = MagicMock()
+        live_job.job_name = "egg-agent-issue-100-coder-aaaaaaaa"
+        live_job.container_id = "uid-1"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [live_job]
+        mock_spawner.k8s.namespace = "egg-agents"
+        mock_spawner.remove_agent_job.side_effect = JobOperationError("apiserver rejected delete")
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with patch("event_loop.get_live_event_loops", return_value=[]):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        mock_spawner.remove_agent_job.assert_called_once_with(
+            "egg-agent-issue-100-coder-aaaaaaaa", force=True
+        )
+        data = response.get_json()["data"]
+        # The failure is swallowed, so the count cannot distinguish this case.
+        assert data["jobs_torn_down"] == 0
+        # ... which is exactly why the flag has to.
+        assert data["teardown_confirmed"] is False
+        # Nothing was deleted, so there is nothing to wait on either.
+        mock_spawner.k8s.wait_for_job_gone.assert_not_called()
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_does_not_claim_teardown_it_could_not_observe(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """A Job with no ``job_name`` is unobservable, not confirmed (#3597).
+
+        The fallback handle is the container id (a uid). Waiting on it reads
+        a Job name that never existed, so the read 404s on the first poll and
+        ``wait_for_job_gone`` returns True immediately — "gone" without any
+        observation of the real teardown. The route must not launder that
+        into ``teardown_confirmed: true``.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        live_job = MagicMock()
+        live_job.job_name = None
+        live_job.container_id = "uid-1"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [live_job]
+        mock_spawner.k8s.namespace = "egg-agents"
+        # The uid-as-name read 404s, so a real waiter reports "gone".
+        mock_spawner.k8s.wait_for_job_gone.return_value = True
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with patch("event_loop.get_live_event_loops", return_value=[]):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        mock_spawner.remove_agent_job.assert_called_once_with("uid-1", force=True)
+        data = response.get_json()["data"]
+        assert data["jobs_torn_down"] == 1
+        assert data["teardown_confirmed"] is False
+        # No point burning the budget on a name that cannot 404 meaningfully.
+        mock_spawner.k8s.wait_for_job_gone.assert_not_called()
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_handles_a_raising_teardown_waiter_locally(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """A waiter that raises is an unconfirmed teardown, not a list failure (#3597).
+
+        Mirrors ``_await_terminating_event_jobs`` on the event-loop path: the
+        raise is caught at the wait, so the rest of the deleted Jobs are still
+        waited on and the outer handler's "Failed to list live one-shot Jobs"
+        never fires for what is really a wait failure.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        first = MagicMock()
+        first.job_name = "egg-agent-issue-100-coder-aaaaaaaa"
+        first.container_id = "uid-1"
+        second = MagicMock()
+        second.job_name = "egg-agent-issue-100-coder-bbbbbbbb"
+        second.container_id = "uid-2"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [first, second]
+        mock_spawner.k8s.namespace = "egg-agents"
+        mock_spawner.k8s.wait_for_job_gone.side_effect = [
+            RuntimeError("apiserver blew up"),
+            True,
+        ]
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with patch("event_loop.get_live_event_loops", return_value=[]):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        # The raise did not abort the loop: the second Job was still waited on.
+        assert mock_spawner.k8s.wait_for_job_gone.call_count == 2
+        data = response.get_json()["data"]
+        # Both deletes landed — the raise is a wait failure, not a list failure.
+        assert data["jobs_torn_down"] == 2
+        assert data["teardown_confirmed"] is False
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_does_not_claim_still_terminating_without_a_wait(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """A no-observation path must not log "still terminating" (#3597).
+
+        "Job still terminating after teardown wait" asserts the wait ran and
+        found the Job present. When the waiter raises, no observation was made
+        at all, so that message is unsupportable — the raise branch must clear
+        ``teardown_confirmed`` and move on rather than falling through to it.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        live_job = MagicMock()
+        live_job.job_name = "egg-agent-issue-100-coder-aaaaaaaa"
+        live_job.container_id = "uid-1"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [live_job]
+        mock_spawner.k8s.namespace = "egg-agents"
+        mock_spawner.k8s.wait_for_job_gone.side_effect = RuntimeError("apiserver blew up")
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with (
+            patch("event_loop.get_live_event_loops", return_value=[]),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        assert response.get_json()["data"]["teardown_confirmed"] is False
+        warnings = [call.args[0] for call in mock_logger.warning.call_args_list if call.args]
+        assert any("teardown wait raised" in msg for msg in warnings)
+        # The wait never observed the Job, so the route cannot claim it did.
+        assert not any("still terminating after teardown wait" in msg for msg in warnings)
+        # And it is a wait failure, not a listing failure.
+        assert not any("Failed to list live one-shot Jobs" in msg for msg in warnings)
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_reports_a_missing_wait_helper_once(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """A backend without the wait helper is one fact, logged once (#3597).
+
+        The capability is loop-invariant, so checking it per deleted Job would
+        emit N identical warnings for a single backend limitation. And it is a
+        no-observation path: the teardown must be reported unconfirmed, not
+        borrowed from the "still terminating" message that implies a wait ran.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        first = MagicMock()
+        first.job_name = "egg-agent-issue-100-coder-aaaaaaaa"
+        first.container_id = "uid-1"
+        second = MagicMock()
+        second.job_name = "egg-agent-issue-100-coder-bbbbbbbb"
+        second.container_id = "uid-2"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [first, second]
+        mock_spawner.k8s.namespace = "egg-agents"
+        # ``getattr(..., None)`` only yields None when the attribute is really
+        # absent — a bare MagicMock would hand back an auto-attribute.
+        del mock_spawner.k8s.wait_for_job_gone
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with (
+            patch("event_loop.get_live_event_loops", return_value=[]),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        # Both deletes landed; only the observation is missing.
+        assert data["jobs_torn_down"] == 2
+        assert data["teardown_confirmed"] is False
+        calls = mock_logger.warning.call_args_list
+        not_performed = [c for c in calls if c.args and "teardown wait not performed" in c.args[0]]
+        assert len(not_performed) == 1, "one backend-capability fact, one log line"
+        assert not_performed[0].kwargs["reason"] == "no_wait_helper"
+        assert not_performed[0].kwargs["jobs"] == 2
+        messages = [c.args[0] for c in calls if c.args]
+        assert not any("still terminating after teardown wait" in m for m in messages)
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_does_not_fold_an_unaddressable_job_into_the_helper_count(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """Each no-observation report covers only the Jobs it is about (#3597).
+
+        A Job the listing gave no ``job_name`` for could never have been
+        waited on, whatever the backend's capabilities. Checking the wait
+        helper first swallowed it: the ``jobs=`` count claimed it as one the
+        helper's absence cost us, and its own line never fired at all.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        named = MagicMock()
+        named.job_name = "egg-agent-issue-100-coder-aaaaaaaa"
+        named.container_id = "uid-1"
+        unnamed = MagicMock()
+        unnamed.job_name = None
+        unnamed.container_id = "uid-2"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [named, unnamed]
+        mock_spawner.k8s.namespace = "egg-agents"
+        del mock_spawner.k8s.wait_for_job_gone
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with (
+            patch("event_loop.get_live_event_loops", return_value=[]),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["jobs_torn_down"] == 2
+        assert data["teardown_confirmed"] is False
+        calls = mock_logger.warning.call_args_list
+        unaddressable = [c for c in calls if c.kwargs.get("reason") == "unaddressable"]
+        assert len(unaddressable) == 1, "the unnameable Job reports for itself"
+        assert unaddressable[0].kwargs["container_id"] == "uid-2"
+        not_performed = [c for c in calls if c.kwargs.get("reason") == "no_wait_helper"]
+        assert len(not_performed) == 1
+        assert not_performed[0].kwargs["jobs"] == 1, "only the Job the helper would have waited on"
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_reports_a_spent_wait_budget_as_unobserved(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """A Job the wait never ran for is unobserved, not "still terminating" (#3597).
+
+        The budget is shared across every deleted Job, so a slow first wait can
+        leave later Jobs with nothing left. No wait ran for them, so the route
+        must not claim it looked and found them present.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        live_job = MagicMock()
+        live_job.job_name = "egg-agent-issue-100-coder-aaaaaaaa"
+        live_job.container_id = "uid-1"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [live_job]
+        mock_spawner.k8s.namespace = "egg-agents"
+        # A waiter that WOULD confirm, so a green result could only come from
+        # the budget check failing to short-circuit.
+        mock_spawner.k8s.wait_for_job_gone.return_value = True
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with (
+            patch("event_loop.get_live_event_loops", return_value=[]),
+            patch("routes.pipelines._routes_restart._JOB_TEARDOWN_WAIT_SECONDS", 0.0),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        assert response.get_json()["data"]["teardown_confirmed"] is False
+        mock_spawner.k8s.wait_for_job_gone.assert_not_called()
+        calls = mock_logger.warning.call_args_list
+        not_performed = [c for c in calls if c.args and "teardown wait not performed" in c.args[0]]
+        assert len(not_performed) == 1
+        assert not_performed[0].kwargs["reason"] == "budget_exhausted"
+        assert not_performed[0].kwargs["job_name"] == "egg-agent-issue-100-coder-aaaaaaaa"
+        messages = [c.args[0] for c in calls if c.args]
+        assert not any("still terminating after teardown wait" in m for m in messages)
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
     def test_restart_tolerates_live_job_listing_failure(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
     ):

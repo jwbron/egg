@@ -202,6 +202,15 @@ ENV_EVENT_PAYLOAD_REFS = "EGG_EVENT_PAYLOAD_REFS"
 # already-hashed dedupe key is plenty of separation.
 _EVENT_JOB_NAME_DISCRIMINATOR_LEN = 8
 
+# Because that discriminator is deterministic, a re-derived event's Job name
+# collides with the one just deleted for the same key. Job deletion is
+# asynchronous, so the spawn path waits (at most this long, shared across every
+# matching Job) for the terminating object to actually go away before creating
+# its replacement — otherwise the create 409s ``AlreadyExists`` (#3597, the
+# event-loop twin of the #2655 restart-path wait). Kept short: this blocks the
+# event loop's poll thread, and overrunning it only costs a retry next poll.
+_EVENT_JOB_TERMINATION_WAIT_S = 15.0
+
 # Kubernetes caps label VALUES (and names) at 63 characters and rejects any
 # overflow at the API server. The dedupe key is a 64-char sha256 hexdigest, so
 # it must be shortened to a label-safe form before it can ride as a Job label
@@ -519,9 +528,15 @@ KubernetesSpawner._get_or_create_session = _session._get_or_create_session
 KubernetesSpawner._teardown_session = _session._teardown_session
 KubernetesSpawner.sync_session_phases = _session.sync_session_phases
 KubernetesSpawner.spawn_agent_job = _spawn.spawn_agent_job
+KubernetesSpawner._list_event_jobs = _events._list_event_jobs
 KubernetesSpawner._event_dedupe_key_live = _events._event_dedupe_key_live
 KubernetesSpawner.create_event_job_status_view = _events.create_event_job_status_view
 KubernetesSpawner.spawn_event_job = _events.spawn_event_job
+# Module-level Job-state predicates shared by the adoption filter and the
+# terminating-Job wait (#3597); re-exported so they are addressable/testable
+# through the barrel like the rest of the private surface.
+_job_is_live = _events._job_is_live
+_job_is_terminating = _events._job_is_terminating
 KubernetesSpawner.stop_agent_job = _jobs.stop_agent_job
 KubernetesSpawner.remove_agent_job = _jobs.remove_agent_job
 # Module-level (not a class method) so ``remove_agent_job`` reaches it via the
@@ -570,6 +585,8 @@ __all__ = [
     "_classify_spawn_error",
     "_fit_k8s_name",
     "_dedupe_label_value",
+    "_job_is_live",
+    "_job_is_terminating",
     "_forwarded_discipline_env",
     "_resolve_live_phase",
     "_resolve_wait_producer_allowlist",

@@ -70,6 +70,15 @@ class ContainerInfo(BaseModel):
     pod_name: str | None = Field(default=None, description="Kubernetes pod name")
     namespace: str | None = Field(default=None, description="Kubernetes namespace")
     job_name: str | None = Field(default=None, description="Kubernetes Job name")
+    # Set once the object has been asked to go away. Job deletion is
+    # ASYNCHRONOUS: the API server stamps ``metadata.deletionTimestamp`` and
+    # the object lingers (status still PENDING/RUNNING) until its dependent
+    # pods finish terminating. Without this field a Job on its way out is
+    # indistinguishable from a healthy live one, and the event-loop dedupe
+    # predicate adopts the corpse instead of respawning (#3597).
+    deletion_timestamp: datetime | None = Field(
+        default=None, description="Kubernetes deletionTimestamp (set iff the object is terminating)"
+    )
 
     @model_validator(mode="before")
     @classmethod
