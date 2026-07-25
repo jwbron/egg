@@ -306,13 +306,21 @@ def _extract_estimated_cost(mcd):
     fallback hardens against a LiteLLM version where the top-level key is
     absent on the streaming path.
 
+    The fallback is gated on ``_positive``, not on mere presence, so it also
+    fires when the top-level key is present but unusable. ``response_cost:
+    0.0`` is the realistic case — LiteLLM writes it when it cannot price the
+    model, which is exactly the situation this fallback exists for, and a
+    presence check would let that zero suppress a perfectly good estimate in
+    the metrics object. This keeps the gate symmetric with ``_extract_cost``,
+    whose ``cost: 0`` (BYOK) falls through to its own second source.
+
     Non-finite values are rejected for the same reason as in ``_extract_cost``:
     ``+inf`` clears a bare ``> 0`` and would poison the session total and the
     line's JSON validity together."""
     try:
         mcd = mcd or {}
         rc = mcd.get("response_cost")
-        if not isinstance(rc, (int, float)):
+        if not _positive(rc):
             slo = mcd.get("standard_logging_object")
             rc = slo.get("response_cost") if isinstance(slo, dict) else None
         if _positive(rc):
@@ -370,12 +378,21 @@ _REQUEST_PARAM_KEYS = (
 # line for the rest of the session.
 _MAX_PARAM_JSON_CHARS = 512
 
+# Value cap for the priority keys below. Larger than the general cap because
+# "this entry is load-bearing enough to reorder the dict for" and "this entry
+# gets the same size budget as a junk sibling" are in tension: a provider pin
+# carrying an `ignore` list of a few dozen backends clears 512 chars easily,
+# and collapsing it to a size marker loses precisely the backend identity the
+# field exists to record. Still a cap — one entry cannot run away either.
+_MAX_PRIORITY_PARAM_JSON_CHARS = 2048
+
 # Key-count cap for the extra_body remainder. Its values are bounded one by one
 # (so a bulky sibling can't collapse the small, load-bearing provider pin), which
 # leaves the number of keys as the remaining unbounded dimension. With the key
-# cap below, the emitted remainder is bounded at ~19KB worst case — high for a
+# cap below, the emitted remainder is bounded at ~21KB worst case — high for a
 # ~800-byte baseline line, but it takes 32 maximal keys carrying 512-char values
-# to get there; a real extra_body is one or two small entries.
+# (one of them a priority key at its larger cap) to get there; a real extra_body
+# is one or two small entries.
 _MAX_EXTRA_BODY_KEYS = 32
 
 # Key-NAME cap for the extra_body remainder. Deliberately far tighter than the
@@ -385,11 +402,13 @@ _MAX_EXTRA_BODY_KEYS = 32
 # would buy no diagnostic value for that cost.
 _MAX_EXTRA_BODY_KEY_CHARS = 64
 
-# extra_body keys hoisted ahead of the key-count cap. The OpenRouter provider
-# pin decides WHICH backend (and so which quantization) served the turn, which
-# makes it the single most load-bearing entry in the remainder; ordering it
-# first keeps the count cap from being positional, so the pin survives no
-# matter where an operator's config happens to place it.
+# extra_body keys hoisted ahead of the key-count cap, and given the larger
+# value cap above. The OpenRouter provider pin decides WHICH backend (and so
+# which quantization) served the turn, which makes it the single most
+# load-bearing entry in the remainder; ordering it first keeps the count cap
+# from being positional, so the pin survives no matter where an operator's
+# config happens to place it, and the wider size budget keeps it legible when
+# it is a real pin rather than the two-line example.
 _EXTRA_BODY_PRIORITY_KEYS = ("provider",)
 
 # Sentinel for the truncation marker. Namespaced so it cannot collide with (and
@@ -419,7 +438,7 @@ def _scrub_non_finite(value, _depth=0):
     return value
 
 
-def _bounded_param(value):
+def _bounded_param(value, max_chars=_MAX_PARAM_JSON_CHARS):
     """Return ``value`` clamped to something safe to embed in the log line.
 
     Three hazards, all of which would cost us the WHOLE line rather than just
@@ -436,13 +455,14 @@ def _bounded_param(value):
     costs that entry, not the field and not the line. Otherwise scalars pass
     through; everything else is round-tripped through JSON — with
     ``default=str`` so an exotic value degrades to its repr instead of raising —
-    and replaced by a size marker when it exceeds the cap."""
+    and replaced by a size marker when it exceeds ``max_chars``, which callers
+    raise for the entries they consider load-bearing."""
     if isinstance(value, float) and not math.isfinite(value):
         return f"<non-finite: {value}>"
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
-        return value if len(value) <= _MAX_PARAM_JSON_CHARS else f"<{len(value)} chars omitted>"
+        return value if len(value) <= max_chars else f"<{len(value)} chars omitted>"
     try:
         encoded = json.dumps(value, default=str, allow_nan=False)
     except ValueError:
@@ -455,7 +475,7 @@ def _bounded_param(value):
             return "<unserializable>"
     except Exception:
         return "<unserializable>"
-    if len(encoded) > _MAX_PARAM_JSON_CHARS:
+    if len(encoded) > max_chars:
         return f"<{len(encoded)} chars omitted>"
     try:
         return json.loads(encoded)
@@ -477,6 +497,22 @@ def _bounded_extra_body_key(key):
     return f"{key[:_MAX_EXTRA_BODY_KEY_CHARS]}…<{len(key)} chars omitted>"
 
 
+def _uncollided_key(bounded, emitted_key):
+    """Return ``emitted_key``, suffixed if it is already taken.
+
+    Distinct source keys can still normalize to one name (``1`` and ``"1"``, or
+    two long keys sharing a prefix AND a length), and the truncation marker can
+    land on a key an operator really named that. Suffix rather than overwrite —
+    a lost value reads as a key that was never sent, which is exactly the
+    inference this field invites."""
+    if emitted_key not in bounded:
+        return emitted_key
+    suffix = 2
+    while f"{emitted_key}<{suffix}>" in bounded:
+        suffix += 1
+    return f"{emitted_key}<{suffix}>"
+
+
 def _bounded_extra_body(leftover):
     """Bound the ``extra_body`` remainder along every dimension that can grow.
 
@@ -486,31 +522,36 @@ def _bounded_extra_body(leftover):
 
     - **Value size** — bounded per value rather than over the dict as a whole,
       so a bulky sibling knob degrades on its own instead of collapsing the
-      small, load-bearing provider pin along with it.
+      small, load-bearing provider pin along with it. Priority keys get the
+      wider ``_MAX_PRIORITY_PARAM_JSON_CHARS`` budget, so a real provider pin
+      (an ``ignore`` list of a few dozen backends clears 512 chars) stays
+      legible rather than degrading to the size marker.
     - **Key count** — capped, with the priority keys hoisted first so the cap
       is not positional (a config with the pin at index 40 still records it).
     - **Key name** — capped, and stringified: ``json.dumps``' ``default=`` hook
       applies to values only, so a non-``str`` key would raise out in ``_emit``,
       where the failure is swallowed and the whole line, cost data included, is
-      dropped."""
+      dropped.
+
+    Every emitted key — the truncation marker included — goes through
+    ``_uncollided_key``, so the ``len(...) == _MAX_EXTRA_BODY_KEYS + 1``
+    invariant on a truncated remainder holds for any input rather than only for
+    inputs that happen not to collide with the sentinel."""
     ordered = [(k, v) for k, v in leftover.items() if k in _EXTRA_BODY_PRIORITY_KEYS]
     ordered += [(k, v) for k, v in leftover.items() if k not in _EXTRA_BODY_PRIORITY_KEYS]
     bounded = {}
     for key, value in ordered[:_MAX_EXTRA_BODY_KEYS]:
-        emitted_key = _bounded_extra_body_key(key)
-        if emitted_key in bounded:
-            # Distinct source keys can still normalize to one name (``1`` and
-            # ``"1"``, or two long keys sharing a prefix AND a length). Suffix
-            # rather than overwrite — a lost value reads as a key that was
-            # never sent, which is exactly the inference this field invites.
-            suffix = 2
-            while f"{emitted_key}<{suffix}>" in bounded:
-                suffix += 1
-            emitted_key = f"{emitted_key}<{suffix}>"
-        bounded[emitted_key] = _bounded_param(value)
+        cap = (
+            _MAX_PRIORITY_PARAM_JSON_CHARS
+            if key in _EXTRA_BODY_PRIORITY_KEYS
+            else _MAX_PARAM_JSON_CHARS
+        )
+        emitted_key = _uncollided_key(bounded, _bounded_extra_body_key(key))
+        bounded[emitted_key] = _bounded_param(value, cap)
     if len(ordered) > _MAX_EXTRA_BODY_KEYS:
         omitted = len(ordered) - _MAX_EXTRA_BODY_KEYS
-        bounded[_EXTRA_BODY_TRUNCATED_KEY] = f"<{omitted} more keys omitted>"
+        marker_key = _uncollided_key(bounded, _EXTRA_BODY_TRUNCATED_KEY)
+        bounded[marker_key] = f"<{omitted} more keys omitted>"
     return bounded
 
 

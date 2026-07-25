@@ -162,6 +162,16 @@ class TestExtractCost:
         usage = {"cost": float("inf"), "cost_details": {"upstream_inference_cost": 0.05}}
         assert cc._extract_cost(usage) == 0.05
 
+    def test_boolean_cost_is_not_a_cost(self):
+        # JSON `"cost": true` deserializes to Python True, and isinstance(True,
+        # int) is True — so a bare numeric check accepts it and float(True)
+        # records a $1.00 charge that was never billed. Unknown, not spend.
+        assert cc._extract_cost({"cost": True}) is None
+        assert (
+            cc._extract_cost({"cost": 0, "cost_details": {"upstream_inference_cost": True}}) is None
+        )
+        assert cc._extract_estimated_cost({"response_cost": True}) is None
+
     def test_non_finite_estimated_cost_reads_as_unknown(self):
         assert cc._extract_estimated_cost({"response_cost": float("inf")}) is None
         assert cc._extract_estimated_cost({"response_cost": 0.004}) == 0.004
@@ -292,6 +302,31 @@ class TestEstimatedCost:
         )
         # A non-dict standard_logging_object is ignored, not raised on.
         assert cc._extract_estimated_cost({"standard_logging_object": "nope"}) is None
+
+    def test_present_but_unusable_top_level_does_not_suppress_the_fallback(self):
+        # The gate is positivity, not presence. `response_cost: 0.0` is what
+        # LiteLLM writes when it cannot price the model — precisely the case
+        # the fallback exists for — so a presence check would let that zero
+        # mask a perfectly good estimate in the finalized metrics object, and
+        # the call would read as unpriceable when it wasn't.
+        assert (
+            cc._extract_estimated_cost(
+                {"response_cost": 0.0, "standard_logging_object": {"response_cost": 0.004}}
+            )
+            == 0.004
+        )
+        assert (
+            cc._extract_estimated_cost(
+                {
+                    "response_cost": float("inf"),
+                    "standard_logging_object": {"response_cost": 0.004},
+                }
+            )
+            == 0.004
+        )
+        # Symmetric with _extract_cost, whose BYOK `cost: 0` falls through to
+        # cost_details in exactly the same way.
+        assert cc._extract_cost({"cost": 0, "cost_details": {"upstream_inference_cost": 0.05}})
 
 
 class TestAttribution:
@@ -438,6 +473,31 @@ class TestExtractRequestParams:
         assert params["extra_body"]["provider"] == {"order": ["Alibaba"]}
         assert "chars omitted" in params["extra_body"]["junk"]
 
+    def test_a_real_sized_provider_pin_is_not_collapsed_by_the_value_cap(self):
+        # Hoisting the pin ahead of the COUNT cap doesn't exempt it from the
+        # SIZE cap, and a pin with an `ignore` list of a few dozen backends
+        # clears 512 chars on its own — so under the general cap the one entry
+        # naming which backend served the turn is the one that degrades, in the
+        # incident reconstruction it exists for. Priority keys get a wider cap.
+        pin = {
+            "order": [f"Provider{i}" for i in range(6)],
+            "ignore": [f"Ignored{i}" for i in range(30)],
+            "allow_fallbacks": False,
+            "quantizations": ["fp8", "bf16"],
+        }
+        assert len(json.dumps(pin)) > cc._MAX_PARAM_JSON_CHARS
+        params = cc._extract_request_params(
+            _mcd("r", optional_params={"extra_body": {"provider": pin, "junk": "z" * 600}})
+        )
+        assert params["extra_body"]["provider"] == pin
+        # Still a cap, not an exemption — one entry cannot run away either.
+        assert "chars omitted" in cc._bounded_param(
+            {"order": ["p" * cc._MAX_PRIORITY_PARAM_JSON_CHARS]},
+            cc._MAX_PRIORITY_PARAM_JSON_CHARS,
+        )
+        # And a non-priority sibling keeps the tighter budget.
+        assert "chars omitted" in params["extra_body"]["junk"]
+
     def test_extra_body_stays_bounded_in_aggregate(self):
         # Per-value bounding leaves the key COUNT and the key NAMES unbounded.
         # extra_body is config-supplied and usually pinned in litellm_params, so
@@ -460,9 +520,11 @@ class TestExtractRequestParams:
         assert "more keys omitted" in emitted[cc._EXTRA_BODY_TRUNCATED_KEY]
         assert emitted["provider"] == {"order": ["Alibaba"]}
         assert all(len(k) <= cc._MAX_EXTRA_BODY_KEY_CHARS + 32 for k in emitted)
+        # The stated worst case: every key at its name cap and its value cap,
+        # with one priority key drawing on the wider value budget.
         assert len(json.dumps(emitted)) < cc._MAX_EXTRA_BODY_KEYS * (
             cc._MAX_PARAM_JSON_CHARS + cc._MAX_EXTRA_BODY_KEY_CHARS + 64
-        )
+        ) + (cc._MAX_PRIORITY_PARAM_JSON_CHARS - cc._MAX_PARAM_JSON_CHARS)
 
     def test_oversized_extra_body_key_name_is_bounded(self):
         # The key COUNT cap alone doesn't bound the key NAMES: a long key inside
@@ -498,22 +560,26 @@ class TestExtractRequestParams:
         assert sorted(params["extra_body"].values()) == ["int", "str"]
 
     def test_truncation_marker_does_not_overwrite_a_real_key(self):
-        # An operator key literally named like the marker must not be clobbered
-        # by it, and must not consume the marker's slot either.
+        # An operator key named exactly like the sentinel must not be clobbered
+        # by the marker, and must not consume the marker's slot either. The
+        # sentinel's own name is what has to be used here: a test written
+        # against some *other* name passes no matter what the marker collides
+        # with, which makes the `_MAX_EXTRA_BODY_KEYS + 1` invariant below
+        # fixture-specific rather than general.
         params = cc._extract_request_params(
             _mcd(
                 "r",
                 optional_params={
                     "extra_body": {
-                        "<truncated>": "real value",
+                        cc._EXTRA_BODY_TRUNCATED_KEY: "real value",
                         **{f"knob{i}": i for i in range(40)},
                     }
                 },
             )
         )
         emitted = params["extra_body"]
-        assert emitted["<truncated>"] == "real value"
-        assert "more keys omitted" in emitted[cc._EXTRA_BODY_TRUNCATED_KEY]
+        assert emitted[cc._EXTRA_BODY_TRUNCATED_KEY] == "real value"
+        assert "more keys omitted" in emitted[f"{cc._EXTRA_BODY_TRUNCATED_KEY}<2>"]
         assert len(emitted) == cc._MAX_EXTRA_BODY_KEYS + 1
 
     def test_provider_pin_survives_a_late_position_under_the_count_cap(self):
@@ -591,6 +657,19 @@ class TestBoundedParam:
     def test_oversized_values_become_size_markers(self):
         assert "chars omitted" in cc._bounded_param("x" * 5000)
         assert "chars omitted" in cc._bounded_param({str(i): i for i in range(500)})
+
+    def test_the_cap_is_caller_settable_on_both_branches(self):
+        # Priority extra_body entries draw on a wider budget, and the cap has to
+        # reach BOTH exits — the raw-string shortcut as well as the JSON
+        # round-trip — or a string-valued priority knob silently keeps the
+        # tighter cap while a dict-valued one gets the wider one.
+        long_str = "z" * (cc._MAX_PARAM_JSON_CHARS + 1)
+        assert "chars omitted" in cc._bounded_param(long_str)
+        assert cc._bounded_param(long_str, cc._MAX_PRIORITY_PARAM_JSON_CHARS) == long_str
+        assert "chars omitted" in cc._bounded_param({"order": long_str})
+        assert cc._bounded_param({"order": long_str}, cc._MAX_PRIORITY_PARAM_JSON_CHARS) == {
+            "order": long_str
+        }
 
     def test_unserializable_values_degrade_to_repr_not_raise(self):
         # A pydantic/enum-ish value must not take the log line down with it.
