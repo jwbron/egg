@@ -109,7 +109,7 @@
           "id": "task-1-5",
           "description": "Populate git_state in snapshot_from_health_context. Enrich to populate\ngit_state with: commit_count (git rev-list --count), last_commit_at\n(git log -1 --format=%aI), last_commit_sha, patch_id_matches, branch,\nis_ancestor_of_base, pr_head_sha, last_pushed_sha, pushed_age_s,\npr_externally_mutated, fsck_errors, index_lock_present, lock_age_s.\nBest-effort: git failures degrade to empty dict, never crash.",
           "status": "pending",
-          "commit": null,
+          "commit": "840906f8f",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- git_state populated with commit_count, last_commit_at, last_commit_sha, branch\n- git_state populated with patch_id_matches, is_ancestor_of_base for divergence detection\n- git_state populated with fsck_errors, index_lock_present, lock_age_s for corruption detection\n- Best-effort: git failures degrade to empty dict, never crash\n- Test: detect_worktree_corruption and detect_pushed_pr_not_updated receive populated git_state",
@@ -766,34 +766,40 @@
         {
           "id": "opt-1",
           "label": "Proceed with all four areas as planned",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "Narrow to just forward progress + alert log (highest impact)",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-3",
           "label": "Narrow to just forward progress detector only",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-4",
           "label": "Other (specify in reply)",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-5",
           "label": "Other (explain in reply)",
-          "description": null
+          "description": null,
+          "adds_task": null
         }
       ],
       "resolved": false,
       "resolution": null,
       "resolved_by": null,
       "resolved_at": null,
-      "debounce_until": null
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
@@ -979,6 +985,17 @@
         "debounce_until": null
       },
       "reason": "Created HITL decision: Issue #3596 asks for operator visibility into pipe...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T05:53:32.076265Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.4.commit",
+      "old_value": null,
+      "new_value": "840906f8f",
+      "reason": "Linked commit 840906f to task-1-5",
       "checkpoint_id": null
     }
   ],
