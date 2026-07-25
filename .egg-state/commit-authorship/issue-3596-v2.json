@@ -1,5 +1,13 @@
 {
   "entries": {
+    "174c9cb34f2dbe461b40bb7394813ad07f6d284f": {
+      "branch": "egg/issue-3596-v2/work",
+      "patch_id": "630d94896f9b994f7733211005fd94e4693ba61f",
+      "pipeline_id": "issue-3596-v2",
+      "registered_at": "2026-07-25T00:25:37.832167+00:00",
+      "repo": null,
+      "role": "architect"
+    },
     "2e7ffdd8489a9541f0a2335c176055918260a391": {
       "branch": "egg/issue-3596-v2/work",
       "patch_id": "c5fa7d617d45dc44bd4e9dac036aebb36256b41d",
@@ -23,6 +31,14 @@
       "registered_at": "2026-07-24T23:40:29.578733+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "bf8c3f7a071820ba257504988d330c7525a9bc4c": {
+      "branch": "egg/issue-3596-v2/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3596-v2",
+      "registered_at": "2026-07-25T00:25:37.826500+00:00",
+      "repo": null,
+      "role": "architect"
     }
   },
   "version": 2
