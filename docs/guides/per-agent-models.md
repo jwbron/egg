@@ -632,6 +632,47 @@ data:
 > Prompt-bearing fields (`messages`, `tools`, `tool_choice`) are excluded by
 > allowlist: the cost stream is not a transcript sink.
 
+> **Trap: `reasoning_effort` in `litellm_params` is usually a silent no-op.**
+> LiteLLM sends it only if it believes the model is reasoning-capable:
+> `OpenrouterConfig.get_supported_openai_params` advertises
+> `reasoning_effort`/`thinking` only when `litellm.supports_reasoning(model)`
+> is true, and that reads LiteLLM's built-in model-cost map. **A model absent
+> from that map answers `False`**, so the gate fails closed and
+> `drop_params: true` discards the parameter with no error and no log line.
+>
+> Absent is the *normal* state for an OpenRouter slug — verified against the
+> pinned litellm 1.86.2, `qwen/qwen3-max` and `moonshotai/kimi-k2-thinking`
+> are both absent and answer `False`, while `deepseek/deepseek-r1` is present
+> and answers `True`. OpenRouter adds models faster than LiteLLM's map tracks
+> them, so a new slug is unflagged by default and the agent quietly runs at
+> the provider's default reasoning depth.
+>
+> Two forms that do reach the wire:
+>
+> ```yaml
+> # 1. Flag the model. `model_info` is a SIBLING of litellm_params.
+> - model_name: my-model
+>   litellm_params:
+>     model: openrouter/vendor/my-model
+>     reasoning_effort: high
+>   model_info:
+>     supports_reasoning: true    # without this, the line above does nothing
+>
+> # 2. Or bypass the mapper with OpenRouter's native block, which never
+> #    consults the model map:
+>   litellm_params:
+>     extra_body:
+>       reasoning:
+>         effort: "high"
+> ```
+>
+> Do **not** reach for `drop_params: false` to force it through — that flag is
+> what stops Anthropic-only fields LiteLLM cannot translate (e.g. `thinking`)
+> from 400ing tool-heavy turns. You would trade a silent no-op for loud
+> request failures. `tests/config/test_litellm_template.py` guards form 1 for
+> the committed template; operator overlays are not in CI, so verify yours
+> against `request_params` in the pod stream.
+
 The `request_params` field on a stock (nothing pinned) OpenRouter route:
 
 ```json

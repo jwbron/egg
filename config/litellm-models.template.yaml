@@ -35,8 +35,8 @@
 # reach the LiteLLM Service can call it directly).
 #
 # Per-model tuning: anything LiteLLM accepts under `litellm_params`
-# (reasoning_effort, drop_params, extra_body, temperature, top_p,
-# seed, …) works here. See
+# (drop_params, extra_body, temperature, top_p, seed, …) works here.
+# See
 # https://docs.litellm.ai/docs/proxy/config_settings#model_list-params
 # for the full list. For routing parity with Anthropic Opus xhigh —
 # egg's current baseline — see the qwen3-max entry below; note that
@@ -44,6 +44,63 @@
 # tunable budget), so per-provider reasoning behavior will differ even
 # after tuning. Leave temperature / top_p / penalties at defaults for
 # cleaner cross-provider comparisons.
+#
+# EXCEPTION — `reasoning_effort` is NOT one of the knobs that "just
+# works" here, and gets its own rules below.
+#
+# ## reasoning_effort is silently dropped unless the model is flagged
+#
+# `litellm_params.reasoning_effort` reaches the wire only when LiteLLM
+# believes the model is reasoning-capable.
+# `OpenrouterConfig.get_supported_openai_params` advertises
+# `reasoning_effort` / `thinking` only if
+# `litellm.supports_reasoning(model)` is true, and that reads LiteLLM's
+# built-in model-cost map. A model ABSENT from that map answers False —
+# so the gate fails closed, and `drop_params: true` then discards the
+# parameter with no error and no log line.
+#
+# Absent is the NORMAL state for an OpenRouter slug: verified against
+# the pinned litellm 1.86.2, `qwen/qwen3-max` and
+# `moonshotai/kimi-k2-thinking` are both absent and both answer False
+# (`deepseek/deepseek-r1` is present and answers True). OpenRouter adds
+# models faster than LiteLLM's map tracks them, so a new slug is
+# unflagged by default. Setting `reasoning_effort` on one is a silent
+# no-op: the agent runs at the provider's default depth and nothing
+# anywhere says so.
+#
+# Two forms that DO reach the wire (both verified against 1.86.2):
+#
+#   1. Flag the model, then set the param. `model_info` is a sibling of
+#      `litellm_params`, not a key inside it:
+#
+#        - model_name: my-model
+#          litellm_params:
+#            model: openrouter/vendor/my-model
+#            api_key: os.environ/OPENROUTER_API_KEY
+#            drop_params: true
+#            reasoning_effort: high
+#          model_info:
+#            supports_reasoning: true    # REQUIRED, else the line above is a no-op
+#
+#      This is enforced in CI by tests/config/test_litellm_template.py
+#      for entries in this template.
+#
+#   2. Bypass the mapper with OpenRouter's native shape, which does not
+#      consult the model map at all (see the qwen3-max entry below):
+#
+#        extra_body:
+#          reasoning:
+#            effort: "high"
+#
+# Do NOT reach for `drop_params: false` to force it through. That flag
+# is what stops Anthropic-only fields LiteLLM cannot translate (e.g.
+# `thinking`) from 400ing tool-heavy turns; turning it off trades a
+# silent no-op for loud request failures.
+#
+# VERIFY, don't assume: the `cost_callback` logs `request_params` per
+# call, read from LiteLLM's post-mapping params — i.e. what the wire
+# actually carried (#3611). If `reasoning_effort` does not appear there
+# on real agent traffic, it was dropped, whatever this file says.
 #
 # Whatever you set here (or leave unset), the bundled `cost_callback`
 # records the sampling config each call actually ran under as
@@ -99,7 +156,13 @@ data:
               order: [Alibaba]
               allow_fallbacks: false
             # Closest knob to Opus xhigh — uncomment to opt into the
-            # deepest reasoning OpenRouter exposes for this model:
+            # deepest reasoning OpenRouter exposes for this model.
+            # Use THIS form, not `litellm_params.reasoning_effort`:
+            # OpenRouter's native `reasoning` block bypasses LiteLLM's
+            # param mapper, so it does not depend on the model being
+            # flagged reasoning-capable in LiteLLM's model map — which
+            # qwen3-max is not. See the "reasoning_effort is silently
+            # dropped" section at the top of this file.
             # reasoning:
             #   effort: "high"
       # Paired `[1m]` alias — absorbs Claude Code startup-probe
