@@ -553,7 +553,8 @@ shape:
        spawns a sandboxed one-shot check-runner Job to execute the
        repo's configured checks at the integration-branch tip and
        blocks PR-open on a red verdict; staged rollout via
-       `EGG_SLICE_GREEN_GATE`, fail-open on infra errors) — calls
+       `EGG_SLICE_GREEN_GATE`, fail-open on infra errors, including
+       infra-signature-tagged reds inside check execution, #3417) — calls
        `GatewayClient.create_slice_pr` with `base` resolved from the
        slice's DAG parent (root → latest completed chain tip, else the
        pipeline branch (#3541); child → parent's
@@ -1060,6 +1061,7 @@ on parse failure. The green-gate knobs below are read directly via
 | `EGG_SLICE_GREEN_GATE` | str | `off` | Per-slice green gate rollout switch (#3398): `off` skips the gate entirely; `log` runs the repo's configured checks at the slice tip and logs a red verdict without blocking; `on` blocks slice PR-open on a red verdict. Case-insensitive, with aliases — `on` also accepts `1`/`true`/`yes`, and `log` also accepts `log-only`/`log_only`. Unknown values resolve to `off`. |
 | `EGG_SLICE_GREEN_GATE_SKIP_CHECKS` | str (comma-separated) | `security` | Configured check *names* (from `repositories.yaml` `checks`) the gate skips. |
 | `EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS` | int | 1800 | Wall-clock budget for the check-runner pod (spawn-to-terminal); a hung suite degrades to fail-open rather than wedging the slice close. |
+| `EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN` | str | `on` | Infra-red fail-open (#3417): the runner tags red checks whose full output matches an exact infra signature (the sandbox git wrapper's gateway-down / missing-env / session-auth errors, the kernel's ENOSPC message) or whose process died by SIGKILL; a verdict where *every* red check is infra-tagged fails open instead of blocking, and mixed verdicts block on the genuine reds only. `off`/`0`/`false`/`no` restores strict every-red-blocks behavior; any other value resolves to `on`. |
 
 ### Per-pipeline vs. global slice caps
 
