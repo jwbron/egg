@@ -72,6 +72,14 @@
       "repo": null,
       "role": "architect"
     },
+    "d6f1f8472a6646b532278d5f547da259faf9f4fd": {
+      "branch": "egg/issue-3596-v2/work",
+      "patch_id": "3ff66d8bd386b6426ed19035121c79abd7ef9854",
+      "pipeline_id": "issue-3596-v2",
+      "registered_at": "2026-07-25T01:04:14.225875+00:00",
+      "repo": null,
+      "role": "architect"
+    },
     "ed783de17234b27c2dfe5eaed10ac2c0cd015123": {
       "branch": "egg/issue-3596-v2/work",
       "patch_id": "70669f3125b78db596b5f83813d6cf511b8dface",
