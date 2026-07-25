@@ -42,10 +42,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "No \u2014 do not raise a further HITL gate. The operator is answering it here, and this resolution is binding.\n\nFIRST: THE PREMISE OF THIS QUESTION IS VOID. cq-1 as written says \"start_pipeline does NOT bump run_epoch on CANCELLED recovery (only on FAILED), meaning Change 1 alone would reintroduce #2053\". That is false and must not be carried into the plan phase. `start_pipeline` returns 409 for a CANCELLED pipeline at `orchestrator/routes/pipelines/_routes_lifecycle.py:753-757`, which returns before the `with get_pipeline_state_lock(...)` block at L759. The `pipeline.status = RUNNING` assignment at L801 is therefore unreachable for a cancelled pipeline, and the scenario the analysis calls \"the critical safety finding\" cannot occur.\n\nThe refiner's own Fact 7 states this (\"start_pipeline 409s on CANCELLED\", citing the same lines), so the analysis contradicts itself between two adjacent numbered facts. reviewer_agent_design and first_principles_reviewer both caught it; reviewer_refine marked it \"VERIFIED - CRITICAL\" while stating the refutation in the same sentence. Treat Fact 3 as struck.\n\nSECOND: THE CONCLUSION SURVIVES, FOR A DIFFERENT AND BETTER REASON. Changes 1 and 2 must still land together. Credit to first_principles_reviewer, whose argument is the sound one and is now the binding rationale:\n\nWith Change 1 alone, the message stream survives a cancel while remaining keyed by bare `pipeline_id` (`redis_message_store.py:69`, `_stream_key`), and the tracker likewise (`peer_consensus/__init__.py:226`, `_tracker_key`). Resume via `restart_agent`/`restart_phase` deliberately RESETS consensus state \u2014 one role's or the whole phase's \u2014 and flips the pipeline to RUNNING. If the orchestrator then restarts, `startup_reconciliation` (which processes RUNNING pipelines, `startup_reconciliation.py:305`) calls `reconstruct_tracker_from_messages` and replays the retained pre-cancel CONSENSUS_* messages, resurrecting the confirmations the restart had just cleared. The resumed round silently reverts to a CONFIRMED state nobody re-earned.\n\nNote the correction to first_principles_reviewer's framing: the exposed window is NOT \"between CANCELLED and restart_phase\" \u2014 reconstruction skips non-RUNNING pipelines, so the cancelled interval is safe. The window opens AFTER the resume flips the pipeline to RUNNING. Plan for that window.\n\nTHIRD: DO NOT JUSTIFY THIS AS \"#2053\". #2053 is a *new* pipeline reusing a terminal pipeline's id, and Change 1 explicitly keeps clearing on the create path, so #2053 stays closed on its own terms. The hazard above is same-pipeline stale-state replay, which is a distinct bug. Being precise here matters: a plan that believes it is defending #2053 will write the wrong test. The regression test for this must exercise cancel \u2192 resume \u2192 orchestrator restart \u2192 assert consensus state is NOT resurrected.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-25T23:34:15.304361Z",
       "debounce_until": null,
       "redirect_seed": null
     },
@@ -96,34 +96,40 @@
         {
           "id": "opt-1",
           "label": "Yes adopt Changes 1+2+3 defer Change 4",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "Adopt only Change 1 minimal fix",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-3",
           "label": "Adopt all four changes full fix",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-4",
           "label": "Adopt Changes 1+2+3+4 but reorder",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-5",
           "label": "Other (explain in reply)",
-          "description": null
+          "description": null,
+          "adds_task": null
         }
       ],
       "resolved": false,
       "resolution": null,
       "resolved_by": null,
       "resolved_at": null,
-      "debounce_until": null
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
