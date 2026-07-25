@@ -183,9 +183,15 @@ class HealthMonitor:
         # Like every other ``now - last_*`` in this module this is wall-clock,
         # not monotonic: a backward clock step (NTP correction, host suspend)
         # shrinks ``monitor_age`` and would make ``_sanitize_elapsed``
-        # flag-and-clamp everything until the skew window passes. Forward
-        # steps are safe — anchors and ``_created_at`` move together. Worth
-        # revisiting if this module ever moves to ``time.monotonic``.
+        # flag-and-clamp every anchor written *after* the step until the skew
+        # window passes (anchors written before it shrink by the same delta
+        # and stay unflagged). Forward steps do not defeat this guard —
+        # anchors and ``_created_at`` move together, so ``elapsed <=
+        # monitor_age`` survives — but they are not harmless: they inflate
+        # every ``elapsed`` by the step, so a role that heartbeated seconds
+        # ago can trip the timeout itself, and the guard cannot catch it
+        # precisely because ``monitor_age`` inflated too. Worth revisiting if
+        # this module ever moves to ``time.monotonic``.
         self._created_at: float = time.time()
 
         # Subscribe to events
