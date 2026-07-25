@@ -111,7 +111,7 @@
     {
       "id": "task-2",
       "title": "Add forward-progress detector (commit count + worktree activity rate)",
-      "description": "New deterministic detector detect_forward_progress_stall that fires when an agent has been running >N seconds (configurable, default 600s) with zero new commits AND zero progress events AND zero file modifications. Reads commit_count and last_commit_at from git_state, progress_event_count from ProgressStore, and worktree file mtime from git_state. Directly addresses the issue's key diagnostic: 'a hand-rolled loop counting commits on the agent's worktree.'",
+      "description": "New deterministic detector detect_forward_progress_stall that fires when an agent has been running >N seconds (configurable, default 600s) with zero new commits AND zero progress events AND zero file modifications. Per operator answer A: count LOCAL worktree commits ahead of PhaseExecution.phase_start_sha (not remote-pushed). Per operator answer B: reuse existing progress-event data, do not add a new event type. Directly addresses the issue's key diagnostic: 'a hand-rolled loop counting commits on the agent's worktree.'",
       "files_affected": ["orchestrator/health_checks/tier1/forward_progress.py"],
       "acceptance_criteria": [
         "New detector detect_forward_progress_stall registered in DetectionPlane.default()",
@@ -142,11 +142,11 @@
     {
       "id": "task-4",
       "title": "Enrich get_status with forward-progress signals and active alerts",
-      "description": "Add a 'progress' sub-object to each entry in concurrent.agents with: last_heartbeat_age_s, last_progress_age_s, commit_count, last_commit_at, last_commit_sha, progress_event_count. Add an 'alerts' array to the top-level status response (capped at 10) sourced from HealthMonitor.get_active_alerts(). Add phase timing (phase_started_at, phase_elapsed_seconds) to the concurrent block. All fields are null when unmeasurable (per operator constraint: distinguish null from zero).",
+      "description": "Add a 'progress' sub-object to each entry in concurrent.agents with: last_heartbeat_age_s, last_progress_age_s, commit_count, last_commit_at, last_commit_sha, progress_event_count. Add an 'alerts' array to the top-level status response sourced from HealthMonitor.get_active_alerts(). Per operator answer C: alerts are a capped LIST (default 10, configurable via PipelineConfig), newest-first, each entry carrying subject, severity, and dedup key — NOT a summary or bare count. Add phase timing (phase_started_at, phase_elapsed_seconds) to the concurrent block. All fields are null when unmeasurable (per operator constraint: distinguish null from zero).",
       "files_affected": ["orchestrator/routes/pipelines/_status_view.py", "orchestrator/routes/pipelines/_routes_status.py"],
       "acceptance_criteria": [
         "concurrent.agents[].progress contains commit_count, last_commit_at, last_heartbeat_age_s, last_progress_age_s, progress_event_count",
-        "Top-level alerts array present with alert_type, agent_id, message, severity, timestamp",
+        "Top-level alerts array is a capped LIST (default 10, configurable), newest-first, each entry with subject, severity, dedup_key",
         "concurrent.phase_started_at and concurrent.phase_elapsed_seconds present",
         "All progress fields are null when unmeasurable, never 0",
         "Best-effort: git subprocess failures degrade to null, never crash the status endpoint",
@@ -158,12 +158,13 @@
     {
       "id": "task-5",
       "title": "Record sampling params in cost_callback (DEFERRED to follow-up)",
-      "description": "Issue #3595 root cause 5: sampling configuration is unset and unrecorded. Extend cost_callback.py to log optional_params alongside the cost and cache stats it already emits. Pin explicit temperature/top_p per model. This is the cheapest item and gates the credibility of any future measurement. Marked as DEFERRED — it is independent of the detection plane work and can be done in parallel or as a follow-up.",
+      "description": "Issue #3595 root cause 5: sampling configuration is unset and unrecorded. Extend cost_callback.py to log optional_params alongside the cost and cache stats it already emits. Pin explicit temperature/top_p per model. Per operator answer D: make log retention TTL configurable via PipelineConfig, defaulting to the current 24h so existing behaviour is unchanged. This is the cheapest item and gates the credibility of any future measurement. Marked as DEFERRED — it is independent of the detection plane work and can be done in parallel or as a follow-up.",
       "files_affected": ["orchestrator/cost_callback.py", "config/litellm/litellm_settings.yaml"],
       "acceptance_criteria": [
         "cost_callback logs optional_params (temperature, top_p, top_k, presence_penalty, frequency_penalty, reasoning_effort) per call",
         "Per-model temperature/top_p pinned in litellm_settings.yaml",
         "Log format is backward-compatible (new fields are additive)",
+        "Log retention TTL configurable via PipelineConfig (orchestrator_agent_log_ttl_seconds), default 24h unchanged",
         "Test: cost_callback output includes optional_params field"
       ],
       "priority": "low",
