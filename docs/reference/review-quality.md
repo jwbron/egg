@@ -24,7 +24,14 @@ reference implementation, though it has since diverged (see the note below):
   warning: an operator typo must never silently activate a behavior shift.
 - **`log`** — compute the would-be behavior and record it (to logs / existing BRC
   artifacts), but do **not** apply it. This is the measurement/observation stage.
-- **`on`** — apply the behavior.
+  Also accepted: `log-only`, `log_only`.
+- **`on`** — apply the behavior. Also accepted: `1`, `true`, `yes`.
+
+Values are lowercased and stripped before matching, and all three flags share the
+same accepted-value sets (`_ENABLED_VALUES` / `_LOG_ONLY_VALUES` in
+[`orchestrator/review_findings_verdict.py`](../../orchestrator/review_findings_verdict.py),
+mirrored in `review_graph.py` and `evidence_gatherer.py`). Anything else is an
+unknown value and lands on `off`.
 
 **Note — the green gate diverged.** `orchestrator/slice_green_gate.py` now defaults
 to `on`, and degrades an unknown value to `on` *with a logged warning*, since
@@ -33,23 +40,31 @@ shape: off by default, and an unknown value resolves to `off` silently, since
 under-reviewing is never safe for them.
 
 The flags are read in code, not in prompts, so the gate is deterministic. The
-runtime flags governing this rollout are `EGG_REVIEW_FINDINGS_MODE` (§1 — it also
+**staged** flags governing this rollout are `EGG_REVIEW_FINDINGS_MODE` (§1 — it also
 governs the per-finding tool-call cap, §2), `EGG_RISK_ROUTER` (§4), and
-`EGG_REVIEW_EVIDENCE_PREFIX` (§5).
+`EGG_REVIEW_EVIDENCE_PREFIX` (§5). One further operator-facing env var is *not*
+staged and takes a path rather than a mode: `EGG_REVIEW_RISK_CONFIG`, which
+overrides the risk-router config location (§4).
 
 ## 1. Structured findings and the server-side computed verdict
 
-A reviewer no longer emits a prose-only NACK. It emits a **versioned finding
-schema**, and orchestrator-side code computes the edge verdict from the findings.
-Models own judgment (what to flag, severity, confidence, prose); code owns
+The target shape: a reviewer stops emitting a prose-only NACK and instead emits a
+**versioned finding schema**, from which orchestrator-side code computes the edge
+verdict. Models own judgment (what to flag, severity, confidence, prose); code owns
 mechanics (dedup, verdict, rendering).
+
+What has shipped is the contract and the pure verdict logic, not the wiring —
+reviewers still emit a prose `--reason` today. See **Not yet wired**, below, for
+exactly which pieces have no production caller.
 
 ### The finding schema
 
 Defined in [`shared/egg_contracts/review_findings.py`](../../shared/egg_contracts/review_findings.py),
-next to the other verdict contracts and validated at the message boundary the same
-way `orchestrator/attestation_schemas.py` validates attestations. The wire schema
-is versioned (`FINDINGS_SCHEMA_VERSION = 1`) and evolves additively.
+next to the other verdict contracts. It is *designed* to be validated at the message
+boundary the same way `orchestrator/attestation_schemas.py` validates attestations —
+but no such boundary exists yet: `validate_findings_payload()` is exported and
+unit-tested, with no production caller. The wire schema is versioned
+(`FINDINGS_SCHEMA_VERSION = 1`) and evolves additively.
 
 A `Finding` carries:
 
@@ -108,6 +123,18 @@ The whole computed-verdict path rides one staged flag, `EGG_REVIEW_FINDINGS_MODE
 path authoritative; `log` records the computed verdict alongside it without acting
 on it; `on` lets the computed verdict drive the edge. The same flag also governs
 the per-finding tool-call cap in §2.
+
+**Not yet wired.** Those three states are the semantics the wiring slice will honor,
+not observable behavior today. As of this snapshot nothing in production computes the
+verdict: `compute_verdict()`, `ApprovalMatrix.record_findings_verdict()`,
+`render_findings_nack_reason()`, and `validate_findings_payload()` have no callers
+outside tests, and reviewers still emit a prose `--reason`
+([`orchestrator/routes/pipelines/_prompt_review.py`](../../orchestrator/routes/pipelines/_prompt_review.py)
+— "Your `--reason` IS your review — include all findings there"). The module says so
+itself: `review_findings_verdict.py`'s docstring notes that "the caller (a later
+wiring slice) decides." `EGG_REVIEW_FINDINGS_MODE`'s only current production effect
+is the §2 cap export — which, per §2, nothing reads either. Setting it to `on` today
+therefore changes no consensus edge, and logs nothing to say so.
 
 ### Mechanism dedup and convergence-as-signal
 
@@ -250,7 +277,12 @@ is pure: the same changed-file set and config always yield the same
 ### The per-repo config: `.egg/review-risk.yaml`
 
 [`.egg/review-risk.yaml`](../../.egg/review-risk.yaml) is the policy input; the
-router reads it via `load_risk_config()`. Format:
+router reads it via `load_risk_config()`. `default_config_path()` resolves the
+location: the `EGG_REVIEW_RISK_CONFIG` env var wins if set (an absolute or
+cwd-relative path to the YAML file itself, not a directory), otherwise the path is
+`.egg/review-risk.yaml` relative to the repo root — mirroring the
+`.egg/phase-permissions.json` convention. The override is a plain path, not a staged
+mode flag; a config that fails to load fails open (see below). Format:
 
 ```yaml
 schema_version: 1          # currently 1; evolve additively
@@ -401,7 +433,7 @@ human-feedback learning loops (no human PR review exists in this deployment).
   cost logging in [`config/litellm/cost_callback.py`](../../config/litellm/cost_callback.py).
 - Reference design: Claude Code's `/review` / `/code-review` skill (see issue #3523
   comments for the verbatim prompt bodies).
-- Related: [Conditional ACK](conditional-ack.md) (advisory-only findings route
-  through the conditional-ACK obligation path),
+- Related: [Conditional ACK](conditional-ack.md) (the obligation path advisory-only
+  findings are designed to route through, once §1 is wired),
   [Concurrent Execution](../guides/concurrent-execution.md),
   [Reviewer Sync](../../shared/prompts/REVIEWER-SYNC.md).

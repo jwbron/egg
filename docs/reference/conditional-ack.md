@@ -4,7 +4,7 @@ A **conditional ACK** is a reviewer verdict variant introduced in [#1998](https:
 
 It is not a soft NACK. If the agents can address the concern themselves — by editing code, adding a test, or re-running a step — NACK with the reason. Conditional ACK is reserved for actions the sandbox cannot perform (e.g. a `git mv` blocked by the gateway, a cross-repo config flip, a manual datastore migration).
 
-Under the structured-findings model ([Review Quality](review-quality.md), issue #3523), advisory-only findings route through this conditional-ACK obligation path automatically: a finding with no blocking-eligible peer produces an ACK, and any `pre_merge_obligation` text it carries becomes a pre-merge condition on the edge. See [Review Quality §1](review-quality.md#1-structured-findings-and-the-server-side-computed-verdict) for how the verdict is computed.
+The structured-findings model ([Review Quality](review-quality.md), issue #3523) is designed to route advisory-only findings through this same conditional-ACK obligation path: a finding with no blocking-eligible peer produces an ACK, and any `pre_merge_obligation` text it carries becomes a pre-merge condition on the edge. That routing is **not yet wired** — `ApprovalMatrix.record_findings_verdict()` has no production caller, so today every conditional ACK on an edge comes from a reviewer invoking the CLI below. See [Review Quality §1](review-quality.md#1-structured-findings-and-the-server-side-computed-verdict) for how the verdict is computed and what remains unwired.
 
 ## When to use it
 
