@@ -667,11 +667,23 @@ def _build_runner_job_manifest(
 
 
 def _submit_runner_job(k8s: Any, namespace: str, manifest: dict[str, Any]) -> None:
-    """Convert the manifest dict to V1 objects and create the Job."""
+    """Convert the manifest dict to V1 objects and create the Job.
+
+    Every field is read *from the manifest* rather than restated here.
+    Three of them used to be hardcoded (``automountServiceAccountToken``,
+    ``allowPrivilegeEscalation``, ``capabilities.drop``) while the
+    manifest also declared them: the values agreed, so there was no live
+    bug, but the dict was not the source of truth it looks like, and a
+    test asserting on the submitted body could not tell the two apart.
+    Keep new fields flowing through the dict —
+    ``test_every_manifest_field_reaches_the_body`` fails on any manifest
+    key this function does not copy.
+    """
     from kubernetes import client as k8s_client_pkg
 
     container = manifest["spec"]["template"]["spec"]["containers"][0]
     pod_spec = manifest["spec"]["template"]["spec"]
+    container_security = container["securityContext"]
     body = k8s_client_pkg.V1Job(
         api_version=manifest["apiVersion"],
         kind=manifest["kind"],
@@ -689,7 +701,7 @@ def _submit_runner_job(k8s: Any, namespace: str, manifest: dict[str, Any]) -> No
                 ),
                 spec=k8s_client_pkg.V1PodSpec(
                     restart_policy=pod_spec["restartPolicy"],
-                    automount_service_account_token=False,
+                    automount_service_account_token=pod_spec["automountServiceAccountToken"],
                     security_context=k8s_client_pkg.V1PodSecurityContext(
                         run_as_user=pod_spec["securityContext"]["runAsUser"],
                         run_as_group=pod_spec["securityContext"]["runAsGroup"],
@@ -706,8 +718,12 @@ def _submit_runner_job(k8s: Any, namespace: str, manifest: dict[str, Any]) -> No
                                 for e in container["env"]
                             ],
                             security_context=k8s_client_pkg.V1SecurityContext(
-                                allow_privilege_escalation=False,
-                                capabilities=k8s_client_pkg.V1Capabilities(drop=["ALL"]),
+                                allow_privilege_escalation=container_security[
+                                    "allowPrivilegeEscalation"
+                                ],
+                                capabilities=k8s_client_pkg.V1Capabilities(
+                                    drop=container_security["capabilities"]["drop"],
+                                ),
                             ),
                             volume_mounts=[
                                 k8s_client_pkg.V1VolumeMount(

@@ -20,7 +20,9 @@ Covers:
   asserted on the ``create_namespaced_job`` body: the function copies a
   fixed field list, so a field present in the manifest but absent from
   that list is dropped silently (including the pod-level deadline
-  #3622 tracks).
+  #3622 tracks). A reflection pass over the whole manifest closes that
+  class of drop generally, with a negative control for the dict-only
+  shape of #3622's fix.
 * ``run_slice_green_gate`` — gate wiring: kill switch, fail-open on
   every infrastructure failure (worktree, session, submit, timeout,
   unparseable verdict), fail-closed only on a definitive red verdict,
@@ -147,8 +149,19 @@ class TestGreenGateMode:
         # so both typo warnings are greppable the same way.
         assert warn.call_args.kwargs["mode"] == "log"
 
-    @pytest.mark.parametrize("value", ["on", "log", "off", "", "   "])
-    def test_recognised_values_do_not_warn(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("on", "on"),
+            ("log", "log"),
+            ("off", "off"),
+            ("", "log"),
+            ("   ", "log"),
+        ],
+    )
+    def test_recognised_values_do_not_warn(
+        self, gate_env: pytest.MonkeyPatch, value: str, expected: str
+    ) -> None:
         """Only genuinely unrecognised values warn.
 
         ``""`` / ``"   "`` are deliberately in this list rather than the
@@ -158,10 +171,14 @@ class TestGreenGateMode:
         the default *silently* on both sides. Pinning it here keeps that
         symmetry from drifting — an empty value is "unset", not a typo,
         and should not page an operator.
+
+        The resolved mode is asserted alongside the warn count so that
+        the ``""`` / ``"   "`` rows still pin *what* the falsy
+        short-circuit returns, not merely that it is quiet about it.
         """
         gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, value)
         with patch.object(sgg.logger, "warning") as warn:
-            sgg.green_gate_mode()
+            assert sgg.green_gate_mode() == expected
         assert warn.call_count == 0
 
 
@@ -683,6 +700,58 @@ class TestBuildRunnerJobManifest:
 # ----------------------------------------------------------------------
 
 
+def _real_k8s_sdk_available() -> bool:
+    """True only for the genuine kubernetes SDK, not the conftest stub.
+
+    ``conftest`` installs a hand-rolled stub package under
+    ``sys.modules`` when ``kubernetes`` is absent, so
+    ``pytest.importorskip("kubernetes")`` would *succeed* and then fail
+    on the first missing class. The stub defines nine V1 classes;
+    ``_submit_runner_job`` needs six more, and the reflection test below
+    needs ``attribute_map``, which only the real SDK models carry.
+    """
+    try:
+        from kubernetes import client as k8s_client_pkg
+    except ImportError:  # pragma: no cover — SDK is in the ``dev`` extra
+        return False
+    return hasattr(getattr(k8s_client_pkg, "V1Job", None), "attribute_map")
+
+
+def _assert_manifest_value_reaches(submitted: Any, expected: Any, path: str) -> None:
+    """Assert every key of ``expected`` survives into ``submitted``.
+
+    Walks the manifest dict and the submitted V1 object in lockstep,
+    translating camelCase keys through each model's ``attribute_map``
+    (present on every kubernetes SDK model, so no hand-maintained name
+    table can drift). A manifest key that ``_submit_runner_job`` does
+    not copy shows up as a ``None`` attribute or a value mismatch.
+    """
+    if isinstance(expected, dict):
+        attribute_map = getattr(type(submitted), "attribute_map", None)
+        if attribute_map is None:
+            # A plain-dict field (e.g. ``labels``) — compare wholesale.
+            assert submitted == expected, f"{path} != {expected!r}"
+            return
+        inverse = {camel: attr for attr, camel in attribute_map.items()}
+        for camel, value in expected.items():
+            assert camel in inverse, f"{path}.{camel} is not a field of {type(submitted).__name__}"
+            got = getattr(submitted, inverse[camel])
+            assert got is not None, f"{path}.{camel} dropped by _submit_runner_job"
+            _assert_manifest_value_reaches(got, value, f"{path}.{camel}")
+    elif isinstance(expected, list):
+        assert isinstance(submitted, list), f"{path} is not a list"
+        assert len(submitted) == len(expected), f"{path} length {len(submitted)} != {len(expected)}"
+        for i, item in enumerate(expected):
+            _assert_manifest_value_reaches(submitted[i], item, f"{path}[{i}]")
+    else:
+        assert submitted == expected, f"{path} is {submitted!r}, manifest says {expected!r}"
+
+
+@pytest.mark.skipif(
+    not _real_k8s_sdk_available(),
+    reason="needs the real kubernetes SDK (the conftest stub lacks V1PodSecurityContext "
+    "and attribute_map); it ships in the dev extra CI installs",
+)
 class TestSubmitRunnerJob:
     """Pin the manifest-dict -> V1 object translation.
 
@@ -694,11 +763,19 @@ class TestSubmitRunnerJob:
     ``activeDeadlineSeconds`` onto ``spec.template.spec``"), which would
     pass ``test_one_shot_job_shape`` while this function dropped the
     field and the submitted Job carried no pod deadline at all.
+
+    ``test_every_manifest_field_reaches_the_body`` is what actually
+    closes that trap, and closes it for the whole class of fields rather
+    than one field: it walks the manifest and the submitted body in
+    lockstep. The per-field tests below stay because they name the
+    values that matter (deadline arithmetic, the security posture) in
+    terms a reader recognises; the reflection test is the one that goes
+    red when a *new* key is added to the dict and not to the whitelist.
     """
 
     @staticmethod
-    def _submit(**overrides: Any) -> Any:
-        manifest = _manifest(**overrides)
+    def _submit(manifest: dict[str, Any] | None = None, **overrides: Any) -> Any:
+        manifest = _manifest(**overrides) if manifest is None else manifest
         k8s = MagicMock()
         sgg._submit_runner_job(k8s, "egg-ns", manifest)
         k8s.batch_api.create_namespaced_job.assert_called_once()
@@ -745,15 +822,70 @@ class TestSubmitRunnerJob:
     def test_pod_level_deadline_is_not_set_today(self) -> None:
         """The deadline is Job-level only — the defect #3622 tracks.
 
-        Asserted at the *submission* seam rather than on the manifest
-        dict, so #3622's fix cannot land by editing the dict alone: the
-        whitelist in ``_submit_runner_job`` has to grow the field too or
-        this assertion keeps passing while the pod deadline goes
-        nowhere. Flip it to ``== <budget>`` when #3622 lands.
+        This records *where the deadline is today*; it does not enforce
+        that #3622's fix arrives at the apiserver. It cannot: the
+        assertion below stays true whether the fix is complete or the
+        manifest dict grew a pod-level deadline that
+        ``_submit_runner_job`` then dropped on the floor. That trap is
+        closed by ``test_every_manifest_field_reaches_the_body``, which
+        goes red on the dict-only version.
+
+        When #3622 lands, flip this to ``== <budget>``.
         """
         body = self._submit(timeout_seconds=600)
         assert body.spec.active_deadline_seconds == 660
         assert body.spec.template.spec.active_deadline_seconds is None
+
+    def test_every_manifest_field_reaches_the_body(self) -> None:
+        """No manifest key may be dropped by the copy whitelist.
+
+        The generalised form of the #3622 trap: add a key to
+        ``_build_runner_job_manifest`` and forget the matching line in
+        ``_submit_runner_job``, and the manifest tests stay green while
+        the apiserver never sees the field.
+        """
+        manifest = _manifest()
+        _assert_manifest_value_reaches(self._submit(manifest), manifest, "body")
+
+    def test_a_dict_only_pod_deadline_is_caught(self) -> None:
+        """Negative control for #3622 option 1, landed dict-only.
+
+        This is the exact edit the follow-up is most likely to make —
+        pod-level ``activeDeadlineSeconds`` in the manifest, no matching
+        line in ``_submit_runner_job``. Without this the suite has no
+        way to distinguish it from the complete fix.
+        """
+        manifest = _manifest(timeout_seconds=600)
+        manifest["spec"]["template"]["spec"]["activeDeadlineSeconds"] = 660
+        with pytest.raises(AssertionError, match="activeDeadlineSeconds dropped"):
+            _assert_manifest_value_reaches(self._submit(manifest), manifest, "body")
+
+    @pytest.mark.parametrize(
+        ("path", "value"),
+        [
+            (("automountServiceAccountToken",), True),
+            (("containers", 0, "securityContext", "allowPrivilegeEscalation"), True),
+            (("containers", 0, "securityContext", "capabilities", "drop"), []),
+        ],
+    )
+    def test_security_fields_follow_the_manifest_not_a_constant(
+        self, path: tuple[Any, ...], value: Any
+    ) -> None:
+        """The three fields that used to be hardcoded in the submitter.
+
+        They agreed with the manifest, so there was no live bug — but
+        the assertions on them passed against a constant and would have
+        held with the manifest saying the opposite, which is the
+        non-discriminating shape ``TestSubmitRunnerJob`` exists to
+        replace. Loosening the manifest here must loosen the submitted
+        pod; if it does not, the dict is decorative again.
+        """
+        manifest = _manifest()
+        target: Any = manifest["spec"]["template"]["spec"]
+        for key in path[:-1]:
+            target = target[key]
+        target[path[-1]] = value
+        _assert_manifest_value_reaches(self._submit(manifest), manifest, "body")
 
 
 # ----------------------------------------------------------------------
