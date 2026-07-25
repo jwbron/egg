@@ -1,0 +1,280 @@
+{
+  "pipeline_id": "issue-3596-v2",
+  "phase": "plan",
+  "producer": "task_planner",
+  "summary": "Task plan for issue #3596: make agent forward-progress state visible and make the system act on it. Takes the architect's v2 6-slice scaffold (11 work items) and enumerates 22 concrete tasks (11 implementation + 11 test) with acceptance criteria, file assignments, and role assignments. Slice-1 (wire detection plane + enrich snapshot) is the foundation with 7 sub-tasks (1a-1g) plus their tests. Slices 2-4 depend on slice-1 for data sources. Slice-5 (sampling params) is deferred. All file ownership verified via check_file_restriction: .py files are coder-owned, .md files are documenter-owned, test files are tester-owned.",
+  "approach": "The task_planner takes the architect's binding slice scaffold (issue-3596-v2-architect-slices.yaml) and enumerates the discrete tasks inside each slice with acceptance criteria, file assignments, and role assignments. Each implementation task is paired with a corresponding tester task for test coverage. The slice DAG and dependency ordering are preserved verbatim from the architect's design. Task-5 (sampling params) is carried as a deferred slice per the architect's v2 plan (no cost counter store exists for the consumption breaker).",
+  "work_items": [
+    {
+      "id": "task-1a",
+      "title": "Wire detection plane into runtime tick",
+      "description": "Call HealthCheckRunner.run_detection_plane() from _run_runtime_tick_checks in kubernetes_monitor.py. Guard against double-evaluation (two call sites: _check_pod + _reconciliation_sweep). Make evaluation idempotent per tick. Findings emitted on EventBus as DETECTION_FINDING events; adjudication-required findings routed to _escalate_finding_to_adjudicator; routine findings executed by CorrectiveExecutor.",
+      "files_affected": ["orchestrator/kubernetes_monitor.py", "orchestrator/health_checks/runner.py"],
+      "acceptance_criteria": [
+        "run_detection_plane() is called from _run_runtime_tick_checks for running pipelines",
+        "Evaluation is idempotent per tick (no double-evaluation from two call sites)",
+        "Findings are emitted on the EventBus as DETECTION_FINDING events",
+        "Findings with requires_adjudication=True are routed to _escalate_finding_to_adjudicator",
+        "Routine findings (requires_adjudication=False) are executed by CorrectiveExecutor",
+        "Test: detection plane runs on RUNTIME_TICK and emits findings"
+      ],
+      "role": "coder",
+      "priority": "critical",
+      "estimated_hours": 4,
+      "test_task_id": "TASK-1-1A-TEST",
+      "test_files": ["orchestrator/tests/test_detection_plane_runtime_wiring.py"]
+    },
+    {
+      "id": "task-1b",
+      "title": "Populate container_transitions in snapshot builder",
+      "description": "Enrich snapshot_from_health_context to populate container_transitions from kubernetes_monitor's container event history. Each transition: {container, role, from, to, reason, exit_code, restart_count, transient, timestamp}. Best-effort: failures degrade to empty tuple, never crash.",
+      "files_affected": ["orchestrator/health_checks/detection_plane.py"],
+      "acceptance_criteria": [
+        "container_transitions populated with transition events from kubernetes_monitor",
+        "Each transition has: container, role, from, to, reason, exit_code, restart_count",
+        "Best-effort: failures degrade to empty tuple, never crash",
+        "Test: detect_container_death receives populated container_transitions"
+      ],
+      "role": "coder",
+      "priority": "critical",
+      "estimated_hours": 3,
+      "test_task_id": "TASK-1-1B-TEST",
+      "test_files": ["orchestrator/tests/test_detection_plane_container_transitions.py"]
+    },
+    {
+      "id": "task-1c",
+      "title": "Populate git_state in snapshot builder",
+      "description": "Enrich snapshot_from_health_context to populate git_state with: commit_count (git rev-list --count), last_commit_at (git log -1 --format=%aI), last_commit_sha, patch_id_matches, branch, is_ancestor_of_base, pr_head_sha, last_pushed_sha, pushed_age_s, pr_externally_mutated, fsck_errors, index_lock_present, lock_age_s. Best-effort: git failures degrade to empty dict, never crash.",
+      "files_affected": ["orchestrator/health_checks/detection_plane.py"],
+      "acceptance_criteria": [
+        "git_state populated with commit_count, last_commit_at, last_commit_sha, branch",
+        "git_state populated with patch_id_matches, is_ancestor_of_base for divergence detection",
+        "git_state populated with fsck_errors, index_lock_present, lock_age_s for corruption detection",
+        "Best-effort: git failures degrade to empty dict, never crash",
+        "Test: detect_worktree_corruption and detect_pushed_pr_not_updated receive populated git_state"
+      ],
+      "role": "coder",
+      "priority": "high",
+      "estimated_hours": 4,
+      "test_task_id": "TASK-1-1C-TEST",
+      "test_files": ["orchestrator/tests/test_detection_plane_git_state.py"]
+    },
+    {
+      "id": "task-1d",
+      "title": "Populate decision_state in snapshot builder",
+      "description": "Enrich snapshot_from_health_context to populate decision_state with: pending_hitl, open_decisions, approved_unapplied, oldest_open_age_s, replay_pending, replay_count, replayed_resolved_id, auto_advance_pending, auto_advance_age_s. Data source: contract store + decision queue.",
+      "files_affected": ["orchestrator/health_checks/detection_plane.py"],
+      "acceptance_criteria": [
+        "decision_state populated with pending_hitl, open_decisions from contract",
+        "decision_state populated with approved_unapplied, oldest_open_age_s from decision queue",
+        "decision_state populated with replay_pending, replay_count from session state",
+        "Test: detect_approved_decision_orphaned and detect_hitl_queue_backlog receive populated decision_state"
+      ],
+      "role": "coder",
+      "priority": "high",
+      "estimated_hours": 3,
+      "test_task_id": "TASK-1-1D-TEST",
+      "test_files": ["orchestrator/tests/test_detection_plane_decision_state.py"]
+    },
+    {
+      "id": "task-1e",
+      "title": "Populate RunningAgent liveness fields + fix role=str(cid) defect",
+      "description": "Enrich snapshot_from_health_context to populate RunningAgent with: last_tool_call_age_s (from working_heartbeat emitter or agent session), last_heartbeat_age_s (from HealthMonitor._last_heartbeat), exit_code, exit_reason (from container exit info). CRITICAL FIX: role=str(cid) currently puts a container UUID in the role field — map container IDs to agent roles via the pipeline's phase execution state (AgentExecution.container_id -> AgentExecution.role).",
+      "files_affected": ["orchestrator/health_checks/detection_plane.py"],
+      "acceptance_criteria": [
+        "RunningAgent.role is populated with the agent role name, not a container UUID",
+        "RunningAgent.last_heartbeat_age_s populated from HealthMonitor._last_heartbeat",
+        "RunningAgent.last_tool_call_age_s populated from working_heartbeat or agent session",
+        "RunningAgent.exit_code and exit_reason populated from container exit info",
+        "Test: detect_heartbeat_stall can fire when both age fields are stale",
+        "Test: detect_container_death reads correct role names, not container UUIDs"
+      ],
+      "role": "coder",
+      "priority": "critical",
+      "estimated_hours": 4,
+      "test_task_id": "TASK-1-1E-TEST",
+      "test_files": ["orchestrator/tests/test_detection_plane_liveness_fields.py"]
+    },
+    {
+      "id": "task-1f",
+      "title": "Populate phase_state.expected_duration_s + raw.runtime",
+      "description": "Enrich snapshot_from_health_context to populate phase_state.expected_duration_s from PipelineConfig phase budgets, and raw.runtime with: run_pipeline_thread_alive (from driver_heartbeat), thread_last_tick_age_s (from driver_heartbeat), restart_propagation (from event loop supervisor).",
+      "files_affected": ["orchestrator/health_checks/detection_plane.py"],
+      "acceptance_criteria": [
+        "phase_state.expected_duration_s populated from PipelineConfig",
+        "raw.runtime.run_pipeline_thread_alive populated from driver_heartbeat",
+        "raw.runtime.thread_last_tick_age_s populated from driver_heartbeat",
+        "raw.runtime.restart_propagation populated from event loop supervisor",
+        "Test: detect_duration_drift receives expected_duration_s",
+        "Test: detect_run_pipeline_thread_liveness receives runtime liveness fields"
+      ],
+      "role": "coder",
+      "priority": "high",
+      "estimated_hours": 3,
+      "test_task_id": "TASK-1-1F-TEST",
+      "test_files": ["orchestrator/tests/test_detection_plane_phase_state.py"]
+    },
+    {
+      "id": "task-1g",
+      "title": "Correct health_checks/README.md:88",
+      "description": "The README documents _run_overseer_detection_plane as the thing that 'builds the snapshot, evaluates' — implying it's wired in production. Correct this line to reflect that the detection plane is NOT currently wired into the runtime tick, and that task-1a adds that wiring.",
+      "files_affected": ["orchestrator/health_checks/README.md"],
+      "acceptance_criteria": [
+        "README line 88 corrected to state the detection plane is not yet wired",
+        "README updated to describe the wiring path via _run_runtime_tick_checks"
+      ],
+      "role": "documenter",
+      "priority": "low",
+      "estimated_hours": 1,
+      "test_task_id": null,
+      "test_files": []
+    },
+    {
+      "id": "task-2",
+      "title": "Add forward-progress detector (commit count + worktree activity rate)",
+      "description": "New deterministic detector detect_forward_progress_stall that fires when an agent has been running >N seconds (configurable, default 600s) with zero commits, zero progress events, and zero file modifications. Reads commit_count and last_commit_at from git_state, progress_event_count from ProgressStore, and worktree file mtime from git_state. Directly addresses the issue's key diagnostic: 'a hand-rolled loop counting commits on the agent's worktree.'",
+      "files_affected": ["orchestrator/health_checks/tier1/forward_progress.py"],
+      "acceptance_criteria": [
+        "New detector detect_forward_progress_stall registered in DetectionPlane.default()",
+        "Detector fires when agent runs >600s with zero commits, zero progress events, and zero file modifications",
+        "Detector stays silent when agent is making any of: commits, progress events, or file modifications",
+        "Configurable threshold via PipelineConfig (orchestrator_forward_progress_stall_seconds)",
+        "requires_adjudication=True (stuck vs. legitimately slow is ambiguous)",
+        "Test: detector fires on zero-progress agent, stays silent on active agent"
+      ],
+      "role": "coder",
+      "priority": "high",
+      "estimated_hours": 6,
+      "test_task_id": "TASK-2-1-TEST",
+      "test_files": ["orchestrator/tests/test_forward_progress_detector.py"]
+    },
+    {
+      "id": "task-3",
+      "title": "Fix peer-progress gate to be dependency-aware",
+      "description": "Issue #3595 root cause 1: _has_recent_peer_progress defers on ANY peer's heartbeat, including the overseer's own, which suppresses alerts about the very agent the overseer watches. Fix: scope to only defer on peers the agent actually depends on (from BRC review_edges). HealthMonitor IS still active in production — this fix is NOT wasted.",
+      "files_affected": ["orchestrator/health_monitor.py"],
+      "acceptance_criteria": [
+        "_has_recent_peer_progress only defers on peers in the dependent set (from review_edges)",
+        "Overseer's own heartbeat no longer suppresses alerts about agents it watches",
+        "Gate still suppresses false positives on busy pipelines (peers A depends on are active)",
+        "Test: a wedged agent with an active overseer peer no longer gets suppressed",
+        "Test: a busy pipeline with active upstream peers still suppresses false positives"
+      ],
+      "role": "coder",
+      "priority": "high",
+      "estimated_hours": 5,
+      "test_task_id": "TASK-3-1-TEST",
+      "test_files": ["orchestrator/tests/test_peer_progress_gate.py"]
+    },
+    {
+      "id": "task-4",
+      "title": "Enrich get_status with forward-progress signals and active alerts",
+      "description": "Add a progress sub-object to each entry in concurrent.agents with: last_heartbeat_age_s, last_progress_age_s, commit_count, last_commit_at, last_commit_sha, progress_event_count. Add an alerts array to the top-level status response (capped at 10) sourced from HealthMonitor.get_active_alerts(). Add phase timing (phase_started_at, phase_elapsed_seconds) to the concurrent block. All fields are null when unmeasurable (per operator constraint: distinguish null from zero).",
+      "files_affected": ["orchestrator/routes/pipelines/_status_view.py", "orchestrator/routes/pipelines/_routes_status.py"],
+      "acceptance_criteria": [
+        "concurrent.agents[].progress contains commit_count, last_commit_at, last_heartbeat_age_s, last_progress_age_s, progress_event_count",
+        "Top-level alerts array present with alert_type, agent_id, message, severity, timestamp",
+        "concurrent.phase_started_at and concurrent.phase_elapsed_seconds present",
+        "All progress fields are null when unmeasurable, never 0",
+        "Best-effort: git subprocess failures degrade to null, never crash the status endpoint",
+        "Test: /status response includes progress sub-object and alerts array"
+      ],
+      "role": "coder",
+      "priority": "high",
+      "estimated_hours": 8,
+      "test_task_id": "TASK-4-1-TEST",
+      "test_files": ["orchestrator/tests/test_status_progress_enrichment.py"]
+    },
+    {
+      "id": "task-5",
+      "title": "Record sampling params in cost_callback (DEFERRED to follow-up)",
+      "description": "Issue #3595 root cause 5: sampling configuration is unset and unrecorded. Extend cost_callback.py to log optional_params alongside the cost and cache stats it already emits. Pin explicit temperature/top_p per model. Fully independent and deferred — can be done in parallel or as a follow-up.",
+      "files_affected": ["orchestrator/cost_callback.py", "config/litellm/litellm_settings.yaml"],
+      "acceptance_criteria": [
+        "cost_callback logs optional_params (temperature, top_p, top_k, presence_penalty, frequency_penalty, reasoning_effort) per call",
+        "Per-model temperature/top_p pinned in litellm_settings.yaml",
+        "Log format is backward-compatible (new fields are additive)",
+        "Test: cost_callback output includes optional_params field"
+      ],
+      "role": "coder",
+      "priority": "low",
+      "estimated_hours": 4,
+      "deferred": true,
+      "test_task_id": "TASK-5-1-TEST",
+      "test_files": ["orchestrator/tests/test_cost_callback_sampling_params.py"]
+    }
+  ],
+  "slice_dag": {
+    "description": "Slice 1 (wire detection plane + enrich snapshot) is the foundation — it must land first so the enriched snapshot is actually evaluated. Slices 1b-1g (snapshot enrichment) are parallelizable sub-tasks of task-1 within slice-1. Slice 2 (forward-progress detector) depends on 1a + 1c + 1e. Slice 3 (peer-progress gate fix) is independent of the detection plane. Slice 4 (status enrichment) depends on 1e for liveness fields. Slice 5 (sampling params) is fully independent and deferred.",
+    "edges": [
+      {"from": "task-1a", "to": "task-1b"},
+      {"from": "task-1a", "to": "task-1c"},
+      {"from": "task-1a", "to": "task-1d"},
+      {"from": "task-1a", "to": "task-1e"},
+      {"from": "task-1a", "to": "task-1f"},
+      {"from": "task-1a", "to": "task-1g"},
+      {"from": "task-1c", "to": "task-2"},
+      {"from": "task-1e", "to": "task-2"},
+      {"from": "task-1e", "to": "task-4"}
+    ],
+    "parallelizable": true
+  },
+  "non_goals": [
+    "Rebuilding agent_log_store.py (exists, #3547, Redis-backed, 24h TTL)",
+    "Rebuilding GET /pipelines/{id}/health/alerts (exists, serves active alerts)",
+    "Rebuilding working_heartbeat.py (exists, #3341, in-tool-loop WORKING emitter)",
+    "Rebuilding driver_heartbeat.py (exists, #3540, driver thread liveness)",
+    "Rebuilding HealthMonitor (still active in production, 12+ call sites)",
+    "Consumption breaker detector (task-5 deferred — no cost counter store exists)",
+    "Session transcript capture on pod exit (distinct gap from agent_log_store, deferred)",
+    "Repetition-triggered context surgery (needs investigation first)",
+    "Ground-truth verifier role for the review set (reviewer-graph topology change)"
+  ],
+  "already_verified": [
+    "agent_log_store.py exists (#3547) — Redis-backed pod log retention at Job removal, 24h TTL. Do NOT rebuild.",
+    "GET /pipelines/{id}/health/alerts exists — serves active alerts. Do NOT rebuild.",
+    "evidence_rescue.py exists (#3572) — patch-id rescue for unreachable commits.",
+    "commit_authorship_store.py exists — durable commit authorship registry.",
+    "agent_salvage.py exists (#2429) — unpushed commit salvage.",
+    "AgentExitInfo exists (#2205) — frozen-at-exit snapshots with last_lines.",
+    "working_heartbeat.py exists (#3341) — in-tool-loop WORKING heartbeat emitter.",
+    "driver_heartbeat.py exists (#3540) — driver thread liveness registry.",
+    "DriverLivenessCheck exists (#3540) — dead/hung/no-progress driver detection.",
+    "PhaseOutputPresenceCheck exists — commit presence at phase boundaries.",
+    "_live_event_agents exists (#3230) — running-agent view from live Job labels.",
+    "OverseerSelfMonitor exists (#2270 §5) — overseer self-health tracking.",
+    "HealthMonitor IS still active in production (initialized in _run_pipeline.py:272, used across 12+ call sites).",
+    "ALL 27 registered detection-plane detectors are starved — snapshot_from_health_context populates only 5 of 13 top-level fields and 3 of 7 RunningAgent fields.",
+    "detect_heartbeat_stall is dead code — snapshot_from_health_context never populates last_tool_call_age_s/last_heartbeat_age_s.",
+    "role=str(cid) defect confirmed — RunningAgent.role carries a container UUID, not a role name.",
+    "health_checks/README.md:88 falsely documents the detection plane as wired in production.",
+    "No cost counter store exists — cost_callback.py logs to stdout, not a queryable store. Task-5 deferred."
+  ],
+  "risks": [
+    {"risk": "Response payload size growth from status enrichment", "mitigation": "Cap alerts at 10 entries, make git/diffstat fields best-effort with timeouts, cache where possible"},
+    {"risk": "Git subprocess cost on every status call", "mitigation": "Cap commit count at 100, use --oneline format, run with 5s timeout, degrade to null on failure"},
+    {"risk": "Detection plane adds CPU load on runtime tick", "mitigation": "Detectors are pure functions, exception-isolated, and only run on RUNTIME_TICK (5s default interval). Each detector is O(1) or O(n) in small bounded data."},
+    {"risk": "Peer-progress gate fix could re-introduce false positives", "mitigation": "The gate still falls back to 'any peer' when the dependency graph is unavailable. Conservative by default."},
+    {"risk": "Consumption breaker (task-5) has no cost counter store", "mitigation": "Deferred to a follow-up. The snapshot builder populates cost_counters from whatever store is created, but the store creation is a separate task."},
+    {"risk": "Session transcripts pushed only on exit — never-exiting agent has no transcript", "mitigation": "Correctly deferred. Requires changes to agent session lifecycle. Track as separate follow-up issue."}
+  ],
+  "risk_register": [
+    {"id": "R1", "risk": "Detection plane wiring conflict with operator's cq-1 resolution", "severity": "RESOLVED", "resolution": "cq-2 resolved by operator: detection plane is NOT wired in production; task-1a wires it into _run_runtime_tick_checks."},
+    {"id": "R2", "risk": "role=str(cid) defect (container UUID in role field)", "severity": "RESOLVED", "resolution": "Fixed in task-1e by mapping container IDs to agent roles via AgentExecution.container_id -> AgentExecution.role."},
+    {"id": "R3", "risk": "Snapshot builder doesn't populate required fields", "severity": "RESOLVED", "resolution": "Task-1 split into sub-tasks by data source (1b-1f) per architect v2 plan."},
+    {"id": "R4", "risk": "detect_heartbeat_stall is dead code", "severity": "RESOLVED", "resolution": "Fixed in task-1e by populating last_tool_call_age_s and last_heartbeat_age_s on RunningAgent."},
+    {"id": "R5", "risk": "Plan claims '25+ dormant detectors' — count needs auditing", "severity": "RESOLVED", "resolution": "Full detector audit performed: ALL 27 registered detectors are starved (0 active). Audit included in plan document."},
+    {"id": "R6", "risk": "Consumption breaker (task-5) has no data source for cost_counters", "severity": "MITIGATED", "resolution": "Task-5 deferred — no cost counter store exists. Snapshot builder will populate cost_counters from whatever store is created, but store creation is a separate follow-up task."},
+    {"id": "R7", "risk": "Peer-progress gate fix targets old HealthMonitor path", "severity": "MITIGATED", "resolution": "HealthMonitor IS still active in production (12+ call sites). The fix is NOT wasted — it provides immediate effect while the detection plane is the future architecture."},
+    {"id": "R8", "risk": "Session transcripts only pushed on exit", "severity": "ACCEPTED", "resolution": "Correctly deferred. Requires changes to agent session lifecycle. Track as separate follow-up issue."}
+  ],
+  "grounding": {
+    "base": "main @ ac390d79a (architect v2 proposal, 2026-07-25)",
+    "architect_output": ".egg-state/agent-outputs/issue-3596-v2-architect-output.json",
+    "architect_slices": ".egg-state/agent-outputs/issue-3596-v2-architect-slices.yaml",
+    "risk_analyst_output": ".egg-state/agent-outputs/issue-3596-v2-risk_analyst-output.json",
+    "refiner_analysis": ".egg-state/drafts/issue-3596-v2-analysis.md",
+    "simplifier_analysis": ".egg-state/drafts/issue-3596-v2-analysis-human.md",
+    "contract": ".egg-state/contracts/issue-3596-v2.json"
+  }
+}
