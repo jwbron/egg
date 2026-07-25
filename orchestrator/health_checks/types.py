@@ -81,6 +81,10 @@ class FindingClass(StrEnum):
     HEARTBEAT_STALL = "heartbeat_stall"
     BRANCH_DIVERGENCE = "branch_divergence"
     CONTAINER_DEATH = "container_death"
+    FORWARD_PROGRESS_STALL = "forward_progress_stall"
+    FORWARD_PROGRESS_RESET = "forward_progress_reset"
+    FORWARD_PROGRESS_NO_COMMITS = "forward_progress_no_commits"
+    FORWARD_PROGRESS_BRC_ABSENCE = "forward_progress_brc_absence"
 
 
 @dataclass(frozen=True)

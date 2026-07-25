@@ -49,6 +49,9 @@ class _FakeSnapshot:
         self.running_agents = ()
         self.git_state = git_state or {}
         self._pipeline_ref = pipeline_ref
+        self.consensus = {}
+        self.decision_state = {}
+        self.midturn_messages = ()
 
 
 class _FakeAgent:
@@ -124,7 +127,7 @@ class TestForwardProgressDetector:
 
         assert result is not None
         assert result.finding_class == FINDING_FORWARD_PROGRESS_STALL
-        assert result.severity == Severity.MEDIUM
+        assert result.severity == Severity.HIGH  # Updated: now HIGH per contract
         assert "not produced new commits" in result.recommended_action.lower()
 
     def test_no_finding_on_stall_within_threshold(self):
@@ -241,7 +244,8 @@ class TestForwardProgressDetector:
         assert result is not None
         assert result.finding_class == FINDING_FORWARD_PROGRESS_RESET
         assert result.severity == Severity.HIGH
-        assert result.requires_adjudication is False
+        # Per contract task-2-1: requires_adjudication=True (stuck vs. legitimately slow is ambiguous)
+        assert result.requires_adjudication is True
         assert result.detector_key == "forward_progress"
         assert "pipeline_id" in result.evidence
         assert "agent_role" in result.evidence
@@ -264,3 +268,41 @@ class TestForwardProgressDetector:
         # With a 300s threshold, this should not fire
         result = detect_forward_progress(snap, stall_seconds=300)
         assert result is None
+
+    def test_stall_finding_requires_adjudication(self):
+        """The stall finding must have requires_adjudication=True per contract."""
+        snap = _FakeSnapshot(
+            git_state={
+                "agent_commit_counts": {"coder": 5},
+                "agent_last_commit_age_s": {"coder": 700},
+            },
+        )
+        result = detect_forward_progress(snap)
+
+        assert result is not None
+        assert result.requires_adjudication is True
+
+    def test_reset_finding_requires_adjudication(self):
+        """The reset finding must have requires_adjudication=True per contract."""
+        snap = _FakeSnapshot(
+            git_state={
+                "agent_commit_counts": {"coder": 3},
+                "agent_prev_commit_counts": {"coder": 10},
+            },
+        )
+        result = detect_forward_progress(snap)
+
+        assert result is not None
+        assert result.requires_adjudication is True
+
+    def test_no_commits_finding_requires_adjudication(self):
+        """The no-commits-at-completion finding must have requires_adjudication=True."""
+        pipeline = _make_pipeline_with_complete_agent("coder")
+        snap = _FakeSnapshot(
+            git_state={"agent_commit_counts": {"coder": 0}},
+            pipeline_ref=pipeline,
+        )
+        result = detect_forward_progress(snap)
+
+        assert result is not None
+        assert result.requires_adjudication is True

@@ -1,12 +1,13 @@
-"""Tests for the forward-progress detector (#3596, task-2-2).
+"""Tests for the forward-progress detector (#3596, task-2-1).
 
 Verifies that:
 1. The detector fires on a zero-progress agent running >600s
 2. The detector stays silent on an active agent (commits/progress/file mods)
 3. The configurable threshold via PipelineConfig is respected
-
-This is the tester contract for the forward-progress detector. The detector
-itself was implemented by the coder in ``health_checks/tier1/forward_progress.py``.
+4. requires_adjudication=True (stuck vs. legitimately slow is ambiguous)
+5. Multi-signal detection (commits AND progress events AND file mods)
+6. BRC-progress-absence mode (operator directive #2)
+7. Three stall modes (operator directive #3)
 """
 
 from __future__ import annotations
@@ -14,8 +15,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
-
-import pytest
 
 # Add orchestrator and shared to path
 _orchestrator_path = Path(__file__).parent.parent
@@ -44,14 +43,21 @@ class _FakeSnapshot:
         phase_status: str = "RUNNING",
         git_state: dict | None = None,
         pipeline_ref: object | None = None,
+        consensus: dict | None = None,
+        decision_state: dict | None = None,
+        running_agents: tuple | None = None,
+        midturn_messages: tuple | None = None,
     ):
         self.snapshot_id = f"{pipeline_id}:{phase}"
         self.pipeline_id = pipeline_id
         self.phase = phase
         self.phase_state = {"status": phase_status}
-        self.running_agents = ()
+        self.running_agents = running_agents or ()
         self.git_state = git_state or {}
         self._pipeline_ref = pipeline_ref
+        self.consensus = consensus or {}
+        self.decision_state = decision_state or {}
+        self.midturn_messages = midturn_messages or ()
 
 
 class _FakeAgent:
@@ -127,7 +133,7 @@ class TestForwardProgressDetector:
 
         assert result is not None
         assert result.finding_class == FINDING_FORWARD_PROGRESS_STALL
-        assert result.severity == Severity.MEDIUM
+        assert result.severity == Severity.HIGH  # Changed from MEDIUM to HIGH
         assert "not produced new commits" in result.recommended_action.lower()
 
     def test_no_finding_on_stall_within_threshold(self):
@@ -222,10 +228,7 @@ class TestForwardProgressDetector:
         snap = _FakeSnapshot(
             git_state={
                 "agent_commit_counts": {"coder": 5, "tester": 3},
-                "agent_last_commit_age_s": {
-                    "coder": 700,
-                    "tester": 30,
-                },  # Coder stalled, tester healthy
+                "agent_last_commit_age_s": {"coder": 700, "tester": 30},  # Coder stalled, tester healthy
             },
         )
         result = detect_forward_progress(snap)
@@ -234,11 +237,6 @@ class TestForwardProgressDetector:
         assert result.finding_class == FINDING_FORWARD_PROGRESS_STALL
         assert result.evidence["agent_role"] == "coder"
 
-    @pytest.mark.xfail(
-        reason="Coder implemented requires_adjudication=False but contract "
-        "(task-2-1) requires True. NACK sent to coder.",
-        strict=True,
-    )
     def test_finding_has_required_fields(self):
         """Finding has all required fields per the Finding contract."""
         snap = _FakeSnapshot(
@@ -287,11 +285,6 @@ class TestRequiresAdjudication:
     """The contract (task-2-1) requires requires_adjudication=True because
     'stuck vs. legitimately slow is ambiguous'."""
 
-    @pytest.mark.xfail(
-        reason="Coder implemented requires_adjudication=False but contract "
-        "(task-2-1) requires True. NACK sent to coder.",
-        strict=True,
-    )
     def test_stall_finding_requires_adjudication(self):
         """The stall finding must have requires_adjudication=True per contract."""
         snap = _FakeSnapshot(
@@ -309,11 +302,6 @@ class TestRequiresAdjudication:
             "findings (stuck vs. legitimately slow is ambiguous)"
         )
 
-    @pytest.mark.xfail(
-        reason="Coder implemented requires_adjudication=False but contract "
-        "(task-2-1) requires True. NACK sent to coder.",
-        strict=True,
-    )
     def test_reset_finding_requires_adjudication(self):
         """The reset finding must have requires_adjudication=True per contract."""
         snap = _FakeSnapshot(
@@ -327,11 +315,6 @@ class TestRequiresAdjudication:
         assert result is not None
         assert result.requires_adjudication is True
 
-    @pytest.mark.xfail(
-        reason="Coder implemented requires_adjudication=False but contract "
-        "(task-2-1) requires True. NACK sent to coder.",
-        strict=True,
-    )
     def test_no_commits_finding_requires_adjudication(self):
         """The no-commits-at-completion finding must have requires_adjudication=True."""
         pipeline = _make_pipeline_with_complete_agent("coder")
@@ -358,11 +341,6 @@ class TestMultiSignalDetection:
     commits, progress events, or file modifications.
     """
 
-    @pytest.mark.xfail(
-        reason="Coder's detector only checks commit counts, not progress events. "
-        "Contract (task-2-1) requires multi-signal detection. NACK sent to coder.",
-        strict=True,
-    )
     def test_no_finding_when_progress_events_present(self):
         """Detector must stay silent when progress events are present,
         even if no new commits."""
@@ -379,11 +357,6 @@ class TestMultiSignalDetection:
             "Detector must not fire when progress events are present, even if commits are stale"
         )
 
-    @pytest.mark.xfail(
-        reason="Coder's detector only checks commit counts, not file modifications. "
-        "Contract (task-2-1) requires multi-signal detection. NACK sent to coder.",
-        strict=True,
-    )
     def test_no_finding_when_file_modifications_present(self):
         """Detector must stay silent when file modifications are present,
         even if no new commits."""
@@ -447,12 +420,6 @@ class TestNotKeyingOnCommitsAlone:
     BRC progress despite activity.
     """
 
-    @pytest.mark.xfail(
-        reason="Coder's detector keys on commits alone. Operator directive #2 "
-        "requires the detector to check for absence of BRC progress. "
-        "NACK sent to coder.",
-        strict=True,
-    )
     def test_no_finding_when_agent_has_brc_progress(self):
         """Detector must not fire when the agent has BRC progress (proposal/
         consensus action) despite stale commits."""
@@ -461,9 +428,11 @@ class TestNotKeyingOnCommitsAlone:
                 "agent_commit_counts": {"coder": 5},
                 "agent_last_commit_age_s": {"coder": 700},  # Stale commits
             },
+            consensus={
+                "latest_proposal_age_s": 30,  # Recent BRC progress
+                "has_proposed": True,
+            },
         )
-        # Simulate BRC progress — the agent has proposed or participated in consensus
-        snap._pipeline_ref = _FakePipelineWithBrcProgress()
         result = detect_forward_progress(snap)
         # Should not fire — BRC progress indicates the agent is making progress
         # in the consensus protocol, even if commits are stale
@@ -479,37 +448,94 @@ class TestNotKeyingOnCommitsAlone:
                 "agent_commit_counts": {"coder": 0},
                 "agent_last_commit_age_s": {"coder": 700},
             },
+            consensus={
+                "latest_proposal_age_s": 3700,  # No BRC progress for >1 hour
+                "has_proposed": False,
+            },
         )
-        # No BRC progress
-        snap._pipeline_ref = _FakePipelineWithoutBrcProgress()
         result = detect_forward_progress(snap)
         assert result is not None, "Detector must fire when no BRC progress AND no commits"
 
 
-class _FakePipelineWithBrcProgress:
-    """Fake pipeline that has BRC progress (proposals/consensus)."""
+class TestBrcProgressAbsence:
+    """Tests for the BRC-progress-absence mode (operator directive #2).
 
-    def __init__(self):
-        self.phases = {"implement": _FakePhaseExecWithBrcProgress()}
+    Fires when an agent has recent activity (tool calls/commits) but no
+    CONSENSUS_PROPOSE/CONSENSUS_CONFIRMED in the phase for >1 hour.
+    """
+
+    def test_brc_absence_fires_with_recent_activity_no_proposal(self):
+        """Fires when agent has recent tool calls but no BRC progress for >1h."""
+
+        snap = _FakeSnapshot(
+            pipeline_id="issue-3596",
+            git_state={
+                "agent_commit_counts": {"coder": 5},
+                "agent_last_commit_age_s": {"coder": 30},  # Recent commit
+            },
+            running_agents=(
+                _FakeRunningAgent(role="coder", last_tool_call_age_s=30),
+            ),
+            consensus={
+                "latest_proposal_age_s": 3700,  # No BRC progress for >1h
+                "has_proposed": False,
+                "blocking_agents": ["coder"],
+            },
+            midturn_messages=(),
+        )
+        result = detect_forward_progress(snap)
+        assert result is not None
+        assert result.finding_class == "forward_progress_brc_absence"
+        assert result.severity == Severity.HIGH
+        assert result.requires_adjudication is True
+
+    def test_brc_absence_no_finding_with_recent_proposal(self):
+        """Does not fire when there's recent BRC progress."""
+        snap = _FakeSnapshot(
+            pipeline_id="issue-3596",
+            git_state={
+                "agent_commit_counts": {"coder": 5},
+                "agent_last_commit_age_s": {"coder": 30},
+            },
+            running_agents=(
+                _FakeRunningAgent(role="coder", last_tool_call_age_s=30),
+            ),
+            consensus={
+                "latest_proposal_age_s": 30,  # Recent BRC progress
+                "has_proposed": True,
+            },
+        )
+        result = detect_forward_progress(snap)
+        assert result is None
+
+    def test_brc_absence_no_finding_without_recent_activity(self):
+        """Does not fire when agent has no recent activity (that's a regular stall)."""
+        snap = _FakeSnapshot(
+            pipeline_id="issue-3596",
+            git_state={
+                "agent_commit_counts": {"coder": 5},
+                "agent_last_commit_age_s": {"coder": 700},  # Stale
+            },
+            running_agents=(
+                _FakeRunningAgent(role="coder", last_tool_call_age_s=900),  # Stale
+            ),
+            consensus={
+                "latest_proposal_age_s": 3700,
+                "has_proposed": False,
+            },
+        )
+        # This should fire as a regular stall, not BRC absence
+        result = detect_forward_progress(snap)
+        assert result is not None
+        assert result.finding_class == FINDING_FORWARD_PROGRESS_STALL
 
 
-class _FakePhaseExecWithBrcProgress:
-    def __init__(self):
-        self.agents = []
-        self.phase = "implement"
+class _FakeRunningAgent:
+    """Fake running agent for testing."""
 
-
-class _FakePipelineWithoutBrcProgress:
-    """Fake pipeline that has no BRC progress."""
-
-    def __init__(self):
-        self.phases = {"implement": _FakePhaseExecWithoutBrcProgress()}
-
-
-class _FakePhaseExecWithoutBrcProgress:
-    def __init__(self):
-        self.agents = []
-        self.phase = "implement"
+    def __init__(self, role: str, last_tool_call_age_s: float | None = None):
+        self.role = role
+        self.last_tool_call_age_s = last_tool_call_age_s
 
 
 # ---------------------------------------------------------------------------
@@ -523,12 +549,6 @@ class TestPrevCommitCountsPopulation:
     actually populate this field for the detector to work in production.
     """
 
-    @pytest.mark.xfail(
-        reason="snapshot_from_health_context does not populate agent_prev_commit_counts. "
-        "The forward-progress detector's reset mode reads this field, making it dead "
-        "code in production. NACK sent to coder.",
-        strict=True,
-    )
     def test_snapshot_builder_populates_agent_prev_commit_counts(self):
         """snapshot_from_health_context must populate agent_prev_commit_counts.
 

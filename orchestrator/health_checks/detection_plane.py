@@ -566,23 +566,35 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
         for cid in live_ids
     )
 
-    # Enrich with git_state, container_transitions, decision_state, raw.runtime.
-    git_state = _build_git_state(context, pipeline, phase_value, cid_to_role)
+    # Enrich with git_state, container_transitions, decision_state, consensus,
+    # midturn_messages, raw.runtime.
+    git_state = _build_git_state(context, pipeline, phase_value, cid_to_role, pipeline_id)
     container_transitions = _build_container_transitions(pipeline_id)
     decision_state = _build_decision_state(pipeline_id, pipeline)
+    consensus = _build_consensus_state(pipeline_id)
+    midturn_messages = _build_midturn_messages(pipeline_id)
     raw = _build_raw_runtime(pipeline_id, pipeline, phase_value)
 
-    return EventStreamSnapshot(
+    snap = EventStreamSnapshot(
         snapshot_id=f"{pipeline_id}:{phase_value}",
         pipeline_id=str(pipeline_id),
         phase=str(phase_value),
         running_agents=running_agents,
         phase_state=phase_state,
-        git_state=git_state,
-        container_transitions=container_transitions,
+        consensus=consensus,
         decision_state=decision_state,
+        container_transitions=container_transitions,
+        git_state=git_state,
+        midturn_messages=midturn_messages,
         raw=raw,
     )
+    # Attach the pipeline reference so detectors like forward-progress mode 3
+    # (no commits at completion) can walk the pipeline's phase/agent model.
+    # This is a private attribute by design — the snapshot is frozen, and
+    # only detectors that explicitly need the live pipeline model read it.
+    # Use object.__setattr__ to bypass the frozen dataclass restriction.
+    object.__setattr__(snap, "_pipeline_ref", pipeline)
+    return snap
 
 
 def _context_lifecycle_owner(context: Any, pipeline: Any) -> str:
@@ -775,8 +787,18 @@ def _build_running_agent(
     )
 
 
+# Module-level cache of previous commit counts, keyed by ``pipeline_id:phase``.
+# Updated on each snapshot build so the forward-progress detector can detect
+# commit-count resets (work being silently discarded, #3506/#3596).
+# This is intentionally in-process only — a restart loses the cache, which
+# means reset detection can't fire for one tick after a restart (acceptable:
+# the first snapshot after restart has no "previous" to compare against).
+_prev_commit_counts_cache: dict[str, dict[str, int]] = {}
+
+
 def _build_git_state(
-    context: Any, pipeline: Any, phase_value: str, cid_to_role: dict[str, str]
+    context: Any, pipeline: Any, phase_value: str, cid_to_role: dict[str, str],
+    pipeline_id: str = "",
 ) -> dict[str, Any]:
     """Populate ``git_state`` with commit counts and branch info.
 
@@ -804,6 +826,16 @@ def _build_git_state(
             git_state["agent_commit_counts"] = agent_commit_counts
         if agent_last_commit_age_s:
             git_state["agent_last_commit_age_s"] = agent_last_commit_age_s
+
+        # Previous commit counts (for forward-progress reset detection, #3596).
+        # Read from the cache, then update the cache with current counts.
+        # Always populate the key — even if empty — so the detector can
+        # distinguish "no previous data" from "field absent".
+        cache_key = f"{pipeline_id}:{phase_value}"
+        prev_counts = _prev_commit_counts_cache.get(cache_key, {})
+        git_state["agent_prev_commit_counts"] = prev_counts
+        # Update cache for next snapshot
+        _prev_commit_counts_cache[cache_key] = dict(agent_commit_counts)
 
         # Branch-level info (for worktree_branch detectors)
         branch_info = _query_branch_git_state(repo_path, pipeline, phase_value)
@@ -1079,6 +1111,90 @@ def _build_decision_state(pipeline_id: str, pipeline: Any) -> dict[str, Any]:
         }
     except Exception:  # noqa: BLE001 — defensive
         return {}
+
+
+def _build_consensus_state(pipeline_id: str) -> dict[str, Any]:
+    """Populate the ``consensus`` field from the PeerConsensusTracker.
+
+    Exposes BRC-progress signals that the forward-progress detector needs
+    to distinguish "agent active but making no BRC progress" from "agent
+    actively progressing through the consensus protocol" (operator directive #2).
+
+    Best-effort: returns an empty dict when the tracker is unavailable.
+    """
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+
+        tracker = get_peer_consensus_tracker(pipeline_id)
+        if tracker is None:
+            return {}
+
+        state = tracker.evaluate()
+        latest_proposal_ts = tracker.get_latest_proposal_timestamp()
+        latest_progress_ts = tracker.get_latest_progress_timestamp()
+
+        now = time.time()
+        latest_proposal_age_s: float | None = None
+        if latest_proposal_ts is not None:
+            latest_proposal_age_s = now - latest_proposal_ts.timestamp()
+
+        latest_progress_age_s: float | None = None
+        if latest_progress_ts is not None:
+            latest_progress_age_s = now - latest_progress_ts.timestamp()
+
+        # Build per-producer phase map for the forward-progress detector
+        # to distinguish stall modes (operator directive #3).
+        producer_phases: dict[str, str] = {}
+        for role, phase_info in state.get("agents", {}).items():
+            if "producer_phase" in phase_info:
+                producer_phases[role] = phase_info["producer_phase"]
+
+        return {
+            "protocol": state.get("protocol", "brc"),
+            "blocking_agents": state.get("blocking_agents", []),
+            "has_unresolved_nacks": state.get("has_unresolved_nacks", False),
+            "unresolved_nacks": state.get("unresolved_nacks", []),
+            "producer_phases": producer_phases,
+            "has_proposed": len(producer_phases) > 0,
+            "latest_proposal_age_s": latest_proposal_age_s,
+            "latest_progress_age_s": latest_progress_age_s,
+        }
+    except Exception:  # noqa: BLE001 — defensive
+        return {}
+
+
+def _build_midturn_messages(pipeline_id: str) -> tuple[dict[str, Any], ...]:
+    """Populate ``midturn_messages`` from the message store.
+
+    Surfaces recent CONSENSUS_PROPOSE / CONSENSUS_ACK / CONSENSUS_NACK /
+    CONSENSUS_CONFIRMED / OVERSEER_ALERT / HEARTBEAT messages so the
+    forward-progress detector can check for BRC progress absence (operator
+    directive #2).
+
+    Best-effort: returns an empty tuple when the store is unavailable.
+    """
+    try:
+        from message_store import get_message_store
+
+        store = get_message_store()
+        messages = store.get_messages(
+            pipeline_id,
+            limit=200,
+        )
+        result: list[dict[str, Any]] = []
+        for msg in messages:
+            result.append({
+                "from_role": msg.from_role,
+                "to_role": msg.to_role,
+                "message_type": msg.message_type,
+                "subject": msg.subject,
+                "body": msg.body,
+                "timestamp": msg.timestamp.isoformat() if msg.timestamp else None,
+                "phase": msg.phase,
+            })
+        return tuple(result)
+    except Exception:  # noqa: BLE001 — defensive
+        return ()
 
 
 # Default expected phase durations (seconds) when no config is available.

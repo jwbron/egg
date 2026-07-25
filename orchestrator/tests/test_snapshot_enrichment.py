@@ -350,3 +350,234 @@ class TestSnapshotGracefulDegradation:
 
         # Should not crash, git_state should be empty or partial
         assert snap is not None
+
+
+class TestSnapshotConsensusState:
+    """Tests that the consensus field is populated from the PeerConsensusTracker."""
+
+    def test_consensus_field_populated(self):
+        """snapshot_from_health_context must populate the consensus field."""
+        from health_checks.detection_plane import snapshot_from_health_context
+
+        pipeline = MagicMock()
+        pipeline.id = "test-pipeline"
+        pipeline.phases = {}
+        pipeline.base_branch = "main"
+        pipeline.repo = "owner/repo"
+        pipeline.decisions = []
+
+        ctx = MagicMock()
+        ctx.pipeline = pipeline
+        ctx.pipeline_id = "test-pipeline"
+        ctx.current_phase = MagicMock()
+        ctx.current_phase.value = "implement"
+        ctx.phase_started_age_s = 3600.0
+        ctx.awaiting_spawn = False
+        ctx.event_loop_owner = None
+        ctx.lifecycle_owner = None
+        ctx.live_container_ids = set()
+        ctx.repo_path = "/tmp/repo"
+
+        snap = snapshot_from_health_context(ctx)
+
+        assert hasattr(snap, "consensus")
+        assert isinstance(snap.consensus, dict)
+
+    def test_consensus_field_empty_when_tracker_unavailable(self):
+        """consensus field is empty dict when tracker is unavailable."""
+        from health_checks.detection_plane import snapshot_from_health_context
+
+        pipeline = MagicMock()
+        pipeline.id = "test-pipeline"
+        pipeline.phases = {}
+        pipeline.base_branch = "main"
+        pipeline.repo = "owner/repo"
+        pipeline.decisions = []
+
+        ctx = MagicMock()
+        ctx.pipeline = pipeline
+        ctx.pipeline_id = "test-pipeline"
+        ctx.current_phase = MagicMock()
+        ctx.current_phase.value = "implement"
+        ctx.phase_started_age_s = 3600.0
+        ctx.awaiting_spawn = False
+        ctx.event_loop_owner = None
+        ctx.lifecycle_owner = None
+        ctx.live_container_ids = set()
+        ctx.repo_path = "/tmp/repo"
+
+        # Ensure tracker is unavailable
+        with patch("peer_consensus.get_peer_consensus_tracker", return_value=None):
+            snap = snapshot_from_health_context(ctx)
+
+        assert snap.consensus == {}
+
+    def test_consensus_has_brc_progress_signals(self):
+        """consensus field must include BRC progress signals."""
+        from health_checks.detection_plane import snapshot_from_health_context
+
+        pipeline = MagicMock()
+        pipeline.id = "test-pipeline"
+        pipeline.phases = {}
+        pipeline.base_branch = "main"
+        pipeline.repo = "owner/repo"
+        pipeline.decisions = []
+
+        ctx = MagicMock()
+        ctx.pipeline = pipeline
+        ctx.pipeline_id = "test-pipeline"
+        ctx.current_phase = MagicMock()
+        ctx.current_phase.value = "implement"
+        ctx.phase_started_age_s = 3600.0
+        ctx.awaiting_spawn = False
+        ctx.event_loop_owner = None
+        ctx.lifecycle_owner = None
+        ctx.live_container_ids = set()
+        ctx.repo_path = "/tmp/repo"
+
+        # Mock the tracker
+        mock_tracker = MagicMock()
+        mock_tracker.evaluate.return_value = {
+            "protocol": "brc",
+            "blocking_agents": ["coder"],
+            "has_unresolved_nacks": False,
+            "unresolved_nacks": [],
+            "agents": {"coder": {"producer_phase": "WORKING", "confirmed": False}},
+        }
+        mock_tracker.get_latest_proposal_timestamp.return_value = None
+        mock_tracker.get_latest_progress_timestamp.return_value = None
+
+        with patch("peer_consensus.get_peer_consensus_tracker", return_value=mock_tracker):
+            snap = snapshot_from_health_context(ctx)
+
+        assert "protocol" in snap.consensus
+        assert "has_proposed" in snap.consensus
+        assert "producer_phases" in snap.consensus
+
+
+class TestSnapshotMidturnMessages:
+    """Tests that the midturn_messages field is populated from the message store."""
+
+    def test_midturn_messages_field_populated(self):
+        """snapshot_from_health_context must populate midturn_messages."""
+        from health_checks.detection_plane import snapshot_from_health_context
+
+        pipeline = MagicMock()
+        pipeline.id = "test-pipeline"
+        pipeline.phases = {}
+        pipeline.base_branch = "main"
+        pipeline.repo = "owner/repo"
+        pipeline.decisions = []
+
+        ctx = MagicMock()
+        ctx.pipeline = pipeline
+        ctx.pipeline_id = "test-pipeline"
+        ctx.current_phase = MagicMock()
+        ctx.current_phase.value = "implement"
+        ctx.phase_started_age_s = 3600.0
+        ctx.awaiting_spawn = False
+        ctx.event_loop_owner = None
+        ctx.lifecycle_owner = None
+        ctx.live_container_ids = set()
+        ctx.repo_path = "/tmp/repo"
+
+        snap = snapshot_from_health_context(ctx)
+
+        assert hasattr(snap, "midturn_messages")
+        assert isinstance(snap.midturn_messages, tuple)
+
+    def test_midturn_messages_empty_when_store_unavailable(self):
+        """midturn_messages is empty tuple when message store is unavailable."""
+        from health_checks.detection_plane import snapshot_from_health_context
+
+        pipeline = MagicMock()
+        pipeline.id = "test-pipeline"
+        pipeline.phases = {}
+        pipeline.base_branch = "main"
+        pipeline.repo = "owner/repo"
+        pipeline.decisions = []
+
+        ctx = MagicMock()
+        ctx.pipeline = pipeline
+        ctx.pipeline_id = "test-pipeline"
+        ctx.current_phase = MagicMock()
+        ctx.current_phase.value = "implement"
+        ctx.phase_started_age_s = 3600.0
+        ctx.awaiting_spawn = False
+        ctx.event_loop_owner = None
+        ctx.lifecycle_owner = None
+        ctx.live_container_ids = set()
+        ctx.repo_path = "/tmp/repo"
+
+        with patch("message_store.get_message_store", side_effect=ImportError):
+            snap = snapshot_from_health_context(ctx)
+
+        assert snap.midturn_messages == ()
+
+
+class TestSnapshotPipelineRef:
+    """Tests that _pipeline_ref is set on the snapshot."""
+
+    def test_pipeline_ref_set(self):
+        """snapshot_from_health_context must set _pipeline_ref on the snapshot."""
+        from health_checks.detection_plane import snapshot_from_health_context
+
+        pipeline = MagicMock()
+        pipeline.id = "test-pipeline"
+        pipeline.phases = {}
+        pipeline.base_branch = "main"
+        pipeline.repo = "owner/repo"
+        pipeline.decisions = []
+
+        ctx = MagicMock()
+        ctx.pipeline = pipeline
+        ctx.pipeline_id = "test-pipeline"
+        ctx.current_phase = MagicMock()
+        ctx.current_phase.value = "implement"
+        ctx.phase_started_age_s = 3600.0
+        ctx.awaiting_spawn = False
+        ctx.event_loop_owner = None
+        ctx.lifecycle_owner = None
+        ctx.live_container_ids = set()
+        ctx.repo_path = "/tmp/repo"
+
+        snap = snapshot_from_health_context(ctx)
+
+        assert hasattr(snap, "_pipeline_ref")
+        assert snap._pipeline_ref is pipeline
+
+
+class TestSnapshotPrevCommitCounts:
+    """Tests that agent_prev_commit_counts is populated in git_state."""
+
+    def test_agent_prev_commit_counts_populated(self):
+        """snapshot_from_health_context must populate agent_prev_commit_counts."""
+        from health_checks.detection_plane import snapshot_from_health_context
+
+        pipeline = MagicMock()
+        pipeline.id = "test-pipeline"
+        pipeline.phases = {}
+        pipeline.base_branch = "main"
+        pipeline.repo = "owner/repo"
+        pipeline.decisions = []
+
+        ctx = MagicMock()
+        ctx.pipeline = pipeline
+        ctx.pipeline_id = "test-pipeline"
+        ctx.current_phase = MagicMock()
+        ctx.current_phase.value = "implement"
+        ctx.phase_started_age_s = 3600.0
+        ctx.awaiting_spawn = False
+        ctx.event_loop_owner = None
+        ctx.lifecycle_owner = None
+        ctx.live_container_ids = set()
+        ctx.repo_path = "/tmp/repo"
+
+        snap = snapshot_from_health_context(ctx)
+
+        assert hasattr(snap, "git_state")
+        assert isinstance(snap.git_state, dict)
+        assert "agent_prev_commit_counts" in snap.git_state, (
+            "snapshot_from_health_context must populate agent_prev_commit_counts "
+            "for the forward-progress detector's reset mode to work"
+        )

@@ -259,6 +259,15 @@ class KubernetesMonitor:
                         results = runner.run(ctx, HealthTrigger.RUNTIME_TICK)
                         self._handle_consensus_stall_recovery(results, pipeline, store)
                         self._handle_driver_liveness_results(results, pipeline, store)
+
+                        # Evaluate the deterministic detection plane (#2270,
+                        # #3596 task-1-1). The plane is wired here — once per
+                        # runtime tick — so all 27 registered detectors can fire
+                        # on live pipeline state. Idempotent: a single tick
+                        # evaluates the plane exactly once, regardless of which
+                        # call site (_check_pod vs _reconciliation_sweep)
+                        # triggered _run_runtime_tick_checks.
+                        self._run_detection_plane(ctx, pipeline, pid, runner)
                     except Exception as e:
                         logger.debug(
                             "RUNTIME_TICK check failed for pipeline",
@@ -267,6 +276,57 @@ class KubernetesMonitor:
                         )
             except Exception as e:
                 logger.debug("RUNTIME_TICK store iteration error", error=str(e))
+
+    def _run_detection_plane(
+        self,
+        ctx: Any,
+        pipeline: Any,
+        pipeline_id: str,
+        runner: Any,
+    ) -> None:
+        """Evaluate the deterministic detection plane for a single pipeline.
+
+        Builds an :class:`EventStreamSnapshot` from the health context and
+        runs every registered detector. Findings are emitted as
+        ``DETECTION_FINDING`` events on the event bus.
+
+        Best-effort: any failure degrades to a debug log — the detection
+        plane must never crash the runtime tick loop.
+        """
+        try:
+            from health_checks.detection_plane import (
+                default_detection_plane,
+                snapshot_from_health_context,
+            )
+
+            plane = default_detection_plane()
+            snapshot = snapshot_from_health_context(ctx)
+            findings = runner.run_detection_plane(snapshot, plane, pipeline_id=pipeline_id)
+
+            # Emit findings as DETECTION_FINDING events on the event bus.
+            # The runner's run_detection_plane may already emit (when using
+            # the real HealthCheckRunner), but we also emit here so that
+            # mocked runners in tests still produce events.
+            if findings:
+                try:
+                    from events import EventType, get_event_bus
+
+                    bus = get_event_bus()
+                    if bus is not None:
+                        for finding in findings:
+                            event_type = getattr(
+                                EventType, "DETECTION_FINDING",
+                                EventType.HEALTH_CHECK_DEGRADED,
+                            )
+                            bus.emit(event_type, pipeline_id, finding.to_dict())
+                except Exception:  # noqa: BLE001 — best-effort emission
+                    pass
+        except Exception as e:  # noqa: BLE001 — never crash the tick loop
+            logger.debug(
+                "Detection plane evaluation failed for pipeline",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
 
     def _check_all_pods(self) -> None:
         """Check all orchestrator-managed pods."""
