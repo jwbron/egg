@@ -28,9 +28,11 @@ reference implementation, though it has since diverged (see the note below):
 - **`on`** — apply the behavior. Also accepted: `1`, `true`, `yes`.
 
 Values are lowercased and stripped before matching, and all three flags share the
-same accepted-value sets (`_ENABLED_VALUES` / `_LOG_ONLY_VALUES` in
-[`orchestrator/review_findings_verdict.py`](../../orchestrator/review_findings_verdict.py),
-mirrored in `review_graph.py` and `evidence_gatherer.py`). Anything else is an
+same accepted-value sets — spelled `_ENABLED_VALUES` / `_LOG_ONLY_VALUES` in
+[`orchestrator/review_findings_verdict.py`](../../orchestrator/review_findings_verdict.py)
+and `evidence_gatherer.py`, and under router-prefixed names
+(`_RISK_ROUTER_ENABLED_VALUES` / `_RISK_ROUTER_LOG_VALUES`) in `review_graph.py`.
+The value sets are identical; only the constant names differ. Anything else is an
 unknown value and lands on `off`.
 
 **Note — the green gate diverged.** `orchestrator/slice_green_gate.py` now defaults
@@ -42,9 +44,12 @@ under-reviewing is never safe for them.
 The flags are read in code, not in prompts, so the gate is deterministic. The
 **staged** flags governing this rollout are `EGG_REVIEW_FINDINGS_MODE` (§1 — it also
 governs the per-finding tool-call cap, §2), `EGG_RISK_ROUTER` (§4), and
-`EGG_REVIEW_EVIDENCE_PREFIX` (§5). One further operator-facing env var is *not*
-staged and takes a path rather than a mode: `EGG_REVIEW_RISK_CONFIG`, which
-overrides the risk-router config location (§4).
+`EGG_REVIEW_EVIDENCE_PREFIX` (§5). Two further operator-facing env vars are *not*
+staged, because each carries a value rather than a mode: `EGG_REVIEW_RISK_CONFIG`,
+a path overriding the risk-router config location (§4), and
+`EGG_REVIEW_FINDING_TOOL_CALL_CAP`, the integer per-finding tool-call cap (§2) —
+which still only reaches the reviewer when `EGG_REVIEW_FINDINGS_MODE` is `log` or
+`on`.
 
 ## 1. Structured findings and the server-side computed verdict
 
@@ -278,11 +283,17 @@ is pure: the same changed-file set and config always yield the same
 
 [`.egg/review-risk.yaml`](../../.egg/review-risk.yaml) is the policy input; the
 router reads it via `load_risk_config()`. `default_config_path()` resolves the
-location: the `EGG_REVIEW_RISK_CONFIG` env var wins if set (an absolute or
-cwd-relative path to the YAML file itself, not a directory), otherwise the path is
-`.egg/review-risk.yaml` relative to the repo root — mirroring the
+location: the `EGG_REVIEW_RISK_CONFIG` env var wins if set to a *non-empty* value (an
+absolute or cwd-relative path to the YAML file itself, not a directory; setting it to
+the empty string falls through to the default rather than erroring). Otherwise the
+path is `.egg/review-risk.yaml` relative to the `repo_root` the caller threads
+through — or, when the caller passes none, relative to the **process CWD**. Callers
+differ on this: `_criteria.py`'s effort seam passes a repo path explicitly, while the
+graph-gating callers of `get_review_graph_for_phase()` (e.g. `concurrent_executor.py`)
+do not, so they resolve against the orchestrator's CWD. Mirrors the
 `.egg/phase-permissions.json` convention. The override is a plain path, not a staged
-mode flag; a config that fails to load fails open (see below). Format:
+mode flag; a config that fails to load — including one the CWD fallback failed to
+find — fails open (see below). Format:
 
 ```yaml
 schema_version: 1          # currently 1; evolve additively
