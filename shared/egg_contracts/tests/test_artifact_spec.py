@@ -11,11 +11,12 @@ production:
   (:class:`gateway.phase_filter.PhaseFilter`);
 * the gateway-mirror in the sandbox
   (:func:`egg_restrictions.phase_patterns.phase_file_verdict`);
-* the orchestrator's ``_get_draft_path`` helper in
-  ``orchestrator/routes/pipelines.py`` (used by refine / plan
+* the orchestrator's ``_get_draft_path`` helper in the
+  ``orchestrator/routes/pipelines/`` package (used by refine / plan
   propose validation in ``orchestrator/routes/signals.py``); and
-* the prompt f-string literals in ``orchestrator/routes/pipelines.py``
-  that name draft / agent-output paths to the agent.
+* the prompt f-string literals in the ``_prompt_*.py`` submodules of
+  ``orchestrator/routes/pipelines/`` that name draft / agent-output
+  paths to the agent.
 
 This module is the refine-risk-1 mitigation from the #3077 plan: any
 future drift in any of these replicas fails CI here instead of
@@ -385,8 +386,9 @@ class TestConsistencyB_GetDraftPathEquality:
 
 
 class TestConsistencyC_PromptDerivesFromSpec:
-    """The agent-facing prompts in pipelines.py derive their agent-output
-    paths via :func:`resolve_artifact_path` instead of inlining literals.
+    """The agent-facing prompts in the ``pipelines/`` package derive their
+    agent-output paths via :func:`resolve_artifact_path` instead of inlining
+    literals.
 
     Pre-slice-3 of #3077 this test asserted that the prompt f-string
     literals (``f".egg-state/agent-outputs/{_identifier}-architect-output.json"``)
@@ -400,8 +402,9 @@ class TestConsistencyC_PromptDerivesFromSpec:
 
     This test pins the new invariant: every registered
     ``agent-outputs/`` spec must appear as a ``resolve_artifact_path("<name>", …)``
-    call in pipelines.py, and no literal ``.egg-state/agent-outputs/{_identifier}-…``
-    string may sneak back in (the ratchet against #3016-style drift).
+    call somewhere in the ``pipelines/`` package, and no literal
+    ``.egg-state/agent-outputs/{_identifier}-…`` string may sneak back in
+    (the ratchet against #3016-style drift).
 
     Drafts under ``.egg-state/drafts/`` are constructed via
     ``_get_draft_path``, which itself routes through the spec
@@ -418,8 +421,9 @@ class TestConsistencyC_PromptDerivesFromSpec:
 
     # Ratchet against a regression: forbid raw
     # ``.egg-state/agent-outputs/{_identifier}-…`` f-string literals
-    # from creeping back into pipelines.py once the slice-3 rewrite has
-    # landed. The check intentionally matches only the templated form
+    # from creeping back into the ``pipelines/`` package once the
+    # slice-3 rewrite has landed. The check intentionally matches only
+    # the templated form
     # (with the literal ``{_identifier}`` placeholder); resolved paths
     # appearing in test fixtures or doc strings — e.g. a sample
     # ``3077-architect-output.json`` — would not match and remain free
@@ -435,7 +439,7 @@ class TestConsistencyC_PromptDerivesFromSpec:
         # the decomposition.
         return "\n".join(path.read_text() for path in sorted(self.PIPELINES_PATH.glob("*.py")))
 
-    def test_pipelines_py_is_readable(self) -> None:
+    def test_pipelines_package_is_readable(self) -> None:
         assert self.PIPELINES_PATH.is_dir(), (
             f"missing: {self.PIPELINES_PATH} — has the package moved?"
         )
@@ -452,7 +456,7 @@ class TestConsistencyC_PromptDerivesFromSpec:
         # here is the slice-1 / slice-2 #3016-style drift symptom.
         offenders = self._BANNED_LITERAL_RE.findall(pipelines_text)
         assert not offenders, (
-            "pipelines.py reintroduced raw agent-output path literals; "
+            "the pipelines/ package reintroduced raw agent-output path literals; "
             "use resolve_artifact_path(<name>, identifier) instead so the "
             "spec stays the single source of truth: "
             f"{sorted(set(offenders))!r}"
@@ -465,7 +469,8 @@ class TestConsistencyC_PromptDerivesFromSpec:
     ) -> None:
         # Reverse direction: every registered ``agent-outputs/`` spec
         # must appear as a ``resolve_artifact_path("<name>", …)`` call
-        # in pipelines.py. Drafts under ``.egg-state/drafts/`` are
+        # somewhere in the ``pipelines/`` package. Drafts under
+        # ``.egg-state/drafts/`` are
         # constructed via ``_get_draft_path`` (Consistency-B above), so
         # this only governs the ``agent-outputs/`` rows.
         for spec in all_specs:
@@ -480,8 +485,8 @@ class TestConsistencyC_PromptDerivesFromSpec:
             )
             assert any(n in pipelines_text for n in needles), (
                 f"{spec.name}: expected `resolve_artifact_path(<name>, …)` "
-                f"call in pipelines.py — drift between spec and prompt "
-                f"rendering will silently land at the agent"
+                f"call in the pipelines/ package — drift between spec and "
+                f"prompt rendering will silently land at the agent"
             )
 
 
