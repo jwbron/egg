@@ -193,6 +193,7 @@ repo_settings:
 Each check has:
 - `name`: Display label (e.g., "lint", "test", "integration")
 - `command`: Shell command to execute
+- `fix` (optional): Shell command that auto-remediates a failing check (e.g. `make lint-fix` for a `lint` check). When the per-slice green gate finds this check red at the slice tip, it runs the fix, re-runs the check, and — if every red check's fix turned it green — commits and pushes the result to the slice integration branch (#3409). Checks without `fix` route red verdicts back to the slice team unchanged.
 
 Checks run sequentially during the implement phase tester step. If not configured, the tester falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.).
 

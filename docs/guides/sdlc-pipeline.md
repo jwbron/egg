@@ -992,9 +992,12 @@ repo_settings:
     checks:
       - name: lint
         command: npm run lint
+        fix: npm run lint -- --fix  # optional: green-gate auto-remediation (#3409)
       - name: test
         command: npm test
 ```
+
+A check may optionally set `fix` to a shell command that auto-remediates it. When the per-slice green gate finds that check red at the slice tip, it runs the fix, re-runs the check, and — if every red check's fix turned it green — commits and pushes the result to the slice integration branch (#3409). Only configure deterministic auto-remediations here; checks without `fix` route red verdicts back to the slice team unchanged.
 
 When configured, the tester runs these commands sequentially instead of auto-discovering test/lint commands. This is useful when:
 - Auto-discovery doesn't find the right commands
