@@ -172,7 +172,7 @@
           "id": "task-1-8",
           "description": "Test for decision_state population in snapshot builder.",
           "status": "pending",
-          "commit": null,
+          "commit": "4a02ece9b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Test verifies decision_state is populated from contract + decision queue\n- Test verifies detect_approved_decision_orphaned and detect_hitl_queue_backlog receive populated decision_state",
@@ -1205,6 +1205,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-6 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T06:46:35.644440Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.7.commit",
+      "old_value": null,
+      "new_value": "4a02ece9b",
+      "reason": "Linked commit 4a02ece to task-1-8",
       "checkpoint_id": null
     }
   ],
