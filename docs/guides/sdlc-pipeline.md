@@ -997,7 +997,9 @@ repo_settings:
         command: npm test
 ```
 
-A check may optionally set `fix` to a shell command that auto-remediates it. When the per-slice green gate finds that check red at the slice tip, it runs the fix, re-runs the check, and — if every red check's fix turned it green — commits and pushes the result to the slice integration branch (#3409). Only configure deterministic auto-remediations here; checks without `fix` route red verdicts back to the slice team unchanged.
+A check may optionally set `fix` to a single shell command string that auto-remediates it. When the per-slice green gate finds that check red at the slice tip, it runs the fix and re-runs the check. It commits and pushes the result to the slice integration branch only when **all** of the following hold (#3409): every red check's fix turned it green; a final full re-run of *every* configured check against the all-fixes-applied tree is also green; that tree created no new untracked files (the gate stages with `git add -u`, which would silently drop them); and the gate is running under `EGG_SLICE_GREEN_GATE=on`. Under `log` mode the fix still runs in the runner as a soak signal, but nothing is committed or pushed — see [slice-dag.md](../architecture/slice-dag.md) for the rollout switch. Only configure deterministic auto-remediations here; checks without `fix`, or whose re-run stays red, route red verdicts back to the slice team unchanged.
+
+`fix` belongs to the per-slice green gate (slice-DAG implement pipelines) and is unrelated to the `check-fixer` agent / "fixer" DAG step described later in this section. The tester step ignores `fix`, so setting it on a non-slice pipeline has no effect.
 
 When configured, the tester runs these commands sequentially instead of auto-discovering test/lint commands. This is useful when:
 - Auto-discovery doesn't find the right commands

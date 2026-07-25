@@ -193,7 +193,9 @@ repo_settings:
 Each check has:
 - `name`: Display label (e.g., "lint", "test", "integration")
 - `command`: Shell command to execute
-- `fix` (optional): Shell command that auto-remediates a failing check (e.g. `make lint-fix` for a `lint` check). When the per-slice green gate finds this check red at the slice tip, it runs the fix, re-runs the check, and — if every red check's fix turned it green — commits and pushes the result to the slice integration branch (#3409). Checks without `fix` route red verdicts back to the slice team unchanged.
+- `fix` (optional): Single shell command string that auto-remediates a failing check (e.g. `make lint-fix` for a `lint` check). When the per-slice green gate finds this check red at the slice tip, it runs the fix and re-runs the check. It commits and pushes the result to the slice integration branch only when **all** of the following hold (#3409): every red check's fix turned it green; a final full re-run of *every* configured check against the all-fixes-applied tree is also green; that tree created no new untracked files (the gate stages with `git add -u`, which would silently drop them); and the gate is running under `EGG_SLICE_GREEN_GATE=on`. Under `log` mode the fix still runs in the runner as a soak signal, but nothing is committed or pushed. Checks without `fix`, or whose re-run stays red, route red verdicts back to the slice team unchanged.
+
+  `fix` is used only by the per-slice green gate (slice-DAG implement pipelines); the tester step ignores it, so setting it on a non-slice pipeline has no effect. See [slice-dag.md](../docs/architecture/slice-dag.md) for the `EGG_SLICE_GREEN_GATE` rollout switch.
 
 Checks run sequentially during the implement phase tester step. If not configured, the tester falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.).
 
