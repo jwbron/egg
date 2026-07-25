@@ -292,31 +292,11 @@ erroring — but a whitespace-only value does *not*: it becomes `Path(" ")`, fai
 load, and lands on the fail-open path below with only the generic warning. Otherwise
 the path is `.egg/review-risk.yaml` relative to the `repo_root` the caller threads
 through — or, when the caller passes none, relative to the **process CWD**. All three
-router seams default `repo_root` to `None`, so which applies is the caller's choice.
+router seams default their repo-root parameter (`repo_root`, or `repo_path` on the
+stance seam) to `None`, so which applies is the caller's choice.
 Mirrors the `.egg/phase-permissions.json` convention. The override is a plain path,
 not a staged mode flag; a config that fails to load — including one the CWD fallback
 failed to find — fails open (see below).
-
-**Not yet wired.** No production caller threads a slice's changed-file set into any of
-the router's three seams, so `resolve_risk_decision()` has no production call path and
-`default_config_path()` is never reached outside tests:
-
-- **Lens gating** — `get_review_graph_for_phase()` only gates when a caller passes
-  `changed_files` and the phase is `implement`
-  ([`orchestrator/review_graph.py`](../../orchestrator/review_graph.py)); none of its
-  production call sites (`concurrent_executor.py`, `kubernetes_monitor.py`,
-  `routes/consensus.py`, `kubernetes_spawner/_env.py`, and the rest) pass it.
-- **Effort** — `resolve_agent_model()` is called from `concurrent_executor.py` without
-  `changed_files`, so `resolve_review_effort()` returns the base effort verbatim before
-  the router is consulted
-  ([`orchestrator/agent_model_resolution.py`](../../orchestrator/agent_model_resolution.py)).
-- **Stance** — `_get_reviewer_scope_preamble()` is called from `_prompt_review.py` with
-  neither `changed_files` nor `repo_path`, so `_review_stance_framing()` short-circuits
-  to `""` ([`orchestrator/routes/pipelines/_criteria.py`](../../orchestrator/routes/pipelines/_criteria.py)).
-
-With `EGG_RISK_ROUTER=on` the graph, effort, and stance are therefore all unchanged
-today, and **nothing logs to say so** — not even the fail-open warning, because the
-config load is never attempted.
 
 Format:
 
@@ -377,6 +357,30 @@ it computes the would-be gated graph / tier / effort and logs it while returning
 unchanged full graph. If `review-risk.yaml` fails to load, `resolve_risk_decision()`
 **fails open** to the FULL review graph + legacy effort with a warning — a broken
 config never silently reduces review.
+
+### Not yet wired
+
+No production caller threads a slice's changed-file set into any of the router's three
+seams, so `resolve_risk_decision()` has no production call path and
+`default_config_path()` is never reached outside tests:
+
+- **Lens gating** — `get_review_graph_for_phase()` only gates when a caller passes
+  `changed_files` and the phase is `implement`
+  ([`orchestrator/review_graph.py`](../../orchestrator/review_graph.py)); none of its
+  production call sites (`concurrent_executor.py`, `kubernetes_monitor.py`,
+  `routes/consensus.py`, `kubernetes_spawner/_env.py`, and the rest) pass it.
+- **Effort** — `resolve_agent_model()` has two production callers,
+  `concurrent_executor.py` and `resolve_overseer_model()` in the same module; neither
+  passes `changed_files`, so `resolve_review_effort()` returns the base effort verbatim
+  before the router is consulted
+  ([`orchestrator/agent_model_resolution.py`](../../orchestrator/agent_model_resolution.py)).
+- **Stance** — `_get_reviewer_scope_preamble()` is called from `_prompt_review.py` with
+  neither `changed_files` nor `repo_path`, so `_review_stance_framing()` short-circuits
+  to `""` ([`orchestrator/routes/pipelines/_criteria.py`](../../orchestrator/routes/pipelines/_criteria.py)).
+
+With `EGG_RISK_ROUTER=on` the graph, effort, and stance are therefore all unchanged
+today, and **nothing logs to say so** — not even the fail-open warning above, because
+the config load is never attempted.
 
 ## 5. The shared-evidence prompt prefix (the cost bet)
 
@@ -440,6 +444,12 @@ The pieces shipped in the issue's stated order: method angles + the prompt-level
 rules of the ladder first (prompt-only, zero-regret); then the finding schema +
 computed verdict + dedup/convergence; then the risk router (config + gating + effort,
 `log` first); then the evidence prefix last, behind its own flag and cost gate.
+
+**"Shipped" here means the code slice landed, not that it is live.** Of those pieces,
+only the method angles and ladder rules (prompt-only) and the evidence prefix are
+wired end to end today; the computed-verdict path (§1), the per-finding tool-call cap
+(§2), and all three risk-router seams (§4) each carry a not-yet-wired caveat in their
+own section. Setting their flags changes no observable behavior yet.
 
 Out of scope by operator directive: an eval/benchmark harness (this is a
 single-operator deployment; the operator judges quality directly) and
