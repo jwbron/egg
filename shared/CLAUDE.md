@@ -30,3 +30,19 @@ Oversized `shared/` modules are split into **sub-packages with an explicit re-ex
 Pure refactor: every re-exported symbol is AST-identical to the pre-split file. The one intentional seam edit is `validate_plan_preflight`, which calls `parse_plan` **through the package module object** (`import egg_contracts.plan_parser as _pkg`) so the pre-split module-global seam `patch("egg_contracts.plan_parser.parse_plan")` keeps intercepting it. Module-level `patch("egg_contracts.plan_parser._foo")` targets resolve through the barrel; tests that patch a helper **where it is called** target the caller's submodule. `_yaml_parse.py` (832 lines) trips only the 800-line soft advisory — left whole to keep the YAML-extraction seam cohesive ([decomposition pattern §g](../docs/guides/decomposition-pattern.md)).
 
 This is the first `shared/` decomposition; later `shared/` slices append their own rows to this table.
+
+### `egg_contracts/agent_roles/`: canonical agent-role definitions ([#3543](https://github.com/jwbron/egg/issues/3543))
+
+`agent_roles.py` (1,523 lines) → `egg_contracts/agent_roles/` (largest submodule `_registry.py`, 452 lines). The canonical `AgentRole` enum, per-role `AgentRoleDefinition` blocks grouped by pipeline phase, and the registry/query helpers the orchestrator and gateway consult. The barrel does explicit per-symbol re-exports and declares `__all__` (the pre-split module had none); it also re-exports the underscore-prefixed pattern lists and phase maps plus `Role` and `match_pattern`, which were importable module globals on the single-file module and are referenced externally.
+
+| Submodule | Responsibility | Key symbols |
+|-----------|----------------|-------------|
+| `__init__.py` (barrel) | Stable public API: per-symbol re-exports + `__all__`; module-doc on role categories | `AgentRole`, `AGENT_ROLES`, `get_roles_for_phase` (+ re-exports of every symbol below) |
+| `_core.py` | Enums and dataclasses every role definition builds on, plus the shared reviewer blocked-write list | `AgentCategory`, `AgentRole`, `AgentStatus`, `FileAccessPattern`, `AgentRoleDefinition`, `AgentExecution`, `_REVIEWER_BLOCKED_WRITE` |
+| `_refine_roles.py` | Refine-phase producers and reviewers | `REFINER_ROLE`, `SIMPLIFIER_ROLE`, `REVIEWER_REFINE_ROLE`, `REVIEWER_AGENT_DESIGN_ROLE`, `FIRST_PRINCIPLES_REVIEWER_ROLE` |
+| `_plan_roles.py` | Plan-phase producers and reviewer, plus the apply-phase applier (#1557) | `ARCHITECT_ROLE`, `TASK_PLANNER_ROLE`, `RISK_ANALYST_ROLE`, `REVIEWER_PLAN_ROLE`, `APPLIER_ROLE`, `_PLAN_AGENT_BLOCKED_WRITE` |
+| `_implement_roles.py` (largest role module, 314 lines) | Implement-phase producers and reviewers | `CODER_ROLE`, `TESTER_ROLE`, `DOCUMENTER_ROLE`, `REVIEWER_CODE_ROLE`, `REVIEWER_CODE_HOLISTIC_ROLE`, `REVIEWER_CONTRACT_ROLE`, `REVIEWER_SECURITY_ROLE`, `REVIEWER_CONCURRENCY_ROLE`, `_REVIEWER_CONTRACT_BLOCKED_WRITE` |
+| `_oversight_roles.py` | Overseer plus on-demand utility roles | `OVERSEER_ROLE`, `AUTOFIXER_ROLE`, `CONFLICT_RESOLVER_ROLE`, `EVIDENCE_GATHERER_ROLE` |
+| `_registry.py` | `AGENT_ROLES` registry, phase maps, contract-role mapping, and query helpers | `AGENT_ROLES`, `AGENT_ROLE_TO_CONTRACT_ROLE`, `_PHASE_ROLES`, `_PHASE_REVIEWERS`, `MODEL_OVERRIDE_ROLES`, `CONTRACT_ENFORCER_ROLES`, `get_role_definition`, `get_roles_for_phase`, `detect_write_overlaps`, `create_execution_for_role` |
+
+Pure refactor: every re-exported symbol is AST-identical to the pre-split file; the only edit is the relative-import depth of `dependency_graph` inside `detect_write_overlaps` (and of `roles`), forced by the new nesting level. No `unittest.mock.patch` targets against `egg_contracts.agent_roles` exist in the tree, so no patch-seam accommodations were needed.

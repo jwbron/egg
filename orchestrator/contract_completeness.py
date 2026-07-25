@@ -71,6 +71,13 @@ GATE_ENV_VAR = "EGG_CONTRACT_ACK_GATE"
 # independently during an incident.
 EVIDENCE_GATE_ENV_VAR = "EGG_EVIDENCE_REACHABILITY_GATE"
 
+# Operator kill switch for the slice-admission base-ancestry gate
+# (#3541). Separate from the two gates above so each can be toggled
+# independently during an incident (e.g. a legitimate operator
+# squash-merge rewrites completed slices' commit SHAs and would trip
+# this gate even though the content landed).
+BASE_ANCESTRY_GATE_ENV_VAR = "EGG_SLICE_BASE_ANCESTRY_GATE"
+
 _DISABLED_VALUES = frozenset({"off", "0", "false", "no"})
 
 
@@ -82,6 +89,11 @@ def gate_enabled() -> bool:
 def evidence_gate_enabled() -> bool:
     """Return True unless the evidence-reachability kill switch is set."""
     return os.environ.get(EVIDENCE_GATE_ENV_VAR, "on").strip().lower() not in _DISABLED_VALUES
+
+
+def base_ancestry_gate_enabled() -> bool:
+    """Return True unless the base-ancestry kill switch is set (#3541)."""
+    return os.environ.get(BASE_ANCESTRY_GATE_ENV_VAR, "on").strip().lower() not in _DISABLED_VALUES
 
 
 def load_live_contract(

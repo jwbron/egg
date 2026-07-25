@@ -10,22 +10,32 @@ Get egg running locally with the full SDLC pipeline using a GitHub Personal Acce
 - **GitHub CLI** (`gh`) installed and authenticated: `gh auth login`
 - **Anthropic credentials**: either a Claude OAuth token or API key
 - **GitHub PAT**: a fine-grained Personal Access Token with Contents (R/W), Pull requests (R/W), Issues (R/W)
+- **envsubst** (GNU gettext): required by `make deploy` (`dnf install gettext` / `apt install gettext` / `brew install gettext`)
+- **Disk space**: image builds are large (the sandbox image alone is ~10 GB); budget tens of GB free for Docker, the local registry, and k3s's containerd store
 
 ## 1. Clone and setup
 
 ```bash
 git clone https://github.com/jwbron/egg.git
 cd egg
-bin/egg-deploy init        # generates ~/.config/egg/launcher-secret
+bin/egg-deploy init        # generates ~/.config/egg/ (secrets, config, repo templates)
 ```
 
 `bin/egg-deploy init` is the non-interactive replacement for the
 removed `egg --setup` wizard (see
-[#1762](https://github.com/jwbron/egg/issues/1762)). It creates
-`~/.config/egg/launcher-secret`; the `lifecycle-secret` required for
-HITL resolve / pipeline CRUD / phase-control endpoints is generated
-the same way (see [Deployment Guide](deployment.md) for the exact
-path). Fill in the rest of `~/.config/egg/` by hand.
+[#1762](https://github.com/jwbron/egg/issues/1762)). It is idempotent
+(existing files are never overwritten) and generates everything under
+`~/.config/egg/`:
+
+| File | Contents |
+|------|----------|
+| `config.yaml` | Host identity (`host_home`, `host_uid`, `host_gid`), ports; auto-detected |
+| `launcher-secret` | Random secret for sandbox launch authentication |
+| `lifecycle-secret` | Random secret for HITL resolve / pipeline CRUD / phase-control endpoints |
+| `secrets.env` | Credential template (from `config/secrets.template.env`); edit in step 2 |
+| `repositories.yaml` | Repository config template (from `config/repositories.yaml.example`); edit in step 2 |
+
+Only `secrets.env` and `repositories.yaml` need hand-editing, covered next.
 
 ## 2. Configure for PAT authentication
 
@@ -76,8 +86,14 @@ make k3s-push           # push images to the local registry + pre-pull into k3s
 make k3s-secrets        # create k8s Secrets from ~/.config/egg/
 make deploy             # deploy gateway + orchestrator to k3s (idempotent)
 kubectl get pods -n egg-system  # verify pods are running
-egg --public            # start sandbox session
 ```
+
+> **Rather not run these by hand?** `bin/egg-init` chains exactly these steps
+> (registry → build → push → secrets → deploy) with preflight checks; see the
+> [Onboarding Guide](onboarding.md). The interactive `egg` CLI that used to
+> appear here was removed in
+> [#1762](https://github.com/jwbron/egg/issues/1762) — drive pipelines through
+> the MCP server instead (see below).
 
 `make registry-setup` is a one-time host step (also run by `make k3s-setup`): it starts a `registry:2` container **bound to 127.0.0.1 only** (nothing is published off-host) and points k3s's containerd at it via `/etc/rancher/k3s/registries.yaml`. `make build` builds the Docker images. `make k3s-push` publishes the registry-subset images through the registry — `docker push` and the containerd pull are both layer-aware, so after the first publish a code-only rebuild moves tens of MB instead of full images (issue #2999). `make deploy` applies the Kustomize manifests — it is idempotent and can be re-run after code changes to update the running deployment. `make deploy` also performs a pre-flight check: it aborts before touching the cluster if the images for the current tag were never published, directing you to run `make redeploy` instead.
 
@@ -85,11 +101,39 @@ All four images ride the registry by default (`EGG_REGISTRY_IMAGES`). The egg im
 
 In practice you rarely run these individually — `make redeploy` chains build → publish → deploy. To run without the local registry entirely (e.g. an ephemeral CI host), set `EGG_IMAGE_REGISTRY=` (empty); every image then goes through `make k3s-import`.
 
-## 4. Using the SDLC pipeline
+## 4. Connect Claude Code
+
+egg has no interactive CLI; you drive it from your own Claude Code
+session over MCP. The local overlay binds the orchestrator's MCP server
+to `localhost:9850`, so registration is one command:
+
+```bash
+claude mcp add --transport http --scope user egg http://localhost:9850/mcp
+```
+
+(`--scope user` makes the server available in every project; drop it to
+register for the current project only.)
+
+Verify with `claude mcp list`: the `egg` server should show as connected.
+The `mcp__egg__*` tools (`submit_task`, `get_status`, `provide_input`, ...)
+are now available in your session.
+
+Optionally, install the operator skills (`/sdlc`, `/egg-setup`,
+`/agent-diagnose`, `/deployment-diagnose`) so pipeline driving is guided:
+
+```bash
+mkdir -p ~/.claude/skills
+ln -s "$PWD"/skills/* ~/.claude/skills/
+```
+
+Symlinks keep the skills current when you `git pull` the egg repo; use
+`cp -r` instead if you prefer a frozen copy.
+
+## 5. Using the SDLC pipeline
 
 ### Option A: Prompt-driven pipeline (no GitHub interaction)
 
-Inside the sandbox, run:
+From your MCP-connected Claude Code session, run:
 
 ```
 /sdlc
@@ -115,14 +159,20 @@ During refine and plan phases, the gateway restricts pushes to state files and b
 ### Option B: Issue pipeline (GitHub-driven)
 
 ```
-/sdlc -r <repo_dir> -i <issue_number>
+/sdlc <issue_number> [--repo owner/name]
 ```
 
-This creates an issue-driven pipeline with full GitHub integration. The `-r/--repo` flag specifies the repository directory name under `~/repos/` (e.g., `egg`), and `-i/--issue` specifies the GitHub issue number. Example:
+This creates an issue-driven pipeline with full GitHub integration. A bare
+integer (or `#123`) is treated as a GitHub issue number; the repo is
+auto-detected from the working directory's `origin` remote, and
+`--repo owner/name` overrides it. Example:
 
 ```
-/sdlc -r your-repo -i 123
+/sdlc 123 --repo your-username/your-repo
 ```
+
+(`/sdlc` also accepts a Jira ticket ID or a free-text task description;
+see the skill's argument table for the full syntax.)
 
 **Issue pipeline phases:**
 
@@ -134,13 +184,17 @@ This creates an issue-driven pipeline with full GitHub integration. The `-r/--re
 
 ### Monitor progress
 
-```bash
-# From inside the sandbox
-egg-contract show                    # view contract state
-curl http://egg-orchestrator:9849/api/v1/pipelines/issue-123 | jq .
-curl http://egg-orchestrator:9849/api/v1/pipelines/pipeline-85170faf | jq .
+From your Claude Code session, use the MCP tools: `get_status`,
+`get_pipeline_snapshot`, `get_consensus_status`, `check_health`. Or from
+any shell on the host:
 
-# From your host (issue pipelines only)
+```bash
+# REST API (bound to the host on port 9849 by the local overlay)
+curl http://localhost:9849/api/v1/pipelines/issue-123 | jq .
+curl http://localhost:9849/api/v1/pipelines/pipeline-85170faf | jq .
+bin/egg-pipeline-watch               # live pipeline visualization
+
+# GitHub artifacts (issue pipelines only)
 gh issue view 123                    # see comments + phase labels
 gh pr list --search "egg/issue-123"  # find the draft PR
 ```
@@ -192,7 +246,7 @@ make k3s-teardown          # remove k3s and all deployed resources
 
 **Permission denied on repos**: The gateway and orchestrator need to run as your host UID. Set `host_uid` and `host_gid` in `~/.config/egg/config.yaml` (output of `id -u` and `id -g`), then re-run `make k3s-secrets && make deploy`.
 
-**Orchestrator won't start (root-related error)**: The orchestrator refuses to run as root to prevent git artifacts from being created with root ownership. If you see an error about root, HOST_UID, or HOST_GID, it means `HOST_UID`/`HOST_GID` are not set or are set to 0. The `egg` CLI sets these automatically; if values are wrong, check your `~/.config/egg/config.yaml`:
+**Orchestrator won't start (root-related error)**: The orchestrator refuses to run as root to prevent git artifacts from being created with root ownership. If you see an error about root, HOST_UID, or HOST_GID, it means `HOST_UID`/`HOST_GID` are not set or are set to 0. `bin/egg-deploy init` detects these automatically; if values are wrong, check your `~/.config/egg/config.yaml`:
 ```yaml
 host_uid: 1000  # output of id -u
 host_gid: 1000  # output of id -g

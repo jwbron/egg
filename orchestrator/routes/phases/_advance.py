@@ -492,6 +492,43 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             # Save updated pipeline with optimistic locking
             store.save_pipeline(pipeline, expected_version=original_version)
 
+        # #3521: advance contract.current_phase in lockstep with the
+        # pipeline record. The gateway commit gate keys off the CONTRACT
+        # phase, so leaving the contract on the previous phase wedges the
+        # target phase's producers until some agent happens to call the
+        # gateway phase API. Best-effort + forward-only (the helper never
+        # raises); the wrapper guards the import / worktree resolution so
+        # a sync problem can never fail the advance itself.
+        try:
+            from routes import resolve_worktree_path as _resolve_wt_for_sync
+            from routes.pipelines import _sync_contract_phase_to_pipeline
+
+            _sync_contract_phase_to_pipeline(
+                pipeline,
+                _resolve_wt_for_sync(pipeline_id, store.repo_path),
+                source="advance_phase",
+            )
+        except Exception as _sync_err:  # noqa: BLE001
+            logger.warning(
+                "Contract phase sync failed at advance_phase (continuing) (#3521)",
+                pipeline_id=pipeline_id,
+                error=str(_sync_err),
+            )
+
+        # #3528: gateway sessions survive the transition too, and the
+        # gateway commit gate also keys off the per-SESSION phase; sync
+        # them in lockstep (best-effort; see the helper's docstring).
+        try:
+            from routes.pipelines import _sync_session_phases_best_effort
+
+            _sync_session_phases_best_effort(pipeline_id, target_phase.value)
+        except Exception as _sess_sync_err:  # noqa: BLE001
+            logger.warning(
+                "Gateway session phase sync failed at advance_phase (continuing) (#3528)",
+                pipeline_id=pipeline_id,
+                error=str(_sess_sync_err),
+            )
+
         # Persist BRC history for the outgoing phase before the message
         # store is wiped — otherwise advance_phase (and especially
         # --force, used to unstick #1813) silently drops that phase's

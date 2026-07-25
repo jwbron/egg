@@ -67,6 +67,10 @@ _TOOL_NARROW_HINTS: dict[str, str] = {
     "get_container_logs": (
         "lower `lines` or set a smaller `since_seconds` window, or target a single container"
     ),
+    "get_agent_transcript": (
+        "lower `lines` (the transcript tail is returned newest-last), or omit "
+        "`agent_role` to list available transcripts without their bodies"
+    ),
     "list_containers": (
         "request a single pipeline/phase if the API supports it; otherwise "
         "this result is proportional to the running container count"
@@ -149,6 +153,7 @@ class PipelineToolHandler:
     _handle_get_status = _status._handle_get_status
     _live_running_agents_fallback = _status._live_running_agents_fallback
     _build_status_snapshot = _status._build_status_snapshot
+    _fetch_contract = _status._fetch_contract
     _pending_contract_decisions = _status._pending_contract_decisions
     _enrich_pending_decisions = _status._enrich_pending_decisions
     _read_reviewer_feedback = _status._read_reviewer_feedback
@@ -162,6 +167,8 @@ class PipelineToolHandler:
     _handle_check_health = _health._handle_check_health
     _handle_list_containers = _health._handle_list_containers
     _handle_get_container_logs = _health._handle_get_container_logs
+    _persisted_agent_logs_fallback = _health._persisted_agent_logs_fallback
+    _handle_get_agent_transcript = _health._handle_get_agent_transcript
     _handle_send_message = _health._handle_send_message
     # _consensus
     _handle_get_consensus_status = _consensus._handle_get_consensus_status

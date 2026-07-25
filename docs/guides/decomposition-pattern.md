@@ -221,11 +221,11 @@ allowlist entry — see section (g).
 ## (f) Routes-handling convention
 
 Both `orchestrator/routes/*.py` (Flask Blueprints) and
-`gateway/gateway.py` (`@app.route(...)`) follow the **same** seam:
+`gateway/gateway/` (`@app.route(...)`) follow the **same** seam:
 
 1. **Route registrations stay in `__init__.py`.** Decorators
    (`@<bp>.route(...)` for routes/*.py; `@app.route(...)` for
-   gateway.py) live on thin wrapper functions in `__init__.py`.
+   the gateway barrel) live on thin wrapper functions in `__init__.py`.
 2. **Wrapper bodies delegate to submodule implementations.**
 
    ```python

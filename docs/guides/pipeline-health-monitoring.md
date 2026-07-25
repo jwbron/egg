@@ -1,6 +1,24 @@
 # Pipeline Health Monitoring
 
-Pipeline health monitoring uses a **two-tier architecture** to detect and respond to agent failures during pipeline execution. The orchestrator tier handles clear-cut failures deterministically (no LLM cost), while the overseer agent tier handles ambiguous situations requiring semantic analysis.
+> **Status:** The **Tier 1 deterministic detection** described here — structured
+> progress events, orchestrator tripwires, the alive-signal gates, and
+> branch-divergence detection — is current and authoritative. The **Tier 2
+> "Overseer Agent" internal architecture** below (Haiku classifiers on every
+> cycle, a Sonnet/Opus decision-maker) predates the overseer overhaul
+> ([#2270](https://github.com/jwbron/egg/issues/2270)) and is being retired: the
+> delivered shape is a deterministic **detection plane** plus an **on-demand,
+> advisory adjudicator** (Opus tier) that runs only for the genuinely ambiguous
+> minority, executing a bounded corrective vocabulary under the orchestrator
+> identity. For the current overseer model, see
+> [Overseer Architecture](../architecture/overseer.md), which is authoritative
+> when the two disagree.
+
+Pipeline health monitoring detects and responds to agent failures during
+pipeline execution. The orchestrator resolves clear-cut failures
+deterministically (no LLM cost) via the detection plane described under
+[Tier 1](#tier-1-orchestrator-tripwires); genuinely ambiguous findings are
+handed to the on-demand overseer adjudicator (see
+[Overseer Architecture](../architecture/overseer.md)).
 
 ## Architecture Overview
 
@@ -294,6 +312,7 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `overseer_rerun_min_work_seconds` | `60` | Minimum work duration required after a `request_changes` phase-gate decision; completions faster than this with `content_changed=False` are flagged as re-run anomalies |
 | `overseer_hitl_propagation_timeout_seconds` | `300` | Seconds to wait for a resolved phase-gate decision to appear in the SDLC contract before raising a propagation-failure alert |
 | `overseer_infra_error_dedup_window_seconds` | `300` | Time window for deduplicating infrastructure error escalations between Tier 1 and Tier 2 (same agent + same error pattern) |
+| `overseer_phase_desync_alert_seconds` | `300` | Seconds a `contract.current_phase` vs pipeline-record `current_phase` mismatch may persist while `status=running` before the deterministic contract-phase-desync alert fires (#3521) |
 | `active_agent_stall_extension_seconds` | `120` | If a blocking agent has emitted a progress event within this window, stall responses are suppressed. Tier 1 resets its tick counter unconditionally (no cap). The overseer caps nudge deferrals at 1× the HITL threshold and HITL deferrals at 2× the HITL threshold from the absolute stall start. |
 | `overseer_max_agent_restarts` | `2` | Maximum auto-restarts per agent per phase before escalating to HITL. The overseer reads the authoritative count from the spawner's REST API response (unified with all restart sources) rather than tracking independently |
 | `overseer_heartbeat_failures_before_restart` | `3` | Consecutive heartbeat failures before the overseer triggers an agent restart (default: 3) |
@@ -301,7 +320,6 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `overseer_advisor_model` | `"opus"` | LLM model used by the Tier-2 advisor when Haiku flags an anomaly that intersects with a Tier-1 health alert. The default is the canonical `opus` alias so cost telemetry resolves correctly. See [Advisor Gate](#advisor-gate). |
 | `overseer_advisor_recent_log_bytes_cap` | `256000` | Byte cap for the `recent_log_lines` block in the advisor prompt (issue #2120). When the joined block exceeds the cap, the prompt-builder drops oldest lines first so the most-recent lines (highest signal) survive, and prepends a marker so the advisor knows truncation happened. Set to `0` to disable (not recommended — leaves the prompt open to pathological log payloads). |
 | `overseer_auto_file_issues_mode` | `"shadow"` | Auto-issue-filing mode: `shadow` surfaces the advisor's `recommendation=file_issue` as an `OVERSEER_ALERT` + HITL decision (the human approves before any `gh issue create` runs); `live` runs the same HITL flow but allows the CLI verb to file once approval lands. The HITL approval is *never* bypassed. To disable issue filing entirely, set `overseer_enabled=false`. |
-| `overseer_owns_host_detection` | `false` | Calibration-window flag for the host → overseer migration. While `false` (the default), the `/sdlc` host skill keeps its stall / silent-agent / NACK / long-running-phase / stuck-pipeline rescue detectors live. While `true`, those host detectors short-circuit and the overseer is the sole source of these alerts. See [Host Detector Migration](#host-detector-migration). |
 | `overseer_stuck_phase_transition_seconds` | `180` | Threshold (seconds) for the existing overseer `stuck-phase-transition` trigger (orchestrator-level signal). Raised from the previous hardcoded ~60s default per operator feedback during long phase transitions. |
 | `overseer_agent_stall_seconds` | `180` | Threshold (seconds) for the new `detect_agent_stall` detector migrated from `/sdlc` (per-agent elapsed-time signal). Distinct from `overseer_stuck_phase_transition_seconds` so the two anomalies can be tuned independently. |
 | `overseer_silent_agent_threshold_seconds` | `600` | Threshold (seconds) for the migrated `detect_agent_silent` detector (running agent with zero messages). Matches the previous `/sdlc` default. |
@@ -447,7 +465,7 @@ Both layers apply suppression rules to reduce false positives:
 
 ### Additional Overseer Health Checks
 
-Each poll cycle the overseer evaluates six targeted health checks (the fourth triggers only on phase transitions; the fifth triggers only at pipeline completion). Only the fourth (cross-phase consistency) uses an LLM classifier; the rest are deterministic (no LLM cost):
+Each poll cycle the overseer evaluates seven targeted health checks (the cross-phase consistency check triggers only on phase transitions). Only that check uses an LLM classifier; the rest are deterministic (no LLM cost):
 
 > **Note:** All checks broadcast an `OVERSEER_ALERT` message to the `all` target on the message bus, allowing the `/sdlc` monitoring session and other listeners to surface findings via `egg-orch message recent`. Each alert is routed to the correct pipeline using an explicit `pipeline_id` argument and attributed with `from_role: overseer`, ensuring alerts from internal self-tests or other pipelines never leak into unrelated pipelines' message streams.
 
@@ -456,6 +474,7 @@ Each poll cycle the overseer evaluates six targeted health checks (the fourth tr
 | **Re-run anomaly** | Agent completes in < `overseer_rerun_min_work_seconds` after a `request_changes` phase-gate decision with `content_changed=False` — a likely no-op re-run | HITL escalation + Slack notification + message bus broadcast (deduplicated per decision ID) |
 | **Status inconsistency** | Pipeline shows `failed` while all agents show `complete` — a possible transient state | HITL escalation + Slack notification + message bus broadcast (after one poll-cycle grace period) |
 | **HITL propagation failure** | A resolved phase-gate decision is not reflected in the SDLC contract after `overseer_hitl_propagation_timeout_seconds` | HITL escalation + Slack notification + message bus broadcast |
+| **Contract phase desync** | `contract.current_phase` disagrees with the pipeline record's `current_phase` for more than `overseer_phase_desync_alert_seconds` while `status=running` — the gateway commit gate keys off the contract phase, so a lagging contract wedges the next phase's producers (#3521) | HITL escalation + Slack notification + message bus broadcast, with direction-aware repair text (advance the contract if it's behind; manual reconciliation if it's ahead of the pipeline record, which forward-only sync should never produce). Alerts once per distinct `(contract_phase, pipeline_phase)` pair |
 | **Cross-phase consistency** | On a phase transition, the new phase's contract output may not honour prior resolved HITL decisions (uses the Haiku `decision_consistency` classifier; requires confidence > 0.7 to escalate) | HITL escalation + Slack notification + message bus broadcast (deduplicated per phase-transition pair) |
 | **Orchestrator unreachability** | Both pipeline status and phase queries return empty for 3 consecutive poll cycles — likely orchestrator container crash or network partition | Slack notification + oversight event + message bus broadcast (re-alerts every 3 cycles until recovered; oversight event also logged on recovery) |
 | **Incomplete consensus stall** | Consensus is incomplete and the same agents are blocking for ~5 minutes — likely stuck in a heartbeat loop after a re-review cycle cleared their confirmed status | Targeted nudge to each blocking agent (deferred if agents have recent progress events; nudge deferral capped at 1× HITL threshold); HITL + Slack if stall persists for ~5 more minutes (HITL deferral capped at 2× HITL threshold from absolute stall start) |
@@ -557,7 +576,7 @@ The CLI verb and gateway require an `owner/repo`-formatted `EGG_PIPELINE_REPO` e
 
 ### Host Detector Migration
 
-Issue [#1962](https://github.com/jwbron/egg/issues/1962) also migrates five host-side `/sdlc` skill detectors into the overseer:
+Issue [#1962](https://github.com/jwbron/egg/issues/1962) migrated five host-side `/sdlc` skill detectors into the overseer:
 
 | Detector | Threshold knob | Migrated trigger |
 |----------|----------------|------------------|
@@ -569,14 +588,7 @@ Issue [#1962](https://github.com/jwbron/egg/issues/1962) also migrates five host
 
 Per-agent timing state moves from `/sdlc`'s in-memory `{role: {phase, phase_entered_at, …}}` map into `.egg-state/oversight/agent-timing.json` (see `shared/egg_overseer/state.py::AgentTimingState`). Read/modify/write is guarded by an `fcntl.LOCK_EX` flock on its own per-state-file sentinel `.egg-state/oversight/agent-timing.json.lock` so concurrent overseer respawns at phase boundaries cannot clobber each other's updates. Per-anomaly suppression uses `AgentTimingEntry.alerted_anomalies` so each `(role, anomaly)` pair fires at most once per `2× threshold` window per phase.
 
-**Calibration-window flag semantics.** `overseer_owns_host_detection` defaults to `false` for the first release. The flag selects **one** active source of these alerts:
-
-- **`false` (default)** — the host's `/sdlc` detectors run; the overseer's `run_migrated_detectors` function (`sandbox/overseer_monitor.py`) early-returns `[]` so the overseer emits no migrated-detector alerts at all. Pipelines see today's behavior.
-- **`true`** — the host's `/sdlc` detection blocks short-circuit (gated on the same flag in `skills/sdlc/SKILL.md`); the overseer becomes the sole source.
-
-This is "host XOR overseer", not "host AND overseer" — the calibration window is **operator-driven**: an operator opts a pipeline into `true` to validate overseer parity, then opts back to `false` if needed. After a calibration window (≥ 2 weeks) of validating overseer-side detection, a follow-up PR flips the default to `true` and deletes the now-dormant host blocks. Running both in parallel for observability comparison is tracked as a follow-up enhancement (out of scope for this PR; would require the overseer to compute alerts but suppress emission while the flag is False).
-
-When `overseer_owns_host_detection=true` and the host sees no `OVERSEER_ALERT` from the overseer for `2 × overseer_agent_stall_seconds` while running agents are present, the host raises a single `AskUserQuestion` ("Overseer appears unresponsive; would you like to (a) check the overseer container logs, (b) restart the overseer, (c) continue with host detection only for this pipeline, (d) cancel?"). A sentinel file at `.egg-state/oversight/sdlc-fallback-fired-{pipeline_id}-{phase}.flag` ensures the fallback fires at most once per phase.
+**Migration concluded.** The calibration window has closed. Earlier releases gated this cutover behind a per-pipeline calibration flag — while off, the host's `/sdlc` detectors were the active source; while on, the host blocks short-circuited and the overseer was the sole source — running "host XOR overseer" during an operator-driven parity-validation window. That flag and the now-dormant host-side detector blocks (including the host's overseer-unresponsive fallback prompt) have since been removed: the overseer owns this detection and the `/sdlc` skill only surfaces the resulting `OVERSEER_ALERT`s.
 
 ### Sandbox CLI Verb: `egg-orch overseer consult-advisor`
 

@@ -59,6 +59,43 @@ def stop_agent_job(
         raise
 
 
+def _persist_job_logs_best_effort(self, job_name: str) -> None:
+    """Snapshot the Job's pod logs into the agent-log store before removal (#3547).
+
+    One-shot event Jobs are reaped moments after their exit is observed, so
+    this pre-removal capture is the only durable copy of the agent's stdout;
+    ``get_container_logs`` falls back to it once the pod is gone. Strictly
+    best-effort: any failure (pod already GC'd, store unavailable, stub k8s
+    client in tests) logs and returns so removal is never blocked.
+    """
+    try:
+        snapshot = self.k8s.read_job_log_snapshot(job_name)
+        if not snapshot:
+            return
+        pipeline_id = snapshot.get("pipeline_id")
+        logs = snapshot.get("logs")
+        if not pipeline_id or logs is None:
+            # Without a pipeline label there is no operator-facing key to
+            # file the capture under; without logs there is nothing to keep.
+            return
+        from agent_log_store import get_agent_log_store
+
+        get_agent_log_store().put(
+            pipeline_id,
+            snapshot.get("job_name") or job_name,
+            logs=logs,
+            agent_role=snapshot.get("agent_role"),
+            slice_id=snapshot.get("slice_id"),
+            exit_code=snapshot.get("exit_code"),
+        )
+    except Exception as exc:  # noqa: BLE001; capture must never block removal
+        logger.warning(
+            "Failed to persist agent logs before Job removal",
+            job_name=job_name,
+            error=str(exc),
+        )
+
+
 def remove_agent_job(
     self,
     job_name: str,
@@ -72,6 +109,7 @@ def remove_agent_job(
         force: Force removal (foreground propagation)
         cleanup_session: Whether to delete gateway session
     """
+    _pkg._persist_job_logs_best_effort(self, job_name)
     try:
         self.k8s.remove_container(job_name, force=force)
     finally:

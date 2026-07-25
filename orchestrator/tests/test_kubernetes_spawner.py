@@ -1300,6 +1300,64 @@ class TestRemoveAgentJob:
         mock_gateway.delete_session_by_container.assert_called_once_with("job-name")
 
 
+class TestRemoveAgentJobLogCapture:
+    """Pre-removal log capture into the agent-log store (#3547)."""
+
+    @pytest.fixture(autouse=True)
+    def _fakeredis_store(self):
+        import agent_log_store
+        import fakeredis
+        from agent_log_store import AgentLogStore
+
+        agent_log_store.set_agent_log_store(AgentLogStore(fakeredis.FakeRedis()))
+        yield
+        agent_log_store.reset_agent_log_store()
+
+    def test_remove_persists_snapshot_before_deletion(self, spawner, mock_k8s_client):
+        from agent_log_store import get_agent_log_store
+
+        mock_k8s_client.read_job_log_snapshot.return_value = {
+            "job_name": "job-name",
+            "pod_name": "job-name-xyz",
+            "pipeline_id": "issue-1",
+            "agent_role": "coder",
+            "slice_id": "slice-3",
+            "exit_code": 137,
+            "logs": "agent stdout\n",
+        }
+        spawner.remove_agent_job("job-name")
+        mock_k8s_client.remove_container.assert_called_once_with("job-name", force=False)
+        rec = get_agent_log_store().get("issue-1", "job-name")
+        assert rec["logs"] == "agent stdout\n"
+        assert rec["agent_role"] == "coder"
+        assert rec["slice_id"] == "slice-3"
+        assert rec["exit_code"] == 137
+
+    def test_remove_proceeds_when_snapshot_unavailable(self, spawner, mock_k8s_client):
+        """Pod already GC'd (snapshot None); removal is not blocked."""
+        mock_k8s_client.read_job_log_snapshot.return_value = None
+        spawner.remove_agent_job("job-name")
+        mock_k8s_client.remove_container.assert_called_once_with("job-name", force=False)
+
+    def test_remove_proceeds_when_snapshot_raises(self, spawner, mock_k8s_client):
+        mock_k8s_client.read_job_log_snapshot.side_effect = RuntimeError("api down")
+        spawner.remove_agent_job("job-name")
+        mock_k8s_client.remove_container.assert_called_once_with("job-name", force=False)
+
+    def test_no_capture_without_pipeline_label(self, spawner, mock_k8s_client):
+        """A pod with no pipeline label has no operator-facing key; skip."""
+        from agent_log_store import get_agent_log_store
+
+        mock_k8s_client.read_job_log_snapshot.return_value = {
+            "job_name": "job-name",
+            "pipeline_id": None,
+            "logs": "orphan logs",
+        }
+        spawner.remove_agent_job("job-name")
+        assert get_agent_log_store().list_records("issue-1") == []
+        mock_k8s_client.remove_container.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # TestListPipelineJobs
 # ---------------------------------------------------------------------------
@@ -1613,6 +1671,130 @@ class TestCreateConcurrentSpawnFn:
         result = fn(AgentRole.TESTER, extra_env={"EXTRA_KEY": "extra_val"})
         assert result.environment["BASE_KEY"] == "base_val"
         assert result.environment["EXTRA_KEY"] == "extra_val"
+
+
+# ---------------------------------------------------------------------------
+# TestSpawnTimePhaseResolution (#3528)
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnTimePhaseResolution:
+    """Spawn-time phase resolution in create_concurrent_spawn_fn (#3528).
+
+    The spawn callable closure-captures ``phase`` at wiring time, and the
+    event-loop wiring holding it can outlive that phase (a stale driver
+    thread, or a dual-role agent (the refine+plan simplifier) whose one-shot
+    event spawns straddle a transition). Sessions minted through stale
+    wiring carried the old phase, the gateway's commit gate denied every
+    commit, and consensus deadlocked. With a ``phase_resolver`` wired, the
+    phase is resolved live on every spawn.
+    """
+
+    def _spawn_fn(self, spawner, phase_resolver):
+        return spawner.create_concurrent_spawn_fn(
+            pipeline_id="issue-3523",
+            issue_number=3523,
+            repo_volumes=None,
+            mode="public",
+            repos=["owner/repo"],
+            phase="refine",  # wiring-time phase, now stale
+            phase_resolver=phase_resolver,
+        )
+
+    def test_pod_spawn_uses_live_phase(self, spawner, mock_k8s_client, mock_gateway):
+        """A pod-mode spawn registers its session with the RESOLVED phase."""
+        fn = self._spawn_fn(spawner, lambda: "plan")
+        result = fn(AgentRole.SIMPLIFIER, branch="egg/issue-3523/work")
+        assert result is not None
+        assert mock_gateway.register_session.call_args.kwargs["phase"] == "plan"
+        # The pod's env agrees with the session's phase.
+        assert result.environment.get("EGG_PHASE") == "plan"
+
+    def test_event_spawn_uses_live_phase(self, spawner, mock_k8s_client, mock_gateway):
+        """The dual-role regression: a one-shot event spawn issued through
+        wiring captured in refine mints its session with the pipeline's
+        CURRENT phase, so its commits are permitted post-transition."""
+        fn = self._spawn_fn(spawner, lambda: "plan")
+        with patch.object(spawner, "spawn_event_job") as mock_event_job:
+            fn(
+                AgentRole.SIMPLIFIER,
+                branch="egg/issue-3523/work",
+                event_action="propose",
+                event_dedupe_key="d" * 64,
+            )
+        assert mock_event_job.call_args.kwargs["phase"] == "plan"
+
+    def test_resolver_failure_falls_back_to_captured_phase(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """A failing resolver degrades to the wiring-time phase, never wedges."""
+
+        def _boom() -> str:
+            raise RuntimeError("state store unavailable")
+
+        fn = self._spawn_fn(spawner, _boom)
+        result = fn(AgentRole.SIMPLIFIER, branch="egg/issue-3523/work")
+        assert result is not None
+        assert mock_gateway.register_session.call_args.kwargs["phase"] == "refine"
+
+    def test_no_resolver_uses_captured_phase(self, spawner, mock_k8s_client, mock_gateway):
+        """Without a resolver (legacy callers), behavior is unchanged."""
+        fn = self._spawn_fn(spawner, None)
+        result = fn(AgentRole.SIMPLIFIER, branch="egg/issue-3523/work")
+        assert result is not None
+        assert mock_gateway.register_session.call_args.kwargs["phase"] == "refine"
+
+    def test_resolver_returning_enum_is_normalised(self, spawner, mock_k8s_client, mock_gateway):
+        """A resolver returning a PipelinePhase enum resolves to its value."""
+        from models import PipelinePhase
+
+        fn = self._spawn_fn(spawner, lambda: PipelinePhase.PLAN)
+        result = fn(AgentRole.SIMPLIFIER, branch="egg/issue-3523/work")
+        assert result is not None
+        assert mock_gateway.register_session.call_args.kwargs["phase"] == "plan"
+
+
+# ---------------------------------------------------------------------------
+# TestSyncSessionPhases (#3528)
+# ---------------------------------------------------------------------------
+
+
+class TestSyncSessionPhases:
+    """Phase-advance sweep over the cached gateway sessions (#3528).
+
+    Sessions survive phase transitions (teardown only runs at pipeline end
+    or arm exhaustion), so the advance paths sync every cached session of
+    the pipeline to the new phase via the gateway's PATCH
+    ``/sessions/<token>/phase`` route.
+    """
+
+    def test_syncs_only_matching_pipeline(self, spawner, mock_gateway):
+        spawner._session_token_cache[("pipe-1", "simplifier", None, "egg-agent-pipe-1-s")] = "tok-a"
+        spawner._session_token_cache[("pipe-1", "refiner", None, "egg-agent-pipe-1-r")] = "tok-b"
+        spawner._session_token_cache[("pipe-2", "coder", None, "egg-agent-pipe-2-c")] = "tok-c"
+        mock_gateway.update_session_phase.return_value = True
+
+        updated = spawner.sync_session_phases("pipe-1", "plan")
+
+        assert updated == 2
+        synced_tokens = {c.args[0] for c in mock_gateway.update_session_phase.call_args_list}
+        assert synced_tokens == {"tok-a", "tok-b"}
+        for c in mock_gateway.update_session_phase.call_args_list:
+            assert c.args[1] == "plan"
+
+    def test_gateway_errors_are_swallowed(self, spawner, mock_gateway):
+        """A failing gateway must never block the phase advance."""
+        spawner._session_token_cache[("pipe-1", "simplifier", None, "egg-agent-pipe-1-s")] = "tok-a"
+        spawner._session_token_cache[("pipe-1", "refiner", None, "egg-agent-pipe-1-r")] = "tok-b"
+        mock_gateway.update_session_phase.side_effect = [RuntimeError("boom"), True]
+
+        updated = spawner.sync_session_phases("pipe-1", "plan")
+
+        assert updated == 1
+
+    def test_empty_cache_is_noop(self, spawner, mock_gateway):
+        assert spawner.sync_session_phases("pipe-1", "plan") == 0
+        mock_gateway.update_session_phase.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -3555,6 +3737,81 @@ class TestSpawnEventJobSessionReuse:
 
         assert session is not None
         assert session.session_token == "tok-live-abcdef"
+        mock_gateway.register_session.assert_not_called()
+
+    def test_reuse_syncs_phase_across_transition(self, spawner, mock_gateway):
+        """Reuse across a phase boundary syncs the session's phase (#3528).
+
+        Sessions are NOT torn down at phase end (cleanup_pipeline runs at
+        pipeline end and phase advances skip it via the run_epoch bump), so
+        a session registered in refine used to be reused in plan with its
+        gateway-side phase still 'refine', and the commit gate denied the
+        agent for the rest of the pipeline. The reuse path must PATCH the
+        phase before handing out the stub.
+        """
+        cache_key = ("pipe-1", "simplifier", None, "egg-agent-pipe-1-simplifier")
+        spawner._session_token_cache[cache_key] = "tok-refine-era"
+        mock_gateway.heartbeat_session_by_container.return_value = True
+        mock_gateway.update_session_phase.return_value = True
+
+        session = spawner._get_or_create_session(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.SIMPLIFIER,
+            mode="public",
+            repos=["owner/repo"],
+            phase="plan",
+        )
+
+        assert session is not None
+        assert session.session_token == "tok-refine-era"
+        mock_gateway.update_session_phase.assert_called_once_with("tok-refine-era", "plan")
+        mock_gateway.register_session.assert_not_called()
+
+    def test_reuse_phase_sync_failure_re_registers(self, spawner, mock_gateway):
+        """A failed phase sync must not hand out a session the gateway will
+        deny; drop it and register fresh (with the current phase)."""
+        cache_key = ("pipe-1", "simplifier", None, "egg-agent-pipe-1-simplifier")
+        spawner._session_token_cache[cache_key] = "tok-stale-phase"
+        mock_gateway.heartbeat_session_by_container.return_value = True
+        mock_gateway.update_session_phase.return_value = False
+        mock_gateway.register_session.return_value = _FakeSessionInfo(
+            session_token="tok-fresh-phase",
+            container_id="egg-agent-pipe-1-simplifier",
+        )
+
+        session = spawner._get_or_create_session(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.SIMPLIFIER,
+            mode="public",
+            repos=["owner/repo"],
+            phase="plan",
+        )
+
+        assert session is not None
+        assert session.session_token == "tok-fresh-phase"
+        # The stale-phase session was dropped, not left to shadow the
+        # fresh registration under the same container id.
+        mock_gateway.delete_session.assert_called_once_with("tok-stale-phase")
+        assert mock_gateway.register_session.call_args.kwargs["phase"] == "plan"
+        assert spawner._session_token_cache[cache_key] == "tok-fresh-phase"
+
+    def test_reuse_without_phase_skips_sync(self, spawner, mock_gateway):
+        """No phase supplied ⇒ no sync round-trip; pre-#3528 reuse behavior."""
+        cache_key = ("pipe-1", "coder", "slice-4", "egg-agent-pipe-1-slice-4-coder")
+        spawner._session_token_cache[cache_key] = "tok-live-abcdef"
+        mock_gateway.heartbeat_session_by_container.return_value = True
+
+        session = spawner._get_or_create_session(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            slice_id="slice-4",
+            mode="public",
+            repos=["owner/repo"],
+        )
+
+        assert session is not None
+        assert session.session_token == "tok-live-abcdef"
+        mock_gateway.update_session_phase.assert_not_called()
         mock_gateway.register_session.assert_not_called()
 
     def test_aged_out_session_re_registers(self, spawner, mock_gateway):

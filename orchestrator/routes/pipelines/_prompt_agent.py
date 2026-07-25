@@ -714,6 +714,20 @@ def _build_agent_prompt(
                 "hard-rejects this. A slice that deletes or retires a file "
                 "must depend on every slice that modifies it. Keep slices with "
                 "disjoint file sets parallel so they still run concurrently.",
+                "- **Read/consume ⇒ dependency edge (#3541).** File overlap "
+                "is not the only ordering constraint: a slice that READS "
+                "another slice's output — documents it, verifies it, wires "
+                "it up, or builds on its content — must be that slice's "
+                "transitive DESCENDANT in the DAG even when their file sets "
+                "are disjoint. During the run a slice's branch only contains "
+                "code from its ancestor chain (slice PRs are human-merged "
+                "after the pipeline finishes), so a documentation or "
+                "verification slice left on a parallel chain runs against a "
+                "base that excludes the very content it must consume. In "
+                "particular, a terminal docs/verification slice must be the "
+                "tail of a chain that transitively contains every slice it "
+                "covers — serialise parallel chains into one (recording the "
+                "chosen order in ``serialized_chain_order``) when needed.",
                 "- **Test co-location (HARD — #3411).** A slice that removes, "
                 "renames, or rewrites code must carry the matching updates to "
                 "the tests exercising that code — skip-guards, deletions, "
@@ -798,6 +812,22 @@ def _build_agent_prompt(
                 "- Do NOT create or modify reviews (`.egg-state/reviews/`)",
                 "- Do NOT create or modify plan drafts (`.egg-state/drafts/*-plan.md`)",
                 "",
+                "### Operator Decisions (plan phase, #3526)",
+                "",
+                "You own the plan phase's operator-decision surface. Plan is "
+                "the pipeline's LAST decision surface: a genuine fork you "
+                "resolve silently here never reaches the operator. Register "
+                "operator-grade choices (scope boundaries the analysis left "
+                "open, forks where defensible designs diverge in "
+                "user-visible behavior, cost, or risk) via "
+                "`egg-contract add-decision` with your recommended option "
+                "first, and cite the returned cq-N ids in your ledger "
+                "attestation (#3390). A plan-phase attestation may NOT "
+                "disposition a candidate as `deferred_to_plan`: register "
+                "it, or disposition it `not_operator_grade` with a concrete "
+                "why.",
+                "",
+                *_pkg._build_deferred_candidates_section(pipeline_id),
                 *_pkg._EXPLORATION_SUBAGENT_GUIDANCE,
             ]
         )

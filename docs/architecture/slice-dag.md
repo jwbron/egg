@@ -393,10 +393,14 @@ file-boundary allowlist in the gateway is therefore still enforced
 per-role even though every role in the slice shares one head ref.
 
 A helper `get_slice_integration_branch(slice_id)` returns the shared
-integration branch for a slice's BRC: `egg/issue-N/slice-M`. Roots base
-their integration branch off the pipeline branch directly
-(`egg/issue-N/work` since #2399); child slices base off their parent
-slice's integration branch. Slice integration branches live as siblings
+integration branch for a slice's BRC: `egg/issue-N/slice-M`. Child
+slices base off their parent slice's integration branch. Root slices
+base off the **latest completed chain tip** when one exists
+([#3541](https://github.com/jwbron/egg/issues/3541) — see "Root
+linearization & the base-ancestry gate" below), falling back to the
+pipeline branch directly (`egg/issue-N/work` since #2399) for the
+first root or when every completed tip's branch was merged and
+cascade-deleted. Slice integration branches live as siblings
 of the pipeline tip under `egg/issue-N/` — git rejects a leaf ref at
 `egg/issue-N` and children at `egg/issue-N/slice-M` simultaneously
 ("directory file conflict"), so the pipeline tip was moved to
@@ -441,6 +445,67 @@ orchestrator-side cascade emission and run-loop log lines are the always-on
 `pipeline_id`-scoped fallback so deadlocks remain visible at the pipeline
 level regardless.
 
+### Root linearization & the base-ancestry gate ([#3541](https://github.com/jwbron/egg/issues/3541))
+
+During a run the pipeline work branch only ever advances with
+bookkeeping commits (contract persists, statefiles) — slice PRs are
+human-merged after the pipeline finishes. In pipeline `issue-3523` that
+meant a root slice admitted after a sibling root's chain had completed
+forked from `work` and silently excluded the completed chain's
+reviewed, consensus-approved code; every downstream slice inherited the
+gap, while the contract kept marking the orphaned commits complete. Two
+mechanisms close this:
+
+- **Root linearization** (`_resolve_slice_base_branch` tier 3, via
+  `_latest_completed_chain_tip`): a root slice with no recorded parent
+  forks from the integration branch of the deepest COMPLETE chain tip
+  instead of the work branch. Under serialized execution
+  (`max_parallel_slices == 1`) with a single linear chain this makes
+  the git topology a single
+  linear chain in completion order — every slice's base transitively
+  contains all previously completed work, and the final chain tip is a
+  complete deliverable. Tips whose branch was merged and
+  cascade-deleted are skipped (their content already reached `work`);
+  with no live completed tip the root falls back to the pipeline
+  branch as before. With genuine slice concurrency (cap > 1),
+  in-flight chains are never chained onto — only COMPLETE tips — so
+  parallel waves keep their isolation. The resolver reads a **fresh
+  contract snapshot** at admission (not the phase-start object) so it
+  sees completion statuses flipped while the run loop iterates.
+- **Base-ancestry gate** (`_check_slice_base_ancestry`): the
+  admission-time counterpart of the slice-close evidence-reachability
+  gate (#3125). Right after `create_slice_integration_branch` (the
+  branch tip still equals the fork base) and before agents spawn, it
+  verifies every commit SHA the contract records as evidence on
+  completed predecessor slices is an ancestor of the new branch. The
+  predecessor set is the slice's own fork chain (walked via
+  `parent_branch_at_creation` / `dependencies`) — the set the base is
+  supposed to contain — in **every** topology and concurrency setting.
+  This is scope-correct even under serialized execution
+  (`max_parallel_slices == 1`): a branching (tree) DAG is legal at any
+  cap (`validate_forest` caps parents at ≤1 but not children), so a
+  completed *sibling* chain is legitimately not an ancestor and must
+  not be gated against — gating every COMPLETE slice would
+  false-positive on tree fan-out. The walk still catches the original
+  orphaning because a linearized root records the completed chain tip
+  it was re-based onto as its `parent_branch_at_creation`. A definitive
+  miss fails the admission
+  (`record_failure` → cascade + HITL); contract-read or gateway-probe
+  failures degrade to a logged skip, mirroring #3125. Like every other
+  reachability check in the slice DAG (`_sha_is_ancestor`,
+  `is_slice_branch_merged_into_parent`), the gate assumes merges into
+  `work` preserve SHAs: the automatic cascade only *deletes* branches
+  after a human PR merge — it never merges/squashes into `work` itself
+  — so the sole SHA-rewriting path is an operator squash/rebase-merge,
+  for which `EGG_SLICE_BASE_ANCESTRY_GATE=off` is the operator kill
+  switch (a completed slice's recorded SHA is no longer an ancestor of
+  the rewritten `work`).
+
+The planner prompt gained the matching plan-shape rule: a slice that
+*reads* another slice's output (documents, verifies, builds on it)
+must be its transitive DAG descendant even when their file sets are
+disjoint — file overlap is not the only ordering constraint.
+
 ## Implement-phase run loop
 
 `_run_implement_phase_slices` in `orchestrator/routes/pipelines.py` is
@@ -475,7 +540,15 @@ shape:
        branch via the gateway, calls
        `_run_concurrent_phase(slice_id=...)` to spawn the slice's
        agent team, awaits BRC consensus, and on consensus reach — after
-       the evidence-reachability gate (#3125) and the per-slice green
+       the evidence-reachability gate (#3125; cited SHAs that a
+       reconciled-push rebase rewrote are re-identified by
+       `git patch-id` against the integration branch and treated as
+       satisfied, [#3572](https://github.com/jwbron/egg/issues/3572),
+       `evidence_rescue.py`, kill switch
+       `EGG_EVIDENCE_PATCH_ID_RESCUE`; a slice that still fails the
+       gate lands an unresolved HITL `Decision` via
+       `_escalate_evidence_gate_to_hitl` instead of parking silently
+       after `record_failure`) and the per-slice green
        gate (`slice_green_gate.run_slice_green_gate`, #3398, which
        spawns a sandboxed one-shot check-runner Job to execute the
        repo's configured checks at the integration-branch tip and
@@ -483,7 +556,8 @@ shape:
        `EGG_SLICE_GREEN_GATE`, fail-open on infra errors, including
        infra-signature-tagged reds inside check execution, #3417) — calls
        `GatewayClient.create_slice_pr` with `base` resolved from the
-       slice's DAG parent (root → pipeline branch; child → parent's
+       slice's DAG parent (root → latest completed chain tip, else the
+       pipeline branch (#3541); child → parent's
        integration branch). On failure the worker calls
        `scheduler.record_failure(slice_id)`, which arms the cascade
        timer.
@@ -983,6 +1057,7 @@ on parse failure. The green-gate knobs below are read directly via
 | `EGG_ORCH_SLICE_FAILURE_GRACE_SECONDS` | float | 60.0 | Grace window before a failure cascade marks the downstream subtree `BLOCKED_ON_FAILED_DEPENDENCY`. |
 | `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | float | 30.0 | Reconciler polling cadence for orphaned child PRs. |
 | `EGG_ORCH_CROSS_REPO_MERGE_GATE_MAX_ATTEMPTS` | int | 240 | Poll-attempt budget for the cross-repo merge-sequencing gate (#3393) before a never-merging upstream escalates to a HITL hold; ~2h at the default reconciler cadence. See [Cross-repo merge-sequencing hold](#cross-repo-merge-sequencing-hold-two-tier). |
+| `EGG_SLICE_BASE_ANCESTRY_GATE` | str | `on` | Operator kill switch for the admission-time base-ancestry gate (#3541 — see [Root linearization & the base-ancestry gate](#root-linearization--the-base-ancestry-gate-3541)): any of `off`/`0`/`false`/`no` (case-insensitive, whitespace-tolerant) disables the gate; any other value (including unset) leaves it enabled. |
 | `EGG_SLICE_GREEN_GATE` | str | `off` | Per-slice green gate rollout switch (#3398): `off` skips the gate entirely; `log` runs the repo's configured checks at the slice tip and logs a red verdict without blocking; `on` blocks slice PR-open on a red verdict. Case-insensitive, with aliases — `on` also accepts `1`/`true`/`yes`, and `log` also accepts `log-only`/`log_only`. Unknown values resolve to `off`. |
 | `EGG_SLICE_GREEN_GATE_SKIP_CHECKS` | str (comma-separated) | `security` | Configured check *names* (from `repositories.yaml` `checks`) the gate skips. |
 | `EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS` | int | 1800 | Wall-clock budget for the check-runner pod (spawn-to-terminal); a hung suite degrades to fail-open rather than wedging the slice close. |

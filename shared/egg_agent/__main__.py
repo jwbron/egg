@@ -12,7 +12,12 @@ from __future__ import annotations
 import argparse
 import sys
 
-from egg_agent.auth_errors import EX_AUTH_FATAL, is_auth_fatal_error
+from egg_agent.auth_errors import (
+    EX_AUTH_FATAL,
+    EX_RATE_LIMITED,
+    is_auth_fatal_error,
+    is_transient_rate_limit_error,
+)
 from egg_agent.client import run_agent
 from egg_agent.measurement import record_measurement
 from egg_agent.reseed import decide_resume_session
@@ -141,6 +146,20 @@ def main() -> int:
     # which is what propagates to k8s, carries the auth-fatal signal.
     if not result.success and is_auth_fatal_error(result.error):
         return EX_AUTH_FATAL
+
+    # #3364 PR C: a TRANSIENT throttle / cap wall (bare HTTP 429 / "rate limit"
+    # / "overloaded") is not a credential failure and not an ordinary crash —
+    # it self-heals once the rolling cap window lifts. Map it to a distinct
+    # exit code the orchestrator paces across that window (a windowed retry
+    # that PRESERVES landed slices) instead of feeding it into the abnormal
+    # backoff + the >=10 agent-invocation-fail-streak halt that stops the
+    # pipeline in minutes. Auth-fatal is checked FIRST (above), so a matched
+    # weekly/usage cap that rides on a 429 still returns EX_AUTH_FATAL; the
+    # rate-limit branch fires only for a bare throttle (and
+    # ``is_transient_rate_limit_error`` is itself disjoint from auth-fatal, so
+    # this ordering is belt-and-suspenders).
+    if not result.success and is_transient_rate_limit_error(result.error):
+        return EX_RATE_LIMITED
 
     return result.returncode
 

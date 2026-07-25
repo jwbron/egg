@@ -490,6 +490,7 @@ from . import (  # noqa: E402
     _spawn,
     _worktree,
 )
+from ._concurrent import _resolve_live_phase  # noqa: E402
 from ._env import (  # noqa: E402
     _dedupe_label_value,
     _forwarded_discipline_env,
@@ -516,12 +517,17 @@ KubernetesSpawner._clean_reused_worktree = _worktree._clean_reused_worktree
 KubernetesSpawner._find_missing_worktrees = _worktree._find_missing_worktrees
 KubernetesSpawner._get_or_create_session = _session._get_or_create_session
 KubernetesSpawner._teardown_session = _session._teardown_session
+KubernetesSpawner.sync_session_phases = _session.sync_session_phases
 KubernetesSpawner.spawn_agent_job = _spawn.spawn_agent_job
 KubernetesSpawner._event_dedupe_key_live = _events._event_dedupe_key_live
 KubernetesSpawner.create_event_job_status_view = _events.create_event_job_status_view
 KubernetesSpawner.spawn_event_job = _events.spawn_event_job
 KubernetesSpawner.stop_agent_job = _jobs.stop_agent_job
 KubernetesSpawner.remove_agent_job = _jobs.remove_agent_job
+# Module-level (not a class method) so ``remove_agent_job`` reaches it via the
+# barrel; patchable as ``kubernetes_spawner._persist_job_logs_best_effort``
+# (#3547).
+_persist_job_logs_best_effort = _jobs._persist_job_logs_best_effort
 KubernetesSpawner.list_pipeline_jobs = _jobs.list_pipeline_jobs
 KubernetesSpawner.list_slice_jobs = _jobs.list_slice_jobs
 KubernetesSpawner.cleanup_pipeline = _jobs.cleanup_pipeline
@@ -565,5 +571,6 @@ __all__ = [
     "_fit_k8s_name",
     "_dedupe_label_value",
     "_forwarded_discipline_env",
+    "_resolve_live_phase",
     "_resolve_wait_producer_allowlist",
 ]

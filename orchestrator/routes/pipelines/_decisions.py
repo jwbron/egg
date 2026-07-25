@@ -190,6 +190,36 @@ def _withdraw_arms_exhausted_decisions(pipeline_id: str, store: _pkg.StateStore)
     return withdrawn
 
 
+def _withdraw_arms_parked_decisions(pipeline_id: str, store: _pkg.StateStore) -> int:
+    """Cancel any pending arms-parked HITL on ``pipeline_id`` (#3548).
+
+    The parked twin of :func:`_withdraw_arms_exhausted_decisions`: when the
+    all-arms-parked stall clears by a route other than the operator resolving
+    this decision (a probe spawn made progress, a fresh key was derived, the
+    round converged) the pending ``event_arms_parked`` decision is obsolete,
+    so this withdraws it rather than leaving the operator to dispose of it.
+    Same own-lock load → cancel → save shape.
+    """
+    from concurrent_executor import ARMS_PARKED_HITL_CONTEXT
+
+    with _pkg.get_pipeline_state_lock(pipeline_id):
+        disk_pipeline = store.load_pipeline(pipeline_id)
+        withdrawn = 0
+        for decision in disk_pipeline.get_pending_decisions():
+            if decision.context != ARMS_PARKED_HITL_CONTEXT:
+                continue
+            decision.status = _pkg.DecisionStatus.CANCELLED
+            decision.resolution = (
+                "auto-withdrawn: the stall cleared (blocked arms recovered) "
+                "before this decision was resolved"
+            )
+            decision.resolved_at = _pkg.datetime.now(_pkg.UTC)
+            withdrawn += 1
+        if withdrawn:
+            store.save_pipeline(disk_pipeline)
+    return withdrawn
+
+
 def _find_pending_divergence_reconcile_decision(pipeline: _pkg.Pipeline):
     """Return the oldest pending reconcile HITL on ``pipeline`` (or None).
 

@@ -1339,6 +1339,145 @@ class TestHitlResolutionPropagation:
 
 
 # ===================================================================
+# test_contract_phase_desync
+# ===================================================================
+
+
+class TestContractPhaseDesync:
+    """Test the deterministic contract-vs-pipeline phase desync detector (#3521)."""
+
+    def _make_monitor(self, pipeline_id: str = "test-desync-001") -> OverseerMonitor:
+        monitor = OverseerMonitor(pipeline_id=pipeline_id, config=_MockConfig())
+        monitor._broadcast_alert = AsyncMock()
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+        return monitor
+
+    def test_detects_desync_after_grace(self) -> None:
+        """Flags a persistent contract-vs-pipeline phase mismatch once the grace window elapses."""
+        monitor = self._make_monitor()
+        monitor._query_contract_data = AsyncMock(return_value={"current_phase": "refine"})
+
+        phase_data = {"current_phase": "plan", "status": "running"}
+
+        # First observation: starts the grace window, no alert.
+        _run(monitor._check_contract_phase_desync(phase_data))
+        monitor._broadcast_alert.assert_not_awaited()
+        assert monitor._phase_desync_pair == ("refine", "plan")
+        assert monitor._phase_desync_first_seen is not None
+
+        # Backdate past the threshold.
+        monitor._phase_desync_first_seen = time.time() - 999
+
+        _run(monitor._check_contract_phase_desync(phase_data))
+        monitor._broadcast_alert.assert_awaited_once()
+        monitor._create_hitl_decision.assert_awaited_once()
+        monitor._send_slack_notification.assert_awaited_once()
+        assert ("refine", "plan") in monitor._phase_desync_alerted
+        alert_args = monitor._broadcast_alert.await_args[0]
+        assert alert_args[0] == "contract_phase_desync"
+        assert "refine" in alert_args[2] and "plan" in alert_args[2]
+
+    def test_resets_when_in_sync(self) -> None:
+        """Tracking resets when the contract catches up."""
+        monitor = self._make_monitor("test-desync-002")
+        monitor._query_contract_data = AsyncMock(return_value={"current_phase": "plan"})
+        monitor._phase_desync_pair = ("refine", "plan")
+        monitor._phase_desync_first_seen = time.time() - 999
+
+        _run(monitor._check_contract_phase_desync({"current_phase": "plan", "status": "running"}))
+        assert monitor._phase_desync_pair is None
+        assert monitor._phase_desync_first_seen is None
+        monitor._broadcast_alert.assert_not_awaited()
+
+    def test_no_check_when_not_running(self) -> None:
+        """No contract query or alert when the pipeline is not running."""
+        monitor = self._make_monitor("test-desync-003")
+        monitor._query_contract_data = AsyncMock()
+        monitor._phase_desync_pair = ("refine", "plan")
+        monitor._phase_desync_first_seen = time.time() - 999
+
+        _run(
+            monitor._check_contract_phase_desync(
+                {"current_phase": "plan", "status": "awaiting_human"}
+            )
+        )
+        monitor._query_contract_data.assert_not_awaited()
+        monitor._broadcast_alert.assert_not_awaited()
+        assert monitor._phase_desync_pair is None
+
+    def test_contract_unavailable_keeps_timer(self) -> None:
+        """A transient contract-query failure must not restart the grace window."""
+        monitor = self._make_monitor("test-desync-004")
+        monitor._query_contract_data = AsyncMock(return_value={})
+        first_seen = time.time() - 100
+        monitor._phase_desync_pair = ("refine", "plan")
+        monitor._phase_desync_first_seen = first_seen
+
+        _run(monitor._check_contract_phase_desync({"current_phase": "plan", "status": "running"}))
+        assert monitor._phase_desync_first_seen == first_seen
+        monitor._broadcast_alert.assert_not_awaited()
+
+    def test_alerts_once_per_pair(self) -> None:
+        """Does not re-alert for the same mismatch pair."""
+        monitor = self._make_monitor("test-desync-005")
+        monitor._query_contract_data = AsyncMock(return_value={"current_phase": "refine"})
+        monitor._phase_desync_pair = ("refine", "plan")
+        monitor._phase_desync_first_seen = time.time() - 999
+        monitor._phase_desync_alerted.add(("refine", "plan"))
+
+        _run(monitor._check_contract_phase_desync({"current_phase": "plan", "status": "running"}))
+        monitor._broadcast_alert.assert_not_awaited()
+
+    def test_new_pair_restarts_grace_window(self) -> None:
+        """A different mismatch pair restarts the grace window instead of alerting."""
+        monitor = self._make_monitor("test-desync-006")
+        monitor._query_contract_data = AsyncMock(return_value={"current_phase": "plan"})
+        monitor._phase_desync_pair = ("refine", "plan")
+        monitor._phase_desync_first_seen = time.time() - 999
+
+        _run(
+            monitor._check_contract_phase_desync(
+                {"current_phase": "implement", "status": "running"}
+            )
+        )
+        monitor._broadcast_alert.assert_not_awaited()
+        assert monitor._phase_desync_pair == ("plan", "implement")
+
+    def test_repair_text_when_contract_behind(self) -> None:
+        """Normal case (contract behind pipeline): repair steers toward advancing the contract."""
+        monitor = self._make_monitor("test-desync-007")
+        monitor._query_contract_data = AsyncMock(return_value={"current_phase": "refine"})
+        monitor._phase_desync_pair = ("refine", "plan")
+        monitor._phase_desync_first_seen = time.time() - 999
+
+        _run(monitor._check_contract_phase_desync({"current_phase": "plan", "status": "running"}))
+        monitor._broadcast_alert.assert_awaited_once()
+        message = monitor._broadcast_alert.await_args[0][2]
+        assert "advance the contract phase" in message
+        assert "AHEAD" not in message
+
+    def test_repair_text_when_contract_ahead(self) -> None:
+        """Anomalous case (contract ahead of pipeline record): repair steers toward reconciliation.
+
+        Forward-only sync never leaves the contract ahead, so this direction
+        signals a state-machine bug; "advance the contract" would be nonsensical
+        (#3521 review).
+        """
+        monitor = self._make_monitor("test-desync-008")
+        monitor._query_contract_data = AsyncMock(return_value={"current_phase": "implement"})
+        monitor._phase_desync_pair = ("implement", "plan")
+        monitor._phase_desync_first_seen = time.time() - 999
+
+        _run(monitor._check_contract_phase_desync({"current_phase": "plan", "status": "running"}))
+        monitor._broadcast_alert.assert_awaited_once()
+        message = monitor._broadcast_alert.await_args[0][2]
+        assert "AHEAD" in message
+        assert "reconcile" in message
+        assert "advance the contract phase via the gateway phase API" not in message
+
+
+# ===================================================================
 # test_cross_phase_consistency
 # ===================================================================
 

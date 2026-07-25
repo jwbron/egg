@@ -256,8 +256,7 @@ the harness — and the corpus never imports production code.
 The `orchestrator/overseer/` package still carries the original LLM monitor
 modules (`monitor.py`'s `OverseerMonitor` poll-classify-decide-act loop,
 `classifier.py`, `decision_maker.py`'s escalation-ladder functions). These
-remain in the tree for back-compat and the host-detector migration
-(`overseer_owns_host_detection`), and they share the model-tiering and
+remain in the tree for back-compat, and they share the model-tiering and
 adjudication types described above. New work should target the detection plane +
 adjudicator + authority plane, not the standing-loop path. See the
 [overseer package README](../../orchestrator/overseer/README.md) for the

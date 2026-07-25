@@ -410,6 +410,10 @@ _STATUS_WAIT_EVENT_TYPES = frozenset(
         "pipeline.completed",
         "pipeline.failed",
         "pipeline.cancelled",
+        # Slice-DAG close (issue #3364) — a long-haul monitor threads on
+        # slice completes/failures via ``/status/wait``, so the allowlist
+        # must let ``slice.closed`` through instead of filtering it out.
+        "slice.closed",
     }
 )
 
@@ -1175,6 +1179,13 @@ from ._criteria import (  # noqa: E402,F401
     _human_companion_review_criteria,
     _read_shared_criteria,
 )
+from ._decision_candidates import (  # noqa: E402,F401
+    _build_deferred_candidates_section,
+    _find_deferred_plan_candidates,
+    _format_considered_candidates,
+    _format_deferred_candidates_with_ids,
+    _persist_decision_ledger_summary,
+)
 from ._decisions import (  # noqa: E402,F401
     _cancel_consensus_timeout_decisions,
     _divergence_reconcile_hitl_question,
@@ -1184,6 +1195,7 @@ from ._decisions import (  # noqa: E402,F401
     _incomplete_consensus_decision_text,
     _persist_hitl_decision,
     _withdraw_arms_exhausted_decisions,
+    _withdraw_arms_parked_decisions,
 )
 
 # drafts helpers live in _drafts.py (#3312 slice-4); re-exported here.
@@ -1242,6 +1254,7 @@ from ._lifecycle_helpers import (  # noqa: E402,F401
     _compute_gateway_mode,
     _mark_pipeline_records_terminated,
     _normalize_submission_repos,
+    _sync_contract_phase_to_pipeline,
 )
 from ._overseer import (  # noqa: E402,F401
     _build_overseer_corrective_executor,
@@ -1304,6 +1317,8 @@ from ._prompt_review import (  # noqa: E402,F401
     _build_role_context,
     _build_role_restrictions_section,
     _extract_plan_overview,
+    _list_changed_files_for_review,
+    _maybe_apply_evidence_prefix,
     _render_contract_tasks,
     _summarize_issue,
 )
@@ -1377,9 +1392,15 @@ from ._run_implement import (  # noqa: E402,F401
     _run_implement_phase_slices,
 )
 from ._run_implement_support import (  # noqa: E402,F401
+    _admission_base_ancestry_gate_impl,
+    _build_slice_closed_emitter_impl,
     _commit_and_push_slice_statefiles_impl,
     _contract_loader_impl,
+    _fresh_contract_for_base_impl,
+    _open_context_pr_safety_net_impl,
+    _parent_branch_probe_impl,
     _persist_slice_status_complete_impl,
+    _slice_close_evidence_gate,
 )
 from ._run_phase import (  # noqa: E402,F401
     _run_phase_execution,
@@ -1402,6 +1423,7 @@ from ._run_pipeline_setup import (  # noqa: E402,F401  # noqa: E402,F401  # noqa
 from ._run_pipeline_support import (  # noqa: E402,F401
     _health_monitor_poll_impl,
     _on_health_escalation_impl,
+    _sync_session_phases_best_effort,
 )
 from ._run_support import (  # noqa: E402,F401
     _clear_stale_impasses_for_producers,
@@ -1420,14 +1442,17 @@ from ._slice_completion import (  # noqa: E402,F401
     _validate_slice_completion_basis,
 )
 from ._slice_state import (  # noqa: E402,F401
+    _check_slice_base_ancestry,
     _check_slice_evidence_reachability,
     _classify_non_complete_slice,
     _cross_repo_hold_marker,
     _cross_repo_hold_resolution,
     _escalate_blocked_slice_to_hitl,
     _escalate_corrupt_slice_to_hitl,
+    _escalate_evidence_gate_to_hitl,
     _escalate_layer_c_hitl,
     _is_slice_dag_mode,
+    _latest_completed_chain_tip,
     _lookup_peer_consensus_tracker_or_none,
     _register_cross_repo_hold,
     _resolve_pipeline_worktree_path,
@@ -1435,6 +1460,7 @@ from ._slice_state import (  # noqa: E402,F401
     _resolve_slice_gate_repo,
     _resolve_slice_worktree_path,
     _slice_has_pending_decision,
+    _slice_linear_parent_id,
 )
 from ._stacked_pr import (  # noqa: E402,F401
     _start_stacked_pr_reconciler,

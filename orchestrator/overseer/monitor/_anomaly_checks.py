@@ -11,6 +11,26 @@ import time
 
 from . import logger
 
+# Forward-only phase ordering, mirroring ``_CONTRACT_PHASE_ORDER`` in
+# ``routes/pipelines/_lifecycle_helpers.py`` (#3521). APPLY sits between PLAN
+# and IMPLEMENT (conditional, epic pipelines only; #1557). Used to make the
+# desync-detector repair text direction-aware. Kept as a local constant rather
+# than importing from ``routes`` to avoid coupling the overseer to the Flask
+# route package.
+_PHASE_ORDER = ("refine", "plan", "apply", "implement")
+
+
+def _phase_is_ahead(candidate: str, reference: str) -> bool:
+    """Return True when ``candidate`` is strictly later than ``reference``.
+
+    Unknown phases (outside ``_PHASE_ORDER``) yield ``False`` so the repair
+    text falls back to the common "contract behind" wording rather than
+    asserting a direction it can't establish.
+    """
+    if candidate not in _PHASE_ORDER or reference not in _PHASE_ORDER:
+        return False
+    return _PHASE_ORDER.index(candidate) > _PHASE_ORDER.index(reference)
+
 
 def _filter_current_phase_agents(self, alerts: list[dict], pipeline_status: dict) -> list[dict]:
     """Filter alerts to only include agents in the current phase.
@@ -281,6 +301,111 @@ async def _check_hitl_resolution_propagation(self, decisions: list[dict]) -> Non
         await self._send_slack_notification("orchestrator", message)
         self._hitl_resolution_alerted.add(did)
         self._hitl_resolution_pending.pop(did, None)
+
+
+async def _check_contract_phase_desync(self, phase_data: dict) -> None:
+    """Deterministic detector for pipeline-record vs contract phase desync (#3521).
+
+    ``pipeline.current_phase != contract.current_phase`` for more than
+    ``overseer_phase_desync_alert_seconds`` while the pipeline is running
+    is never normal: the gateway commit gate keys off the CONTRACT phase,
+    so a lagging contract silently rejects the current phase's producers
+    ("Phase '<old>' cannot modify") and wedges consensus while
+    ``get_status`` still shows a healthy running phase. The orchestrator
+    now syncs the contract on every phase transition
+    (``_sync_contract_phase_to_pipeline``); this check is the structural
+    backstop that surfaces any remaining desync without LLM
+    classification.
+
+    Alerts once per distinct ``(contract_phase, pipeline_phase)`` pair;
+    tracking resets whenever the phases agree again or the mismatch pair
+    changes (a new mismatch restarts the grace window).
+    """
+    if not isinstance(phase_data, dict):
+        # Malformed / unavailable phase data; retry next cycle without
+        # touching the tracking state.
+        return
+    pipeline_phase = phase_data.get("current_phase") or phase_data.get("name")
+    status = phase_data.get("status", "")
+    if not pipeline_phase or status != "running":
+        self._phase_desync_first_seen = None
+        self._phase_desync_pair = None
+        return
+
+    contract_data = await self._query_contract_data()
+    contract_phase = (contract_data or {}).get("current_phase")
+    if not contract_phase:
+        # Contract unavailable; retry next cycle without resetting so a
+        # transient query failure can't restart the grace window.
+        return
+
+    if str(contract_phase) == str(pipeline_phase):
+        self._phase_desync_first_seen = None
+        self._phase_desync_pair = None
+        return
+
+    pair = (str(contract_phase), str(pipeline_phase))
+    now = time.time()
+    if self._phase_desync_pair != pair or self._phase_desync_first_seen is None:
+        self._phase_desync_pair = pair
+        self._phase_desync_first_seen = now
+        return
+
+    threshold = getattr(self.config, "overseer_phase_desync_alert_seconds", 300)
+    elapsed = now - self._phase_desync_first_seen
+    if elapsed < threshold or pair in self._phase_desync_alerted:
+        return
+
+    # Direction-aware repair text (#3521 review). In normal operation the
+    # pipeline advances first and the sync follows, so the contract is
+    # *behind* the pipeline (``contract < pipeline``) — "advance the
+    # contract" is the right fix. But the detector fires on *any* mismatch,
+    # and forward-only sync means a contract that is *ahead* of the pipeline
+    # record only arises from a real bug — exactly the alert an operator
+    # would be staring at. "Advance the contract" is nonsensical there, so
+    # steer them toward reconciliation instead of advancement.
+    contract_ahead = _phase_is_ahead(pair[0], pair[1])
+    header = (
+        f"Contract phase desync: the SDLC contract's current_phase is "
+        f"'{pair[0]}' but the pipeline record is in phase '{pair[1]}' "
+        f"(mismatch observed for {elapsed:.0f}s while status=running). "
+    )
+    if contract_ahead:
+        repair = (
+            f"The contract is AHEAD of the pipeline record, which forward-only "
+            f"sync never produces — this indicates a state-machine bug (a "
+            f"demoted pipeline record or an out-of-band contract write). Repair: "
+            f"reconcile the two records manually — do NOT simply advance the "
+            f"contract, and investigate how the pipeline record fell behind. "
+            f"Pipeline: {self.pipeline_id}"
+        )
+    else:
+        repair = (
+            f"The gateway commit gate keys off the contract phase, so "
+            f"'{pair[1]}'-phase producers cannot commit phase-gated artifacts "
+            f"until the contract advances. Repair: advance the contract phase "
+            f"via the gateway phase API (a REVIEWER-role agent or HUMAN "
+            f"satisfies the transition rules). Pipeline: {self.pipeline_id}"
+        )
+    message = header + repair
+    logger.warning(
+        "Contract phase desync detected for pipeline %s: contract=%s pipeline=%s",
+        self.pipeline_id,
+        pair[0],
+        pair[1],
+    )
+    self._log_oversight_event(
+        {
+            "event": "contract_phase_desync",
+            "contract_phase": pair[0],
+            "pipeline_phase": pair[1],
+            "elapsed_seconds": elapsed,
+        }
+    )
+    await self._broadcast_alert("contract_phase_desync", "orchestrator", message, "high")
+    await self._create_hitl_decision("orchestrator", message)
+    await self._send_slack_notification("orchestrator", message)
+    self._phase_desync_alerted.add(pair)
 
 
 async def _check_cross_phase_consistency(

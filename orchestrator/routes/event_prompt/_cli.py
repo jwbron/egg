@@ -18,6 +18,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from ._compose import compose_event_prompt
 from ._delta_builder import _build_delta_entries
@@ -97,6 +98,11 @@ def _cli(argv: list[str] | None = None) -> int:
       delta + durable memory as JIT-pull POINTERS instead of inlining
       the bulk (``jit_pull=True``); OFF keeps the legacy full-context
       inline path byte-for-byte. Read via ``_context_discipline_enabled``.
+    * ``EGG_EVENT_RELEASE_CONTEXT`` (pod env, inherited - #3537) - JSON
+      park-release delta injected by the spawner only on the probe spawn
+      a fingerprint-change no-op-park release granted. Decoded
+      best-effort (malformed → omitted) and rendered as the
+      "why you were respawned" section. Unset on every ordinary spawn.
     """
     parser = argparse.ArgumentParser(
         description="Render the per-event BRC event-pump prompt (slice-3).",
@@ -202,6 +208,21 @@ def _cli(argv: list[str] | None = None) -> int:
     # / ``pipeline_id`` are consumed only on the ``jit_pull=True`` arm (the
     # memory pointer + the ``brc-transcript`` pull handle); on the OFF arm they
     # are ignored, so the legacy path keeps no dependency on the new code.
+    # #3537 park-release delta - set by the spawner only on the probe spawn
+    # a fingerprint-change release granted; every ordinary spawn leaves it
+    # unset so the common path renders byte-identically. Best-effort decode:
+    # a malformed value is dropped (the delta is an accelerator, never a
+    # correctness dependency - the heartbeat backstop still exists).
+    release_context: dict[str, Any] | None = None
+    release_raw = (os.environ.get("EGG_EVENT_RELEASE_CONTEXT") or "").strip()
+    if release_raw:
+        try:
+            decoded = json.loads(release_raw)
+        except json.JSONDecodeError:
+            decoded = None
+        if isinstance(decoded, dict):
+            release_context = decoded
+
     context_discipline = _context_discipline_enabled()
     memory_rel_path = ""
     if context_discipline and memory_path is not None:
@@ -222,6 +243,7 @@ def _cli(argv: list[str] | None = None) -> int:
         jit_pull=context_discipline,
         memory_rel_path=memory_rel_path,
         pipeline_id=_pipeline_id_token(),
+        release_context=release_context,
     )
     sys.stdout.write(prompt)
     return 0

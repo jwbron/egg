@@ -19,6 +19,7 @@ from __future__ import annotations
 import threading  # noqa: F401 — used by start()/stop()
 import time
 from collections.abc import Iterable  # noqa: F401 — used in method annotations
+from typing import Any
 
 import event_loop as _pkg
 
@@ -28,6 +29,7 @@ from . import (
     JOB_OUTCOME_ABNORMAL,
     JOB_OUTCOME_FATAL,
     JOB_OUTCOME_LEGITIMATE,
+    JOB_OUTCOME_RATE_LIMITED,
     JOB_OUTCOME_SUCCESS,
     SPAWN_ACTIONS,
     EventDecision,
@@ -113,6 +115,42 @@ def _observe_jobs(self) -> None:
                     )
             self._live_keys.discard(key)
             self._key_meta.pop(key, None)
+        elif outcome == JOB_OUTCOME_RATE_LIMITED:
+            # #3364 PR C: a TRANSIENT throttle / cap wall. Route to
+            # ``record_rate_limited`` — NOT ``record_abort`` — so the throttle
+            # NEVER touches the abnormal streak (AC-C1: it cannot trip the
+            # fail-streak halt) and the respawn is PACED across the rolling cap
+            # window (``ready_to_respawn`` honours the per-key rate-limit
+            # backoff). Reap the terminated Job and drop the key from the live
+            # set exactly like the abnormal branch, so the next poll re-derives
+            # and respawns once the paced window elapses; ``_key_meta`` is kept
+            # so the respawn re-labels the same arm.
+            #
+            # NO ``exit_detail`` is passed (unlike the abnormal/fatal branches):
+            # the outcome is a JOB_OUTCOME_RATE_LIMITED, i.e. the pod already
+            # classified its error as a transient throttle (it exited
+            # EX_RATE_LIMITED), and the pod EXIT CODE ("exit_code=69") is not
+            # classifiable error TEXT. Feeding it to the loop-guard's
+            # non-throttle discriminator would mis-read a genuine cap wall as a
+            # deterministic failure and halt it — the exact v1 regression. So a
+            # bare production throttle carries no signature and never trips the
+            # guard; it paces indefinitely (binding cq-1). The ``exit_detail``
+            # parameter remains for a future enriched observer that can supply
+            # real error text.
+            self.supervisor.record_rate_limited(key, action, role)
+            reaper = getattr(self._job_status_view, "reap_terminated", None)
+            if reaper is not None:
+                try:
+                    reaper(key)
+                except Exception as exc:  # noqa: BLE001 — reaping is best-effort
+                    logger.warning(
+                        "event-loop: reap of rate-limited job failed",
+                        pipeline_id=self.pipeline_id,
+                        slice_id=self.slice_id,
+                        dedupe_key=key,
+                        error=str(exc),
+                    )
+            self._live_keys.discard(key)
         elif outcome == JOB_OUTCOME_ABNORMAL:
             # #3496: read the pod's exit detail BEFORE reaping (the reap
             # below deletes the Job, after which the exit code is gone).
@@ -205,6 +243,17 @@ def poll_once(self, roles: list[str]) -> list[EventDecision]:
     except Exception as exc:  # noqa: BLE001 — never wedge the loop
         logger.warning(
             "event-loop arms-exhausted check failed",
+            pipeline_id=self.pipeline_id,
+            slice_id=self.slice_id,
+            error=str(exc),
+        )
+    # #3548: judge the all-arms-parked wedge (the no-op-park sibling of the
+    # exhausted wedge) from the same tick's decisions.
+    try:
+        self._check_arms_parked(decisions)
+    except Exception as exc:  # noqa: BLE001 — never wedge the loop
+        logger.warning(
+            "event-loop arms-parked check failed",
             pipeline_id=self.pipeline_id,
             slice_id=self.slice_id,
             error=str(exc),
@@ -344,6 +393,182 @@ def reset_exhausted_arms(self) -> list[str]:
     return cleared
 
 
+def _check_arms_parked(self, decisions: list[EventDecision]) -> None:
+    """Detect the all-arms-parked wedge and escalate once per episode (#3548).
+
+    The no-op-park sibling of :meth:`_check_arms_exhausted`. The wedge shape
+    (the #3548 incident): every arm the tracker currently derives a spawn
+    action for is blocked — at least one on a no-op park (#3425), the rest
+    parked or exhausted — no one-shot Job is in flight, and no agent-free
+    side effect ran this tick. Unlike exhaustion a park self-releases, but
+    only for a single probe spawn per fingerprint change or per
+    ``SUPERVISION_NOOP_PARK_RETRY_SECONDS`` heartbeat; a round that is one
+    verdict away from convergence otherwise sits silent for the full
+    heartbeat window with ``pending_decisions`` empty — exactly the
+    zero-operator-signal stall the incident showed.
+
+    Fires the ``arms_parked_notifier`` (production: OVERSEER_ALERT + HITL
+    decision) with the supervisor's per-key park report, once per episode
+    via a sticky latch. The latch clears when the condition stops holding —
+    a probe spawn released, a fresh key was derived, or an operator reset
+    (:meth:`reset_parked_arms`) cleared the parks — so a wedge that
+    re-forms after a no-op probe re-escalates. The heartbeat probe cycle
+    therefore re-alerts at most once per ``SUPERVISION_NOOP_PARK_RETRY_
+    SECONDS`` while the wedge persists, which is the intended "still
+    wedged" signal, not churn.
+
+    A tick where EVERY blocked arm is exhausted belongs to
+    :meth:`_check_arms_exhausted`; this detector requires at least one
+    parked arm, so mixed parked+exhausted rounds (which the exhausted
+    detector's ``all(== "exhausted")`` predicate cannot see) are covered
+    here rather than falling between the two.
+    """
+    spawn_decisions = [d for d in decisions if d.action in SPAWN_ACTIONS]
+    wedged = (
+        bool(spawn_decisions)
+        and all(d.blocked in ("parked", "exhausted") for d in spawn_decisions)
+        and any(d.blocked == "parked" for d in spawn_decisions)
+        and not self._live_keys
+        and not any(d.agent_free for d in decisions)
+    )
+    if not wedged:
+        if self._arms_parked_alerted:
+            self._arms_parked_alerted = False
+            self._notify_arms_parked_cleared()
+        return
+    if self._arms_parked_alerted:
+        return
+    self._arms_parked_alerted = True
+    # Scope the report to the keys currently blocking a derivable spawn arm
+    # (same rationale as the exhausted check: stale keys from superseded BRC
+    # rounds must not be listed as blockers).
+    blocked_keys = {d.dedupe_key for d in spawn_decisions if d.dedupe_key}
+    report = [e for e in self.supervisor.noop_park_report() if e["dedupe_key"] in blocked_keys]
+    exhausted = [e for e in self.supervisor.exhausted_report() if e["dedupe_key"] in blocked_keys]
+    logger.warning(
+        "event-loop: all derivable spawn arms are no-op-parked (or exhausted) "
+        "— the slice cannot advance before the park retry heartbeat "
+        "(blocked arms: %s)",
+        ", ".join(f"{d.role}/{d.action}" for d in spawn_decisions),
+        pipeline_id=self.pipeline_id,
+        slice_id=self.slice_id,
+        phase=self.phase,
+    )
+    if self._arms_parked_notifier is None:
+        return
+    self._arms_parked_notifier(
+        report=report,
+        exhausted_report=exhausted,
+        blocked_arms=[(d.role, d.action) for d in spawn_decisions],
+    )
+
+
+def arms_parked_escalated(self) -> bool:
+    """True while this loop is inside an escalated all-arms-parked episode.
+
+    Read across the live-loop registry by the pipeline-wide withdrawal
+    guard, mirroring :meth:`arms_exhausted_escalated` (#3548).
+    """
+    return self._arms_parked_alerted
+
+
+def _notify_arms_parked_cleared(self) -> None:
+    """Fire the parked-wedge-cleared notifier best-effort (#3548).
+
+    Isolated so a withdrawal-side failure can never propagate into
+    ``poll_once`` and wedge the loop — same posture as
+    :meth:`_notify_arms_exhausted_cleared`.
+    """
+    if self._arms_parked_cleared_notifier is None:
+        return
+    try:
+        self._arms_parked_cleared_notifier()
+    except Exception:  # noqa: BLE001 — withdrawal must never wedge the loop
+        logger.warning(
+            "event-loop: arms-parked cleared notifier raised; ignoring",
+            pipeline_id=self.pipeline_id,
+            slice_id=self.slice_id,
+            exc_info=True,
+        )
+
+
+def reset_parked_arms(self) -> list[str]:
+    """Clear every no-op-parked key so blocked arms respawn (#3548).
+
+    The in-band recovery surface behind the all-arms-parked HITL's "Retry
+    arms" resolution — the park twin of :meth:`reset_exhausted_arms`, with
+    the same lock-free cross-thread reasoning (atomic dict/set ops under
+    the GIL; ``reset_noop_parks`` snapshots before iterating). Returns the
+    cleared keys.
+    """
+    cleared = self.supervisor.reset_noop_parks()
+    self._arms_parked_alerted = False
+    if cleared:
+        logger.info(
+            "event-loop: no-op-parked keys reset by operator — blocked arms "
+            "will respawn on the next poll",
+            pipeline_id=self.pipeline_id,
+            slice_id=self.slice_id,
+            cleared=len(cleared),
+        )
+    return cleared
+
+
+def invalidate_role_arms(self, role: str) -> list[str]:
+    """Drop all in-memory arm state for ``role`` so its next event derives fresh (#3548).
+
+    The ``restart_agent`` companion: the route deletes the role's Job and
+    resets its consensus state, but the re-derived event carries the same
+    identity — and therefore the same dedupe key — as before the restart.
+    Loop-local state then silently blocks the respawn twice over:
+
+    * the key is still in ``_live_keys`` (the route deleted the Job by
+      label, and ``_observe_jobs`` maps a missing Job to ``running``, so
+      the key never leaves the live set) — the dedupe branch eats every
+      re-derivation;
+    * the supervisor's exhaustion / no-op-park latches for the key survive
+      the restart untouched.
+
+    This drops the role's keys from ``_live_keys`` / ``_key_meta`` and
+    retires their supervisor state, so the next poll re-derives the same
+    key as *fresh* and actually spawns — making the route's "respawn
+    delegated to event loop" claim true. Same lock-free cross-thread
+    reasoning as :meth:`reset_exhausted_arms` (atomic dict/set ops under
+    the GIL, snapshot before iterating). Returns the invalidated keys.
+
+    Key discovery must NOT rely on ``_key_meta`` alone (#3548 review): a
+    no-op-parked key has already been popped from ``_key_meta`` (and
+    ``_live_keys``) by ``_observe_jobs`` on the clean completion that
+    parked it, and the park early-return in :meth:`_handle_role` never
+    re-adds it. That is precisely the incident shape — every spawn arm
+    no-op-parked — so a ``_key_meta``-only scan would find nothing and the
+    park latch would survive, re-parking the re-derived key on the next
+    poll and making ``restart_agent`` a silent no-op. So union the
+    ``_key_meta`` keys with the supervisor's own parked/exhausted keys for
+    the role (from :meth:`noop_park_report` / :meth:`exhausted_report`,
+    which carry the role via ``_last_action``), mirroring how
+    :meth:`reset_parked_arms` / :meth:`reset_exhausted_arms` reach into the
+    supervisor's ``_noop_streaks`` / ``_exhausted`` directly.
+    """
+    keys = {key for key, (_action, key_role) in list(self._key_meta.items()) if key_role == role}
+    keys.update(e["dedupe_key"] for e in self.supervisor.noop_park_report() if e["role"] == role)
+    keys.update(e["dedupe_key"] for e in self.supervisor.exhausted_report() if e["role"] == role)
+    invalidated = sorted(keys)
+    for key in invalidated:
+        self._live_keys.discard(key)
+        self._key_meta.pop(key, None)
+        self.supervisor.retire(key)
+    if invalidated:
+        logger.info(
+            "event-loop: invalidated arms for restarted role — next poll derives them fresh",
+            pipeline_id=self.pipeline_id,
+            slice_id=self.slice_id,
+            role=role,
+            invalidated=len(invalidated),
+        )
+    return invalidated
+
+
 def _publish_active_roles(self) -> None:
     """Push the set of roles with a live one-shot Job to the monitor.
 
@@ -447,7 +672,9 @@ def _handle_role(self, role: str) -> EventDecision:
             action=action,
             dedupe_key=key,
         )
-        return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
+        return EventDecision(
+            role=role, action=action, dedupe_key=key, spawned=False, blocked="parked"
+        )
 
     # #3337: serialize same-role producers. We are about to spawn a *fresh*
     # event for ``role``; any other live key for this same role belongs to
@@ -458,8 +685,19 @@ def _handle_role(self, role: str) -> EventDecision:
     self._reap_superseded_siblings(role, keep_key=key)
 
     requested_at = self.clock()
+    # #3537: if this spawn is the probe granted by a fingerprint-change park
+    # release, carry the release delta (resolved cq-N ids / BRC movement) so
+    # the spawner can surface it in the event prompt - the respawned pod's
+    # prompt is otherwise byte-identical to the one that parked, and a
+    # warm-resumed session just replays its cached "still blocked" plan.
+    # Passed only when present so spawner fakes without the kwarg keep
+    # working on the common path.
+    release_context = self.supervisor.consume_noop_release_context(key)
+    spawn_kwargs: dict[str, Any] = {}
+    if release_context:
+        spawn_kwargs["release_context"] = release_context
     spawn_result = self.spawner.spawn_event(
-        role=role, action=action, dedupe_key=key, payload=payload
+        role=role, action=action, dedupe_key=key, payload=payload, **spawn_kwargs
     )
     dispatched_at = self.clock()
     self._live_keys.add(key)
@@ -474,6 +712,12 @@ def _handle_role(self, role: str) -> EventDecision:
     # was created, so this is not a fresh spawn — record spawned=False and
     # emit no timing, so the slice-4 p50<60s budget (which reads `timing`)
     # never counts an adoption as a spawn→invoke latency sample.
+    #
+    # Note: any release_context consumed above is forfeited on this branch —
+    # it was popped before the spawn but the adopted, already-running pod
+    # never receives it. This is acceptable: the delta is a best-effort
+    # accelerator, and a still-blocked arm re-derives it on the next
+    # fingerprint move (with the retry-heartbeat backstop underneath).
     if spawn_result is None:
         return EventDecision(role=role, action=action, dedupe_key=key, spawned=False)
 

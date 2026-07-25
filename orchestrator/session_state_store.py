@@ -164,6 +164,30 @@ class SessionStateStore:
             )
             return False
 
+    def delete(self, pipeline_id: str, slice_id: str | None, role: str) -> bool:
+        """Evict the record; return whether a key was actually removed (#3537).
+
+        The operator-facing remediation for a poisoned session: when a
+        resumed session has encoded a wrong conclusion about the world, the
+        warm-resume path faithfully replays it on every respawn, so the only
+        way to change the agent's mind is to drop the durable record and let
+        the next spawn cold-reseed from true state. Best-effort like the
+        rest of the store: a Redis failure logs and returns ``False`` (the
+        6-hour TTL remains the backstop reaper).
+        """
+        try:
+            removed = self._redis.delete(self._key(pipeline_id, slice_id, role))
+        except Exception as exc:  # noqa: BLE001 - best-effort; never raise into the route
+            logger.warning(
+                "Failed to evict session state (pipeline=%s slice=%s role=%s): %s",
+                pipeline_id,
+                slice_id,
+                role,
+                exc,
+            )
+            return False
+        return bool(removed)
+
     def get(self, pipeline_id: str, slice_id: str | None, role: str) -> SessionStateRecord | None:
         """Read the record, or ``None`` — never raising.
 
@@ -207,6 +231,48 @@ class SessionStateStore:
             _coerce_occupancy(data.get("window_occupancy")),
             transcript,
         )
+
+    def list_records(self, pipeline_id: str) -> list[dict[str, Any]]:
+        """Enumerate the pipeline's stored records as an operator-facing index (#3547).
+
+        Returns one metadata entry per live ``(slice, role)`` record -
+        ``slice_id`` (``None`` for pipeline-level), ``role``, ``session_id``,
+        ``window_occupancy`` and ``transcript_bytes``; without the transcript
+        bodies, so an operator can discover what is readable before pulling a
+        specific transcript. Best-effort like every other method: any Redis or
+        parse failure degrades to omitting the entry (or returning ``[]``),
+        never raising.
+        """
+        prefix = f"{_KEY_PREFIX}:{pipeline_id}:"
+        try:
+            keys = sorted(self._redis.scan_iter(match=f"{prefix}*".encode()))
+        except Exception as exc:  # noqa: BLE001; best-effort index
+            logger.warning("Failed to scan session-state keys (pipeline=%s): %s", pipeline_id, exc)
+            return []
+        entries: list[dict[str, Any]] = []
+        for key in keys:
+            key_str = key.decode("utf-8", errors="replace") if isinstance(key, bytes) else key
+            remainder = key_str[len(prefix) :]
+            slice_segment, sep, role = remainder.partition(":")
+            if not sep or not role:
+                continue
+            slice_id = None if slice_segment == "none" else slice_segment
+            record = self.get(pipeline_id, slice_id, role)
+            if record is None:
+                continue
+            transcript_bytes = (
+                len(record.transcript.encode("utf-8")) if record.transcript is not None else 0
+            )
+            entries.append(
+                {
+                    "slice_id": slice_id,
+                    "role": role,
+                    "session_id": record.session_id,
+                    "window_occupancy": record.window_occupancy,
+                    "transcript_bytes": transcript_bytes,
+                }
+            )
+        return entries
 
 
 _store: SessionStateStore | None = None

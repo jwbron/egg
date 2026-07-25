@@ -41,15 +41,20 @@ def get_service_logs() -> tuple[Response, int]:
             per-pod scan window — the backing fetch is widened to
             10 000 lines (``_MAX_LOG_LINES``) so the filter has material
             to match.
-        pipeline_id: keep only lines whose pipeline/task id matches; checks
-            ``context.task_id`` and the ``extra.pipeline_id`` /
-            ``extra.task_id`` fallbacks the JsonFormatter lands kwargs in
-            (#3032).
+        pipeline_id: keep only records whose pipeline/task id matches; for
+            JSON-formatted lines this checks ``context.task_id`` and the
+            ``extra.pipeline_id`` / ``extra.task_id`` fallbacks the
+            JsonFormatter lands kwargs in (#3032); for console-formatted
+            lines (what the k8s pods actually emit) it matches the inline
+            ``pipeline_id=`` / ``task_id=`` pair (#3547).
         level: minimum severity (case-sensitive; ``DEBUG`` … ``CRITICAL``);
             drops lower-severity and unstructured lines. The MCP ``level``
             enum is the source of truth — the HTTP route rejects lowercase
             for parity (#3032).
-        pattern: Python regex; keep only lines it finds via ``re.search``.
+        pattern: Python regex; keep only records it finds via ``re.search``.
+            Filters operate on logical records; a multi-line traceback stays
+            attached to the log line that raised it, so a pattern matching
+            the exception message returns the whole stack (#3547).
             Compiled with no complexity guardrail — pathological patterns
             (catastrophic backtracking) can spin a request thread per pod
             line. This endpoint is gated behind ``require_lifecycle_secret``

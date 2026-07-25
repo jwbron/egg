@@ -18,6 +18,7 @@ phase_gate consumed the next pipeline ID.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Iterable
 from typing import Any
@@ -196,11 +197,153 @@ def extract_cq_citations(text: Any) -> set[str]:
     return set(CQ_CITATION_PATTERN.findall(text))
 
 
+# Valid dispositions for a considered-but-not-registered decision
+# candidate (#3526). ``not_operator_grade``: a design call the
+# planner/implementer makes on its own; ``deferred_to_plan``: potentially
+# operator-grade, but better asked once the plan phase has made the design
+# concrete (the orchestrator carries these into the plan prompt as
+# pre-seeded candidates the planner must register or disposition).
+CANDIDATE_DISPOSITIONS = frozenset({"not_operator_grade", "deferred_to_plan"})
+
+
+def candidate_considered_errors(candidates_considered: Any) -> list[str]:
+    """Validate the ``candidates_considered`` attestation field (#3526).
+
+    Each entry must be a mapping with a non-empty ``question``, a
+    ``disposition`` in :data:`CANDIDATE_DISPOSITIONS`, and a non-empty
+    ``why``. Returns human-readable error strings; empty means valid.
+    ``None`` (field absent) is valid; presence requirements are the
+    caller's policy (see :func:`decision_attestation_errors`).
+    """
+    if candidates_considered is None:
+        return []
+    if not isinstance(candidates_considered, list):
+        return [
+            "candidates_considered must be a list of "
+            "{question, disposition, why} entries "
+            f"(got {type(candidates_considered).__name__})"
+        ]
+    errors: list[str] = []
+    for i, raw in enumerate(candidates_considered):
+        if isinstance(raw, dict):
+            question = raw.get("question")
+            disposition = raw.get("disposition")
+            why = raw.get("why")
+        else:
+            question = getattr(raw, "question", None)
+            disposition = getattr(raw, "disposition", None)
+            why = getattr(raw, "why", None)
+        if not isinstance(question, str) or not question.strip():
+            errors.append(f"candidates_considered[{i}] is missing a non-empty question")
+        disposition_value = getattr(disposition, "value", disposition)
+        if disposition_value not in CANDIDATE_DISPOSITIONS:
+            errors.append(
+                f"candidates_considered[{i}] disposition {disposition_value!r} is not one of "
+                f"{sorted(CANDIDATE_DISPOSITIONS)}"
+            )
+        if not isinstance(why, str) or not why.strip():
+            errors.append(
+                f"candidates_considered[{i}] is missing a non-empty why "
+                "(one sentence on why this is not an operator decision)"
+            )
+    return errors
+
+
+# Stable identity for a refine-deferred question (#3564). The plan phase
+# receives refine's ``deferred_to_plan`` candidates with a ``dq-<hash>`` id
+# derived from the normalized question text; the plan producer echoes each
+# id in its attestation's ``deferred_resolutions``, and the propose-time
+# gate recomputes the same ids to cross-check coverage. Content-derived
+# (not ordinal) so the id is stable no matter how the candidate list is
+# recovered, and exact id matching stays safe while the planner freely
+# reframes the question text.
+DQ_ID_PATTERN = re.compile(r"^dq-[0-9a-f]{8}$")
+
+
+def deferred_question_id(question: Any) -> str:
+    """Return the stable ``dq-<hash>`` id for a deferred question (#3564).
+
+    First 8 hex chars of the SHA-256 of the :func:`normalize_question`
+    form, ``dq-`` prefixed. Single source of truth for the identity the
+    plan prompt renders and the propose-time coverage gate recomputes —
+    both sides must call this so a whitespace/case reflow of the refine
+    attestation cannot break the match.
+    """
+    digest = hashlib.sha256(normalize_question(question).encode("utf-8")).hexdigest()
+    return f"dq-{digest[:8]}"
+
+
+# Valid resolutions for a refine-deferred question echoed in a plan
+# attestation (#3564). ``registered``: the planner registered it (possibly
+# reframed) as a ``cq-N``; ``not_operator_grade``: the plan's design
+# dissolved it into a call the planner/implementer owns.
+DEFERRED_RESOLUTION_KINDS = frozenset({"registered", "not_operator_grade"})
+
+
+def deferred_resolution_errors(deferred_resolutions: Any) -> list[str]:
+    """Validate the ``deferred_resolutions`` attestation field shape (#3564).
+
+    Each entry must be a mapping with a ``deferred_id`` matching
+    :data:`DQ_ID_PATTERN`, a ``resolution`` in
+    :data:`DEFERRED_RESOLUTION_KINDS`, and the resolution's payload: a
+    ``cq`` id (``cq-N``) when ``registered``, a non-empty ``why`` when
+    ``not_operator_grade``. Returns human-readable error strings; empty
+    means valid. ``None`` (field absent) is valid — whether coverage is
+    *required* is the propose-time gate's policy, not a shape concern.
+    """
+    if deferred_resolutions is None:
+        return []
+    if not isinstance(deferred_resolutions, list):
+        return [
+            "deferred_resolutions must be a list of "
+            "{deferred_id, resolution, cq|why} entries "
+            f"(got {type(deferred_resolutions).__name__})"
+        ]
+    errors: list[str] = []
+    for i, raw in enumerate(deferred_resolutions):
+        if isinstance(raw, dict):
+            deferred_id = raw.get("deferred_id")
+            resolution = raw.get("resolution")
+            cq = raw.get("cq")
+            why = raw.get("why")
+        else:
+            deferred_id = getattr(raw, "deferred_id", None)
+            resolution = getattr(raw, "resolution", None)
+            cq = getattr(raw, "cq", None)
+            why = getattr(raw, "why", None)
+        if not isinstance(deferred_id, str) or not DQ_ID_PATTERN.match(deferred_id):
+            errors.append(
+                f"deferred_resolutions[{i}] deferred_id {deferred_id!r} is not a "
+                "valid dq-<hash> id (copy it verbatim from the 'Deferred from "
+                "refine' section of your prompt)"
+            )
+        if resolution not in DEFERRED_RESOLUTION_KINDS:
+            errors.append(
+                f"deferred_resolutions[{i}] resolution {resolution!r} is not one of "
+                f"{sorted(DEFERRED_RESOLUTION_KINDS)}"
+            )
+        if resolution == "registered" and (not isinstance(cq, str) or not CQ_ID_PATTERN.match(cq)):
+            errors.append(
+                f"deferred_resolutions[{i}] is resolution 'registered' but its cq "
+                f"{cq!r} is not a valid cq-N id (the id returned by "
+                "`egg-contract add-decision`)"
+            )
+        if resolution == "not_operator_grade" and (not isinstance(why, str) or not why.strip()):
+            errors.append(
+                f"deferred_resolutions[{i}] is resolution 'not_operator_grade' but "
+                "is missing a non-empty why (one sentence on how the design "
+                "dissolved the question)"
+            )
+    return errors
+
+
 def decision_attestation_errors(
     decisions_registered: Any,
     no_decisions_rationale: Any,
+    candidates_considered: Any = None,
+    deferred_resolutions: Any = None,
 ) -> list[str]:
-    """Validate the decision-ledger attestation fields (#3390).
+    """Validate the decision-ledger attestation fields (#3390, #3526, #3564).
 
     A refine/plan producer's proposal attestation must carry exactly one
     of:
@@ -209,6 +352,22 @@ def decision_attestation_errors(
       HITL decision the producer registered this phase, or
     - ``no_decisions_rationale``: a non-empty string recording *why* the
       phase deliberately raises no operator decisions.
+
+    The explicit-none form additionally requires ``candidates_considered``
+    (#3526): at least one {question, disposition, why} entry enumerating
+    the decision candidates the producer weighed and dispositioned away.
+    A single free-form rationale paragraph proved trivially satisfiable;
+    agents learned to fold every open choice into prose and attest
+    "explicitly none"; so the empty ledger must now name what was
+    considered, a form that is harder to satisfy vacuously.
+    ``candidates_considered`` may also accompany ``decisions_registered``
+    (some choices registered, others dispositioned away).
+
+    A plan producer additionally echoes refine's deferred questions in
+    ``deferred_resolutions`` (#3564) — shape-validated here via
+    :func:`deferred_resolution_errors`; whether every deferred question is
+    *covered* is the propose-time gate's cross-check (it needs the message
+    store, which this pure helper must not touch).
 
     This is the single source of truth for that shape, shared by the
     orchestrator's Pydantic attestation model and the propose-time
@@ -236,8 +395,16 @@ def decision_attestation_errors(
         )
         return errors
 
+    candidate_errors = candidate_considered_errors(candidates_considered)
+    deferred_errors = deferred_resolution_errors(deferred_resolutions)
+    if candidate_errors or deferred_errors:
+        errors.extend(candidate_errors)
+        errors.extend(deferred_errors)
+        return errors
+
     has_ids = bool(ids)
     has_rationale = bool(rationale.strip())
+    has_candidates = isinstance(candidates_considered, list) and bool(candidates_considered)
     if has_ids and has_rationale:
         errors.append(
             "attestation carries both decisions_registered and "
@@ -252,6 +419,18 @@ def decision_attestation_errors(
             "`mcp__sdlc__register_open_question`) or a non-empty "
             "no_decisions_rationale explaining why this phase deliberately "
             "raises no operator decisions."
+        )
+    if has_rationale and not has_ids and not has_candidates:
+        errors.append(
+            "an explicit-none ledger must enumerate the decision candidates "
+            "it considered (#3526): pass candidates_considered, one "
+            "{question, disposition, why} entry per open choice you weighed "
+            "and dispositioned away (dispositions: 'not_operator_grade' for "
+            "design calls the planner/implementer owns, 'deferred_to_plan' "
+            "for choices better asked once the plan is concrete; via the "
+            'CLI: repeated `--considered "<disposition> :: <question> :: '
+            '<why>"`). A rationale with no named candidates is '
+            "indistinguishable from not having looked."
         )
     for raw in ids:
         if not isinstance(raw, str) or not CQ_ID_PATTERN.match(raw):

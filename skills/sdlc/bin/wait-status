@@ -65,6 +65,17 @@ _WAIT_STATUS_TO_EVENT_TYPE = {
     "cancelled": "pipeline.cancelled",
 }
 
+# Event types that stay essential under ``--quiet`` in addition to the
+# terminal events (which always print): the HITL decision the operator must
+# act on, and the slice.closed lifecycle event a long-haul monitor threads
+# on. Every other non-terminal event line is suppressed under ``--quiet``.
+_QUIET_ESSENTIAL_EVENT_TYPES = frozenset(
+    {
+        "decision.created",
+        "slice.closed",
+    }
+)
+
 # Bypass proxy for internal network requests.
 _opener = build_opener(ProxyHandler({}))
 
@@ -165,6 +176,57 @@ def api_request(base_url: str, endpoint: str, timeout: int = 15) -> dict[str, An
         raise ApiError(f"Network error: {url}: {e}") from e
 
 
+def _parse_exclude_types(raw: str) -> frozenset[str]:
+    """Parse the ``--exclude-types`` comma-separated list into a set.
+
+    Whitespace around each entry is stripped and empty entries dropped, so
+    ``"phase.started, phase.completed,"`` yields
+    ``{"phase.started", "phase.completed"}``. An empty / absent value yields
+    an empty set (no filtering).
+    """
+    if not raw:
+        return frozenset()
+    return frozenset(part.strip() for part in raw.split(",") if part.strip())
+
+
+def _line_is_essential(line: dict[str, Any]) -> bool:
+    """Whether a JSON-line survives ``--quiet`` (see the ``--quiet`` help).
+
+    Essential = terminal pipeline events (never suppressed — the caller
+    needs them to know the run ended), the synthetic-terminal
+    defense-in-depth line, message-trigger lines (OVERSEER_ALERT /
+    consensus surfaced to the operator), and the
+    ``_QUIET_ESSENTIAL_EVENT_TYPES`` allowlist (HITL + slice.closed).
+    Everything else — phase transitions, other lifecycle events — is
+    non-essential.
+    """
+    trigger = line.get("trigger")
+    if trigger in ("synthetic-terminal", "message"):
+        return True
+    event_type = line.get("event_type") or ""
+    if event_type in _WAIT_STATUS_TERMINAL_EVENTS:
+        return True
+    if event_type in _QUIET_ESSENTIAL_EVENT_TYPES:
+        return True
+    return False
+
+
+def _should_emit_line(line: dict[str, Any], exclude_types: frozenset[str], quiet: bool) -> bool:
+    """Apply the ``--exclude-types`` / ``--quiet`` client-side print filters.
+
+    With no flags set (empty ``exclude_types`` + ``quiet`` False) this is a
+    pure pass-through, so the default JSON-lines output is byte-for-byte
+    unchanged (AC-B2). Filtering only gates the printed line — cursor
+    threading and terminal exit codes are decided independently upstream.
+    """
+    event_type = line.get("event_type")
+    if exclude_types and event_type and event_type in exclude_types:
+        return False
+    if quiet and not _line_is_essential(line):
+        return False
+    return True
+
+
 def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
     """Long-poll for pipeline events; emit JSON-lines (issue #2211).
 
@@ -181,6 +243,13 @@ def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
     max_iterations = getattr(args, "max_iterations", None)
     if not isinstance(max_iterations, int) or max_iterations <= 0:
         max_iterations = sys.maxsize
+
+    # Client-side output filters (issue #3364). Read via getattr so the
+    # standalone-parity contract test — which drives this function with a
+    # bare Namespace lacking these attrs — keeps the default (unfiltered)
+    # code path byte-for-byte identical to ``egg_lib.orch_cli`` (AC-B2).
+    exclude_types = _parse_exclude_types((getattr(args, "exclude_types", "") or "").strip())
+    quiet = bool(getattr(args, "quiet", False))
 
     orchestrator_url = get_orchestrator_url()
     backoff = 1.0
@@ -246,7 +315,8 @@ def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
                 line["messages"] = envelope.get("messages")
             if "concurrent" in envelope:
                 line["concurrent"] = envelope["concurrent"]
-            print(json.dumps(line), flush=True)
+            if _should_emit_line(line, exclude_types, quiet):
+                print(json.dumps(line), flush=True)
 
             status_str = envelope.get("status")
             event_type = envelope.get("event_type") or ""
@@ -268,7 +338,8 @@ def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
                     "status": status_str,
                     "event_type": _WAIT_STATUS_TO_EVENT_TYPE[status_str],
                 }
-                print(json.dumps(line), flush=True)
+                if _should_emit_line(line, exclude_types, quiet):
+                    print(json.dumps(line), flush=True)
                 return 0
 
     return 1
@@ -314,6 +385,28 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Safety cap on outer-loop iterations (test harnesses only). "
             "Loops until terminal pipeline state by default."
+        ),
+    )
+    parser.add_argument(
+        "--exclude-types",
+        default="",
+        help=(
+            "Comma-separated event types to drop from stdout client-side "
+            "(e.g. 'phase.started,phase.completed'). Filtering is applied "
+            "after the response cursor is threaded, so excluded events still "
+            "advance the loop and terminal exit codes are unaffected — only "
+            "the printed JSON line is suppressed. Empty / absent: no filtering."
+        ),
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help=(
+            "Suppress non-essential JSON lines. Keeps only terminal pipeline "
+            "events, HITL 'decision.created', 'slice.closed', and "
+            "message-trigger lines (OVERSEER_ALERT / consensus); drops phase "
+            "transitions and other lifecycle lines. Terminal exit codes are "
+            "unaffected."
         ),
     )
     return parser

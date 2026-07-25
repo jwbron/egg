@@ -202,6 +202,7 @@ def get_state_store_for_pipeline(
     """
     from state_store import (
         PipelineNotFoundError,
+        StateStoreError,
         discover_repo_paths,
         get_state_store,
         validate_pipeline_id,
@@ -224,10 +225,13 @@ def get_state_store_for_pipeline(
         pipeline = store.load_pipeline(pipeline_id)
         return store, pipeline
 
-    # Multi-repo: search all discovered repos.
-    # Only catch PipelineNotFoundError here — InvalidPipelineIdError and
-    # other StateStoreErrors should propagate immediately since an invalid
-    # ID or infrastructure failure won't resolve in a different repo.
+    # Multi-repo: search all discovered repos.  A repo that fails to load
+    # must not abort the scan; one foreign/broken directory in the repos
+    # dir would 500 every pipeline lookup (#3545).  The failure is not
+    # masked either: when the pipeline is found nowhere, the first
+    # infrastructure error is re-raised so a wedged store still surfaces
+    # as 500 with the real cause, not a misleading 404 (#2167).
+    deferred_error: Exception | None = None
     for repo_path in discover_repo_paths(base_path):
         try:
             store = get_state_store(repo_path)
@@ -235,7 +239,19 @@ def get_state_store_for_pipeline(
             return store, pipeline
         except PipelineNotFoundError:
             continue
+        except (StateStoreError, OSError) as e:
+            logger.warning(
+                "Skipping unreadable repo during pipeline lookup",
+                pipeline_id=pipeline_id,
+                repo_path=str(repo_path),
+                error=str(e),
+            )
+            if deferred_error is None:
+                deferred_error = e
+            continue
 
+    if deferred_error is not None:
+        raise deferred_error
     raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found") from None
 
 

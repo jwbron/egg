@@ -585,6 +585,57 @@ class TestPipelineConfig:
         assert DEFAULT_MAX_PARALLEL_SLICES == 4
 
 
+class TestOverseerMaxTurns:
+    """Validation bounds for the PipelineConfig.overseer_max_turns field.
+
+    Ported from the deleted orchestrator/tests/test_overseer_max_turns.py
+    (issue #3513): the surrounding respawn-machinery tests in that module
+    were retired with #2270 slice-5, but these bounds are the only coverage
+    of the live overseer_max_turns contract (models/_config.py), consumed by
+    routes/pipelines when building the overseer agent command.
+    """
+
+    def test_default_value_is_2000(self):
+        """Default overseer_max_turns is 2000."""
+        config = PipelineConfig()
+        assert config.overseer_max_turns == 2000
+
+    def test_custom_value_accepted(self):
+        """Custom overseer_max_turns within bounds is accepted."""
+        config = PipelineConfig(overseer_max_turns=5000)
+        assert config.overseer_max_turns == 5000
+
+    def test_minimum_bound_100(self):
+        """overseer_max_turns=100 is the minimum allowed value."""
+        config = PipelineConfig(overseer_max_turns=100)
+        assert config.overseer_max_turns == 100
+
+    def test_maximum_bound_10000(self):
+        """overseer_max_turns=10000 is the maximum allowed value."""
+        config = PipelineConfig(overseer_max_turns=10000)
+        assert config.overseer_max_turns == 10000
+
+    def test_rejects_below_minimum(self):
+        """Values below 100 are rejected by validation."""
+        with pytest.raises(ValueError):
+            PipelineConfig(overseer_max_turns=99)
+
+    def test_rejects_above_maximum(self):
+        """Values above 10000 are rejected by validation."""
+        with pytest.raises(ValueError):
+            PipelineConfig(overseer_max_turns=10001)
+
+    def test_rejects_zero(self):
+        """Zero is below the minimum and rejected."""
+        with pytest.raises(ValueError):
+            PipelineConfig(overseer_max_turns=0)
+
+    def test_rejects_negative(self):
+        """Negative values are rejected."""
+        with pytest.raises(ValueError):
+            PipelineConfig(overseer_max_turns=-1)
+
+
 class TestResolveConsensusTimeoutMinutes:
     """Tests for resolve_consensus_timeout_minutes (issue #2263).
 
@@ -1118,6 +1169,7 @@ class TestAgentRole:
         assert AgentRole.REVIEWER_SECURITY in roles
         assert AgentRole.REVIEWER_CONCURRENCY in roles
         assert AgentRole.OVERSEER in roles
+        assert AgentRole.EVIDENCE_GATHERER in roles
         assert AgentRole.AUTOFIXER in roles
         assert AgentRole.CONFLICT_RESOLVER in roles
         # Registry-size pin. Count grew from the original 18 → 19 with
@@ -1125,10 +1177,11 @@ class TestAgentRole:
         # ORCHESTRATOR was removed (#2925: the orchestrator is the control
         # plane, not an agent role) → 20 with SIMPLIFIER (human-focused
         # draft companions) → 21 with FIRST_PRINCIPLES_REVIEWER (adversarial
-        # premise/direction reviewer in the refine phase). Bump this and add
-        # the matching `assert AgentRole.X in roles` above whenever a new role
-        # lands.
-        assert len(roles) == 21
+        # premise/direction reviewer in the refine phase) → 22 with
+        # EVIDENCE_GATHERER (read-only shared-evidence gatherer, #3523).
+        # Bump this and add the matching `assert AgentRole.X in roles`
+        # above whenever a new role lands.
+        assert len(roles) == 22
 
 
 class TestBackwardCompatibility:

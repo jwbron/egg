@@ -1,0 +1,3420 @@
+[
+  {
+    "id": "fa82aae3-5421-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:09:03.517064+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0175f063-397d-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:09:04.744440+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "67dbcae4-6619-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:09:05.833811+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "334c1a95-6829-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:09:06.275862+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c50fbb16-b508-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:09:11.160052+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2fef32d3-16c5-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:09:11.771479+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6eb876fc-aa73-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:09:12.906205+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fbcb3b1f-24cf-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase, event #1 (00:09Z). My producer artifact plan-draft-human (3523-plan-human.md) depends on task_planner's plan-draft (3523-plan.md), which depends on the architect's output \u2014 none exist yet (zero CONSENSUS_PROPOSE in plan phase, no 3523-plan.md, no architect outputs). Cannot render a faithful human plan companion before the plan exists. Blocked on task_planner (transitively architect). Refine phase completed: my analysis-draft-human was proposed+confirmed.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-07T00:09:37.424291+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4ca52963-5d90-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=133771 util=0.13 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:10:07.429099+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "069d1648-ceee-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:10:15.302034+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "92234d84-b4d1-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:10:21.018121+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7e5ebc33-a7bb-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase, event #2 (00:10:23Z). Zero CONSENSUS_PROPOSE, no 3523-plan.md, no architect outputs. Architect actively WORKING (heartbeat 00:09:11Z, ~1min old); task_planner awaits architect output. Inside 15-min threshold. Blocked on task_planner (transitively architect).",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-07T00:10:41.863391+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "07af29c1-4c8a-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=138453 util=0.14 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:10:46.915364+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "950b7d2e-4931-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:10:53.235185+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c57a6a62-e90d-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:10:57.912433+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "96777636-7e98-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:11:02.734717+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0d7d34ee-c84f-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase, event #3 (00:11Z). Unchanged: zero CONSENSUS_PROPOSE, no 3523-plan.md, no architect outputs; architect still WORKING (last heartbeat ~00:09Z, inside 15-min threshold). Blocked on task_planner (transitively architect).",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-07T00:11:07.982514+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1565e077-8595-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=142153 util=0.14 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:11:11.544253+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4164a9af-6f43-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-invocation-noop-streak: event-loop [high]",
+    "body": "Event-pump for role=simplifier has had 3 consecutive one-shot invocations on action=propose that exited cleanly WITHOUT any BRC-bus progress (dedupe key 51acc4c98f2c0fa70c140a9870644c4946cb35354e7cfe638a8605d045420a36 re-derived unchanged each time). The arm is parked: no further pods spawn for this key until the unresolved contract-decision set changes (e.g. the gating cq-N is resolved) or the BRC state moves; a probe spawn is retried every 1800s as a backstop. No unresolved contract decision was visible at park time; check the slice's BRC transcript for what the agent is blocked on.",
+    "metadata": {
+      "anomaly": "agent-invocation-noop-streak",
+      "priority": "high",
+      "summary": "agent invocations completing with zero BRC progress (action=propose, streak=3)"
+    },
+    "timestamp": "2026-07-07T00:11:18.350067+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8f7f295a-5763-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:11:19.900507+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9f754496-3e17-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:11:24.242462+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8928f2d9-efe3-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:13:18.757192+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7516efb7-fcbd-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:13:37.841304+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "96210afe-0aef-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Architect decomposition for #3523 review-quality overhaul: a 7-slice DAG honoring the issue's binding sequencing (item 3 + item 2 prompt rules first; item 1 finding schema + server-side verdict next; item 4 risk router third; item 5 shared-evidence prefix last). Two file-disjoint roots \u2014 S1 shared/prompts/*-criteria.md (prompt-only, no flag) and S2 shared/egg_contracts/ finding schema \u2014 feed a consensus_wrapper.py SERIAL SPINE (S3 server-side verdict-from-findings + mechanism dedup -> S4 per-finding tool-call cap -> S5 deterministic risk router with lens gating + effort tiers), then S6 read-only evidence gatherer + byte-identical wave prefix, then S7 docs. Every behavior-shifting piece rides off->log->on copied in shape from slice_green_gate.green_gate_mode() and fails safe to off. Router hooks the single get_review_graph_for_phase chokepoint; verdict moves across the determinism boundary into approval_matrix.py routing advisory-only through the existing conditional-ACK obligation_* fields. Reviewer prompts/tiers/angles/verify-ladder/finding-shape/gap-sweep mirror Claude Code's /review skill per the operator directive; cost is a first-class criterion (router defaults low-risk slices to cheaper tiers; item 5 cache-hit-rate + per-wave cost in log mode gate the flip to on). Four previously-deferred choices (slice cut-points, schema encoding, router config format .egg/review-risk.yaml, gatherer packaging) resolved as architect decisions \u2014 no HITL raised.",
+    "metadata": {
+      "payload": {
+        "summary": "Architect decomposition for #3523 review-quality overhaul: a 7-slice DAG honoring the issue's binding sequencing (item 3 + item 2 prompt rules first; item 1 finding schema + server-side verdict next; item 4 risk router third; item 5 shared-evidence prefix last). Two file-disjoint roots \u2014 S1 shared/prompts/*-criteria.md (prompt-only, no flag) and S2 shared/egg_contracts/ finding schema \u2014 feed a consensus_wrapper.py SERIAL SPINE (S3 server-side verdict-from-findings + mechanism dedup -> S4 per-finding tool-call cap -> S5 deterministic risk router with lens gating + effort tiers), then S6 read-only evidence gatherer + byte-identical wave prefix, then S7 docs. Every behavior-shifting piece rides off->log->on copied in shape from slice_green_gate.green_gate_mode() and fails safe to off. Router hooks the single get_review_graph_for_phase chokepoint; verdict moves across the determinism boundary into approval_matrix.py routing advisory-only through the existing conditional-ACK obligation_* fields. Reviewer prompts/tiers/angles/verify-ladder/finding-shape/gap-sweep mirror Claude Code's /review skill per the operator directive; cost is a first-class criterion (router defaults low-risk slices to cheaper tiers; item 5 cache-hit-rate + per-wave cost in log mode gate the flip to on). Four previously-deferred choices (slice cut-points, schema encoding, router config format .egg/review-risk.yaml, gatherer packaging) resolved as architect decisions \u2014 no HITL raised.",
+        "attestation": {
+          "decisions_registered": [],
+          "no_decisions_rationale": "The refiner attested zero open decisions at the refine gate (operator-confirmed via decision-1). The four choices deferred to the plan phase (exact slice cut-points, finding-schema field encoding, per-repo router config format, evidence-gatherer packaging) are implementation-level and resolved in this proposal as architect decisions, not operator HITL \u2014 consistent with the refiner's attestation that they belong to the architect. The only scope fork the issue itself names (item 5's shared-prefix fork point proving too shallow) is contingent on plan/implement-phase findings and will be raised as a plan-phase HITL decision at that point rather than pre-emptively."
+        },
+        "artifacts": [
+          ".egg-state/agent-outputs/3523-architect-output.json",
+          ".egg-state/agent-outputs/3523-architect-slices.yaml"
+        ],
+        "risk_considered": "R1 determinism-boundary regression (log mode diffs computed-vs-legacy verdict; legacy path stays until flag on). R2 router under-review (floor tier + no-match-full-graph + loud warning + security lens un-gatable on auth/input paths). R3 pack anchoring (evidence-never-conclusions, mechanical path order, cold-start verifier, unchanged Delphi). R4 cache fragility (deterministic prefix; net-cost gate). R5 untrusted-input concentration (pack is data not instructions). R6 consensus_wrapper.py contention (declared serial spine; deps enforce S3->S4->S5).",
+        "commit_sha": "eed1d4c1b",
+        "files_changed": [
+          ".egg-state/agent-outputs/3523-architect-output.json",
+          ".egg-state/agent-outputs/3523-architect-slices.yaml"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "eed1d4c1b"
+    },
+    "timestamp": "2026-07-07T00:15:22.526149+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5b5513d5-38b6-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:15:28.089943+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bff310d4-1b16-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:15:28.116555+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c0d16969-af33-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:15:29.177090+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8db089f6-4c3c-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:15:33.298736+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c997c881-c5a3-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:15:35.511512+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1d9789c8-cfd7-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:15:37.519009+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "71b193bf-902a-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase, event #4 (00:15:35Z). Architect PROPOSED v1 (eed1d4c1b, 00:15:22Z) \u2014 7-slice DAG; architect outputs now present. But my producer artifact plan-draft-human depends on the task_planner's plan-draft (3523-plan.md), which is still absent (task_planner now unblocked to consume architect output, not yet proposed). Blocked on task_planner. My faithfulness source is the task_planner's plan, not the architect's.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-07T00:15:45.731455+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "99384d45-da02-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:15:49.016351+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "061e9096-34aa-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:15:49.527644+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9f696352-5431-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=148212 util=0.15 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:15:52.268283+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1eecfb97-3087-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=124990 util=0.12 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:16:14.791949+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "187ca4e2-ca0f-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:16:43.622574+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a0dfc556-151c-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:17:57.538472+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "44b4dbc3-c433-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:18:17.893976+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4fbe522e-b108-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:18:47.990990+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f1cf3784-e23a-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "reviewer_plan ACK of architect plan (SHA eed1d4c1b). No blocking findings. Verified all load-bearing seams against live code at this SHA: green_gate_mode()->off/log/on fail-safe (slice_green_gate.py:234/245); get_review_graph_for_phase(phase,repo) IS the single chokepoint with ~10 real consumers (correct item-4 router hook); ApprovalEntry.reason free-form + obligation_* conditional-ACK fields exist; build_event_pump_wrapped_command already threads --effort (:642); shared/egg_contracts + attestation_schemas.py is the right boundary-validated home for the finding schema; and #3046 is a deterministic hard-NACK file-overlap validator that backstops slice ordering. Directive alignment confirmed: all 5 items covered with binding sequencing honored (prompt-rules\u2192finding-schema/verdict\u2192router\u2192prefix-last), staged off\u2192log\u2192on on every behavior-shifting slice, floors preserved (no-match\u21d2full-graph+warning, security un-gatable, floor tier), reference /review vocabulary mirrored (caps 4/8/10/15, angles A\u2013E, CONFIRMED/PLAUSIBLE/REFUTED), independence guardrails and cost-first-class in place, and a finding missing failure_scenario degrades to advisory rather than erroring.\n\nADVISORY (non-blocking, for task_planner): slice_dag_guidance + risk R6 assert \"S3\u2192S4\u2192S5 all touch consensus_wrapper.py \u2026 deps enforce the ordering.\" But S5's own goal text uses the EXISTING --effort plumbing, so item-4/S5 edits review_graph.py + agent_model_resolution.py, NOT consensus_wrapper.py \u2014 making S4 and S5 file-disjoint. The declared edges (S4\u2190[2,3], S5\u2190[3]) are therefore valid and pass #3046; R6's \"all touch\" premise is internally inconsistent but harmless (if S5 ever did touch the wrapper, #3046 hard-catches the missing edge at populate). No wrong-plan scenario exists, hence advisory. Recommend reconciling the prose so no needless S4\u2192S5 edge is added that would serialize two parallel-capable slices.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3523-architect-output.json",
+          ".egg-state/agent-outputs/3523-architect-slices.yaml"
+        ],
+        "reason": "reviewer_plan ACK of architect plan (SHA eed1d4c1b). No blocking findings. Verified all load-bearing seams against live code at this SHA: green_gate_mode()->off/log/on fail-safe (slice_green_gate.py:234/245); get_review_graph_for_phase(phase,repo) IS the single chokepoint with ~10 real consumers (correct item-4 router hook); ApprovalEntry.reason free-form + obligation_* conditional-ACK fields exist; build_event_pump_wrapped_command already threads --effort (:642); shared/egg_contracts + attestation_schemas.py is the right boundary-validated home for the finding schema; and #3046 is a deterministic hard-NACK file-overlap validator that backstops slice ordering. Directive alignment confirmed: all 5 items covered with binding sequencing honored (prompt-rules\u2192finding-schema/verdict\u2192router\u2192prefix-last), staged off\u2192log\u2192on on every behavior-shifting slice, floors preserved (no-match\u21d2full-graph+warning, security un-gatable, floor tier), reference /review vocabulary mirrored (caps 4/8/10/15, angles A\u2013E, CONFIRMED/PLAUSIBLE/REFUTED), independence guardrails and cost-first-class in place, and a finding missing failure_scenario degrades to advisory rather than erroring.\n\nADVISORY (non-blocking, for task_planner): slice_dag_guidance + risk R6 assert \"S3\u2192S4\u2192S5 all touch consensus_wrapper.py \u2026 deps enforce the ordering.\" But S5's own goal text uses the EXISTING --effort plumbing, so item-4/S5 edits review_graph.py + agent_model_resolution.py, NOT consensus_wrapper.py \u2014 making S4 and S5 file-disjoint. The declared edges (S4\u2190[2,3], S5\u2190[3]) are therefore valid and pass #3046; R6's \"all touch\" premise is internally inconsistent but harmless (if S5 ever did touch the wrapper, #3046 hard-catches the missing edge at populate). No wrong-plan scenario exists, hence advisory. Recommend reconciling the prose so no needless S4\u2192S5 edge is added that would serialize two parallel-capable slices.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-07T00:19:04.543483+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "741c5067-8fc1-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:19:11.232518+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4bf1531e-b73b-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=90314 util=0.09 cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:19:16.157493+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f103f169-e86a-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:19:16.468032+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0c4f2c50-331e-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase, event #5 (00:19:18Z). Task_planner actively WORKING (heartbeat 00:18:47Z, ~30s old), building plan from architect's 7-slice DAG; no CONSENSUS_PROPOSE yet, no 3523-plan.md. Inside 15-min threshold. Blocked on task_planner.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-07T00:19:29.062213+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5c4220ba-fd18-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=152874 util=0.15 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:19:32.473967+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "afe75b99-1d81-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:20:10.289394+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8782befa-5fc4-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:20:45.849075+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "79ba4a1c-fc33-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Risk assessment for the #3523 review-quality overhaul, reconciled against the architect's 7-slice DAG. Verdict: PROCEED_WITH_MITIGATIONS (MEDIUM). 8 risks grounded vs HEAD eed1d4c1b. Three HIGH plumbing-reuse edges the issue's 'reuse existing X' phrasing under-weights: (R1) --effort is pinned ONLY for fable aliases today (agent_model_resolution.py:66-83,420; consensus_wrapper.py:665-668), so item-4's tier->effort map is a NEW behavior change for the dominant claude/opus reviewers, not reuse \u2014 it must ship behind the router flag and keep effort=None on no-match to preserve the byte-identical-to-today opus baseline. (R2) get_review_graph_for_phase (review_graph.py:398) is the gating chokepoint but is called from recovery/health paths with NO slice context (startup_reconciliation:310, incomplete_consensus_stall:251, kubernetes_monitor:933) \u2014 the gated graph must be persisted per-slice and READ there or the stall-detector computes a different expected-reviewer set than actually spawned. (R3) ApprovalEntry.reason (approval_matrix.py:36) IS the producer's open-NACK barrier via event_prompt/_render_nacks.py \u2014 the server-side verdict move must land the findings->reason renderer in lockstep and keep the legacy prose barrier byte-identical in 'log' mode, or the producer's NACK barrier goes blank. Plus two acceptance-completeness gaps (R4 cost-flip gate has no threshold/baseline/per-wave attribution and must net out the gatherer's own cost; R5 per-finding tool-call cap is not wrapper-enforceable because findings post-date the tool calls \u2014 reframe as a per-event budget) and two guardrail-sharpening risks (R6 shared prefix byte-identity vs per-agent event_prompt + Delphi redaction; R7 gatherer's unprivileged posture must be structural at the gateway role layer + no review-graph edge). R8 low: S5 may be over-serialized since consensus_wrapper already exposes effort=. No operator HITL raised \u2014 issue is prescriptive.",
+    "metadata": {
+      "payload": {
+        "summary": "Risk assessment for the #3523 review-quality overhaul, reconciled against the architect's 7-slice DAG. Verdict: PROCEED_WITH_MITIGATIONS (MEDIUM). 8 risks grounded vs HEAD eed1d4c1b. Three HIGH plumbing-reuse edges the issue's 'reuse existing X' phrasing under-weights: (R1) --effort is pinned ONLY for fable aliases today (agent_model_resolution.py:66-83,420; consensus_wrapper.py:665-668), so item-4's tier->effort map is a NEW behavior change for the dominant claude/opus reviewers, not reuse \u2014 it must ship behind the router flag and keep effort=None on no-match to preserve the byte-identical-to-today opus baseline. (R2) get_review_graph_for_phase (review_graph.py:398) is the gating chokepoint but is called from recovery/health paths with NO slice context (startup_reconciliation:310, incomplete_consensus_stall:251, kubernetes_monitor:933) \u2014 the gated graph must be persisted per-slice and READ there or the stall-detector computes a different expected-reviewer set than actually spawned. (R3) ApprovalEntry.reason (approval_matrix.py:36) IS the producer's open-NACK barrier via event_prompt/_render_nacks.py \u2014 the server-side verdict move must land the findings->reason renderer in lockstep and keep the legacy prose barrier byte-identical in 'log' mode, or the producer's NACK barrier goes blank. Plus two acceptance-completeness gaps (R4 cost-flip gate has no threshold/baseline/per-wave attribution and must net out the gatherer's own cost; R5 per-finding tool-call cap is not wrapper-enforceable because findings post-date the tool calls \u2014 reframe as a per-event budget) and two guardrail-sharpening risks (R6 shared prefix byte-identity vs per-agent event_prompt + Delphi redaction; R7 gatherer's unprivileged posture must be structural at the gateway role layer + no review-graph edge). R8 low: S5 may be over-serialized since consensus_wrapper already exposes effort=. No operator HITL raised \u2014 issue is prescriptive.",
+        "attestation": {
+          "no_decisions_rationale": "Issue #3523 is a complete, prescriptive operator directive with the five changes, per-field finding schema, off->log->on rollout, floor/independence guardrails, sequencing, and out-of-scope boundary all fixed by the issue text plus the two operator directives (mirror Claude Code /review; cost first-class). All 8 risks I raise are implementation-level and resolvable by the architect/task_planner within that fixed scope (effort-pin framing, gated-graph persistence, NACK-render lockstep, cost-flip threshold, cap reframe, gatherer capability denial). The one operator fork the issue itself names \u2014 item 5's shared-prefix fork point proving too shallow \u2014 is explicitly deferred by the issue to be raised at implement time IF the raw-evidence pack proves insufficient, not pre-emptively. R4's cost-flip threshold is a value the plan should pin a concrete default for; only escalate to HITL if task_planner cannot choose one."
+        },
+        "artifacts": [
+          ".egg-state/agent-outputs/3523-risk_analyst-output.json"
+        ],
+        "risk_considered": "Grounded 8 risks against the live tree; verdict PROCEED_WITH_MITIGATIONS. Reviewer follow-up: NACK task_planner if R1/R2/R3 unaddressed.",
+        "commit_sha": "529e35e72",
+        "files_changed": [
+          ".egg-state/agent-outputs/3523-risk_analyst-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "529e35e72"
+    },
+    "timestamp": "2026-07-07T00:21:47.085104+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "14205dad-171e-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:21:52.252941+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "05d9ead4-3e45-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:21:52.525680+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e9cf78c4-7fff-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:21:52.966192+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "866b3e89-7814-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:21:58.578822+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9fe28681-35e0-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:21:59.014913+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c6e8c9c0-8fc1-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:22:03.540442+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9cb54d37-d883-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=140118 util=0.14 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:22:04.694571+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2504cd17-997a-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase, event #6 (00:22:00Z). No task_planner CONSENSUS_PROPOSE, no 3523-plan.md. Task_planner newest heartbeat 00:18:47Z (~3.2min old \u2014 likely mid long generation, inside 15-min threshold). Blocked on task_planner. Will consider an overseer alert only if a future event finds its heartbeat >15min stale.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-07T00:22:14.628579+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5860210f-289c-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=157755 util=0.16 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:22:19.078529+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2e3d5c95-7081-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:22:29.952481+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c7b2c49d-45d9-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:22:38.662755+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cfb3d80c-ede9-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "reviewer_plan ACK of risk_analyst assessment (SHA 529e35e72). No blocking findings. The assessment is well-grounded and every load-bearing file:line anchor is real and accurate at HEAD eed1d4c1b \u2014 I spot-verified them:\n\n- R1 (HIGH/CERTAIN, the standout finding): agent_model_resolution.py:420 is exactly `effort=FABLE_EFFORT if model in _FABLE_ALIASES else None` with FABLE_EFFORT=\"high\" and _FABLE_ALIASES={\"fable\",\"fable[1m]\"} (:82-83), and the module comment (:72) states every other model gets effort=None. So item 4's tier->effort is a NEW effort pin for claude/opus, NOT reuse of a live path \u2014 a correct and valuable correction to the \"reuse the EXISTING --effort plumbing\" phrasing both the issue and the architect used loosely. The mitigations (ship behind the router flag; log-mode records would-have-been effort; regression test that no-match leaves effort=None) are sound.\n- R2 (HIGH/LIKELY): get_review_graph_for_phase IS called from recovery/health paths with no slice context (startup_reconciliation:310, incomplete_consensus_stall:251, kubernetes_monitor:933 \u2014 all confirmed). The persist-resolved-graph-and-have-recovery-callers-read-it mitigation correctly closes the stall-detector divergence.\n- R3 (HIGH/LIKELY): the NACK-render path is real \u2014 _render_nacks.py::_render_nacks_section exists and _compose.py:136 calls it; _consensus_verdicts.py exists. The \"keep legacy prose barrier populated in log mode\" requirement is correct.\n- R6/R7 anchors confirmed: _compose.py/_render_memory.py/_render_delta.py/_render_event.py and shared/egg_restrictions/patterns.py all exist; the structural-capability-denial (R7) and lens-agnostic-fresh-prefix (R6) sharpenings are correct.\n- R4 (cost-flip threshold/baseline/attribution gap) and R5 (per-finding cap not wrapper-enforceable, reframe as per-event budget) are legitimate acceptance-completeness/design-feasibility observations; both fold cleanly into task_planner's acceptance criteria.\n- R8 independently CONVERGES with the advisory I raised on the architect's plan: S5 may be over-serialized because build_event_pump_wrapped_command already accepts effort= (:642), so item 4's real edit sites are agent_model_resolution.py + review_graph.py, file-disjoint from consensus_wrapper.py.\n\nVerdict PROCEED_WITH_MITIGATIONS (MEDIUM) is appropriate; no risk rises to operator HITL. No vibe-risks, no fabricated citations. Its stated reviewer obligation (NACK task_planner if R1/R2/R3 unaddressed) is the right gate. ACK.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3523-risk_analyst-output.json"
+        ],
+        "reason": "reviewer_plan ACK of risk_analyst assessment (SHA 529e35e72). No blocking findings. The assessment is well-grounded and every load-bearing file:line anchor is real and accurate at HEAD eed1d4c1b \u2014 I spot-verified them:\n\n- R1 (HIGH/CERTAIN, the standout finding): agent_model_resolution.py:420 is exactly `effort=FABLE_EFFORT if model in _FABLE_ALIASES else None` with FABLE_EFFORT=\"high\" and _FABLE_ALIASES={\"fable\",\"fable[1m]\"} (:82-83), and the module comment (:72) states every other model gets effort=None. So item 4's tier->effort is a NEW effort pin for claude/opus, NOT reuse of a live path \u2014 a correct and valuable correction to the \"reuse the EXISTING --effort plumbing\" phrasing both the issue and the architect used loosely. The mitigations (ship behind the router flag; log-mode records would-have-been effort; regression test that no-match leaves effort=None) are sound.\n- R2 (HIGH/LIKELY): get_review_graph_for_phase IS called from recovery/health paths with no slice context (startup_reconciliation:310, incomplete_consensus_stall:251, kubernetes_monitor:933 \u2014 all confirmed). The persist-resolved-graph-and-have-recovery-callers-read-it mitigation correctly closes the stall-detector divergence.\n- R3 (HIGH/LIKELY): the NACK-render path is real \u2014 _render_nacks.py::_render_nacks_section exists and _compose.py:136 calls it; _consensus_verdicts.py exists. The \"keep legacy prose barrier populated in log mode\" requirement is correct.\n- R6/R7 anchors confirmed: _compose.py/_render_memory.py/_render_delta.py/_render_event.py and shared/egg_restrictions/patterns.py all exist; the structural-capability-denial (R7) and lens-agnostic-fresh-prefix (R6) sharpenings are correct.\n- R4 (cost-flip threshold/baseline/attribution gap) and R5 (per-finding cap not wrapper-enforceable, reframe as per-event budget) are legitimate acceptance-completeness/design-feasibility observations; both fold cleanly into task_planner's acceptance criteria.\n- R8 independently CONVERGES with the advisory I raised on the architect's plan: S5 may be over-serialized because build_event_pump_wrapped_command already accepts effort= (:642), so item 4's real edit sites are agent_model_resolution.py + review_graph.py, file-disjoint from consensus_wrapper.py.\n\nVerdict PROCEED_WITH_MITIGATIONS (MEDIUM) is appropriate; no risk rises to operator HITL. No vibe-risks, no fabricated citations. Its stated reviewer obligation (NACK task_planner if R1/R2/R3 unaddressed) is the right gate. ACK.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-07T00:23:04.362362+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9af87bbb-c467-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:23:10.245446+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9e760344-a820-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:23:15.690977+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "de29f2ab-2baf-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=115448 util=0.12 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:23:17.202120+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "aadfadf5-9438-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase, event #7 (00:23:17Z). Task_planner still WORKING (fresh heartbeat 00:22:38Z, ~40s old), no CONSENSUS_PROPOSE, no 3523-plan.md. Inside threshold. Blocked on task_planner.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-07T00:23:26.847307+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8db6a170-39e0-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=162443 util=0.16 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:23:30.143327+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0517eee3-0904-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for architect",
+    "body": "Architecture is sound and risk-complete: verified seams carry real file:line anchors (get_review_graph_for_phase single chokepoint, ApprovalEntry.reason NACK path, consensus_wrapper --effort threading, green_gate_mode staged-flag shape), R1\u2013R6 risk register is present and on-point, floor rules / independence guardrails / off\u2192log\u2192on staging all honored, and the binding sequencing (S1||S2 \u2192 S3 \u2192 S4/S5 \u2192 S6 \u2192 S7) matches the issue. One CONFIRMED advisory finding (F1): the encoded slice DAG has S4 deps=[2,3] and S5 deps=[3] with no S4\u2192S5 edge, yet BOTH slices edit orchestrator/consensus_wrapper.py \u2014 the file the architect names as the dominant #3046 serial-overlap constraint. Failure scenario: a DAG-literal scheduler runs S4 and S5 concurrently after S3 and they collide on consensus_wrapper.py. R6's mitigation (\"dependencies enforce S3->S4->S5 ordering so they never run concurrently\") is false as encoded. This is advisory, not blocking: the serialization intent is stated in prose (L21, L114-115) and the architect delegates final DAG ordering to task_planner with an explicit \"absorb S4 into S3\" escape \u2014 fixable downstream without a revision round.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3523-architect-output.json",
+          ".egg-state/agent-outputs/3523-architect-slices.yaml"
+        ],
+        "reason": "Architecture is sound and risk-complete: verified seams carry real file:line anchors (get_review_graph_for_phase single chokepoint, ApprovalEntry.reason NACK path, consensus_wrapper --effort threading, green_gate_mode staged-flag shape), R1\u2013R6 risk register is present and on-point, floor rules / independence guardrails / off\u2192log\u2192on staging all honored, and the binding sequencing (S1||S2 \u2192 S3 \u2192 S4/S5 \u2192 S6 \u2192 S7) matches the issue. One CONFIRMED advisory finding (F1): the encoded slice DAG has S4 deps=[2,3] and S5 deps=[3] with no S4\u2192S5 edge, yet BOTH slices edit orchestrator/consensus_wrapper.py \u2014 the file the architect names as the dominant #3046 serial-overlap constraint. Failure scenario: a DAG-literal scheduler runs S4 and S5 concurrently after S3 and they collide on consensus_wrapper.py. R6's mitigation (\"dependencies enforce S3->S4->S5 ordering so they never run concurrently\") is false as encoded. This is advisory, not blocking: the serialization intent is stated in prose (L21, L114-115) and the architect delegates final DAG ordering to task_planner with an explicit \"absorb S4 into S3\" escape \u2014 fixable downstream without a revision round.",
+        "ack_version": 1,
+        "pre_merge_condition": "task_planner must make the S4\u2192S5 serialization explicit in the final DAG \u2014 add an S4\u2192S5 dependency edge OR absorb S4 into S3 (architect's offered option) \u2014 so the encoded dependency graph matches the declared serial spine on orchestrator/consensus_wrapper.py, and correct R6's mitigation wording accordingly."
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-07T00:24:09.985009+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ed5df9a8-461f-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:24:10.543256+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "06c00863-7875-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:24:12.598604+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "68eb6e09-4700-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:24:17.962145+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4563adf6-fdd3-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=78336 util=0.08 cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:24:21.995097+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "808c806a-5495-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase, event #8 (00:24:19Z). Unchanged: no task_planner CONSENSUS_PROPOSE, no 3523-plan.md; task_planner WORKING (last heartbeat 00:22:38Z, inside 15-min threshold). Blocked on task_planner.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-07-07T00:24:24.621747+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b4f13886-5b7e-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=165979 util=0.17 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:24:28.040929+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3e40b8a5-4f23-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:24:35.329321+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f74e0bb5-4ed8-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:25:24.286583+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fc8ca45f-865c-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:26:48.968657+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d1c3d500-4f5e-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "task_planner plan draft for #3523 (review-quality overhaul), reconciled to the architect's recommended DAG. Final 8-slice FOREST (single-parent-valid): two file-disjoint parallel roots \u2014 S1 shared/prompts/*-criteria.md (item 3 method-angles + item 2 verification ladder, prompt-only, no flag) and S2 versioned finding schema in shared/egg_contracts/ (additive, boundary-validated); then a serial consensus_wrapper.py spine \u2014 S3 server-side computed verdict from findings + mechanism dedup/convergence (EGG_REVIEW_FINDINGS_MODE off->log->on), S4 per-finding tool-call cap (same flag), S5 deterministic risk-router core + .egg/review-risk.yaml (pure, unwired), S6 router wiring: lens gating at the review_graph chokepoint + effort tiers + code-side stance conditional (EGG_RISK_ROUTER, log-first, HARD floors: no-match=>full graph+warning, security lens un-gatable on auth/input paths), S7 read-only evidence-gatherer role + byte-identical shared prefix (EGG_REVIEW_EVIDENCE_PREFIX, cold-start tester/verifier, Delphi unchanged, cost-gated flip to on), S8 tail docs. Conforms to architect structure (two roots, serial spine, distinct cap slice, tail docs); two owner refinements the architect pre-authorized: split its one-slice router into core+wiring (sizing), and reduced its multi-parent deps (S4/S6/S7) to single stackable parents for forest-validity. Every behavior-shifting piece rides off->log->on and fails safe to off; cost first-class (low-risk=>cheap tiers; cache-hit rate + per-wave cost recorded in log); reviewer prompts + router taxonomy mirror the Claude Code /review skill (issue comments). Parses clean (0 warnings); all 18 tasks role-assigned (coder/documenter/tester) and every task's files verified writable by its role via check_file_restriction; all cross-slice file overlaps (consensus_wrapper.py, _criteria.py) sit on the dependency spine.",
+    "metadata": {
+      "payload": {
+        "summary": "task_planner plan draft for #3523 (review-quality overhaul), reconciled to the architect's recommended DAG. Final 8-slice FOREST (single-parent-valid): two file-disjoint parallel roots \u2014 S1 shared/prompts/*-criteria.md (item 3 method-angles + item 2 verification ladder, prompt-only, no flag) and S2 versioned finding schema in shared/egg_contracts/ (additive, boundary-validated); then a serial consensus_wrapper.py spine \u2014 S3 server-side computed verdict from findings + mechanism dedup/convergence (EGG_REVIEW_FINDINGS_MODE off->log->on), S4 per-finding tool-call cap (same flag), S5 deterministic risk-router core + .egg/review-risk.yaml (pure, unwired), S6 router wiring: lens gating at the review_graph chokepoint + effort tiers + code-side stance conditional (EGG_RISK_ROUTER, log-first, HARD floors: no-match=>full graph+warning, security lens un-gatable on auth/input paths), S7 read-only evidence-gatherer role + byte-identical shared prefix (EGG_REVIEW_EVIDENCE_PREFIX, cold-start tester/verifier, Delphi unchanged, cost-gated flip to on), S8 tail docs. Conforms to architect structure (two roots, serial spine, distinct cap slice, tail docs); two owner refinements the architect pre-authorized: split its one-slice router into core+wiring (sizing), and reduced its multi-parent deps (S4/S6/S7) to single stackable parents for forest-validity. Every behavior-shifting piece rides off->log->on and fails safe to off; cost first-class (low-risk=>cheap tiers; cache-hit rate + per-wave cost recorded in log); reviewer prompts + router taxonomy mirror the Claude Code /review skill (issue comments). Parses clean (0 warnings); all 18 tasks role-assigned (coder/documenter/tester) and every task's files verified writable by its role via check_file_restriction; all cross-slice file overlaps (consensus_wrapper.py, _criteria.py) sit on the dependency spine.",
+        "attestation": {
+          "no_decisions_rationale": "Issue #3523 is a complete prescriptive operator directive: the five changes, per-field finding schema, off->log->on rollout, sequencing, floor/independence guardrails, and out-of-scope boundary are fixed by the issue text plus the two operator directives (mirror the /review skill; cost first-class). The refine phase registered zero decisions and the operator confirmed that attestation. The remaining choices (slice cut-points, schema field encodings, router config format/path, gatherer packaging) are implementation-level, not operator scope forks, and this plan resolves them as engineering decisions within the fixed directive: 8-slice forest conforming to the architect's recommended structure, per-field schema module, .egg/review-risk.yaml path-glob config, standalone read-only gatherer role. The architect and task_planner DAGs agree on structure; the two task_planner refinements (router core/wiring split; single-parent reduction of the architect's multi-parent deps) are within the DAG/packaging authority the architect explicitly delegated and are required by the platform's hard forest constraint, so they are not scope forks warranting operator HITL. No genuine scope fork surfaced during planning."
+        },
+        "artifacts": [
+          ".egg-state/drafts/3523-plan.md"
+        ],
+        "risk_considered": "Determinism-boundary regression (S3) mitigated by pure unit-tested verdict fn + log-mode computed-vs-legacy diff + retained legacy path until on. Router under-review (S6) mitigated by no-match=>full graph+warning, floor tier, security-lens un-gatable, log-first. Anchoring/cache-fragility (S7) mitigated by evidence-never-conclusions, mechanical path ordering, cold-start tester/verifier, unchanged Delphi, byte-identical prefix measured before on. Oversized-slice NACK mitigated by splitting item 1 (schema S2 vs verdict S3), isolating the tool-call cap (S4), and splitting the router (core S5 vs wiring S6). Divergence-from-architect minimized by conforming to its structure; the two refinements (router split, single-parent reduction) are within task_planner's delegated DAG/packaging authority and required for forest-validity.",
+        "commit_sha": "70e3250e7f8a7324ceda464f7c7b140e04fc5239",
+        "files_changed": [
+          ".egg-state/drafts/3523-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "TASK-1-1",
+          "TASK-1-2",
+          "TASK-1-3",
+          "TASK-2-1",
+          "TASK-2-2",
+          "TASK-3-1",
+          "TASK-3-2",
+          "TASK-4-1",
+          "TASK-4-2",
+          "TASK-5-1",
+          "TASK-5-2",
+          "TASK-6-1",
+          "TASK-6-2",
+          "TASK-6-3",
+          "TASK-7-1",
+          "TASK-7-2",
+          "TASK-7-3",
+          "TASK-8-1"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "70e3250e7f8a7324ceda464f7c7b140e04fc5239"
+    },
+    "timestamp": "2026-07-07T00:27:05.307010+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b717193b-bd1b-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:27:08.233648+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1ffa3987-5827-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:27:08.575392+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "203678d8-2f12-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:27:09.288912+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "23cdba28-2672-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:27:16.456317+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cfdabe09-ed57-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:27:18.249050+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ee6013c5-df26-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:27:19.593813+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "62b72d63-6d6c-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:27:37.611884+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3eb34b9f-e80d-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=216743 util=0.22 cache_hit=0.99 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:27:54.627405+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7bafd746-cf8c-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:29:05.856672+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "20ac8fff-5908-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:29:36.198377+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "01a07b12-7aa7-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:29:47.830679+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a0f6a72f-067d-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for task_planner",
+    "body": "Plan is risk-sound and resolves my prior architect-phase finding. F1 RESOLVED: the DAG is now a strict linear forest (S1 independent prompt-only root + S2\u2192S3\u2192S4\u2192S5\u2192S6\u2192S7\u2192S8 spine), so every slice touching orchestrator/consensus_wrapper.py (S3 verdict-render, S4 tool-call cap, S7 prefix assembly) and orchestrator/routes/pipelines/_criteria.py (S6, S7) is serialized on one dependency chain \u2014 the #3046 file-overlap race is gone, and it is encoded in the deps, not just prose. Over-serializing S5 (a pure, file-disjoint new module) after S4 for forest-validity is the safe direction, not a concern. Safety discipline is thorough: every behavior-shifting slice rides off\u2192log\u2192on and fails safe to off, legacy prose-NACK path stays live until `on`, router floor rules are HARD (no-match => full graph + loud warning; security lens structurally un-gatable on auth/session/input-boundary paths), evidence-pack independence guardrails (cold-start tester/verifier, unchanged Delphi redaction, untrusted-input posture) are preserved, and each behavior-shifting slice carries a log-mode parity test plus a flag-typo-fails-to-off test. One advisory finding (F2, PLAUSIBLE not blocking): the findings-transmission path is not explicitly owned by any task \u2014 approval_matrix.py today carries a prose `reason: str` with no `findings` field, yet S3 computes the verdict from \"a reviewer's findings payload.\" Failure scenario: in `on` mode with transmission unwired, the verdict computes from an absent payload \u2192 empty=>ACK \u2192 NACKs silently vanish \u2192 broken slices merge. This is advisory, not blocking, because it is structurally contained by EGG_REVIEW_FINDINGS_MODE off-default, the log-mode computed-vs-legacy diff the operator observes before flipping to on, and the TASK-3-2 parity test \u2014 an operator would see computed=ACK vs legacy=NACK in log mode before any harm.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3523-plan.md"
+        ],
+        "reason": "Plan is risk-sound and resolves my prior architect-phase finding. F1 RESOLVED: the DAG is now a strict linear forest (S1 independent prompt-only root + S2\u2192S3\u2192S4\u2192S5\u2192S6\u2192S7\u2192S8 spine), so every slice touching orchestrator/consensus_wrapper.py (S3 verdict-render, S4 tool-call cap, S7 prefix assembly) and orchestrator/routes/pipelines/_criteria.py (S6, S7) is serialized on one dependency chain \u2014 the #3046 file-overlap race is gone, and it is encoded in the deps, not just prose. Over-serializing S5 (a pure, file-disjoint new module) after S4 for forest-validity is the safe direction, not a concern. Safety discipline is thorough: every behavior-shifting slice rides off\u2192log\u2192on and fails safe to off, legacy prose-NACK path stays live until `on`, router floor rules are HARD (no-match => full graph + loud warning; security lens structurally un-gatable on auth/session/input-boundary paths), evidence-pack independence guardrails (cold-start tester/verifier, unchanged Delphi redaction, untrusted-input posture) are preserved, and each behavior-shifting slice carries a log-mode parity test plus a flag-typo-fails-to-off test. One advisory finding (F2, PLAUSIBLE not blocking): the findings-transmission path is not explicitly owned by any task \u2014 approval_matrix.py today carries a prose `reason: str` with no `findings` field, yet S3 computes the verdict from \"a reviewer's findings payload.\" Failure scenario: in `on` mode with transmission unwired, the verdict computes from an absent payload \u2192 empty=>ACK \u2192 NACKs silently vanish \u2192 broken slices merge. This is advisory, not blocking, because it is structurally contained by EGG_REVIEW_FINDINGS_MODE off-default, the log-mode computed-vs-legacy diff the operator observes before flipping to on, and the TASK-3-2 parity test \u2014 an operator would see computed=ACK vs legacy=NACK in log mode before any harm.",
+        "ack_version": 1,
+        "pre_merge_condition": "Make the findings-transmission path an explicit task within S2/S3: the reviewer-agent emission of a structured findings payload, the ack/nack message/ApprovalEntry field that carries it, and its boundary validation \u2014 so S3's server-side verdict computes from an actually-delivered payload rather than an assumed one. (Contained by the off\u2192log\u2192on gate; surface, not block.)"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-07T00:29:52.100184+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "80ca3e47-b634-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=112096 util=0.11 cache_hit=0.97 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:30:05.394205+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "21bad9de-a103-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:30:17.896729+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9bb9e00d-a719-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "reviewer_plan ACK of task_planner plan (SHA 70e3250e7, .egg-state/drafts/3523-plan.md). No blocking findings. Structural review passed against the issue, the architect DAG, and the ratified risk_analyst assessment:\n\nSTRUCTURE (verified): Forest-valid \u2014 one independent prompt-only root (S1) plus a single stackable chain S2\u2192S3\u2192S4\u2192S5\u2192S6\u2192S7\u2192S8, every slice \u22641 parent. #3046 file-overlap clean \u2014 consensus_wrapper.py is touched only by S3 (verdict render), S4 (tool-call cap), and S7 (prefix wiring), all on the one chain; S6 correctly does NOT edit consensus_wrapper.py (uses the pre-existing effort= param), and S1's shared/prompts/*-criteria.md files are kept disjoint from the orchestrator/routes/pipelines/_criteria.py stance/prefix seam so S1 legitimately stays an independent root (confirmed both paths exist and differ). All 5 items + docs covered; binding sequencing honored (prompt-rules S1 \u2192 schema S2 \u2192 verdict S3 \u2192 cap S4 \u2192 router core/wiring S5/S6 \u2192 evidence prefix S7 \u2192 docs S8). Staged off\u2192log\u2192on flags (EGG_REVIEW_FINDINGS_MODE, EGG_RISK_ROUTER, EGG_REVIEW_EVIDENCE_PREFIX) modeled on green_gate_mode with typo-fails-to-off tests; S1/S2/S5 correctly flagless (additive/unwired). HARD floors (no-match\u21d2full graph+warning, floor tier, security-lens un-gatable) encoded in S5/S6. Reference /review skill fetch mandated before writing any prompt/tier text. Cost first-class. All target files exist.\n\nADVISORY (non-blocking, PLAUSIBLE per the verification ladder \u2014 all on-mode completeness, deferred safely by off-default+log-first; carry into implement phase, do NOT block plan on these):\n- R1 (effort pin): S6 wires the \"existing\" --effort plumbing but --effort is pinned only for fable aliases today (agent_model_resolution.py:420 effort=FABLE_EFFORT if model in _FABLE_ALIASES else None); on-mode tier\u2192effort is a NEW pin for opus. S6 acceptance should add: the exact tier\u2192--effort token mapping (low/medium/high/xhigh) validated as accepted by the sandbox Claude Code build, and a regression test that a no-match/off leaves opus effort=None (byte-identical-to-today baseline). off/log parity is already asserted.\n- R2 (recovery/health reproducibility): S6's \"thread per-slice context so ALL consumers see the gated graph consistently \u2014 do NOT fork into each caller\" is the right directive, but the on-mode fix needs the resolved per-slice graph/tier PERSISTED at schedule time and READ back by the recovery/health callers (startup_reconciliation.py, health_checks/tier1/incomplete_consensus_stall.py, kubernetes_monitor.py) that call get_review_graph_for_phase with no slice context \u2014 else, on flip-to-on, the stall detector computes the full expected-reviewer set for a legitimately-gated slice and false-alarms. Those callers are not in S6's file list; implement phase must include them (or resolve gating purely inside the chokepoint from persisted slice state). log-first defers this until on.\n- R3 (NACK barrier): S3 tests verdict parity but not producer-visible barrier-text parity; add a test that _render_nacks_section (routes/event_prompt/_render_nacks.py, the open-NACK barrier the producer reads) stays byte-identical in log mode and never renders blank on the degraded/empty-findings case.\n- R4 (cost gate): S7 requires \"a measured net cost reduction before on\" but does not pin the threshold, the baseline, the net-of-gatherer formula (subtract the gatherer's own per-wave token cost), or the per-wave (slice+revision-round) attribution key. Pin these as explicit S7 acceptance so the flip is mechanical, not eyeballed.\n- R7 (gatherer privilege): S7-1 registers the gatherer role in agent_roles.py but its unprivileged posture must be STRUCTURAL \u2014 denied push/post/verdict at the gateway role layer (shared/egg_restrictions/patterns.py) and with NO edge in review_graph.py \u2014 not merely unused; add those to S7's scope/acceptance.\n\nAll five are folded consistently with the risk_analyst's implementation_recommendations. None rise to operator HITL. ACK with these carried forward as implement-phase obligations.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3523-plan.md"
+        ],
+        "reason": "reviewer_plan ACK of task_planner plan (SHA 70e3250e7, .egg-state/drafts/3523-plan.md). No blocking findings. Structural review passed against the issue, the architect DAG, and the ratified risk_analyst assessment:\n\nSTRUCTURE (verified): Forest-valid \u2014 one independent prompt-only root (S1) plus a single stackable chain S2\u2192S3\u2192S4\u2192S5\u2192S6\u2192S7\u2192S8, every slice \u22641 parent. #3046 file-overlap clean \u2014 consensus_wrapper.py is touched only by S3 (verdict render), S4 (tool-call cap), and S7 (prefix wiring), all on the one chain; S6 correctly does NOT edit consensus_wrapper.py (uses the pre-existing effort= param), and S1's shared/prompts/*-criteria.md files are kept disjoint from the orchestrator/routes/pipelines/_criteria.py stance/prefix seam so S1 legitimately stays an independent root (confirmed both paths exist and differ). All 5 items + docs covered; binding sequencing honored (prompt-rules S1 \u2192 schema S2 \u2192 verdict S3 \u2192 cap S4 \u2192 router core/wiring S5/S6 \u2192 evidence prefix S7 \u2192 docs S8). Staged off\u2192log\u2192on flags (EGG_REVIEW_FINDINGS_MODE, EGG_RISK_ROUTER, EGG_REVIEW_EVIDENCE_PREFIX) modeled on green_gate_mode with typo-fails-to-off tests; S1/S2/S5 correctly flagless (additive/unwired). HARD floors (no-match\u21d2full graph+warning, floor tier, security-lens un-gatable) encoded in S5/S6. Reference /review skill fetch mandated before writing any prompt/tier text. Cost first-class. All target files exist.\n\nADVISORY (non-blocking, PLAUSIBLE per the verification ladder \u2014 all on-mode completeness, deferred safely by off-default+log-first; carry into implement phase, do NOT block plan on these):\n- R1 (effort pin): S6 wires the \"existing\" --effort plumbing but --effort is pinned only for fable aliases today (agent_model_resolution.py:420 effort=FABLE_EFFORT if model in _FABLE_ALIASES else None); on-mode tier\u2192effort is a NEW pin for opus. S6 acceptance should add: the exact tier\u2192--effort token mapping (low/medium/high/xhigh) validated as accepted by the sandbox Claude Code build, and a regression test that a no-match/off leaves opus effort=None (byte-identical-to-today baseline). off/log parity is already asserted.\n- R2 (recovery/health reproducibility): S6's \"thread per-slice context so ALL consumers see the gated graph consistently \u2014 do NOT fork into each caller\" is the right directive, but the on-mode fix needs the resolved per-slice graph/tier PERSISTED at schedule time and READ back by the recovery/health callers (startup_reconciliation.py, health_checks/tier1/incomplete_consensus_stall.py, kubernetes_monitor.py) that call get_review_graph_for_phase with no slice context \u2014 else, on flip-to-on, the stall detector computes the full expected-reviewer set for a legitimately-gated slice and false-alarms. Those callers are not in S6's file list; implement phase must include them (or resolve gating purely inside the chokepoint from persisted slice state). log-first defers this until on.\n- R3 (NACK barrier): S3 tests verdict parity but not producer-visible barrier-text parity; add a test that _render_nacks_section (routes/event_prompt/_render_nacks.py, the open-NACK barrier the producer reads) stays byte-identical in log mode and never renders blank on the degraded/empty-findings case.\n- R4 (cost gate): S7 requires \"a measured net cost reduction before on\" but does not pin the threshold, the baseline, the net-of-gatherer formula (subtract the gatherer's own per-wave token cost), or the per-wave (slice+revision-round) attribution key. Pin these as explicit S7 acceptance so the flip is mechanical, not eyeballed.\n- R7 (gatherer privilege): S7-1 registers the gatherer role in agent_roles.py but its unprivileged posture must be STRUCTURAL \u2014 denied push/post/verdict at the gateway role layer (shared/egg_restrictions/patterns.py) and with NO edge in review_graph.py \u2014 not merely unused; add those to S7's scope/acceptance.\n\nAll five are folded consistently with the risk_analyst's implementation_recommendations. None rise to operator HITL. ACK with these carried forward as implement-phase obligations.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-07T00:31:00.755016+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a7cc5b57-ab36-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:31:11.910972+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b64b401d-d54e-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=152144 util=0.15 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:31:15.307522+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5b03a873-0076-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition [high]",
+    "body": "simplifier's gateway session_phase is stale at 'refine' while the pipeline is in 'plan'; blocks committing plan-draft-human\n\nDetail:\nThe pipeline is in the plan phase: EGG_PHASE=plan, contract current_phase=plan, get_state shows plan-phase agents (architect/task_planner/risk_analyst/reviewer_plan/simplifier), and the task_planner's plan proposal (commit 70e3250e) is already on origin/egg/issue-3523/work. I (simplifier) authored my plan-phase producer artifact .egg-state/drafts/3523-plan-human.md (faithful/jargon-free rendering of the task_planner's plan) and staged it, but `git commit` is denied by the gateway: \"Phase 'refine' cannot modify: .egg-state/drafts/3523-plan-human.md\". Root cause: the gateway resolves session_phase from the stored session object (gateway/auth.py:141 -> result.session.phase; enforced at gateway/gateway/_git_ops.py:319 + phase_filter.py:796). My session (branch egg/issue-3523-simplifier/work) was created during refine and its phase was never updated to 'plan' (no session_phase_updated for my session), even across ~8 one-shot re-spawns that all carry EGG_PHASE=plan. mcp__sdlc__check_file_restriction(role=simplifier, phase=plan) returns can_write=true, so only the stale session state is blocking. I am NOT bypassing the gateway. This blocks reviewer_plan (needs plan-draft-human to exist) and therefore plan-phase consensus.\n\nRecommended action:\nSync the simplifier's gateway session phase to 'plan' (issue a session_phase_updated / re-register the egg/issue-3523-simplifier/work session at the current pipeline phase) so the plan-phase producer can commit+push. Then re-spawn simplifier with a propose event. If session-phase updates are supposed to fire automatically on phase transition, investigate why the simplifier's long-lived session was skipped when refine->plan advanced.",
+    "metadata": {},
+    "timestamp": "2026-07-07T00:32:28.933235+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fb5fb894-194a-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:32:29.382172+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7b5a1a36-8370-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=215031 util=0.22 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:33:12.632542+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "98b49a74-5f16-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:33:22.260949+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4029dfbb-d18f-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:33:29.403469+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b23ede6c-8202-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:33:32.651435+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e4f25037-4c33-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase (00:33:32Z). plan-draft-human authored + staged, but commit still denied: gateway session_phase stale at 'refine' (~1min after my high-priority stuck-phase-transition alert at 00:32Z). Blocked on the orchestrator/overseer to sync my session phase to 'plan'. Not re-alerting yet (avoid spam; will re-alert only if >~10min stale). Will retry commit+propose on next spawn.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "overseer"
+    },
+    "timestamp": "2026-07-07T00:34:44.180424+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ca15f3f3-c4a4-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=224534 util=0.22 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:34:52.901175+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "70128581-9647-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:35:55.913401+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0652ddb5-c24d-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:38:10.285356+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f7de4e03-6735-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:40:33.686484+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cfc4b8b1-f15b-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:43:12.351943+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5db73b7e-23a0-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:45:25.342736+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "faf49ed6-0b32-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:48:24.397076+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b0731851-4269-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:51:06.922383+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7bad34fb-5cf8-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:53:16.436946+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7b26b320-c74f-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:55:46.770416+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e810828a-8123-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T00:58:31.744663+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c915b8bc-4534-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition [high]",
+    "body": "Plan-phase consensus wedged ~25min: simplifier's gateway session_phase stuck at 'refine', denying its commit so it cannot propose\n\nDetail:\nRoot cause (reported by simplifier itself at 00:34:44Z): its plan-draft-human artifact is authored + staged, but the gateway denies its commit because the gateway session_phase is STALE at 'refine' while the pipeline current_phase is 'plan'. The simplifier already raised a HIGH stuck-phase-transition alert at 00:32Z and has emitted no heartbeat since 00:34:52Z \u2014 each one-shot re-spawn hits the same gateway denial and exits without committing, so it never reaches CONSENSUS_PROPOSE.\n\nCorroborating evidence: BRC matrix shows simplifier producer_phase=WORKING (never PROPOSED) while architect, task_planner, and risk_analyst are all PROPOSED and cross-ACKed (reviewer_plan + risk_analyst ACKed all three, no blocking NACKs). Zero consensus-level activity since the last ACK at 00:31:00Z (~25min). Plan phase elapsed ~52min, approaching the 3600s long-running backstop. has_unresolved_nacks=false, pending_decisions=0 \u2014 the blocker is infrastructural (phase desync), not a review disagreement. The condition has persisted well past the simplifier's own 10-min re-alert threshold without resolution and cannot self-heal: the agent explicitly waits_on the orchestrator/overseer to sync its session phase. Note the orchestrator's automated silent-agent (600s) detector has NOT fired, likely because the pod exits cleanly each spawn (reads as parked, not silent) \u2014 so this wedge may go unflagged by the standard detectors.\n\nRecommended action:\nSync/refresh the gateway session_phase for the simplifier's agent session (and verify all plan-phase agents) from 'refine' to 'plan' so its staged plan-draft-human commit is accepted and it can CONSENSUS_PROPOSE. If the gateway session is unrecoverable, restart/re-spawn the simplifier session against the correct 'plan' phase. Then confirm the simplifier reaches PROPOSED and reviewers ACK it so plan consensus can converge. Root-cause the refine\u2192plan gateway phase-sync gap so producer commits aren't denied after a phase transition.",
+    "metadata": {},
+    "timestamp": "2026-07-07T01:00:02.287310+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "de3f9b31-8c0c-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition: event-loop [high]",
+    "body": "Event-loop for pipeline=issue-3523 slice=None phase=plan has derived action=propose for role=simplifier but the actionable event has been pending for 1803s without BRC-bus progress (budget=30m). No in-flight Job exists for this event.",
+    "metadata": {
+      "anomaly": "stuck-phase-transition",
+      "priority": "high",
+      "summary": "orchestrator convergence stall: simplifier propose pending 1803s (budget 30m)"
+    },
+    "timestamp": "2026-07-07T01:01:03.940603+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6d3c310e-ae3c-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:02:04.666694+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dee9a173-b9c8-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:02:41.315307+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "64bc5601-f497-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:02:49.805865+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "57ef1344-f503-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase (01:03Z). Filed report_impasse(external_blocker): plan-draft-human ready but commit denied ~30min due to stale gateway session_phase='refine'; simplifier is the sole blocking agent for plan consensus. Stopping per impasse guidance. Resolution = sync simplifier session phase to 'plan', then re-spawn to commit+propose (no plan changes needed).",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "overseer"
+    },
+    "timestamp": "2026-07-07T01:04:16.760069+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1019aebd-a477-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:04:23.048736+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "169d4480-0179-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=235266 util=0.24 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:04:29.961912+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8e9fa808-fca6-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:06:23.800692+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8e11bee8-d8f9-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:08:39.662370+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9c70e970-6f57-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:10:49.476177+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4e22c1a8-4f5e-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:13:01.986077+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b3ce32cf-b2a3-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:15:04.813662+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "08058d7f-1637-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:17:13.856292+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c65eccd6-77d2-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:19:16.444966+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cc9762ac-6e59-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:21:18.249701+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "480712fd-9eb9-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:23:22.929036+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "148c1bc2-5881-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:25:24.760280+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "02cce1a4-326c-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:27:26.118789+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5e585a6b-e12a-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:29:29.904699+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d31db983-faa4-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:31:31.999836+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0237351e-7518-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:32:45.346542+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "189c3c01-9c0a-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:32:52.053062+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cd965686-c232-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:33:36.689351+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a3af4ecf-1a4c-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition [high]",
+    "body": "DEADLOCK: simplifier blocked ~60min by stale gateway session_phase='refine'; impasse can't self-resolve because it escalates post-phase and the phase is blocked by this very agent\n\nDetail:\nOngoing since 00:32Z (~60min). The simplifier's plan-phase producer artifact (.egg-state/drafts/3523-plan-human.md) is authored and ready, but every commit is denied: \"Phase 'refine' cannot modify\" \u2014 the gateway session_phase for branch egg/issue-3523-simplifier/work is stale at 'refine' while the pipeline is in 'plan'. I filed report_impasse(external_blocker) at 01:03Z (written to .egg-state/agent-outputs/issue-3523-simplifier-output.json). DEADLOCK RISK: that impasse is designed to be read POST-PHASE, but the plan phase cannot complete because the simplifier is the SOLE blocking agent (architect/task_planner/risk_analyst all PROPOSED; reviewer_plan REVIEWING; simplifier stuck WORKING). So the normal impasse auto-escalation path cannot fire. This needs DIRECT operator action, not a post-phase hook. check_file_restriction(role=simplifier, phase=plan)=can_write true; EGG_PHASE=plan; contract=plan \u2014 only the stale gateway session state blocks. I am not bypassing the gateway. Root cause: gateway/auth.py:141 session.phase; enforced gateway/gateway/_git_ops.py:319 + phase_filter.py:796.\n\nRecommended action:\nOperator action required NOW: sync the simplifier's gateway session phase for branch egg/issue-3523-simplifier/work from 'refine' to 'plan' (session_phase_updated / re-register the session), OR restart the gateway session for that branch so it picks up EGG_PHASE=plan. After that, re-spawn simplifier with a propose event \u2014 it will re-create the draft, commit, and mcp__brc__propose immediately (no plan changes needed). Also worth fixing systemically: session-phase updates should fire on every active agent session at each phase transition, not only for sessions created after the transition.",
+    "metadata": {},
+    "timestamp": "2026-07-07T01:34:06.080089+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5d04660f-048b-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase (01:34Z). Still blocked ~60min: stale gateway session_phase='refine' denies commit of ready plan-draft-human. Re-raised high-priority deadlock alert (impasse can't auto-resolve because it fires post-phase and this agent is the sole phase blocker). Awaiting direct operator action to sync my session phase to 'plan'. No plan changes needed once unblocked.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "overseer"
+    },
+    "timestamp": "2026-07-07T01:34:13.059108+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6cd300d8-274e-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=247085 util=0.25 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:34:21.734945+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "058aa6da-0971-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:37:32.204209+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "561c8138-661a-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:40:08.018881+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2227c12c-11bf-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:42:09.286845+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4a68dc83-8bb9-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:44:11.362628+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8e584901-453c-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:46:13.883506+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "423aac3d-960c-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:48:14.837928+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1e60cbcc-4236-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:50:15.297311+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "09b23a69-12c6-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:52:19.857583+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e445ffc0-6180-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:54:21.530373+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "49f66e6f-9b13-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T01:56:22.896557+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "30fe8d1b-734d-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T02:00:19.764345+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "19d3906f-e96d-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T02:02:24.409495+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fd8bbc0c-3cdf-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T02:02:50.293089+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "131c9e37-c2de-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T02:02:56.022759+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f0ecf05c-92d5-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase (02:02Z). Still blocked ~90min by stale gateway session_phase='refine'; commit of ready plan-draft-human still denied. Impasse (01:03Z) + 2 high-priority deadlock alerts (00:32Z, 01:34Z) already filed with the operator fix. Holding re-alert to avoid spam; awaiting operator session-phase sync. No plan changes needed once unblocked.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "overseer"
+    },
+    "timestamp": "2026-07-07T02:04:05.272992+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "92d5ab38-b6d2-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=255787 util=0.26 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T02:04:13.599781+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "df6e0aa9-6cc8-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T02:04:36.438963+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9cd8cc06-f490-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T02:06:36.621285+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2eb9c3bf-cc34-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T02:08:46.743882+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9bd93d84-622d-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=199806 util=n/a cache_hit=1.00 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T02:09:05.608723+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2c9a0dd1-7eba-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T02:32:55.313153+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6c0d6105-5aa6-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T02:33:37.563912+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c5b84c18-9d26-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition [high]",
+    "body": "Still deadlocked ~2h: simplifier's gateway session_phase stuck at 'refine', blocking the only remaining plan-phase producer artifact\n\nDetail:\nUnresolved since 00:32Z (~2 hours). The simplifier's plan-draft-human (.egg-state/drafts/3523-plan-human.md) is authored and ready but every commit is denied \"Phase 'refine' cannot modify\" because the gateway session_phase for branch egg/issue-3523-simplifier/work remains stale at 'refine' while the pipeline is in 'plan'. Prior escalations: overseer alerts 00:32Z + 01:34Z and report_impasse(external_blocker) 01:03Z. The simplifier is the SOLE blocking agent (architect/task_planner/risk_analyst PROPOSED, reviewer_plan REVIEWING), so plan consensus cannot complete and the post-phase impasse hook cannot fire \u2014 this is a hard deadlock needing direct operator action. EGG_PHASE=plan, contract=plan, check_file_restriction(role=simplifier,phase=plan)=can_write true; only the stale gateway session state blocks. Not bypassing the gateway.\n\nRecommended action:\nDirect operator action required: sync/refresh the gateway session phase for branch egg/issue-3523-simplifier/work to 'plan' (session_phase_updated / re-register / restart that branch's gateway session). Then re-spawn simplifier \u2014 it will commit the ready draft and mcp__brc__propose immediately; no plan changes are needed. If no operator is available, consider whether the pipeline should abort the plan phase rather than idle indefinitely on this infra deadlock.",
+    "metadata": {},
+    "timestamp": "2026-07-07T02:34:01.154392+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "559fc934-e988-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase (02:34Z). Still blocked ~2h by stale gateway session_phase='refine'; ready plan-draft-human still uncommittable. Re-raised high-priority deadlock alert (3rd alert + 1 impasse). Awaiting direct operator session-phase sync.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "overseer"
+    },
+    "timestamp": "2026-07-07T02:34:07.047663+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3d6aea1b-fadb-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=264877 util=0.26 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T02:34:13.749341+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f86d7bc9-bd99-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T03:02:59.967661+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "53033e68-4722-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T03:03:09.523755+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0cf5d47e-d7e1-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Plan phase (03:03Z). Still blocked ~2.5h by stale gateway session_phase='refine'; ready plan-draft-human still uncommittable. 3 high-priority alerts + 1 impasse already filed (last alert 02:34Z). Holding re-alert (hourly cadence); awaiting operator session-phase sync. No plan changes needed once unblocked.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "overseer"
+    },
+    "timestamp": "2026-07-07T03:04:03.440752+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "61c677ed-14a2-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=272756 util=0.27 cache_hit=1.00 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T03:04:10.381006+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5a9aedb8-9d59-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "consensus-timeout: reviewer_plan [high]",
+    "body": "BRC consensus has not converged after 180 minutes in phase 'plan'.\nBlocking agents: reviewer_plan, simplifier\nLatest proposal: 2026-07-07T00:27:05.295297+00:00\nLatest heartbeat (active roles): no recent heartbeat\n\nThe pipeline continues to poll for convergence (up to ~60 min before still-running containers are force-killed). If you want to intervene, use `cancel_task` to stop the pipeline or `restart_phase` to retry.",
+    "metadata": {
+      "anomaly_type": "consensus-timeout",
+      "phase": "plan",
+      "blocking_agents": [
+        "reviewer_plan",
+        "simplifier"
+      ],
+      "latest_proposal_at": "2026-07-07T00:27:05.295297+00:00",
+      "latest_heartbeat_at": null,
+      "consensus_timeout_minutes": 180,
+      "priority": "high"
+    },
+    "timestamp": "2026-07-07T03:08:57.826785+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "11863e54-a8d6-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:10:51.882156+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "87a0d0df-1178-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:10:55.332801+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e525272d-0bcb-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:10:58.901394+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e9b69ff0-ac39-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:10:59.988473+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "de65fec1-4088-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:11:01.417145+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c7a13ef1-3281-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:11:10.702669+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9eb2cff5-9db0-40",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:11:14.411350+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "48c69f84-1cac-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition [high]",
+    "body": "Overseer-confirmed hard deadlock (~3.5h): simplifier's gateway session_phase stuck at 'refine' blocks the sole remaining plan-phase producer; past 180-min consensus timeout, approaching force-kill.\n\nDetail:\nIndependent overseer confirmation of the simplifier's self-reported deadlock. Unresolved since 00:32Z (~3.5h as of 04:11Z).\n\nROOT CAUSE (infrastructure, not agent misbehavior): The gateway session_phase for branch egg/issue-3523-simplifier/work is stale at 'refine' while the pipeline is in 'plan'. Every commit of the simplifier's already-authored producer artifact (.egg-state/drafts/3523-plan-human.md) is denied with \"Phase 'refine' cannot modify\". Verified non-gateway state is correct: contract current_phase=plan, EGG_PHASE=plan, check_file_restriction(role=simplifier, phase=plan)=can_write true. No gateway bypass attempted. Enforcement path per simplifier: gateway/auth.py:141 session.phase; gateway/_git_ops.py:319 + phase_filter.py:796.\n\nWHY IT CANNOT SELF-RESOLVE: BRC matrix shows simplifier is the SOLE blocking producer (architect/task_planner/risk_analyst PROPOSED; reviewer_plan REVIEWING). Plan consensus therefore cannot converge, so the post-phase report_impasse(external_blocker) auto-escalation hook (filed 01:03Z) can never fire. This is a structural deadlock requiring direct operator action.\n\nPRIOR SIGNALS (this is a consolidation, not a new/independent finding): simplifier OVERSEER_ALERTs at 00:32Z, 01:34Z, 02:34Z; report_impasse at 01:03Z; orchestrator consensus-timeout alert at 03:08Z (180 min; blocking=reviewer_plan, simplifier).\n\nNEW TIME-SENSITIVE ELEMENT: We are now past the 180-min consensus timeout. Per the orchestrator's own timeout notice, still-running containers are force-killed up to ~60 min after that threshold \u2014 so the completed plan-phase work (architect 7-slice DAG + downstream proposals) is at imminent risk of being lost if no operator acts.\n\nRecommended action:\nDirect operator action required NOW (before force-kill): sync/refresh the gateway session phase for branch egg/issue-3523-simplifier/work from 'refine' to 'plan' (session_phase_updated / re-register / restart that branch's gateway session so it picks up EGG_PHASE=plan). Then re-spawn simplifier with a propose event \u2014 it will commit the ready draft and mcp__brc__propose immediately; no plan changes are needed. If no operator is available before the force-kill window, prefer restart_phase(plan) over letting containers be killed mid-phase. Systemic fix: session-phase updates should propagate to ALL active agent sessions at each phase transition, not only sessions created after the transition.",
+    "metadata": {},
+    "timestamp": "2026-07-07T04:12:01.354841+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7f42b163-db3b-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Re-propose (unchanged content) after the orchestrator's controlled rebase linearized the plan branch and orphaned my prior proposal SHA 70e3250, resetting task_planner to WORKING. Same 8-slice FOREST plan (commit ac0aeda1d, now in tip 6940838), reconciled to the architect's recommended DAG. Two file-disjoint parallel roots \u2014 S1 shared/prompts/*-criteria.md (item 3 method-angles + item 2 verification ladder, prompt-only, no flag) and S2 versioned finding schema in shared/egg_contracts/ (additive, boundary-validated); then a serial consensus_wrapper.py spine \u2014 S3 server-side computed verdict from findings + mechanism dedup/convergence (EGG_REVIEW_FINDINGS_MODE off->log->on), S4 per-finding tool-call cap (same flag), S5 deterministic risk-router core + .egg/review-risk.yaml (pure, unwired), S6 router wiring: lens gating at the review_graph chokepoint + effort tiers + code-side stance conditional (EGG_RISK_ROUTER, log-first, HARD floors: no-match=>full graph+warning, security lens un-gatable on auth/input paths), S7 read-only evidence-gatherer role + byte-identical shared prefix (EGG_REVIEW_EVIDENCE_PREFIX, cold-start tester/verifier, Delphi unchanged, cost-gated flip to on), S8 tail docs. Conforms to architect structure; two owner refinements the architect pre-authorized: split its one-slice router into core+wiring (sizing), and reduced its multi-parent deps to single stackable parents for forest-validity. Every behavior-shifting piece rides off->log->on and fails safe to off; cost first-class; reviewer prompts + router taxonomy mirror the Claude Code /review skill. Parses clean (0 warnings); all 18 tasks role-assigned and files verified writable by role via check_file_restriction; all cross-slice file overlaps sit on the dependency spine.",
+    "metadata": {
+      "payload": {
+        "summary": "Re-propose (unchanged content) after the orchestrator's controlled rebase linearized the plan branch and orphaned my prior proposal SHA 70e3250, resetting task_planner to WORKING. Same 8-slice FOREST plan (commit ac0aeda1d, now in tip 6940838), reconciled to the architect's recommended DAG. Two file-disjoint parallel roots \u2014 S1 shared/prompts/*-criteria.md (item 3 method-angles + item 2 verification ladder, prompt-only, no flag) and S2 versioned finding schema in shared/egg_contracts/ (additive, boundary-validated); then a serial consensus_wrapper.py spine \u2014 S3 server-side computed verdict from findings + mechanism dedup/convergence (EGG_REVIEW_FINDINGS_MODE off->log->on), S4 per-finding tool-call cap (same flag), S5 deterministic risk-router core + .egg/review-risk.yaml (pure, unwired), S6 router wiring: lens gating at the review_graph chokepoint + effort tiers + code-side stance conditional (EGG_RISK_ROUTER, log-first, HARD floors: no-match=>full graph+warning, security lens un-gatable on auth/input paths), S7 read-only evidence-gatherer role + byte-identical shared prefix (EGG_REVIEW_EVIDENCE_PREFIX, cold-start tester/verifier, Delphi unchanged, cost-gated flip to on), S8 tail docs. Conforms to architect structure; two owner refinements the architect pre-authorized: split its one-slice router into core+wiring (sizing), and reduced its multi-parent deps to single stackable parents for forest-validity. Every behavior-shifting piece rides off->log->on and fails safe to off; cost first-class; reviewer prompts + router taxonomy mirror the Claude Code /review skill. Parses clean (0 warnings); all 18 tasks role-assigned and files verified writable by role via check_file_restriction; all cross-slice file overlaps sit on the dependency spine.",
+        "attestation": {
+          "no_decisions_rationale": "Issue #3523 is a complete prescriptive operator directive: the five changes, per-field finding schema, off->log->on rollout, sequencing, floor/independence guardrails, and out-of-scope boundary are fixed by the issue text plus the two operator directives (mirror the /review skill; cost first-class). The refine phase registered zero decisions and the operator confirmed that attestation. The remaining choices (slice cut-points, schema field encodings, router config format/path, gatherer packaging) are implementation-level, not operator scope forks. The architect and task_planner DAGs agree on structure; the two task_planner refinements (router core/wiring split; single-parent reduction of the architect's multi-parent deps) are within the DAG/packaging authority the architect explicitly delegated and are required by the platform's hard forest constraint. No genuine scope fork surfaced during planning; this re-propose carries no content change."
+        },
+        "artifacts": [
+          ".egg-state/drafts/3523-plan.md"
+        ],
+        "risk_considered": "No content change from the prior proposal \u2014 this is purely a re-propose after a branch history rewrite invalidated the earlier SHA. Determinism-boundary regression (S3) mitigated by pure unit-tested verdict fn + log-mode computed-vs-legacy diff + retained legacy path until on. Router under-review (S6) mitigated by no-match=>full graph+warning, floor tier, security-lens un-gatable, log-first. Anchoring/cache-fragility (S7) mitigated by evidence-never-conclusions, mechanical path ordering, cold-start tester/verifier, unchanged Delphi, byte-identical prefix measured before on. Oversized-slice NACK mitigated by splitting item 1 (schema vs verdict), isolating the tool-call cap, and splitting the router (core vs wiring).",
+        "commit_sha": "694083835607571db938e0cce3ca66623ebd1cc6",
+        "files_changed": [
+          ".egg-state/drafts/3523-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "TASK-1-1",
+          "TASK-1-2",
+          "TASK-1-3",
+          "TASK-2-1",
+          "TASK-2-2",
+          "TASK-3-1",
+          "TASK-3-2",
+          "TASK-4-1",
+          "TASK-4-2",
+          "TASK-5-1",
+          "TASK-5-2",
+          "TASK-6-1",
+          "TASK-6-2",
+          "TASK-6-3",
+          "TASK-7-1",
+          "TASK-7-2",
+          "TASK-7-3",
+          "TASK-8-1"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "694083835607571db938e0cce3ca66623ebd1cc6"
+    },
+    "timestamp": "2026-07-07T04:12:19.496367+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "180127b5-d659-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:12:26.032569+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ec4d9065-c8e4-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:12:28.578931+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9cde8ce6-d20c-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:12:33.913487+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d8249996-5ff6-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:12:41.603561+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "596f1113-59c4-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from simplifier",
+    "body": "Human-focused plan companion for issue #3523 (plan-draft-human). A faithful, jargon-free rendering of the task_planner's plan-draft (70e3250e): translates the 8-step build DAG (S1 prompt-only reviewer-criteria root; S2 finding schema; S3 server-side computed verdict + convergence; S4 per-finding tool-call cap; S5 risk-router core; S6 router wiring/gating/effort/stance; S7 shared-evidence prefix; S8 docs), the serial consensus_wrapper.py spine rationale, the off\u2192log\u2192on staged switches on the four behavior-shifting steps, cost as a first-class goal, the Claude Code /review-skill modeling directive, the test strategy, the staged post-merge rollout, and the \"no open decisions\" conclusion into plain language for a non-technical reader. Faithful to the plan; no scope added. (Note: authored + ready since ~00:30Z; commit was blocked ~3.5h by a stale gateway session_phase now resolved via plan-phase refresh.)",
+    "metadata": {
+      "payload": {
+        "summary": "Human-focused plan companion for issue #3523 (plan-draft-human). A faithful, jargon-free rendering of the task_planner's plan-draft (70e3250e): translates the 8-step build DAG (S1 prompt-only reviewer-criteria root; S2 finding schema; S3 server-side computed verdict + convergence; S4 per-finding tool-call cap; S5 risk-router core; S6 router wiring/gating/effort/stance; S7 shared-evidence prefix; S8 docs), the serial consensus_wrapper.py spine rationale, the off\u2192log\u2192on staged switches on the four behavior-shifting steps, cost as a first-class goal, the Claude Code /review-skill modeling directive, the test strategy, the staged post-merge rollout, and the \"no open decisions\" conclusion into plain language for a non-technical reader. Faithful to the plan; no scope added. (Note: authored + ready since ~00:30Z; commit was blocked ~3.5h by a stale gateway session_phase now resolved via plan-phase refresh.)",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/3523-plan-human.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "9979fa247",
+        "files_changed": [
+          ".egg-state/drafts/3523-plan-human.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "9979fa247"
+    },
+    "timestamp": "2026-07-07T04:12:56.182506+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7709a429-44b4-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:12:59.352659+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "888573bd-2212-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:13:10.781679+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b8da3b46-b1d9-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=233360 util=0.23 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:13:12.087490+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e5d94cb4-0f33-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "reviewer_plan re-ACK of task_planner plan at proposal SHA 694083835. VERIFIED the plan artifact is byte-identical to my prior ACK: git rev-parse shows .egg-state/drafts/3523-plan.md resolves to the SAME blob 6035c731e154d75bb759ce428a70aebf104dd2a2 at both the previously-ACKed SHA 70e3250e7 and this SHA; the only delta between the two commits is an unrelated docs/guides/pipeline-health-monitoring.md edit. The new SHA is a consolidated/rebased plan-phase tip carrying the architect + risk_analyst + task_planner outputs together \u2014 no change to the plan under review.\n\nPrior verdict therefore stands unchanged: ACK, no blocking findings. Structure re-confirmed sound (forest-valid: S1 root + S2\u2192S3\u2192S4\u2192S5\u2192S6\u2192S7\u2192S8 single chain, each \u22641 parent; #3046-clean: consensus_wrapper.py touched only by S3/S4/S7 all on the chain, S1's shared/prompts/* disjoint from the routes/pipelines/_criteria.py stance seam; all 5 items + docs covered; binding sequencing, staged off\u2192log\u2192on flags, HARD floors, /review reference, cost-first-class all honored).\n\nThe five advisory carry-forwards from my prior ACK remain in force for implement phase (all on-mode completeness, PLAUSIBLE not blocking, deferred by off-default+log-first): R1 \u2014 pin+validate the tier\u2192--effort token mapping and a no-match-leaves-opus-effort=None regression (on-mode is a NEW opus pin, not reuse of the fable-only path at agent_model_resolution.py:420); R2 \u2014 persist the resolved per-slice graph/tier and have the recovery/health callers (startup_reconciliation, incomplete_consensus_stall, kubernetes_monitor) read it before flip-to-on, or the stall detector diverges; R3 \u2014 add a _render_nacks_section barrier-text parity test (not just verdict parity); R4 \u2014 pin S7's cost-flip threshold/baseline/net-of-gatherer formula/per-wave attribution; R7 \u2014 make the gatherer's unprivileged posture structural (deny push/post/verdict at shared/egg_restrictions/patterns.py + no review_graph edge). None rise to operator HITL. ACK.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3523-plan.md"
+        ],
+        "reason": "reviewer_plan re-ACK of task_planner plan at proposal SHA 694083835. VERIFIED the plan artifact is byte-identical to my prior ACK: git rev-parse shows .egg-state/drafts/3523-plan.md resolves to the SAME blob 6035c731e154d75bb759ce428a70aebf104dd2a2 at both the previously-ACKed SHA 70e3250e7 and this SHA; the only delta between the two commits is an unrelated docs/guides/pipeline-health-monitoring.md edit. The new SHA is a consolidated/rebased plan-phase tip carrying the architect + risk_analyst + task_planner outputs together \u2014 no change to the plan under review.\n\nPrior verdict therefore stands unchanged: ACK, no blocking findings. Structure re-confirmed sound (forest-valid: S1 root + S2\u2192S3\u2192S4\u2192S5\u2192S6\u2192S7\u2192S8 single chain, each \u22641 parent; #3046-clean: consensus_wrapper.py touched only by S3/S4/S7 all on the chain, S1's shared/prompts/* disjoint from the routes/pipelines/_criteria.py stance seam; all 5 items + docs covered; binding sequencing, staged off\u2192log\u2192on flags, HARD floors, /review reference, cost-first-class all honored).\n\nThe five advisory carry-forwards from my prior ACK remain in force for implement phase (all on-mode completeness, PLAUSIBLE not blocking, deferred by off-default+log-first): R1 \u2014 pin+validate the tier\u2192--effort token mapping and a no-match-leaves-opus-effort=None regression (on-mode is a NEW opus pin, not reuse of the fable-only path at agent_model_resolution.py:420); R2 \u2014 persist the resolved per-slice graph/tier and have the recovery/health callers (startup_reconciliation, incomplete_consensus_stall, kubernetes_monitor) read it before flip-to-on, or the stall detector diverges; R3 \u2014 add a _render_nacks_section barrier-text parity test (not just verdict parity); R4 \u2014 pin S7's cost-flip threshold/baseline/net-of-gatherer formula/per-wave attribution; R7 \u2014 make the gatherer's unprivileged posture structural (deny push/post/verdict at shared/egg_restrictions/patterns.py + no review_graph edge). None rise to operator HITL. ACK.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-07T04:13:16.150922+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "379da9da-fa2d-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:13:20.944427+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d124103e-5a33-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:13:21.765687+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3a3d889b-65d8-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=159678 util=0.16 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:13:24.189374+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e1252eb3-9755-48",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by risk_analyst (pending_acks)",
+    "body": "Agent risk_analyst cannot confirm: producers ['architect', 'risk_analyst'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-07-07T04:13:25.884610+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e9aabcc6-90f3-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=286361 util=0.29 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:13:29.792870+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "62c21c6a-1861-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:13:30.299011+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "292a913d-bd0d-4e",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "simplifier",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for simplifier",
+    "body": "reviewer_plan ACK of simplifier human-companion (SHA 9979fa247, .egg-state/drafts/3523-plan-human.md). No blocking findings. Purely additive: one new plain-language file, touches no code and no machine plan. Verified faithful to the task_planner plan I ACKed at 70e3250e7 \u2014 every one of the eight plain-language steps maps exactly to S1\u2013S8 (method-angles+ladder / structured objection schema with required \"how it breaks\" / system-computed block-or-approve + dedup / per-objection tool-call cap / standalone risk dispatcher with floors / dispatcher wiring / read-only no-vote/no-post/no-GitHub gatherer / docs). The safety framing (off \u2192 watch-silently \u2192 on, typo-falls-back-to-off, legacy path stays until on, nothing changes on merge), cost-as-first-class (route low-risk cheaper; evidence pack must record a measured saving before its flip), the mirror-the-/review-checklist mandate (fetch the two issue comments before writing wording), the test strategy (ratchet guard, unit tests on the pure logic, log-mode-parity + typo\u2192off per behavior-shifting step, byte-identical prefix + independent fact-checkers), the human-rollout section, and the out-of-scope list all match the plan with no scope drift, no invented commitments, and no contradictions. It correctly omits the implement-phase advisories (R1/R2/R3/R4/R7) \u2014 those are not plan-companion content.\n\nADVISORY (trivial, non-blocking): lines 32-34 state the seven chained steps are ordered \"because they all edit the same central file,\" but S2 (finding schema) and S5 (risk router core) do not touch consensus_wrapper.py \u2014 they are chained by data-dependency and the platform's single-parent forest rule, not the shared file. It is a reasonable plain-language collapse of the plan's own serial-spine framing and changes no commitment or acceptance criterion, so it does not block. ACK.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3523-plan-human.md"
+        ],
+        "reason": "reviewer_plan ACK of simplifier human-companion (SHA 9979fa247, .egg-state/drafts/3523-plan-human.md). No blocking findings. Purely additive: one new plain-language file, touches no code and no machine plan. Verified faithful to the task_planner plan I ACKed at 70e3250e7 \u2014 every one of the eight plain-language steps maps exactly to S1\u2013S8 (method-angles+ladder / structured objection schema with required \"how it breaks\" / system-computed block-or-approve + dedup / per-objection tool-call cap / standalone risk dispatcher with floors / dispatcher wiring / read-only no-vote/no-post/no-GitHub gatherer / docs). The safety framing (off \u2192 watch-silently \u2192 on, typo-falls-back-to-off, legacy path stays until on, nothing changes on merge), cost-as-first-class (route low-risk cheaper; evidence pack must record a measured saving before its flip), the mirror-the-/review-checklist mandate (fetch the two issue comments before writing wording), the test strategy (ratchet guard, unit tests on the pure logic, log-mode-parity + typo\u2192off per behavior-shifting step, byte-identical prefix + independent fact-checkers), the human-rollout section, and the out-of-scope list all match the plan with no scope drift, no invented commitments, and no contradictions. It correctly omits the implement-phase advisories (R1/R2/R3/R4/R7) \u2014 those are not plan-companion content.\n\nADVISORY (trivial, non-blocking): lines 32-34 state the seven chained steps are ordered \"because they all edit the same central file,\" but S2 (finding schema) and S5 (risk router core) do not touch consensus_wrapper.py \u2014 they are chained by data-dependency and the platform's single-parent forest rule, not the shared file. It is a reasonable plain-language collapse of the plan's own serial-spine framing and changes no commitment or acceptance criterion, so it does not block. ACK.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-07T04:14:21.573632+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "44fe79ad-cbf3-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=163482 util=0.16 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:14:29.633858+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fcecca84-1026-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:15:05.246132+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e9bc9742-fa94-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:15:19.067765+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e812ec3c-893a-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Risk assessment for the review-quality overhaul (#3523), grounded against the live worktree (R1\u2013R8, each with file:line anchors + mitigations + a per-flag rollback). Verdict: PROCEED_WITH_MITIGATIONS (overall MEDIUM). The issue is prescriptive and heavily guard-railed and the decomposition honors the binding sequencing, staged off\u2192log\u2192on discipline, and floor rules. Residual risk is concentrated in PLUMBING-REUSE assumptions the issue's \"reuse the existing X\" phrasing under-weights: R1 \u2014item 4's \"--effort plumbing reuse\" is actually a NEW effort pin for claude/opus (effort is pinned only for fable today; every other model is effort=None/byte-identical-to-default), so it must ship behind the router flag and keep effort=None on no-match; R2 \u2014get_review_graph_for_phase is the gating chokepoint but is called from recovery/health paths (startup_reconciliation, incomplete_consensus_stall, kubernetes_monitor) with no slice context, so the gated graph must be a deterministic read of persisted per-slice resolution or the stall-detector's expected-reviewer set diverges; R3 \u2014ApprovalEntry.reason IS the producer's open-NACK barrier, so the findings\u2192reason renderer must land in lockstep and log-mode must keep the legacy prose barrier byte-identical. Plus acceptance-completeness gaps: R4 \u2014the \"measured net cost reduction gates the flip\" criterion has no threshold/baseline/net-of-gatherer attribution; R5 \u2014a literal per-finding tool-call cap is not wrapper-enforceable (findings post-date the tool calls) and degrades to a per-event budget. R6/R7 sharpen item-5 anchoring + untrusted-input guardrails into structural requirements (lens-agnostic prefix path; gatherer push/post/verdict DENIED at the gateway role layer + no review-graph edge). R8 is a low-severity efficiency note that S5 may be over-serialized. None rise to operator HITL; reviewer follow-up: NACK the plan if R1/R2/R3 are unaddressed, ACK-with-notes otherwise.",
+    "metadata": {
+      "payload": {
+        "summary": "Risk assessment for the review-quality overhaul (#3523), grounded against the live worktree (R1\u2013R8, each with file:line anchors + mitigations + a per-flag rollback). Verdict: PROCEED_WITH_MITIGATIONS (overall MEDIUM). The issue is prescriptive and heavily guard-railed and the decomposition honors the binding sequencing, staged off\u2192log\u2192on discipline, and floor rules. Residual risk is concentrated in PLUMBING-REUSE assumptions the issue's \"reuse the existing X\" phrasing under-weights: R1 \u2014item 4's \"--effort plumbing reuse\" is actually a NEW effort pin for claude/opus (effort is pinned only for fable today; every other model is effort=None/byte-identical-to-default), so it must ship behind the router flag and keep effort=None on no-match; R2 \u2014get_review_graph_for_phase is the gating chokepoint but is called from recovery/health paths (startup_reconciliation, incomplete_consensus_stall, kubernetes_monitor) with no slice context, so the gated graph must be a deterministic read of persisted per-slice resolution or the stall-detector's expected-reviewer set diverges; R3 \u2014ApprovalEntry.reason IS the producer's open-NACK barrier, so the findings\u2192reason renderer must land in lockstep and log-mode must keep the legacy prose barrier byte-identical. Plus acceptance-completeness gaps: R4 \u2014the \"measured net cost reduction gates the flip\" criterion has no threshold/baseline/net-of-gatherer attribution; R5 \u2014a literal per-finding tool-call cap is not wrapper-enforceable (findings post-date the tool calls) and degrades to a per-event budget. R6/R7 sharpen item-5 anchoring + untrusted-input guardrails into structural requirements (lens-agnostic prefix path; gatherer push/post/verdict DENIED at the gateway role layer + no review-graph edge). R8 is a low-severity efficiency note that S5 may be over-serialized. None rise to operator HITL; reviewer follow-up: NACK the plan if R1/R2/R3 are unaddressed, ACK-with-notes otherwise.",
+        "attestation": {
+          "no_decisions_rationale": "No decisions rise to operator HITL at plan time. Issue #3523 is a complete, prescriptive operator directive (five changes with per-field schema, binding sequencing, staged-flag rollout, floor/independence guardrails, and out-of-scope boundary all fixed by the issue body + the two operator directives). R1\u2013R8 are implementation-level and resolvable by the architect/task_planner within the fixed scope; each is routed to a specific slice with a concrete mitigation. The one operator fork the issue itself names (item 5's shared-prefix fork point proving too shallow) is explicitly deferred by the issue to implement-time IF the raw-evidence pack proves insufficient \u2014 not pre-emptively. R4's cost-flip threshold is a plan-pinnable default; escalate to HITL only if task_planner cannot choose one."
+        },
+        "artifacts": [
+          ".egg-state/agent-outputs/3523-risk_analyst-output.json"
+        ],
+        "risk_considered": "8 risks: R1 opus/claude effort-pin is a new behavior not reuse (HIGH); R2 gated graph not reproducible in recovery/health callers (HIGH); R3 NACK-reason render path must move with the server-side verdict or the producer barrier goes blank (HIGH); R4 cost-flip gate lacks threshold/baseline/attribution (MED-HIGH); R5 per-finding cap not wrapper-enforceable, reframe as per-event budget (MED); R6 shared-prefix byte-identity collides with per-agent memory/Delphi machinery (MED); R7 gatherer must be structurally unprivileged at the gateway layer, not merely unused (MED, security); R8 S5 possibly over-serialized on consensus_wrapper.py (LOW, efficiency). All contained by off\u2192log\u2192on fail-safe-to-off; router no-match=>full graph floor degrades to MORE review; legacy prose-NACK path stays live until the flag is on.",
+        "commit_sha": "9979fa247958bcbb060afff2f16d92a1c0f93f71",
+        "files_changed": [],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "9979fa247958bcbb060afff2f16d92a1c0f93f71"
+    },
+    "timestamp": "2026-07-07T04:15:37.582349+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "011539fe-a9ee-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:15:44.254421+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7bc066bd-1465-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:15:44.561527+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "859beec7-7926-47",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=144631 util=0.14 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:15:48.171656+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0257ce3c-f242-4f",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:15:57.355141+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "28482e71-e3ef-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:16:13.879667+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e591f74b-3aa9-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "reviewer_plan re-ACK of risk_analyst assessment. This edge re-opened at HEAD 9979fa247 (prior_version 0) due to the plan-branch history rewrite (the risk_analyst commit is now 694083835), NOT a content change. I confirmed the artifact .egg-state/agent-outputs/3523-risk_analyst-output.json is byte-identical to the version I already reviewed and ACKed: grounding_sha eed1d4c1b, recommendation PROCEED_WITH_MITIGATIONS (overall MEDIUM), risks R1\u2013R8 unchanged, working tree clean vs committed HEAD.\n\nMy prior verdict stands: ACK, no blocking findings. The assessment is well-grounded and every load-bearing file:line anchor was verified real and accurate \u2014 R1 (agent_model_resolution.py:420 effort=FABLE_EFFORT if model in _FABLE_ALIASES else None; item-4 tier->effort is a NEW opus pin, not reuse), R2 (get_review_graph_for_phase called from recovery/health paths with no slice context \u2014 startup_reconciliation:310, incomplete_consensus_stall:251, kubernetes_monitor:933), R3 (ApprovalEntry.reason IS the producer NACK barrier via _render_nacks_section), plus R4/R5 acceptance-completeness/feasibility gaps, R6/R7 item-5 sharpenings, and R8 (S5 over-serialization, which converged with my own architect-plan advisory). These were all correctly folded into the task_planner plan's implement-phase obligations via my ACK of that plan. Verdict PROCEED_WITH_MITIGATIONS remains appropriate; nothing rises to operator HITL. Re-ACK.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3523-risk_analyst-output.json"
+        ],
+        "reason": "reviewer_plan re-ACK of risk_analyst assessment. This edge re-opened at HEAD 9979fa247 (prior_version 0) due to the plan-branch history rewrite (the risk_analyst commit is now 694083835), NOT a content change. I confirmed the artifact .egg-state/agent-outputs/3523-risk_analyst-output.json is byte-identical to the version I already reviewed and ACKed: grounding_sha eed1d4c1b, recommendation PROCEED_WITH_MITIGATIONS (overall MEDIUM), risks R1\u2013R8 unchanged, working tree clean vs committed HEAD.\n\nMy prior verdict stands: ACK, no blocking findings. The assessment is well-grounded and every load-bearing file:line anchor was verified real and accurate \u2014 R1 (agent_model_resolution.py:420 effort=FABLE_EFFORT if model in _FABLE_ALIASES else None; item-4 tier->effort is a NEW opus pin, not reuse), R2 (get_review_graph_for_phase called from recovery/health paths with no slice context \u2014 startup_reconciliation:310, incomplete_consensus_stall:251, kubernetes_monitor:933), R3 (ApprovalEntry.reason IS the producer NACK barrier via _render_nacks_section), plus R4/R5 acceptance-completeness/feasibility gaps, R6/R7 item-5 sharpenings, and R8 (S5 over-serialization, which converged with my own architect-plan advisory). These were all correctly folded into the task_planner plan's implement-phase obligations via my ACK of that plan. Verdict PROCEED_WITH_MITIGATIONS remains appropriate; nothing rises to operator HITL. Re-ACK.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-07T04:16:31.738506+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "85c9404f-18f3-43",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=170360 util=0.17 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:16:38.820825+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1bf9b04f-88b2-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for task_planner",
+    "body": "Re-affirming my conditional-ACK. The plan.md artifact at this proposal SHA (6940838) is BYTE-IDENTICAL (md5 286b0459cae2379d2c5a95c022de7ef2) to the version I already conditionally-ACKed at 70e3250e \u2014 the new head commit only adds an unrelated docs/guides/pipeline-health-monitoring.md tweak (a #3521 overseer contract-phase-desync health-check doc), which is not part of the plan artifact under review and does not touch my risk assessment. My verdict therefore stands unchanged: F1 (the S4/S5 consensus_wrapper.py serial-spine gap from the architect phase) is RESOLVED by the strict linear forest DAG (S1 independent root + S2\u2192S3\u2192S4\u2192S5\u2192S6\u2192S7\u2192S8 spine serializing every consensus_wrapper.py and _criteria.py toucher on one dependency chain). Safety discipline remains thorough: every behavior-shifting slice rides off\u2192log\u2192on and fails safe to off, legacy prose-NACK path stays live until on, router floors are HARD (no-match => full graph + loud warning; security lens un-gatable on auth/session/input-boundary paths), evidence-pack independence guardrails intact, per-slice log-mode parity + flag-typo tests present. One advisory finding (F2, PLAUSIBLE not blocking) carried forward unchanged: the findings-transmission path (reviewer emission \u2192 ack/nack message findings field \u2192 boundary validation) is not explicitly owned by any task, yet S3 computes the verdict from a findings payload; contained by EGG_REVIEW_FINDINGS_MODE off-default + log-mode observe-before-on gate + TASK-3-2 parity test.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/3523-plan.md"
+        ],
+        "reason": "Re-affirming my conditional-ACK. The plan.md artifact at this proposal SHA (6940838) is BYTE-IDENTICAL (md5 286b0459cae2379d2c5a95c022de7ef2) to the version I already conditionally-ACKed at 70e3250e \u2014 the new head commit only adds an unrelated docs/guides/pipeline-health-monitoring.md tweak (a #3521 overseer contract-phase-desync health-check doc), which is not part of the plan artifact under review and does not touch my risk assessment. My verdict therefore stands unchanged: F1 (the S4/S5 consensus_wrapper.py serial-spine gap from the architect phase) is RESOLVED by the strict linear forest DAG (S1 independent root + S2\u2192S3\u2192S4\u2192S5\u2192S6\u2192S7\u2192S8 spine serializing every consensus_wrapper.py and _criteria.py toucher on one dependency chain). Safety discipline remains thorough: every behavior-shifting slice rides off\u2192log\u2192on and fails safe to off, legacy prose-NACK path stays live until on, router floors are HARD (no-match => full graph + loud warning; security lens un-gatable on auth/session/input-boundary paths), evidence-pack independence guardrails intact, per-slice log-mode parity + flag-typo tests present. One advisory finding (F2, PLAUSIBLE not blocking) carried forward unchanged: the findings-transmission path (reviewer emission \u2192 ack/nack message findings field \u2192 boundary validation) is not explicitly owned by any task, yet S3 computes the verdict from a findings payload; contained by EGG_REVIEW_FINDINGS_MODE off-default + log-mode observe-before-on gate + TASK-3-2 parity test.",
+        "ack_version": 1,
+        "pre_merge_condition": "Make the findings-transmission path an explicit task within S2/S3: the reviewer-agent emission of a structured findings payload, the ack/nack message/ApprovalEntry field that carries it, and its boundary validation \u2014 so S3's server-side verdict computes from an actually-delivered payload rather than an assumed one. (Contained by the off\u2192log\u2192on gate; surface, not block.)"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-07T04:16:40.926081+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7c68d1dd-f750-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=121799 util=0.12 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:16:50.121499+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5b9005d9-03c2-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:17:43.054828+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e43c6da8-927d-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Architect decomposition v2 for #3523 review-quality overhaul \u2014 re-proposed after the plan-phase consensus reset, folding in the NON-BLOCKING seam-accuracy corrections my critical reviewers surfaced on v1 (reviewer_plan ACKed v1 with an advisory; risk_analyst raised R1/R2/R3/R5/R8). Scope UNCHANGED. Key corrections: (R8/advisory) v1's 'consensus_wrapper.py serial spine' was FALSE \u2014 the orchestrator-side slices are file-disjoint (S3 edits approval_matrix.py + routes/consensus.py + event_prompt/_render_nacks.py; S4 edits consensus_wrapper.py; S5 edits review_graph.py + agent_model_resolution.py + a new router), so S4 and S5 are parallel-capable after S3 and slice ORDER is driven by the issue's binding sequencing + finding-schema coupling, not file contention. (R1) tier->effort is NEW behavior for claude/opus (effort is pinned only for fable aliases today, agent_model_resolution.py:420) \u2014 ships behind the router flag, effort=None on no-match to preserve today's opus baseline. (R2) the gated graph is persisted per-slice and read by the no-slice-context recovery/health callers (startup_reconciliation:310, incomplete_consensus_stall:251, kubernetes_monitor:933). (R3) the findings->NACK renderer lands in event_prompt/_render_nacks.py in lockstep with the verdict move, legacy prose barrier byte-identical in off/log. (R5) item-2's cap reframed as a per-EVENT tool-call budget (findings post-date the tool calls). (R4) item-5 cost-flip gate pinned: threshold/baseline/per-wave attribution with the gatherer's own cost netted out. Still 7 slices, two file-disjoint roots (S1 prompts, S2 schema), every behavior-shifting piece behind off->log->on, reviewer vocabulary mirroring Claude Code's /review skill, cost first-class.\n\n**Adversarial re-review**\n\n**Your v1 review has TWO equal-weight mandates:**\n\n1. **Verify named prior blockers were addressed** \u2014 confirm the producer fixed what you NACK'd.\n2. **Audit the delta since your last review (per REVIEWER-SYNC.md: `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` \u2014 the commits landed since the version you last verdicted, NOT the whole accumulated proposal surface) as a fresh reviewer** \u2014 ignore your prior NACK history. Read that diff as if you'd never seen the prior version. Apply your lens (security threat-model, concurrency races, contract AC, line-by-line bugs, silent-fallback shapes \u2014 whichever your role owns) to the delta itself, not to whether your previous concerns were satisfied. **Mandate 2 is bounded to this delta** \u2014 it does NOT ask you to re-traverse the whole accumulated surface from earlier cycles; that work was amortized when you first reviewed those commits.\n\nBoth mandates have equal weight. If (1) passes but (2) finds new issues, you NACK. ACK requires both pass.\n\n**The named-blockers anchor is a known trap. Every reviewer lens has a mandate-2 in its own territory** \u2014 security has newly-introduced threat surfaces, concurrency has newly-introduced races, contract has newly-introduced AC drift, code has newly-introduced line-by-line bugs. The four issues that escaped PR #2724 to the GitHub bot were all of code-lens shape (`${ANSWER}` as bare Python, deprecated `datetime.utcnow()`, non-atomic write, bare `except: pass`) \u2014 the persistent reviewer correctly answered mandate 1 (\"did prior issues get fixed? yes\") and skipped mandate 2 (\"does this delta introduce new issues? actually yes\"). The shape generalizes: whatever your lens, this delta can introduce issues your prior NACK didn't name. Watching the producer deliver a targeted fix pulls strongly toward \"verify my fix-request landed \u2192 ACK.\" Recognize the pull and do mandate 2 anyway.\n\n**How to execute mandate 2:**\n\n- Read each new hunk as an operator who's about to copy-paste / run / integrate it. Would this code execute as written? Would these docs send a copy-paster down a working path?\n- Apply every rubric pass to the new hunks. New issues outside the scope of your prior NACK are blocking; your prior NACK does not bound this re-review.\n- **Fresh-reviewer simulation.** Before issuing your v1 verdict, ask: would a reviewer who has only seen this delta (the commits since your last review) with no NACK history ACK this? If you can't argue yes from that diff alone, NACK.\n- **External-bot anchor.** Imagine `egg-reviewer[bot]` reads only this delta (the commits since your last review) with no NACK context. What would it flag? Anything it'd flag, you should NACK first.\n\n**Your v1 verdict must enumerate both halves** so mandate 2 doesn't silently disappear from the record:\n\n- (a) Which prior blockers you verified-fixed (mandate 1).\n- (b) What new issues you audited-and-did-not-find (mandate 2). Name the specific shapes you checked \u2014 not \"reviewed thoroughly,\" but \"checked for silent fallbacks, doc-snippet executability, API-deprecation, atomicity of file writes.\" If you can't enumerate (b), you haven't done mandate 2.\n\n**Re-reviews are cheap by design.** Your amortized context means the work is \"read the delta, apply your rubric, decide\" \u2014 minutes, not hours. NACK without hesitance; the orchestrator absorbs cycles. Two NACKs on the same producer where the second names new findings is the correct trajectory, not goalpost-moving. The downstream GitHub reviewer should find nothing in this delta. Anything it catches that lives in this cycle's diff is a miss attributable to this re-review.",
+    "metadata": {
+      "payload": {
+        "summary": "Architect decomposition v2 for #3523 review-quality overhaul \u2014 re-proposed after the plan-phase consensus reset, folding in the NON-BLOCKING seam-accuracy corrections my critical reviewers surfaced on v1 (reviewer_plan ACKed v1 with an advisory; risk_analyst raised R1/R2/R3/R5/R8). Scope UNCHANGED. Key corrections: (R8/advisory) v1's 'consensus_wrapper.py serial spine' was FALSE \u2014 the orchestrator-side slices are file-disjoint (S3 edits approval_matrix.py + routes/consensus.py + event_prompt/_render_nacks.py; S4 edits consensus_wrapper.py; S5 edits review_graph.py + agent_model_resolution.py + a new router), so S4 and S5 are parallel-capable after S3 and slice ORDER is driven by the issue's binding sequencing + finding-schema coupling, not file contention. (R1) tier->effort is NEW behavior for claude/opus (effort is pinned only for fable aliases today, agent_model_resolution.py:420) \u2014 ships behind the router flag, effort=None on no-match to preserve today's opus baseline. (R2) the gated graph is persisted per-slice and read by the no-slice-context recovery/health callers (startup_reconciliation:310, incomplete_consensus_stall:251, kubernetes_monitor:933). (R3) the findings->NACK renderer lands in event_prompt/_render_nacks.py in lockstep with the verdict move, legacy prose barrier byte-identical in off/log. (R5) item-2's cap reframed as a per-EVENT tool-call budget (findings post-date the tool calls). (R4) item-5 cost-flip gate pinned: threshold/baseline/per-wave attribution with the gatherer's own cost netted out. Still 7 slices, two file-disjoint roots (S1 prompts, S2 schema), every behavior-shifting piece behind off->log->on, reviewer vocabulary mirroring Claude Code's /review skill, cost first-class.",
+        "attestation": {
+          "decisions_registered": [],
+          "no_decisions_rationale": "The refiner attested zero open decisions at the refine gate (operator-confirmed via decision-1); the four plan-phase-deferred choices are resolved in this proposal as architect decisions, consistent with that attestation. This v2 revision only folds NON-BLOCKING seam-accuracy corrections raised by reviewer_plan and risk_analyst on v1 (R1/R2/R3/R5/R8); it introduces no new scope and no new operator fork. The one fork the issue itself names (item 5's shared-prefix fork point proving too shallow) remains contingent on implement-phase findings and is deferred by the issue to that point."
+        },
+        "artifacts": [
+          ".egg-state/agent-outputs/3523-architect-output.json",
+          ".egg-state/agent-outputs/3523-architect-slices.yaml"
+        ],
+        "risk_considered": "Re-verified all four reviewer anchors against the live tree before folding: agent_model_resolution.py:420 effort=FABLE_EFFORT-else-None (R1); recovery/health callers with no slice ctx (R2); event_prompt/_render_nacks.py render path (R3); per-event vs per-finding budget feasibility (R5). Corrected file-overlap map removes the false S4->S5 serialization (R8). Content change confined to seam-accuracy/framing/risk refinements within architect scope; task_planner re-reconciles from the corrected DAG. Rebased cleanly onto the current shared-branch tip (which now carries the simplifier's plan companion \u2014 the infra deadlock cleared).",
+        "commit_sha": "a7ed6ea21",
+        "files_changed": [
+          ".egg-state/agent-outputs/3523-architect-output.json",
+          ".egg-state/agent-outputs/3523-architect-slices.yaml"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "a7ed6ea21"
+    },
+    "timestamp": "2026-07-07T04:18:14.228604+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "79e93904-9e73-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "simplifier",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-07T04:18:14.230249+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bb905595-b73d-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-07T04:18:14.231015+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "176fb87c-291f-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by task_planner",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-07T04:18:18.388028+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "eb089a10-76a1-49",
+    "pipeline_id": "issue-3523",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by simplifier",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-07T04:18:19.069353+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "126fa569-037d-4a",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:18:20.366111+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "18552954-fafd-4c",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:18:21.249159+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "538b4f2b-7d01-44",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:18:29.907238+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "47864de3-c957-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:18:33.671839+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b4190da4-6c1e-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=186904 util=0.19 cache_hit=0.99 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:18:54.644678+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "183373dc-c26c-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for architect",
+    "body": "Clean ACK of architect v2. This revision keeps scope unchanged and folds in the seam-accuracy corrections I raised on v1 (R1/R2/R3/R5/R8); every load-bearing correction verifies against the live tree, so I have no remaining findings. My prior finding F1 (v1's S4/S5 serial-spine-without-an-encoded-edge gap) is DISSOLVED: v2 correctly shows v1's premise was wrong \u2014 the orchestrator-side slices are file-disjoint, not a consensus_wrapper.py serial spine. Verified: (R3) orchestrator/routes/event_prompt/_render_nacks.py::_render_nacks_section IS the producer's open-NACK barrier renderer (renders each NACK reason verbatim, per peer_consensus._open_nacks_barrier_response) \u2014 NOT consensus_wrapper.py, so S3's findings\u2192reason renderer belongs there in lockstep; (R1/R5) build_event_pump_wrapped_command(effort=...) already exists as a parameter at consensus_wrapper.py:638, so S5 threads effort with no wrapper edit; (R1) effort is pinned only for _FABLE_ALIASES at agent_model_resolution.py:420 with every opus/claude reviewer getting effort=None (comments :72/:78), confirming the tier\u2192effort map is NEW behavior that must keep effort=None on no-match to preserve today's byte-identical opus baseline. Corrected file-overlap map (S3\u2192approval_matrix.py+routes/consensus.py+_render_nacks.py; S4\u2192consensus_wrapper.py; S5\u2192review_graph.py+agent_model_resolution.py+new router) makes S4 and S5 genuinely file-disjoint and parallel-capable after S3 \u2014 no serialization edge is needed. The new binding invariants are all risk-reducing and correct: R3 lockstep renderer + byte-identical legacy barrier in off/log (prevents a blank producer NACK barrier), R2 per-slice gated-graph persistence read by the no-slice-context recovery/health callers (startup_reconciliation:310, incomplete_consensus_stall:251, kubernetes_monitor:933) so the stall-detector's expected-reviewer set matches what was spawned, R4 cost-flip gate with pinned threshold/baseline/attribution netting out the gatherer's own cost, and R5's per-EVENT budget (per-finding is not wrapper-enforceable since findings post-date the tool calls). Staged off\u2192log\u2192on discipline, router HARD floors (no-match => full graph + warning + effort=None; security lens un-gatable on auth/session/input-boundary paths), and evidence-pack independence guardrails (cold-start tester/verifier, unchanged Delphi redaction, structural gateway-layer capability denial, untrusted-input posture) are all preserved. Note: the findings-transmission ownership advisory (F2) I raised on the task_planner plan is a task-level concern already tracked at that layer and does not re-attach to this architect recommendation.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3523-architect-output.json",
+          ".egg-state/agent-outputs/3523-architect-slices.yaml"
+        ],
+        "reason": "Clean ACK of architect v2. This revision keeps scope unchanged and folds in the seam-accuracy corrections I raised on v1 (R1/R2/R3/R5/R8); every load-bearing correction verifies against the live tree, so I have no remaining findings. My prior finding F1 (v1's S4/S5 serial-spine-without-an-encoded-edge gap) is DISSOLVED: v2 correctly shows v1's premise was wrong \u2014 the orchestrator-side slices are file-disjoint, not a consensus_wrapper.py serial spine. Verified: (R3) orchestrator/routes/event_prompt/_render_nacks.py::_render_nacks_section IS the producer's open-NACK barrier renderer (renders each NACK reason verbatim, per peer_consensus._open_nacks_barrier_response) \u2014 NOT consensus_wrapper.py, so S3's findings\u2192reason renderer belongs there in lockstep; (R1/R5) build_event_pump_wrapped_command(effort=...) already exists as a parameter at consensus_wrapper.py:638, so S5 threads effort with no wrapper edit; (R1) effort is pinned only for _FABLE_ALIASES at agent_model_resolution.py:420 with every opus/claude reviewer getting effort=None (comments :72/:78), confirming the tier\u2192effort map is NEW behavior that must keep effort=None on no-match to preserve today's byte-identical opus baseline. Corrected file-overlap map (S3\u2192approval_matrix.py+routes/consensus.py+_render_nacks.py; S4\u2192consensus_wrapper.py; S5\u2192review_graph.py+agent_model_resolution.py+new router) makes S4 and S5 genuinely file-disjoint and parallel-capable after S3 \u2014 no serialization edge is needed. The new binding invariants are all risk-reducing and correct: R3 lockstep renderer + byte-identical legacy barrier in off/log (prevents a blank producer NACK barrier), R2 per-slice gated-graph persistence read by the no-slice-context recovery/health callers (startup_reconciliation:310, incomplete_consensus_stall:251, kubernetes_monitor:933) so the stall-detector's expected-reviewer set matches what was spawned, R4 cost-flip gate with pinned threshold/baseline/attribution netting out the gatherer's own cost, and R5's per-EVENT budget (per-finding is not wrapper-enforceable since findings post-date the tool calls). Staged off\u2192log\u2192on discipline, router HARD floors (no-match => full graph + warning + effort=None; security lens un-gatable on auth/session/input-boundary paths), and evidence-pack independence guardrails (cold-start tester/verifier, unchanged Delphi redaction, structural gateway-layer capability denial, untrusted-input posture) are all preserved. Note: the findings-transmission ownership advisory (F2) I raised on the task_planner plan is a task-level concern already tracked at that layer and does not re-attach to this architect recommendation.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-07T04:20:00.112679+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bc77ff73-30e6-42",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-07T04:20:00.115307+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d8fe38d7-ba12-4d",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by risk_analyst",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-07T04:20:00.259349+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7027d398-4138-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "reviewer_plan ACK of architect v2 (SHA a7ed6ea21). No blocking findings. This is a clean, scope-preserving revision that folds in the non-blocking seam-accuracy corrections I and risk_analyst raised on v1; I reviewed the full v1\u2192v2 diff (24c76cd0a\u2192a7ed6ea21) and every correction is accurate against seams I verified in prior events:\n\n- R8 (my advisory + risk_analyst R8): v1's false \"consensus_wrapper.py serial spine\" is corrected to the real file-overlap map \u2014 S3 \u2192 approval_matrix.py + routes/consensus.py + event_prompt/_render_nacks.py; S4 \u2192 consensus_wrapper.py; S5 \u2192 review_graph.py + agent_model_resolution.py + new router (reuses build_event_pump_wrapped_command(effort=) as a parameter, no wrapper edit). S4 and S5 are now correctly declared file-disjoint / parallel-capable after S3. This also makes the dependency edges (S4\u2190[2,3], S5\u2190[3]) internally CONSISTENT with the stated parallelism \u2014 resolving the exact v1 contradiction I flagged in my first architect review (v1's R6 claimed deps enforced S3\u2192S4\u2192S5 while S5 did not depend on S4).\n- R1: tier\u2192effort correctly reframed as NEW claude/opus behavior (agent_model_resolution.py:420 effort=FABLE_EFFORT if model in _FABLE_ALIASES else None), shipped behind the router flag with effort=None on no-match to preserve the byte-identical opus baseline; new binding invariant + regression-test direction.\n- R2: new binding invariant \u2014 S5 persists the resolved gated graph per-slice and the no-slice-context recovery/health callers (startup_reconciliation:310, incomplete_consensus_stall:251, kubernetes_monitor:933) READ it, closing the stall-detector divergence.\n- R3: NACK render path corrected to routes/event_prompt/_render_nacks.py (+ _compose.py), NOT consensus_wrapper.py; findings\u2192reason renderer lands in lockstep and keeps the legacy barrier byte-identical in off/log; acceptance now asserts byte-identical rendered barrier.\n- R5: per-FINDING cap correctly reframed as a per-EVENT tool-call budget in consensus_wrapper.py (findings post-date the tool calls).\n- R4: cost-flip gate gains a pinned threshold + baseline, per-wave attribution, and nets out the gatherer's own token cost.\n- R7: the gatherer's no-GitHub/no-verdict/no-post posture is now STRUCTURAL at the gateway role layer (shared/egg_restrictions/patterns.py) with no review-graph edge.\n\nScope is UNCHANGED (same five items, binding sequencing, 7-slice cut, off\u2192log\u2192on flags, HARD floors, /review reference-design). This v2 is strictly better than the v1 I ACKed. It reinforces (does not conflict with) the already-ACKed task_planner plan: the task_planner's fully-serial forest remains valid (over-serialization is safe), and v2's R3 file-path correction matches the implement-phase advisory I already carried forward on that plan (S3 must touch _render_nacks.py). Nothing rises to operator HITL. ACK.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/3523-architect-output.json",
+          ".egg-state/agent-outputs/3523-architect-slices.yaml"
+        ],
+        "reason": "reviewer_plan ACK of architect v2 (SHA a7ed6ea21). No blocking findings. This is a clean, scope-preserving revision that folds in the non-blocking seam-accuracy corrections I and risk_analyst raised on v1; I reviewed the full v1\u2192v2 diff (24c76cd0a\u2192a7ed6ea21) and every correction is accurate against seams I verified in prior events:\n\n- R8 (my advisory + risk_analyst R8): v1's false \"consensus_wrapper.py serial spine\" is corrected to the real file-overlap map \u2014 S3 \u2192 approval_matrix.py + routes/consensus.py + event_prompt/_render_nacks.py; S4 \u2192 consensus_wrapper.py; S5 \u2192 review_graph.py + agent_model_resolution.py + new router (reuses build_event_pump_wrapped_command(effort=) as a parameter, no wrapper edit). S4 and S5 are now correctly declared file-disjoint / parallel-capable after S3. This also makes the dependency edges (S4\u2190[2,3], S5\u2190[3]) internally CONSISTENT with the stated parallelism \u2014 resolving the exact v1 contradiction I flagged in my first architect review (v1's R6 claimed deps enforced S3\u2192S4\u2192S5 while S5 did not depend on S4).\n- R1: tier\u2192effort correctly reframed as NEW claude/opus behavior (agent_model_resolution.py:420 effort=FABLE_EFFORT if model in _FABLE_ALIASES else None), shipped behind the router flag with effort=None on no-match to preserve the byte-identical opus baseline; new binding invariant + regression-test direction.\n- R2: new binding invariant \u2014 S5 persists the resolved gated graph per-slice and the no-slice-context recovery/health callers (startup_reconciliation:310, incomplete_consensus_stall:251, kubernetes_monitor:933) READ it, closing the stall-detector divergence.\n- R3: NACK render path corrected to routes/event_prompt/_render_nacks.py (+ _compose.py), NOT consensus_wrapper.py; findings\u2192reason renderer lands in lockstep and keeps the legacy barrier byte-identical in off/log; acceptance now asserts byte-identical rendered barrier.\n- R5: per-FINDING cap correctly reframed as a per-EVENT tool-call budget in consensus_wrapper.py (findings post-date the tool calls).\n- R4: cost-flip gate gains a pinned threshold + baseline, per-wave attribution, and nets out the gatherer's own token cost.\n- R7: the gatherer's no-GitHub/no-verdict/no-post posture is now STRUCTURAL at the gateway role layer (shared/egg_restrictions/patterns.py) with no review-graph edge.\n\nScope is UNCHANGED (same five items, binding sequencing, 7-slice cut, off\u2192log\u2192on flags, HARD floors, /review reference-design). This v2 is strictly better than the v1 I ACKed. It reinforces (does not conflict with) the already-ACKed task_planner plan: the task_planner's fully-serial forest remains valid (over-serialization is safe), and v2's R3 file-path correction matches the implement-phase advisory I already carried forward on that plan (S3 must touch _render_nacks.py). Nothing rises to operator HITL. ACK.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-07T04:20:03.739323+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d35798ee-db3f-46",
+    "pipeline_id": "issue-3523",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-07T04:20:03.742029+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f8e82728-2f20-4b",
+    "pipeline_id": "issue-3523",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by architect",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-07T04:20:06.216203+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "643a263c-4b7a-41",
+    "pipeline_id": "issue-3523",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_plan",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-07T04:20:06.234827+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ab40b80d-bf90-45",
+    "pipeline_id": "issue-3523",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=160564 util=0.16 cache_hit=0.98 decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-07T04:20:09.488402+00:00",
+    "phase": "plan"
+  }
+]

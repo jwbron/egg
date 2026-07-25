@@ -1,0 +1,125 @@
+# Per-repo review-risk config (issue #3523 §4).
+#
+# The deterministic risk router (orchestrator/risk_router.py) maps a slice's
+# changed-file set to (a) the review lenses that should run, (b) a risk tier
+# that scales reasoning effort, and (c) an optional stance. This file is the
+# per-repo policy input; the router is pure code that reads it.
+#
+# ── Schema ──────────────────────────────────────────────────────────────────
+#   schema_version: int         # currently 1; evolve additively.
+#   rules:                      # ordered list of glob -> {lenses, tier}
+#     - match:  "<glob>"        # canonical key (alias: `glob`). Uses the
+#                               # shared match_pattern grammar (#2356):
+#                               #   "**/*.md"     any .md at any depth
+#                               #   "docs/"       any file under docs/
+#                               #   "**/tests/"   any file under a tests/ dir
+#       lenses: [<reviewer>...] # non-empty; each one of:
+#                               #   reviewer_code, reviewer_code_holistic,
+#                               #   reviewer_contract, reviewer_security,
+#                               #   reviewer_concurrency
+#       tier:   low|medium|high|xhigh   # /review ladder; caps 4/8/10/15
+#
+# ── Resolution ──────────────────────────────────────────────────────────────
+#   Each changed file resolves to the MOST-SPECIFIC matching rule (the glob
+#   with the most literal, non-wildcard characters wins); ties break by
+#   declaration order (first-match). Across the slice, lenses union and the
+#   tier is the highest any file demands.
+#
+# ── HARD floors (enforced in code, not here) ────────────────────────────────
+#   * A changed file matching NO rule => the FULL lens set + a loud warning
+#     (missing config never means less review) + tier floored to `high`.
+#   * A slice touching an auth/session/input-boundary path ALWAYS runs
+#     reviewer_security, even if the matched rule omits it — the protected
+#     path set is in code and cannot be overridden here.
+#   * Every slice is guaranteed at least the `low` tier.
+#
+# Order rules cheapest-first for readability; resolution is by specificity,
+# not order, except for exact-specificity ties.
+
+schema_version: 1
+
+rules:
+  # ── Docs / prose: minimal graph, cheapest tier ────────────────────────────
+  - match: "**/*.md"
+    lenses: [reviewer_code]
+    tier: low
+  - match: "docs/"
+    lenses: [reviewer_code]
+    tier: low
+  - match: "**/*.rst"
+    lenses: [reviewer_code]
+    tier: low
+  - match: "**/*.txt"
+    lenses: [reviewer_code]
+    tier: low
+
+  # ── Prompt / criteria text: correctness + holistic coherence, low cost ────
+  - match: "shared/prompts/"
+    lenses: [reviewer_code, reviewer_code_holistic]
+    tier: medium
+
+  # ── Config / manifests: contract + holistic, no deep concurrency ──────────
+  - match: "**/*.yaml"
+    lenses: [reviewer_code, reviewer_contract]
+    tier: medium
+  - match: "**/*.yml"
+    lenses: [reviewer_code, reviewer_contract]
+    tier: medium
+  - match: "**/*.json"
+    lenses: [reviewer_code, reviewer_contract]
+    tier: medium
+
+  # ── Security / trust-boundary code: full weight, deepest tier ─────────────
+  # (reviewer_security is ALSO structurally forced by the router on these
+  # paths; listing it here keeps the config self-documenting and sets tier.)
+  - match: "gateway/"
+    lenses:
+      [
+        reviewer_code,
+        reviewer_code_holistic,
+        reviewer_contract,
+        reviewer_security,
+      ]
+    tier: xhigh
+
+  # ── Concurrency-sensitive orchestration: add the concurrency lens ─────────
+  - match: "orchestrator/concurrent_executor.py"
+    lenses:
+      [
+        reviewer_code,
+        reviewer_code_holistic,
+        reviewer_contract,
+        reviewer_concurrency,
+      ]
+    tier: high
+  - match: "orchestrator/kubernetes_spawner/"
+    lenses:
+      [
+        reviewer_code,
+        reviewer_code_holistic,
+        reviewer_contract,
+        reviewer_concurrency,
+      ]
+    tier: high
+
+  # ── General orchestrator / shared source: full critical graph ─────────────
+  - match: "orchestrator/"
+    lenses:
+      [
+        reviewer_code,
+        reviewer_code_holistic,
+        reviewer_contract,
+        reviewer_security,
+        reviewer_concurrency,
+      ]
+    tier: high
+  - match: "shared/"
+    lenses:
+      [
+        reviewer_code,
+        reviewer_code_holistic,
+        reviewer_contract,
+        reviewer_security,
+        reviewer_concurrency,
+      ]
+    tier: high

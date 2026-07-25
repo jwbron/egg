@@ -119,7 +119,7 @@ def test_patch4_needle_anchors_on_content_block_function(tmp_path):
     fixture containing a *second* (sibling-function-style) bare
     ``thinking_blocks`` elif — preceded by a ``tool_calls`` block, not the
     text elif — must be left untouched."""
-    patch4 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 4/5"))
+    patch4 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 4/6"))
 
     # Sibling function: bare thinking_blocks elif preceded by a tool_calls
     # branch (mirrors _translate_streaming_openai_chunk_to_anthropic). It must

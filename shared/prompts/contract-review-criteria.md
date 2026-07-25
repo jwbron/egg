@@ -48,3 +48,36 @@ Verify:
 - No implementation changes violate previously verified criteria
 - New changes don't break existing contract compliance
 - All required files listed in tasks are present
+
+## Verification Ladder — CONFIRMED / PLAUSIBLE / REFUTED
+
+This lens shares the verification discipline defined in
+[`code-review-criteria.md`](./code-review-criteria.md). Before a gap becomes a
+finding, assign it exactly one verdict; the evidence duties are **symmetric** —
+quote the task row or code line that justifies the call whether you keep the
+finding or drop it.
+
+- **CONFIRMED** — you can name the unmet obligation concretely: the task row,
+  the acceptance criterion it fails, and the missing or contradicting code.
+  Quote the live task record and the diff (or its absence).
+- **PLAUSIBLE** — the obligation looks unmet but the evidence is incomplete
+  (the work may live in a file you have not read, or the task record may lag
+  the diff). State what would confirm it. **PLAUSIBLE by default** — do not
+  refute for being uncertain.
+- **REFUTED** — the criterion is actually met, or the row is explicitly
+  descoped by a human. Quote the implementing line or the descope decision.
+
+Two companion rules:
+
+1. **Blocking must reproduce.** A finding may be `blocking` only if it is
+   CONFIRMED with a named unmet row/criterion. A suspicion you cannot tie to a
+   specific obligation cannot block; carry it as advisory.
+2. **Drop only the refuted; downgrade the unconfirmed.** Discard REFUTED
+   candidates; downgrade PLAUSIBLE ones to advisory (non-blocking) so the
+   signal survives without burning a producer revision round.
+
+**Scratch checks (read-only).** You may run read-only commands to confirm a
+candidate — read the **live** task records via the contract MCP/CLI surface
+(not the init-time `.egg-state/contracts/` snapshot), Grep for the
+implementing symbol, `git show` the linked commit. Do **not** mutate the
+working tree, push, or run destructive commands.

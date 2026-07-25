@@ -517,8 +517,39 @@ def create_parser() -> argparse.ArgumentParser:
         help=(
             "Decision-ledger attestation (#3390, refine/plan producers): "
             "why this phase deliberately raises no operator decisions — the "
-            "explicit empty ledger. Mutually exclusive with "
+            "explicit empty ledger. Requires at least one --considered "
+            "entry (#3526). Mutually exclusive with --decisions-registered."
+        ),
+    )
+    cons_propose.add_argument(
+        "--considered",
+        dest="considered",
+        action="append",
+        metavar='"<disposition> :: <question> :: <why>"',
+        help=(
+            "Decision candidate weighed and dispositioned away rather than "
+            "registered (#3526); repeatable. Format: "
+            '"<disposition> :: <question> :: <why>" where <disposition> is '
+            "'not_operator_grade' (a design call the planner/implementer "
+            "owns) or 'deferred_to_plan' (potentially operator-grade, "
+            "better asked once the plan is concrete). Required (>= 1) with "
+            "--no-decisions-rationale; optional alongside "
             "--decisions-registered."
+        ),
+    )
+    cons_propose.add_argument(
+        "--deferred",
+        dest="deferred",
+        action="append",
+        metavar='"<dq-id> :: <resolution> :: <cq-N or why>"',
+        help=(
+            "Plan producers only (#3564): what became of a refine-deferred "
+            "question; repeatable, one per dq-<hash> id in the 'Deferred "
+            "from refine' section of your prompt. Format: "
+            '"<dq-id> :: registered :: <cq-N>" when you registered it '
+            '(possibly reframed), or "<dq-id> :: not_operator_grade :: '
+            '<why>" when the design dissolved it. The orchestrator rejects '
+            "a plan proposal that leaves a deferred question unaccounted."
         ),
     )
     cons_propose.add_argument(

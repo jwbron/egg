@@ -245,6 +245,20 @@ def _build_phase_prompt(
                 "(product intent, scope boundaries, external commitments, "
                 "user-visible behavior) — not when the answer is a design call the "
                 "planner will make.\n",
+                "**The carve-out above is exhaustive, not exemplary (#3526).** It "
+                "covers exactly three classes (slice/PR packaging, implementation "
+                "strategy, API/schema details) and nothing else. "
+                "'Implementation-flavored' is NOT the test: scope boundaries, "
+                "product intent, user-visible behavior, and risk-tolerance "
+                "questions stay refine-grade even when their subject matter is "
+                "technical. When you are genuinely uncertain whether a choice is "
+                "operator-grade, REGISTER it with your recommended option first; "
+                "a wrongly-registered decision costs the operator one click; a "
+                "wrongly-swallowed one silently ships your own choice as if the "
+                "operator had made it. Choices you disposition away instead of "
+                "registering must be enumerated as structured candidates in your "
+                "ledger attestation (see below), never folded into draft prose "
+                "alone.\n",
                 "**Multiple-choice questions** — RUN this command for each question "
                 "where the human must pick from discrete options:",
                 "```bash",
@@ -311,6 +325,24 @@ def _build_phase_prompt(
                 "raises no meaningful decision — never when the task names "
                 "decisions to surface, and never as a substitute for "
                 "registering a decision you believe is already resolved.\n",
+                "**The explicit-none form requires enumerated candidates "
+                "(#3526).** `--no-decisions-rationale` is REJECTED unless the "
+                "propose also carries at least one "
+                '`--considered "<disposition> :: <question> :: <why>"` entry '
+                "(one per open choice you weighed and dispositioned away). "
+                "Dispositions: `not_operator_grade` (a design call the "
+                "planner/implementer owns) or `deferred_to_plan` (potentially "
+                "operator-grade, better asked once the plan is concrete). "
+                "Deferral is a handoff, not a disappearance: the orchestrator "
+                "carries your `deferred_to_plan` candidates into the plan "
+                "phase, whose producers must register or explicitly "
+                "disposition each one. A deferral that lives only in your "
+                "rationale prose reaches no one. `--considered` entries may "
+                "also accompany `--decisions-registered` when you registered "
+                "some choices and dispositioned others. The operator confirms "
+                "your enumerated candidates as their own decision; write "
+                "each entry as if the operator will read exactly that line "
+                "and nothing else.\n",
                 "",
             ]
         )
@@ -364,7 +396,37 @@ def _build_phase_prompt(
                 "5. Identify any manual pre-merge or post-merge steps "
                 "(migrations, config changes, deployments)",
                 "6. Consider rollback and risks",
+                "7. Surface operator decisions; see `## Operator Decisions "
+                "(plan phase)` below. Plan is the pipeline's LAST decision "
+                "surface: a genuine fork you resolve silently here never "
+                "reaches the operator.",
                 "",
+                "## Operator Decisions (plan phase)\n",
+                "The plan phase owns its share of the operator-decision "
+                "surface (#3526). While designing you will resolve many "
+                "choices yourself (that is your job), but some are "
+                "operator-grade: scope boundaries the analysis left open, "
+                "forks where two defensible designs diverge in user-visible "
+                "behavior, cost, or risk, and anything the refine phase "
+                "explicitly deferred to plan. Register each of those as a "
+                "contract decision:\n",
+                "```bash",
+                'egg-contract add-decision --question "Which approach should we use?" \\',
+                '  --options "Option A (recommended)" "Option B" --format markdown',
+                "```",
+                "Copy the markdown output into your plan draft (it embeds the "
+                "cq-N id, which your ledger attestation must cite). For "
+                "free-form questions use `egg-contract add-feedback`. If you "
+                "believe prior context already resolves a decision, register "
+                "it anyway with your recommended answer as the first option "
+                "(suffix `(recommended)`); belief about resolution is a "
+                "disposition, not a reason to skip registration (#3462).\n",
+                *_pkg._build_deferred_candidates_section(pipeline_id),
+                "When you attest your decision ledger at propose time "
+                "(#3390), a plan-phase attestation may NOT disposition a "
+                "candidate as `deferred_to_plan`; there is no later phase "
+                "to catch it. Register it, or disposition it "
+                "`not_operator_grade` with a concrete why.\n",
                 "## Output Format",
                 "",
                 "Write a markdown plan with a **yaml-tasks** structured appendix at the end.",
@@ -1044,17 +1106,26 @@ def _build_brc_preamble(
                 "`mcp__sdlc__register_open_question`), or "
                 '`--no-decisions-rationale "<why>"` when the phase '
                 "deliberately raises none — an explicit empty ledger, never an "
-                "omission. (Via MCP: the `attestation` arg of "
+                "omission. The explicit-none form additionally REQUIRES at "
+                'least one `--considered "<disposition> :: <question> :: '
+                '<why>"` entry (#3526) enumerating each open choice you '
+                "weighed and dispositioned away; dispositions: "
+                "`not_operator_grade` or `deferred_to_plan` (refine only; "
+                "deferred candidates are carried into the plan phase, which "
+                "must register or disposition them; a plan-phase attestation "
+                "may not defer). (Via MCP: the `attestation` arg of "
                 "`mcp__brc__propose`, fields `decisions_registered` / "
-                "`no_decisions_rationale`.) Attested ids are cross-checked "
+                "`no_decisions_rationale` / `candidates_considered`.) "
+                "Attested ids are cross-checked "
                 "against the contract, and your draft must cite each attested "
                 "`cq-N` (copying the `--format markdown` output into the "
                 "draft satisfies this). A decision your draft commits to "
                 "without a registered `cq-N` is a reviewer NACK — register "
                 "it or remove the unilateral commitment. The rationale form "
                 "is not a shortcut (#3462): the operator is asked to confirm "
-                "it as its own decision before the phase gate, and a rejected "
-                "'none' re-runs the phase. If the task names decisions to "
+                "it (candidates included) as its own decision before the "
+                "phase gate, and a rejected 'none' re-runs the phase. If the "
+                "task names decisions to "
                 "surface — or you believe a decision is already resolved by "
                 "prior context — register it with your recommended answer as "
                 "the first option instead of attesting none."

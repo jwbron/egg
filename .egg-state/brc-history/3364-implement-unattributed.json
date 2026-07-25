@@ -1,0 +1,764 @@
+[
+  {
+    "id": "29c38ce6-5693-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T19:38:26.011092+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5a29ff85-3f7d-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T19:41:15.512511+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fdf2b026-27c4-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T19:44:35.840741+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6c136740-a9d1-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T19:47:52.687030+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5c86c2dd-faab-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T19:51:18.068495+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f6179028-63f3-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T19:54:52.311339+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "829e07e2-b212-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T19:58:13.358796+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "1eae7f21-584b-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:01:49.416639+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "91b0ebb0-db9a-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:05:01.240777+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4cbfeefb-833b-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:08:11.612824+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fac92baf-1e72-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:11:34.945525+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0ef9c49d-cc6a-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:14:58.145721+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "612f876d-ba3b-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:18:22.220165+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d53d4c09-d486-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:21:50.749625+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "20408abb-c1d3-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:25:46.512629+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c6f9cfbb-8539-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:29:33.258341+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8a6dd163-b0e1-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:33:52.207471+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0c794347-35c5-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:37:36.026737+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8d0724b6-21ab-41",
+    "pipeline_id": "issue-3364",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition [low]",
+    "body": "slice-2 (PR C) tester re-spawned 3\u00d7 on an unclearable producer-NACK, strictly blocked on the coder's not-yet-landed loop-guard fix (coder still v1/WORKING)\n\nDetail:\nAll 4 tester v1 NACKs and all 4 coder v1 NACKs are ONE coupled defect: the deterministic-loop guard in record_rate_limited (coder-owned _supervisor.py) halts a genuine all-producers cap wall in ~7.5 min, violating binding cq-1/AC-C5 (no wall-clock ceiling). The corrected tester suite REQUIRES the coder's re-proposed discriminator (does not exist yet) and its AC-C5 liveness regression is specified to fail against the current impl by design \u2014 so the tester cannot produce a green re-propose until the coder re-proposes. Tester is role-blocked from all three fix files (_supervisor.py, supervision_policy.py, concurrent_executor.py). Coder-first lockstep, NO deadlock (coder does not depend on tester). This alert is INFORMATIONAL: if the coder is actively implementing the (non-trivial) guard redesign, no operator action is needed \u2014 the tester will re-propose green once the coder's fix lands. Escalate only if the coder shows no progress on subsequent cycles.\n\nRecommended action:\nConfirm the coder is progressing on the loop-guard redesign (reviewer-endorsed direction: escalate only on positive non-throttle evidence / scale the guard budget to hours-days). No tester action is possible until then; do not restart the tester.",
+    "metadata": {},
+    "timestamp": "2026-07-09T20:38:54.173125+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "34b07df5-8c21-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-invocation-noop-streak: event-loop [high]",
+    "body": "Event-pump for role=tester has had 3 consecutive one-shot invocations on action=propose that exited cleanly WITHOUT any BRC-bus progress (dedupe key 42cd7da37d54a0b5dbaa6fa9b9a39072acde5adcfa9f3a5497e4fd7b6291ffa3 re-derived unchanged each time). The arm is parked: no further pods spawn for this key until the unresolved contract-decision set changes (e.g. the gating cq-N is resolved) or the BRC state moves; a probe spawn is retried every 1800s as a backstop. No unresolved contract decision was visible at park time; check the slice's BRC transcript for what the agent is blocked on.",
+    "metadata": {
+      "anomaly": "agent-invocation-noop-streak",
+      "priority": "high",
+      "summary": "agent invocations completing with zero BRC progress (action=propose, streak=3)"
+    },
+    "timestamp": "2026-07-09T20:39:10.433438+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3d173c2e-9b60-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:41:30.607582+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f40fcca4-e195-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:45:16.024807+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "17649533-9e9a-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:48:43.073873+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "90dde21d-339a-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:52:12.773828+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "33639b12-d1ba-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:55:13.662879+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9a5e8c81-543c-48",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T20:58:42.010860+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8ee0dcda-5e25-47",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T21:02:22.411805+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "89b0e81d-d2fd-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T21:06:05.101202+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "abea8d43-691f-4c",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-invocation-noop-streak: event-loop [high]",
+    "body": "Event-pump for role=coder has had 3 consecutive one-shot invocations on action=propose that exited cleanly WITHOUT any BRC-bus progress (dedupe key cc6d00b9b0734864cb79f6050a7360d535f209dde325aa69cc705690b8d1fd0e re-derived unchanged each time). The arm is parked: no further pods spawn for this key until the unresolved contract-decision set changes (e.g. the gating cq-N is resolved) or the BRC state moves; a probe spawn is retried every 1800s as a backstop. Unresolved contract HITL decision(s) likely gating it: cq-4 \u2014 check get_status pending_contract_decisions and resolve via provide_input.",
+    "metadata": {
+      "anomaly": "agent-invocation-noop-streak",
+      "priority": "high",
+      "summary": "agent invocations completing with zero BRC progress (action=propose, streak=3)"
+    },
+    "timestamp": "2026-07-09T21:08:52.047750+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "da56d94a-78b0-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "event-arms-parked: event-loop [high]",
+    "body": "Event loop for pipeline=issue-3364 slice=slice-3 phase=implement cannot advance: every derivable spawn arm (coder/propose) is blocked on a no-op-parked (or exhausted) dedupe key and no one-shot Job is in flight. Each parked arm's agent keeps completing cleanly with zero BRC progress, so respawning it unchanged cannot converge the round \u2014 it is typically blocked on missing upstream state (e.g. a producer that never proposed) or an unresolved operator decision. Blocked arms:\n- coder/propose: 3 consecutive no-op completions (parked)",
+    "metadata": {
+      "anomaly": "event-arms-parked",
+      "priority": "high",
+      "summary": "all spawn arms no-op-parked for slice slice-3 \u2014 round stalled"
+    },
+    "timestamp": "2026-07-09T21:08:52.114804+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9858946d-bf52-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T21:09:58.202620+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "85919029-905d-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T21:21:13.257019+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "414d4d64-7057-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition: event-loop [high]",
+    "body": "Event-loop for pipeline=issue-3364 slice=slice-3 phase=implement has derived action=propose for role=coder but the actionable event has been pending for 1800s without BRC-bus progress (budget=30m). No in-flight Job exists for this event.",
+    "metadata": {
+      "anomaly": "stuck-phase-transition",
+      "priority": "high",
+      "summary": "orchestrator convergence stall: coder propose pending 1800s (budget 30m)"
+    },
+    "timestamp": "2026-07-09T21:30:33.422388+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5cc48fa4-6bc9-45",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T21:31:07.101421+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c0d23732-4047-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=304547 util=n/a cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T21:38:29.954649+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4440c331-8e62-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "event-arms-parked: event-loop [high]",
+    "body": "Event loop for pipeline=issue-3364 slice=slice-3 phase=implement cannot advance: every derivable spawn arm (coder/propose) is blocked on a no-op-parked (or exhausted) dedupe key and no one-shot Job is in flight. Each parked arm's agent keeps completing cleanly with zero BRC progress, so respawning it unchanged cannot converge the round \u2014 it is typically blocked on missing upstream state (e.g. a producer that never proposed) or an unresolved operator decision. Blocked arms:\n- coder/propose: 4 consecutive no-op completions (parked)",
+    "metadata": {
+      "anomaly": "event-arms-parked",
+      "priority": "high",
+      "summary": "all spawn arms no-op-parked for slice slice-3 \u2014 round stalled"
+    },
+    "timestamp": "2026-07-09T21:39:20.059981+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6f3d04cd-ca31-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T21:53:34.490435+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3d96cf34-72fa-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=80491 util=n/a cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-09T21:55:28.015048+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a8733842-3519-46",
+    "pipeline_id": "issue-3364",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-loop [high]",
+    "body": "coder (slice-3, PR D) re-spawned 5\u00d7 on the identical blocked event; sole blocker is unresolved HITL cq-4 awaiting an operator answer.\n\nDetail:\ntask-3-1 (PR D coverage-map GATE) is complete: 4/5 host-detector blocks map to confirmed overseer emitters; coverage-map recorded at .egg-state/agent-outputs/coder/3364-coverage-map.md. The 5th block (Long-Running Phase Detection) maps to NO overseer emitter and was escalated as cq-4 (registered ~2026-07-09T21:06Z). task-3-2/3-3/3-4 (delete detectors, remove overseer_owns_host_detection, verify) are hard-gated on cq-4's disposition and on task-3-1; the coder cannot propose (propose requires all tasks complete) and must not delete pre-emptively. The orchestrator keeps deriving a coder next-action and re-spawning me one-shot each event, but there is nothing actionable until a human resolves cq-4. No coder-side workaround exists.\n\nRecommended action:\nOperator: resolve HITL cq-4 (options: keep Long-Running block host-side / delete entirely / keep render rewired to post_consensus_stall). That answer unblocks task-3-2/3-3/3-4 and lets the coder propose slice-3.",
+    "metadata": {},
+    "timestamp": "2026-07-09T22:03:41.676490+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "8b6de516-408c-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-invocation-noop-streak: event-loop [high]",
+    "body": "Event-pump for role=coder has had 3 consecutive one-shot invocations on action=propose that exited cleanly WITHOUT any BRC-bus progress (dedupe key cc6d00b9b0734864cb79f6050a7360d535f209dde325aa69cc705690b8d1fd0e re-derived unchanged each time). The arm is parked: no further pods spawn for this key until the unresolved contract-decision set changes (e.g. the gating cq-N is resolved) or the BRC state moves; a probe spawn is retried every 1800s as a backstop. Unresolved contract HITL decision(s) likely gating it: cq-4 \u2014 check get_status pending_contract_decisions and resolve via provide_input.",
+    "metadata": {
+      "anomaly": "agent-invocation-noop-streak",
+      "priority": "high",
+      "summary": "agent invocations completing with zero BRC progress (action=propose, streak=3)"
+    },
+    "timestamp": "2026-07-09T22:04:13.926149+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "dfab3077-d64e-4e",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-invocation-fail-streak: event-loop [high]",
+    "body": "Event-pump for role=documenter has had 10 consecutive agent-invocation failures on action=propose. The orchestrator has exhausted retries for the current dedupe key (368aaa9beac696e5efead25bcb2dfc158754be2d4cfda5eab47bbbfe75abfae6). No further pods will be spawned until the BRC state changes (new dedupe key). Threshold: streak >= 10. Recent terminations: 2026-07-09T22:07:34+00:00 abnormal (exit_code=1); 2026-07-09T22:08:01+00:00 abnormal (exit_code=1); 2026-07-09T22:08:28+00:00 abnormal (exit_code=1); 2026-07-09T22:09:00+00:00 abnormal (exit_code=1); 2026-07-09T22:09:31+00:00 abnormal (exit_code=1).",
+    "metadata": {
+      "anomaly": "agent-invocation-fail-streak",
+      "priority": "high",
+      "summary": "agent invocation failing repeatedly (action=propose, streak=10)"
+    },
+    "timestamp": "2026-07-09T22:09:31.940397+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "60098401-5444-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "AGENT_FAILED",
+    "subject": "Agent documenter failed",
+    "body": "producer propose arm exhausted after 10 consecutive agent-invocation failures (dedupe_key=368aaa9beac696e5efead25bcb2dfc158754be2d4cfda5eab47bbbfe75abfae6)",
+    "metadata": {},
+    "timestamp": "2026-07-09T22:09:31.958740+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e444126c-600e-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "event-arms-parked: event-loop [high]",
+    "body": "Event loop for pipeline=issue-3364 slice=slice-3 phase=implement cannot advance: every derivable spawn arm (coder/propose, documenter/propose) is blocked on a no-op-parked (or exhausted) dedupe key and no one-shot Job is in flight. Each parked arm's agent keeps completing cleanly with zero BRC progress, so respawning it unchanged cannot converge the round \u2014 it is typically blocked on missing upstream state (e.g. a producer that never proposed) or an unresolved operator decision. Blocked arms:\n- coder/propose: 3 consecutive no-op completions (parked)\n- documenter/propose: streak=10, recent terminations: 2026-07-09T22:07:34+00:00 abnormal (exit_code=1); 2026-07-09T22:08:01+00:00 abnormal (exit_code=1); 2026-07-09T22:08:28+00:00 abnormal (exit_code=1); 2026-07-09T22:09:00+00:00 abnormal (exit_code=1); 2026-07-09T22:09:31+00:00 abnormal (exit_code=1) (exhausted)",
+    "metadata": {
+      "anomaly": "event-arms-parked",
+      "priority": "high",
+      "summary": "all spawn arms no-op-parked for slice slice-3 \u2014 round stalled"
+    },
+    "timestamp": "2026-07-09T22:34:35.083664+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c96fef09-84b5-4d",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "event-arms-parked: event-loop [high]",
+    "body": "Event loop for pipeline=issue-3364 slice=slice-3 phase=implement cannot advance: every derivable spawn arm (coder/propose, documenter/propose) is blocked on a no-op-parked (or exhausted) dedupe key and no one-shot Job is in flight. Each parked arm's agent keeps completing cleanly with zero BRC progress, so respawning it unchanged cannot converge the round \u2014 it is typically blocked on missing upstream state (e.g. a producer that never proposed) or an unresolved operator decision. Blocked arms:\n- coder/propose: 3 consecutive no-op completions (parked)\n- documenter/propose: streak=10, recent terminations: 2026-07-09T22:07:34+00:00 abnormal (exit_code=1); 2026-07-09T22:08:01+00:00 abnormal (exit_code=1); 2026-07-09T22:08:28+00:00 abnormal (exit_code=1); 2026-07-09T22:09:00+00:00 abnormal (exit_code=1); 2026-07-09T22:09:31+00:00 abnormal (exit_code=1) (exhausted)",
+    "metadata": {
+      "anomaly": "event-arms-parked",
+      "priority": "high",
+      "summary": "all spawn arms no-op-parked for slice slice-3 \u2014 round stalled"
+    },
+    "timestamp": "2026-07-09T23:04:39.078722+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "54e5adcc-8e95-41",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "event-arms-parked: event-loop [high]",
+    "body": "Event loop for pipeline=issue-3364 slice=slice-3 phase=implement cannot advance: every derivable spawn arm (coder/propose, documenter/propose) is blocked on a no-op-parked (or exhausted) dedupe key and no one-shot Job is in flight. Each parked arm's agent keeps completing cleanly with zero BRC progress, so respawning it unchanged cannot converge the round \u2014 it is typically blocked on missing upstream state (e.g. a producer that never proposed) or an unresolved operator decision. Blocked arms:\n- coder/propose: 3 consecutive no-op completions (parked)\n- documenter/propose: streak=10, recent terminations: 2026-07-09T22:07:34+00:00 abnormal (exit_code=1); 2026-07-09T22:08:01+00:00 abnormal (exit_code=1); 2026-07-09T22:08:28+00:00 abnormal (exit_code=1); 2026-07-09T22:09:00+00:00 abnormal (exit_code=1); 2026-07-09T22:09:31+00:00 abnormal (exit_code=1) (exhausted)",
+    "metadata": {
+      "anomaly": "event-arms-parked",
+      "priority": "high",
+      "summary": "all spawn arms no-op-parked for slice slice-3 \u2014 round stalled"
+    },
+    "timestamp": "2026-07-09T23:34:48.106084+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e265a63f-1955-43",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "slice-cascade-block: slice-2",
+    "body": "Slice slice-2 failed; downstream subtree [] marked BLOCKED_ON_FAILED_DEPENDENCY (60 s grace expired). HITL resolution required to restart the failed slice.",
+    "metadata": {
+      "anomaly": "slice-cascade-block",
+      "priority": "high",
+      "failed_slice_id": "slice-2",
+      "blocked_subtree": []
+    },
+    "timestamp": "2026-07-10T01:22:25.419916+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6b5c5ff2-59c5-44",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-10T01:22:38.610493+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "dcf92ac1-4d32-4b",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-10T01:25:13.896112+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2c86ce95-47ea-40",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=90018 util=n/a cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-10T01:26:03.148201+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "02887a1c-2396-4a",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "driver_liveness_driver_no_progress: orchestrator [high]",
+    "body": "The driver is alive and ticking, but nothing has spawned for 2719s (grace 2700s), no agent container is live, and no HITL decision is pending; the phase is silently spinning (#3540).",
+    "metadata": {
+      "reason": "driver_liveness_stall",
+      "mode": "driver_no_progress"
+    },
+    "timestamp": "2026-07-10T02:07:51.455955+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "46a6f045-894b-49",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-10T02:29:40.860179+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e6e04f36-4ac2-42",
+    "pipeline_id": "issue-3364",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=89025 util=n/a cache_hit=0.97 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-10T02:31:17.301942+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3ef2177c-e390-4f",
+    "pipeline_id": "issue-3364",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-invocation-noop-streak: event-loop [high]",
+    "body": "Event-pump for role=documenter has had 3 consecutive one-shot invocations on action=propose that exited cleanly WITHOUT any BRC-bus progress (dedupe key 368aaa9beac696e5efead25bcb2dfc158754be2d4cfda5eab47bbbfe75abfae6 re-derived unchanged each time). The arm is parked: no further pods spawn for this key until the unresolved contract-decision set changes (e.g. the gating cq-N is resolved) or the BRC state moves; a probe spawn is retried every 1800s as a backstop. No unresolved contract decision was visible at park time; check the slice's BRC transcript for what the agent is blocked on.",
+    "metadata": {
+      "anomaly": "agent-invocation-noop-streak",
+      "priority": "high",
+      "summary": "agent invocations completing with zero BRC progress (action=propose, streak=3)"
+    },
+    "timestamp": "2026-07-10T02:38:29.602085+00:00",
+    "phase": "implement"
+  }
+]

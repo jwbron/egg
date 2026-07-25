@@ -671,6 +671,17 @@ def _start_pipeline_body(pipeline_id: str) -> tuple[_pkg.Response, int]:
 
                 _clear_concurrent_state(pipeline_id)
 
+                # #3521: advance contract.current_phase in lockstep with
+                # the pipeline record on the HITL-recovery advance (this
+                # path does NOT route through advance_phase REST; the
+                # runner thread is spawned inline below). Best-effort +
+                # forward-only; never raises.
+                _pkg._sync_contract_phase_to_pipeline(
+                    pipeline,
+                    _pkg._resolve_pipeline_worktree_path(pipeline, repo_path),
+                    source="hitl_recovery_advance",
+                )
+
             # #2593 review issue 1 — context-PR open moved out of the
             # per-pipeline state lock so the multi-second gateway
             # sequence does not hold the lock and block concurrent
