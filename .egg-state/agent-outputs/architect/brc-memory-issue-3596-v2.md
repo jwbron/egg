@@ -175,12 +175,143 @@ Add to `/status` response:
 - `orchestrator/health_checks/tier1/worktree_branch.py` — worktree corruption, disk pressure
 - GitHub issue #3596 (live) and #3595 (incident analysis, partially superseded)
 
+## Detector audit (all 27 registered detectors are starved)
+
+### Snapshot fields populated by snapshot_from_health_context:
+- snapshot_id: YES
+- pipeline_id: YES
+- phase: YES
+- running_agents: YES (but only role, state, lifecycle_owner — NOT exit_code, exit_reason, last_tool_call_age_s, last_heartbeat_age_s)
+- phase_state: YES (but only status, lifecycle_owner, event_loop_owner, started_age_s, awaiting_spawn — NOT expected_duration_s, drift_ratio)
+- consensus: NO
+- decision_state: NO
+- container_transitions: NO
+- gateway_error_counters: NO
+- cost_counters: NO
+- midturn_messages: NO
+- git_state: NO
+- raw: NO (entirely unpopulated — no runtime, llm, resources, pr_state, self_health sections)
+
+### Audit results: ALL 27 detectors are starved (cannot fire in production)
+
+Detectors reading unpopulated top-level fields:
+- detect_brc_thrash, detect_incomplete_consensus_deferral → consensus (NOT populated)
+- detect_container_death, detect_container_oom_evicted, detect_container_restart_loop,
+  detect_overseer_self_injection → container_transitions (NOT populated)
+- detect_cost_anomaly → cost_counters (NOT populated)
+- detect_approved_decision_orphaned, detect_auto_advance_wedge, detect_hitl_queue_backlog,
+  detect_restarted_decision_replay → decision_state (NOT populated)
+- detect_gateway_error_spike, detect_gateway_repeated_denial, detect_gateway_token_expiry
+  → gateway_error_counters (NOT populated)
+- detect_pushed_pr_not_updated, detect_worktree_corruption → git_state (NOT populated)
+- detect_disk_inode_pressure, detect_pr_external_mutation → raw (NOT populated)
+- detect_anthropic_5xx_sustained, detect_effective_model_drift, detect_llm_substrate_unreachable
+  → raw.llm (NOT populated)
+- detect_agent_restart_propagation, detect_run_pipeline_thread_liveness → raw.runtime (NOT populated)
+- detect_overseer_self_health → raw.self_health (NOT populated)
+
+Detectors reading unpopulated RunningAgent fields:
+- detect_heartbeat_stall → last_tool_call_age_s, last_heartbeat_age_s (NOT populated)
+- detect_container_death → exit_code (NOT populated)
+- detect_overseer_self_injection → exit_reason (NOT populated)
+
+Detectors reading unpopulated phase_state fields:
+- detect_duration_drift → expected_duration_s, drift_ratio (NOT populated)
+
+Detectors reading unpopulated consensus fields:
+- PhaseStallDetector → consensus.blocking_agents (NOT populated)
+
+### Data sources needed for each field:
+- container_transitions: kubernetes_monitor container event history
+- git_state: worktree git log/rev-list/patch-id
+- decision_state: contract pending decisions + decision queue
+- cost_counters: cost_callback logs (no queryable store exists — R6)
+- gateway_error_counters: gateway error counters (no queryable store exists)
+- midturn_messages: message store midturn messages
+- raw.runtime: driver_heartbeat registry + kubernetes_monitor state
+- raw.llm: litellm cost_callback logs (no queryable store)
+- raw.resources: filesystem/disk usage
+- raw.pr_state: PR status from GitHub API
+- raw.self_health: overseer self_monitor metrics
+- RunningAgent.exit_code/exit_reason: container exit info from kubernetes_monitor
+- RunningAgent.last_tool_call_age_s: from working_heartbeat emitter or agent session
+- RunningAgent.last_heartbeat_age_s: from HealthMonitor._last_heartbeat
+- phase_state.expected_duration_s: from PipelineConfig phase budgets
+- phase_state.drift_ratio: computed from started_age_s / expected_duration_s
+
+## NACK resolution (reviewer_plan v1)
+
+The proposal was NACKed with 7 points. All are addressed:
+
+R1 (HIGH): cq-2 was registered and resolved by the operator. The operator confirmed
+the detection plane is NOT wired in production and retracted the cq-1 premise.
+Task-1 should wire the plane into _run_runtime_tick_checks.
+
+R3 (HIGH): Task-1 split into sub-tasks by data source:
+- 1a: Wire detection plane into _run_runtime_tick_checks
+- 1b: Populate container_transitions from kubernetes_monitor
+- 1c: Populate git_state from worktree git operations
+- 1d: Populate decision_state from contract + decision queue
+- 1e: Populate RunningAgent liveness fields from HealthMonitor + progress store
+- 1f: Populate phase_state.expected_duration_s from PipelineConfig
+- 1g: Populate raw.runtime from driver_heartbeat + kubernetes_monitor
+- 1h: Fix role=str(cid) defect (map container IDs to agent roles)
+- 1i: Correct health_checks/README.md:88 (docs claim plane is wired)
+
+R5 (MEDIUM): Full detector audit above. ALL 27 detectors are starved.
+
+R6 (MEDIUM): Task-5 (consumption breaker) requires a cost counter store.
+Deferred to a follow-up — no queryable cost store exists. The snapshot builder
+should populate cost_counters from whatever store is created, but the store
+creation is a separate task.
+
+R7 (MEDIUM): HealthMonitor IS still active (initialized in _run_pipeline.py:272,
+used across 12+ call sites). The peer-progress gate fix in HealthMonitor is NOT
+wasted effort. The detection plane is the future, but HealthMonitor is the
+present. Both need the fix: HealthMonitor for immediate effect, detection plane
+for the future.
+
+## Revised proposal (v2)
+
+### Slice 1a: Wire detection plane into runtime tick
+- Call HealthCheckRunner.run_detection_plane() from _run_runtime_tick_checks
+- Guard against double-evaluation (two call sites: _check_pod + _reconciliation_sweep)
+- Make evaluation idempotent per tick
+
+### Slice 1b: Enrich snapshot builder — data sources
+Split into sub-tasks by data source:
+- 1b: container_transitions from kubernetes_monitor container event history
+- 1c: git_state from worktree git operations (commit count, last commit, patch-id)
+- 1d: decision_state from contract + decision queue
+- 1e: RunningAgent liveness fields (last_tool_call_age_s, last_heartbeat_age_s, exit_code, exit_reason)
+- 1f: phase_state.expected_duration_s from PipelineConfig
+- 1g: raw.runtime from driver_heartbeat + kubernetes_monitor
+- 1h: Fix role=str(cid) defect
+- 1i: Correct health_checks/README.md:88
+
+### Slice 2: Forward-progress detector
+New detector: detect_forward_progress_stall — fires when agent runs >N seconds
+with zero commits, zero progress events, zero file modifications.
+
+### Slice 3: Peer-progress gate fix
+Fix _has_recent_peer_progress to only defer on peers the agent depends on
+(from BRC review_edges). Also fix in detection plane when it becomes active.
+
+### Slice 4: Status endpoint enrichment
+Add progress sub-object to concurrent.agents + alerts array to top-level.
+
+### Slice 5: Consumption breaker (DEFERRED)
+Requires a cost counter store that doesn't exist. Create as a follow-up task.
+
+### Slice 6: Record sampling params
+Extend cost_callback.py to log optional_params. Pin temperature/top_p per model.
+
 ## Verdict
-The codebase has substantial observability infrastructure but it is fragmented
-and the detection plane — the centerpiece of #2270's "orchestrator-side
-overseership" — is not actually wired into the runtime tick. The four
-forward-progress signals (driver heartbeat, agent progress events, working
-heartbeat, commit counting) exist but none provides continuous commit-rate
-or worktree-activity monitoring. The fix is to (1) wire the detection plane
-into the runtime tick and enrich the snapshot builder, (2) add a forward-progress
-detector, (3) enrich the status endpoint, and (4) persist progress events.
+The codebase has substantial observability infrastructure but it is entirely
+dormant — the detection plane is never invoked, and the snapshot builder
+populates only 5 of 13 top-level fields (and only 3 of 7 RunningAgent fields).
+ALL 27 registered detectors are starved. The fix is to (1) wire the detection
+plane into the runtime tick, (2) enrich the snapshot builder with data from
+the 8 existing data sources, (3) add a forward-progress detector, (4) fix the
+peer-progress gate, (5) enrich the status endpoint, and (6) record sampling params.
+Task-5 (consumption breaker) is deferred pending a cost counter store.
