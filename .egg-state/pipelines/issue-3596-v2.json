@@ -144,6 +144,25 @@
           }
         ]
       }
+    },
+    "plan": {
+      "phase": "plan",
+      "status": "running",
+      "started_at": "2026-07-25T00:04:25.339279Z",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "operator_directives": [],
+      "iteration_history": [],
+      "phase_start_sha": "e9a36e7c01acb395fa2a1346d37b4b417c410731",
+      "agent_exits": [],
+      "decision_ledger": null
     }
   },
   "decisions": [
@@ -183,7 +202,7 @@
     }
   ],
   "created_at": "2026-07-24T23:26:12.128692Z",
-  "updated_at": "2026-07-25T00:04:22.461360Z",
+  "updated_at": "2026-07-25T00:04:25.339430Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -196,7 +215,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-25T00:04:22.461160Z",
-  "version": 18,
+  "version": 19,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
