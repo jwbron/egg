@@ -84,8 +84,8 @@ _REASONING_KNOBS = ("reasoning_effort", "thinking")
 # CLASSIFY BY SHAPE, NOT BY COUNT. A hard count ("nine providers do this") is a
 # claim that rots on every litellm bump and tells you nothing about the entry in
 # front of you. Read the provider's ``get_supported_openai_params`` and ask what
-# it does when the model is ABSENT from LiteLLM's map. Three shapes appear at
-# the pinned version, all of which want ``model_info`` set:
+# it does when the model is ABSENT from LiteLLM's map. Two shapes appear at
+# the pinned version, both of which want ``model_info`` set:
 #
 #   (a) pure gate — the ``supports_reasoning`` call is the only condition, so
 #       an unmapped model fails closed and the knob is dropped in silence.
@@ -156,13 +156,31 @@ _SUPPORTS_REASONING_GATED_KNOBS: dict[str, tuple[str, ...]] = {
 # is not in ``LlmProviders``, so there is no spelling that makes the write key
 # and the read key meet.
 #
-# Nothing in ``litellm_params`` / ``model_info`` fixes these. What can still put
-# the knob on the wire is the provider config's own name heuristics
-# (``anthropic.claude-3-7`` / ``claude-sonnet-4`` / ``claude-opus-4`` /
-# ``deepseek.r1`` / ``gpt-oss`` / Nova 2 on bedrock converse, ``"claude" in
-# model`` on github_copilot) — a property of the model name, not of the config —
-# so the guard fails closed and asks for empirical verification against the
-# ``request_params`` log line rather than pretending a YAML key will do it.
+# ``model_info`` cannot RESCUE these entries. That is not the same claim as "the
+# knob can never reach the wire here", and conflating the two is how this guard
+# would fail a build on a config that already works. Two ways the knob still
+# gets advertised on these prefixes, both of which the predicate must let
+# through:
+#
+#   1. The provider config's own model-NAME heuristics fire before the gate is
+#      consulted at all — ``bedrock`` converse's ``gpt-oss`` / Nova-2 / Claude-4
+#      / ``deepseek.r1`` branches. Those are pure substring tests on a name the
+#      operator writes, so the guard can evaluate them exactly:
+#      ``_HEURISTIC_ADVERTISED_KNOBS`` below. (``github_copilot``'s ``"claude"
+#      in model`` is NOT one of these — it is ANDed with the unreachable gate,
+#      not ORed with it, so a Claude name alone never suffices there.)
+#   2. The bare, provider-stripped model name happens to be a top-level key in
+#      LiteLLM's built-in map — e.g. ``gemini-2.5-pro`` is, with
+#      ``supports_reasoning: true``, so ``model: vertex_ai/gemini-2.5-pro`` puts
+#      the knob on the wire with no ``model_info`` and no config at all. That is
+#      a fact about LiteLLM's map at one version, not about the entry, so it
+#      cannot be derived here — an operator who has SEEN the knob on the wire
+#      records it with ``model_info.egg_wire_verified_knobs`` (below).
+#
+# Absent either, the guard fails closed: no YAML key makes the gate pass, so it
+# asks for the provider's native request shape or for empirical verification
+# against the ``request_params`` log line rather than pretending ``model_info``
+# will do it.
 #
 # Verified at ``_VERIFIED_LITELLM_VERSION``; line numbers are from that tag.
 _GATE_UNREACHABLE_BY_MODEL_INFO: dict[str, tuple[str, ...]] = {
@@ -170,7 +188,10 @@ _GATE_UNREACHABLE_BY_MODEL_INFO: dict[str, tuple[str, ...]] = {
     # — ``supports_reasoning(model)``, no provider
     "vertex_ai/": ("reasoning_effort", "thinking"),
     # llms/github_copilot/chat/transformation.py:122-129 — ``"claude" in model``
-    # AND ``supports_reasoning(model=model.lower())``, no provider
+    # AND ``supports_reasoning(model=model.lower())``, no provider. Both
+    # conjuncts must hold, so the Claude name is not an escape from the gate:
+    # it needs the bare stripped name (``claude-sonnet-4``, not
+    # ``github_copilot/claude-sonnet-4``) to be in LiteLLM's map.
     "github_copilot/": ("reasoning_effort", "thinking"),
     # llms/bedrock/chat/converse_transformation.py:555-575 — provider passed but
     # spelled ``bedrock_converse``. Note also that the ``gpt-oss`` and Nova-2
@@ -178,6 +199,70 @@ _GATE_UNREACHABLE_BY_MODEL_INFO: dict[str, tuple[str, ...]] = {
     # ONLY, so on those name families ``thinking`` is never advertised at all.
     "bedrock/": ("reasoning_effort", "thinking"),
 }
+
+# ``model_info`` key an operator uses to record that they have SEEN a knob on
+# the wire for this route, mapping knob -> the litellm version it was observed
+# at. It is the green path out of ``_GATE_UNREACHABLE_BY_MODEL_INFO`` for the
+# case no static rule can express: the bare model name happening to be in
+# LiteLLM's built-in map (``vertex_ai/gemini-2.5-pro`` today). Empirical proof
+# beats source reading, but it expires — the map moves on a bump, which is why
+# the value is a version and why the guard only honours it at the pinned one.
+#
+# Not accepted by the other two guards on purpose. On a gated-but-reachable
+# provider ``model_info: {supports_reasoning: true}`` is the actual fix and an
+# attestation would just let an entry skip it; on a provider in no table at all
+# the required work is reading that config, and an attestation there would be a
+# way to never do it.
+#
+# ``ModelInfo`` is ``ConfigDict(extra="allow")`` (``litellm/types/router.py``),
+# so LiteLLM carries the key through router init and ignores it.
+_WIRE_VERIFIED_KNOBS_KEY = "egg_wire_verified_knobs"
+
+# Provider prefix -> a predicate mapping a written model string to the knobs
+# that provider advertises on the NAME ALONE, with no ``supports_reasoning``
+# call involved.
+#
+# Only ``bedrock`` (converse) has these. ``converse_transformation.py:555-575``
+# is an ``if``/``elif`` chain whose first two branches short-circuit before any
+# gate, and whose third ORs three Claude-name tests and ``deepseek.r1`` in front
+# of the gate. Note the knob asymmetry the chain creates: on a ``gpt-oss`` or
+# Nova-2 name ``reasoning_effort`` is advertised and ``thinking`` is NOT — and
+# never can be, whatever the config says, because the matching branch returns
+# before the branch that appends it.
+#
+# Verified at ``_VERIFIED_LITELLM_VERSION``.
+_BEDROCK_BOTH_KNOB_NAMES = ("claude-3-7", "claude-sonnet-4", "claude-opus-4", "deepseek.r1")
+
+
+def _is_nova_2_model(model: str) -> bool:
+    """Mirror of ``AmazonConverseConfig._is_nova_2_model``.
+
+    Strips the routing prefix then the regional prefix, exactly as
+    ``llms/bedrock/chat/converse_transformation.py:280-331`` does, before
+    matching the Nova 2 families."""
+    for routing_prefix in ("bedrock/converse/", "bedrock/", "converse/"):
+        if model.startswith(routing_prefix):
+            model = model.removeprefix(routing_prefix)
+            break
+    for region_prefix in ("us.", "eu.", "apac."):
+        if model.startswith(region_prefix):
+            model = model.removeprefix(region_prefix)
+            break
+    return model.startswith("amazon.nova-2-") or model.startswith("nova-2/")
+
+
+def _bedrock_heuristic_knobs(model: str) -> tuple[str, ...]:
+    """Knobs ``AmazonConverseConfig`` advertises for *model* without any gate."""
+    if "gpt-oss" in model:
+        return ("reasoning_effort",)
+    if _is_nova_2_model(model):
+        return ("reasoning_effort",)
+    if any(name in model for name in _BEDROCK_BOTH_KNOB_NAMES):
+        return ("reasoning_effort", "thinking")
+    return ()
+
+
+_HEURISTIC_ADVERTISED_KNOBS = {"bedrock/": _bedrock_heuristic_knobs}
 
 # Provider prefix -> reasoning knobs that provider advertises UNCONDITIONALLY,
 # i.e. with no ``model_info`` needed and no model-map lookup involved.
@@ -188,13 +273,18 @@ _GATE_UNREACHABLE_BY_MODEL_INFO: dict[str, tuple[str, ...]] = {
 # a mapped, non-reasoning deployment name is still gated — so it is deliberately
 # left out rather than half-recorded here. This is not the same category as the
 # two maps above — here ``model_info`` is unnecessary; in the first it is
-# required, in the second it is unreachable. A provider in none of the three is
-# one where the knob is popped silently
-# whatever the config says: ``TogetherAIConfig.get_supported_openai_params``
+# required, in the second it is unreachable.
+#
+# A provider in none of the three tables is a provider nobody has read yet, NOT
+# a provider that is known broken — the tables are a record of what has been
+# checked, not a closed classification of every provider that exists.
+# ``together_ai`` is the one such config that HAS been read and does drop the
+# knob unconditionally: ``TogetherAIConfig.get_supported_openai_params``
 # (``llms/together_ai/chat.py:18-46``) only *subtracts* from
 # ``OpenAIGPTConfig``'s base list, and that base list
 # (``llms/openai/chat/gpt_transformation.py:138-187``) carries no reasoning knob
-# under any condition. Add a prefix here only after reading that provider's
+# under any condition. That is a fact about those two configs, not about the
+# complement. Add a prefix here only after reading that provider's
 # ``get_supported_openai_params`` against the pinned litellm version, and say
 # which version you checked.
 _UNCONDITIONAL_REASONING_KNOBS: dict[str, tuple[str, ...]] = {}
@@ -257,7 +347,7 @@ def _registered_model_key(entry: dict) -> str:
 
     ``Router._create_deployment`` prepends ``custom_llm_provider`` to
     ``litellm_params.model`` **unconditionally** when that field is set
-    (``litellm/router.py:7195-7199``, mirrored at ``:7903-7907``); it does not
+    (``litellm/router.py:7196-7200``, mirrored at ``:7904-7908``); it does not
     check whether the model string already carries the prefix. So this is *not*
     always the same key ``_entry_model`` resolves — see
     ``_model_info_reaches_the_gate``."""
@@ -329,6 +419,31 @@ def _reasoning_knob_offenders(entries: list[dict]) -> list[str]:
     )
 
 
+def _heuristic_knobs(model: str) -> tuple[str, ...]:
+    """Knobs the provider prefixing *model* advertises on the name alone."""
+    for prefix, predicate in _HEURISTIC_ADVERTISED_KNOBS.items():
+        if model.startswith(prefix):
+            return predicate(model)
+    return ()
+
+
+def _wire_verified_knobs(entry: dict) -> tuple[str, ...]:
+    """Knobs this entry attests were seen on the wire at the pinned litellm.
+
+    An attestation naming a different version is ignored — a knob observed at
+    1.85 says nothing about 1.87, since what carries it there is LiteLLM's
+    built-in map rather than anything in this file. That makes the version
+    guard's re-read apply to operator attestations too."""
+    attested = (entry.get("model_info") or {}).get(_WIRE_VERIFIED_KNOBS_KEY) or {}
+    if not isinstance(attested, dict):
+        return ()
+    return tuple(
+        knob
+        for knob, version in attested.items()
+        if knob in _REASONING_KNOBS and str(version) == _VERIFIED_LITELLM_VERSION
+    )
+
+
 def _gate_unreachable_reasoning_knob(entries: list[dict]) -> list[str]:
     """Names of entries whose reasoning knob is gated on
     ``litellm.supports_reasoning`` at a key the entry's ``model_info`` can never
@@ -337,12 +452,28 @@ def _gate_unreachable_reasoning_knob(entries: list[dict]) -> list[str]:
     Separate from ``_reasoning_knob_offenders`` because the remedy differs and
     getting that wrong is how this guard has previously certified the defect it
     exists to catch: there ``model_info`` is the fix, here it is a placebo that
-    *looks* like the fix. Deliberately ignores ``model_info`` for that reason."""
+    *looks* like the fix. ``model_info.supports_reasoning`` is deliberately
+    ignored for that reason.
+
+    But "``model_info`` cannot rescue this" is not "this cannot work", and a
+    guard that fails a build with no way to go green is its own defect. Two
+    exits stay open, both narrow and both checkable:
+
+    * the provider advertises the knob on the model NAME, before consulting the
+      gate (``_HEURISTIC_ADVERTISED_KNOBS`` — bedrock's ``gpt-oss`` / Nova-2 /
+      Claude-4 / ``deepseek.r1`` branches), evaluated here rather than assumed;
+    * the operator has seen the knob on the wire and recorded it at the pinned
+      litellm version (``_WIRE_VERIFIED_KNOBS_KEY``), which is the only way to
+      express "the bare name is in LiteLLM's map" without importing litellm."""
     return sorted(
         entry["model_name"]
         for entry in entries
-        if set(_reasoning_knobs_set(entry))
-        & set(_knobs_for_provider(_entry_model(entry), _GATE_UNREACHABLE_BY_MODEL_INFO))
+        if (
+            set(_reasoning_knobs_set(entry))
+            & set(_knobs_for_provider(_entry_model(entry), _GATE_UNREACHABLE_BY_MODEL_INFO))
+        )
+        - set(_heuristic_knobs(_entry_model(entry)))
+        - set(_wire_verified_knobs(entry))
     )
 
 
@@ -691,7 +822,7 @@ class TestReasoningKnobUnreachableByModelInfo:
     wearing the fix's clothes — so this needs its own guard and its own advice.
 
     The write key is the model string as written
-    (``Router._create_deployment``, ``litellm/router.py:7195-7199``). The read
+    (``Router._create_deployment``, ``litellm/router.py:7196-7200``). The read
     keys are built by ``_get_potential_model_names``
     (``litellm/utils.py:5551-5586``) from the *stripped* model plus whatever
     ``custom_llm_provider`` the gate passed — and when the gate passes none,
@@ -699,11 +830,18 @@ class TestReasoningKnobUnreachableByModelInfo:
     equal a ``vertex_ai/…``-shaped key. ``bedrock`` (converse) passes one, but
     spelled ``bedrock_converse`` while the operator must write ``bedrock/``.
 
-    Telling those operators to add ``model_info`` would be this guard certifying
-    the exact defect it exists to catch, one taxonomy branch over — so the
-    predicate ignores ``model_info`` entirely and the message sends them to the
-    provider's native request shape or to empirical verification against the
-    ``request_params`` log line instead."""
+    Telling those operators to add ``model_info.supports_reasoning`` would be
+    this guard certifying the exact defect it exists to catch, one taxonomy
+    branch over — so the predicate ignores that flag entirely.
+
+    It does NOT ignore the two ways such an entry can genuinely work, because a
+    guard that fails a working config with no path to green is the mirror-image
+    defect: it costs the operator the knob. Bedrock's name heuristics are
+    evaluated (``_HEURISTIC_ADVERTISED_KNOBS``), and an operator who has watched
+    the knob appear in the post-mapping ``request_params`` line can record that
+    at the pinned litellm version (``_WIRE_VERIFIED_KNOBS_KEY``). Neither exit
+    is a free-form opt-out: the first is derived from source, the second names a
+    version and expires when the image moves."""
 
     @pytest.mark.parametrize(
         ("prefix", "knob"),
@@ -755,6 +893,105 @@ class TestReasoningKnobUnreachableByModelInfo:
         assert _reasoning_knob_offenders([gemini]) == []
         assert _gate_unreachable_reasoning_knob([vertex]) == ["v"]
 
+    @pytest.mark.parametrize(
+        ("model", "advertised"),
+        [
+            # `if "gpt-oss" in model` — first branch, no gate, one knob.
+            ("bedrock/openai.gpt-oss-120b", ("reasoning_effort",)),
+            # `elif self._is_nova_2_model(model)` — same, through the regional
+            # and routing prefix stripping the real helper does.
+            ("bedrock/amazon.nova-2-lite-v1:0", ("reasoning_effort",)),
+            ("bedrock/us.amazon.nova-2-pro-preview-20251202-v1:0", ("reasoning_effort",)),
+            # `elif "claude-sonnet-4" in model or ... or supports_reasoning(...)`
+            # — the gate is the last disjunct, so the name alone carries both.
+            ("bedrock/anthropic.claude-sonnet-4-20250514-v1:0", ("reasoning_effort", "thinking")),
+            ("bedrock/anthropic.claude-3-7-sonnet-20250219-v1:0", ("reasoning_effort", "thinking")),
+            ("bedrock/deepseek.r1-v1:0", ("reasoning_effort", "thinking")),
+            # Nova 1 is not Nova 2, and a plain Claude 3.5 name matches nothing.
+            ("bedrock/amazon.nova-pro-v1:0", ()),
+            ("bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0", ()),
+        ],
+    )
+    def test_name_heuristics_are_evaluated_not_assumed(self, model, advertised):
+        # Failing the build on a config that already works costs the operator
+        # the knob just as surely as certifying a broken one — and bedrock's
+        # heuristics are pure substring tests on a name written right here, so
+        # there is no excuse for guessing at them.
+        for knob in _REASONING_KNOBS:
+            entry = {"model_name": "m", "litellm_params": {"model": model, knob: "high"}}
+            expected = [] if knob in advertised else ["m"]
+            assert _gate_unreachable_reasoning_knob([entry]) == expected
+            # Whichever way it lands, the other two guards stay out of it.
+            assert _reasoning_knob_offenders([entry]) == []
+            assert _unverified_provider_reasoning_knob([entry]) == []
+
+    def test_wire_verified_knob_is_a_green_path(self):
+        # `gemini-2.5-pro` is a top-level key in LiteLLM's built-in map at the
+        # pinned version, so vertex's bare `supports_reasoning(model)` resolves
+        # it and the knob reaches the wire with no `model_info` at all. No
+        # static rule here can know that — the map is not importable from this
+        # process and moves on a bump — so an operator who has seen it on the
+        # `request_params` line records the observation instead.
+        entry = {
+            "model_name": "gemini-2-5-pro",
+            "litellm_params": {"model": "vertex_ai/gemini-2.5-pro", "reasoning_effort": "high"},
+        }
+        assert _gate_unreachable_reasoning_knob([entry]) == ["gemini-2-5-pro"]
+        verified = {
+            **entry,
+            "model_info": {
+                _WIRE_VERIFIED_KNOBS_KEY: {"reasoning_effort": _VERIFIED_LITELLM_VERSION}
+            },
+        }
+        assert _gate_unreachable_reasoning_knob([verified]) == []
+
+    def test_wire_verification_is_per_knob_and_expires_with_the_pin(self):
+        base = {
+            "model_name": "v",
+            "litellm_params": {
+                "model": "vertex_ai/gemini-2.5-pro",
+                "reasoning_effort": "high",
+                "thinking": {"type": "enabled"},
+            },
+        }
+        # Attesting one knob says nothing about the other.
+        one_knob = {
+            **base,
+            "model_info": {
+                _WIRE_VERIFIED_KNOBS_KEY: {"reasoning_effort": _VERIFIED_LITELLM_VERSION}
+            },
+        }
+        assert _gate_unreachable_reasoning_knob([one_knob]) == ["v"]
+        # An observation made against a different litellm is not evidence about
+        # this one: what carries the knob is LiteLLM's map, which the bump moves.
+        stale = {**base, "model_info": {_WIRE_VERIFIED_KNOBS_KEY: {"reasoning_effort": "1.80.0"}}}
+        assert _gate_unreachable_reasoning_knob([stale]) == ["v"]
+        # A malformed attestation is ignored rather than trusted.
+        malformed = {**base, "model_info": {_WIRE_VERIFIED_KNOBS_KEY: ["reasoning_effort"]}}
+        assert _gate_unreachable_reasoning_knob([malformed]) == ["v"]
+
+    def test_wire_verification_is_not_accepted_by_the_other_guards(self):
+        # On a reachable gated provider the real fix exists, so an attestation
+        # must not be a way around setting it; on an unread provider the
+        # required work is reading the config. Honouring it in either place is
+        # how a guard stops guarding.
+        gated = {
+            "model_name": "or",
+            "litellm_params": {"model": "openrouter/x/y", "reasoning_effort": "high"},
+            "model_info": {
+                _WIRE_VERIFIED_KNOBS_KEY: {"reasoning_effort": _VERIFIED_LITELLM_VERSION}
+            },
+        }
+        assert _reasoning_knob_offenders([gated]) == ["or"]
+        unverified = {
+            "model_name": "tog",
+            "litellm_params": {"model": "together_ai/Qwen/Qwen2.5-7B", "reasoning_effort": "high"},
+            "model_info": {
+                _WIRE_VERIFIED_KNOBS_KEY: {"reasoning_effort": _VERIFIED_LITELLM_VERSION}
+            },
+        }
+        assert _unverified_provider_reasoning_knob([unverified]) == ["tog"]
+
     def test_no_reasoning_knob_where_model_info_cannot_reach_the_gate(self):
         offenders = _gate_unreachable_reasoning_knob(_load_model_list())
         assert not offenders, (
@@ -767,12 +1004,21 @@ class TestReasoningKnobUnreachableByModelInfo:
             "`custom_llm_provider` (`vertex_ai`, `github_copilot`) or with a "
             "different one than you can write (`bedrock`, whose converse config "
             "reports `bedrock_converse`), so the flag is filed where nothing "
-            "reads it. What can still carry the knob is the provider config's "
-            "own model-name heuristics, which no YAML key controls. Either use "
-            "the provider's native request shape, or confirm empirically that "
-            "the knob survives — `cost_callback` logs post-mapping "
-            "`request_params` per call, so grep the LiteLLM pod stream for the "
-            "knob on real traffic before trusting it. See "
+            "reads it. Three ways forward, in order of preference: (1) use the "
+            "provider's native request shape, which does not go through the "
+            "param mapper at all; (2) pick a model whose name the provider "
+            "config recognises without the gate — on `bedrock` those are "
+            "`gpt-oss` and Nova 2 (`reasoning_effort` only; `thinking` is never "
+            "advertised on those names), and `claude-3-7` / `claude-sonnet-4` / "
+            "`claude-opus-4` / `deepseek.r1` (both knobs), all of which this "
+            "guard already accepts; (3) if you have SEEN the knob on the wire "
+            "for this route — `cost_callback` logs post-mapping "
+            "`request_params` per call, so grep the LiteLLM pod stream on real "
+            f"traffic — record it as `model_info: {{{_WIRE_VERIFIED_KNOBS_KEY}: "
+            f'{{<knob>: "{_VERIFIED_LITELLM_VERSION}"}}}}` on both paired '
+            "rows. That is an observation, not a guess, and it expires when the "
+            "image pin moves, since what carries the knob there is LiteLLM's "
+            "built-in map rather than anything in this file. See "
             "`_GATE_UNREACHABLE_BY_MODEL_INFO` for the per-provider reason."
         )
 

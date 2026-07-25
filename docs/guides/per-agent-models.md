@@ -751,12 +751,40 @@ kubectl logs -n egg-system deploy/litellm \
 >   and `bedrock_converse` is not a provider prefix, so there is no third
 >   spelling that makes the write key and the read key meet.
 >
-> On those routes only the provider config's own name heuristics can carry the
-> knob (`claude-3-7`, `claude-sonnet-4`, `claude-opus-4`, `deepseek.r1`,
-> `gpt-oss`, Nova 2 on bedrock; a `claude` name on github_copilot) — a property
-> of the model name, not of your config. Use the provider's native request
-> shape, or verify empirically against `request_params` below. The CI guard
-> fails the build on these rather than sending you to a flag that does nothing.
+> **"`model_info` can't rescue it" is not "it can't work."** Two other things
+> still carry the knob on those routes, and the CI guard accepts both rather
+> than failing a config that already works:
+>
+> - The provider config's own model-**name** heuristics, which fire before the
+>   gate is consulted. On `bedrock` converse: `gpt-oss` and Nova 2
+>   (`reasoning_effort` only — the `if`/`elif` chain returns before the branch
+>   that appends `thinking`, so on those names `thinking` is never advertised
+>   whatever you set), and `claude-3-7` / `claude-sonnet-4` / `claude-opus-4` /
+>   `deepseek.r1` (both knobs). A property of the model name, not of your
+>   config. `github_copilot`'s `"claude" in model` is *not* one of these — it is
+>   **AND**ed with the unreachable gate, so a Claude name alone never suffices
+>   (the gate additionally needs the bare `claude-sonnet-4`, not
+>   `github_copilot/claude-sonnet-4`, to be in LiteLLM's map).
+> - The bare, provider-stripped model name happening to be a top-level key in
+>   LiteLLM's built-in map. `gemini-2.5-pro` is one, so
+>   `model: vertex_ai/gemini-2.5-pro` puts the knob on the wire with no
+>   `model_info` and no config at all. That is a fact about LiteLLM's map at one
+>   version rather than about your entry, so if you have *seen* the knob on the
+>   `request_params` line, record the observation instead of re-deriving it:
+>
+>   ```yaml
+>   model_info:
+>     egg_wire_verified_knobs:
+>       reasoning_effort: "1.86.2"   # litellm version it was observed at
+>   ```
+>
+>   Like everything in `model_info` it belongs on both paired rows, and the
+>   guard honours it only while the image still pins that version — a bump moves
+>   the map, so the observation expires with it.
+>
+> Otherwise: use the provider's native request shape, or verify empirically
+> against `request_params` below. The CI guard fails the build rather than
+> sending you to a flag that does nothing.
 >
 > **Look for the shape, not the provider name.** Any such list is a snapshot of
 > one litellm version, and a hard count of providers rots on the next bump. The
@@ -765,8 +793,10 @@ kubectl logs -n egg-system deploy/litellm \
 > map, and — if it consults the map — whether it passes a `custom_llm_provider`:
 >
 > - **Fails closed, gate passes the provider** → set `model_info`.
-> - **Fails closed, gate passes no (or a different) provider** → nothing in the
->   config helps; the three named above are this case.
+> - **Fails closed, gate passes no (or a different) provider** → `model_info`
+>   can't help; the three named above are this case. Only a name the provider
+>   recognises without the gate, or one LiteLLM's map already knows, carries the
+>   knob.
 > - **Fails open** → you don't need it. Azure's o-series config calls
 >   `supports_reasoning` too but *assumes* an unrecognised deployment name is
 >   reasoning-capable — the same call with the opposite failure mode, which is

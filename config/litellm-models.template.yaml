@@ -141,13 +141,37 @@
 #     `bedrock_converse` while the only prefix you can write is
 #     `bedrock/`. There is no third spelling that makes the two meet.
 #
-# On those routes the knob reaches the wire only if the provider config's
-# own model-name heuristics recognise the name (`claude-3-7`,
-# `claude-sonnet-4`, `claude-opus-4`, `deepseek.r1`, `gpt-oss`, Nova 2 on
-# bedrock; a "claude" name on github_copilot) — nothing in this file
-# changes that. Use the provider's native request shape, or verify
+# "`model_info` can't rescue it" is NOT "it can't work", though — two
+# other things still put the knob on the wire on those routes, and the CI
+# guard accepts both rather than failing a config that already works:
+#
+#   - The provider config's own model-NAME heuristics fire before the
+#     gate. On `bedrock` converse those are `gpt-oss` and Nova 2
+#     (`reasoning_effort` only — on those names `thinking` is never
+#     advertised at all, whatever you set) and `claude-3-7` /
+#     `claude-sonnet-4` / `claude-opus-4` / `deepseek.r1` (both knobs).
+#     A property of the model name, not of this file. Note that
+#     github_copilot's `"claude" in model` is NOT one of these: it is
+#     ANDed with the unreachable gate, so a Claude name alone never
+#     suffices there.
+#   - The bare, provider-stripped model name happens to be in LiteLLM's
+#     built-in map — `gemini-2.5-pro` is, so `vertex_ai/gemini-2.5-pro`
+#     carries the knob with no `model_info` and no config at all. That
+#     is a fact about LiteLLM's map at one version, so if you have SEEN
+#     the knob on the wire (see VERIFY below), record the observation
+#     rather than re-deriving it:
+#
+#       model_info:
+#         egg_wire_verified_knobs:
+#           reasoning_effort: "1.86.2"   # litellm version observed at
+#
+#     Like everything in `model_info` it goes on BOTH paired rows, and
+#     the guard honours it only while the image still pins that version —
+#     a bump moves the map, so the observation expires with it.
+#
+# Otherwise: use the provider's native request shape, or verify
 # empirically against `request_params` as below. The CI guard fails the
-# build on these rather than telling you to set a flag that does nothing.
+# build rather than telling you to set a flag that does nothing.
 #
 # LOOK FOR THE SHAPE, NOT THE PROVIDER NAME. Any list here is a snapshot
 # of one litellm version; the durable questions about a provider you are
@@ -156,8 +180,10 @@
 # whether it passes a `custom_llm_provider` when doing so:
 #
 #   - Fails closed, gate passes the provider — set `model_info`.
-#   - Fails closed, gate passes no (or a different) provider — nothing in
-#     this file helps; see the three named above.
+#   - Fails closed, gate passes no (or a different) provider —
+#     `model_info` can't help; see the three named above. Only a name the
+#     provider recognises without the gate, or one LiteLLM's map already
+#     knows, carries the knob.
 #   - Fails open — you don't need it: azure's o-series config calls
 #     `supports_reasoning` too, but assumes an unrecognised deployment
 #     name IS reasoning-capable, so the same call has the opposite
