@@ -121,26 +121,50 @@ def test_missing_file_fails_loud(tmp_path):
 def test_new_module_refuses_to_clobber_a_foreign_file(tmp_path):
     """Every other operation in this script is fail-loud on drift; so is this.
 
-    The destinations carry an ``_egg_`` prefix precisely so an upstream module
-    can never be silently overwritten. If a future litellm ships a file at one
-    of these paths, the build must stop rather than clobber it."""
+    The guard must read the file *on disk*, not our own ``NEW_MODULES``
+    literal: keying it on the ``_egg_`` prefix of a hardcoded destination could
+    only ever fire if someone edited this script, which is a lint of its own
+    constants and not upstream-drift detection. A real file at a real
+    destination, lacking egg's provenance header, must abort the build."""
     _build_fixture_root(tmp_path)
     spec = plc.NEW_MODULES[0]
     dest = tmp_path / spec["dest"]
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text("# upstream took this name\n")
 
-    # An egg-owned path is overwritten (a stale install from an older layer)...
-    assert plc.EGG_MODULE_MARKER in Path(spec["dest"]).name
-    plc._install_module(str(tmp_path), spec)
-    assert dest.read_text() != "# upstream took this name\n"
+    # An unrecognised file at our own destination aborts — no synthetic spec
+    # needed, which is the point: this path is reachable in production.
+    with pytest.raises(SystemExit) as excinfo:
+        plc._install_module(str(tmp_path), spec)
+    assert "refusing to overwrite" in str(excinfo.value)
+    assert dest.read_text() == "# upstream took this name\n", "clobbered anyway"
 
-    # ...but the same collision at a non-egg path aborts the build.
-    unprefixed = dict(spec, dest="llms/openrouter/capabilities.py")
-    (tmp_path / unprefixed["dest"]).write_text("# upstream took this name\n")
+
+def test_new_module_overwrites_a_stale_egg_install(tmp_path):
+    """A previous image layer's copy carries the header, so it is ours to
+    replace — the guard must distinguish stale-ours from foreign."""
+    _build_fixture_root(tmp_path)
+    spec = plc.NEW_MODULES[0]
+    dest = tmp_path / spec["dest"]
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(plc.EGG_MODULE_HEADER + "# an older revision of this module\n")
+
+    plc._install_module(str(tmp_path), spec)
+    assert "an older revision" not in dest.read_text()
+    assert dest.read_text().startswith(plc.EGG_MODULE_HEADER)
+
+
+def test_new_module_destinations_carry_the_egg_prefix(tmp_path):
+    """The prefix keeps upstream from ever taking one of our paths. Enforced at
+    install time so a future ``NEW_MODULES`` entry cannot quietly drop it."""
+    for spec in plc.NEW_MODULES:
+        assert Path(spec["dest"]).name.startswith(plc.EGG_MODULE_PREFIX), spec["label"]
+
+    _build_fixture_root(tmp_path)
+    unprefixed = dict(plc.NEW_MODULES[0], dest="llms/openrouter/capabilities.py")
     with pytest.raises(SystemExit) as excinfo:
         plc._install_module(str(tmp_path), unprefixed)
-    assert "refusing to overwrite" in str(excinfo.value)
+    assert "must be prefixed" in str(excinfo.value)
 
 
 def test_patch4_needle_anchors_on_content_block_function(tmp_path):
@@ -197,10 +221,10 @@ def test_patch4_needle_anchors_on_content_block_function(tmp_path):
 def test_new_modules_are_installed_into_each_root(tmp_path):
     """``NEW_MODULES`` drops whole files that have no stock counterpart.
 
-    Patch 7's gate imports ``litellm.llms.openrouter.capabilities``, so if the
-    module install silently no-ops the patched gate raises ImportError on every
-    request — caught by its ``except Exception``, which would put us right back
-    at the silent-drop behaviour the patch exists to remove."""
+    Patch 7's gate imports ``litellm.llms.openrouter._egg_capabilities``, so if
+    the module install silently no-ops the patched gate raises ImportError on
+    every request — caught by its ``except Exception``, which would put us right
+    back at the silent-drop behaviour the patch exists to remove."""
     _build_fixture_root(tmp_path)
     plc._patch_root(str(tmp_path))
 
@@ -208,7 +232,11 @@ def test_new_modules_are_installed_into_each_root(tmp_path):
         dest = tmp_path / spec["dest"]
         assert dest.is_file(), f"{spec['label']}: not installed"
         source = Path(plc._module_source(spec["source"], spec["label"]))
-        assert dest.read_text() == source.read_text(), f"{spec['label']}: content drift"
+        installed = dest.read_text()
+        assert installed.startswith(plc.EGG_MODULE_HEADER), f"{spec['label']}: no provenance"
+        assert installed == plc.EGG_MODULE_HEADER + source.read_text(), (
+            f"{spec['label']}: content drift"
+        )
 
 
 def test_new_module_install_is_idempotent(tmp_path):
@@ -280,6 +308,46 @@ def test_patch7_gate_is_additive_not_substitutive(tmp_path):
     assert '"thinking"' not in inserted
 
 
+# The tail of ``_translate_thinking_to_openai`` as it stands in 1.86.2,
+# verbatim, from the Claude branch through the assignments. Patch 9's needle is
+# a slice of this; keeping the surrounding lines lets the test assert what the
+# gate sits between, which is the whole invariant.
+_STOCK_THINKING_TAIL_HEAD = (
+    '        model = new_kwargs.get("model", "")\n'
+    "        if self.is_anthropic_claude_model(model):\n"
+    '            new_kwargs["thinking"] = thinking  # type: ignore\n'
+    "            return\n"
+    "\n"
+    "        reasoning_effort = self.translate_anthropic_thinking_to_reasoning_effort(\n"
+    "            cast(Dict[str, Any], thinking)\n"
+    "        )\n"
+    "        if not reasoning_effort:\n"
+    "            return\n"
+    "\n"
+)
+_STOCK_THINKING_TAIL_FOOT = (
+    "        auto_summary = is_reasoning_auto_summary_enabled()\n"
+    "        if summary:\n"
+    '            new_kwargs["reasoning_effort"] = cast(\n'
+    "                Any,\n"
+    "                {\n"
+    '                    "effort": reasoning_effort,\n'
+    '                    "summary": summary,\n'
+    "                },\n"
+    "            )\n"
+    "        elif auto_summary:\n"
+    '            new_kwargs["reasoning_effort"] = cast(\n'
+    "                Any,\n"
+    "                {\n"
+    '                    "effort": reasoning_effort,\n'
+    '                    "summary": "detailed",\n'
+    "                },\n"
+    "            )\n"
+    "        else:\n"
+    '            new_kwargs["reasoning_effort"] = reasoning_effort\n'
+)
+
+
 def test_patch9_gates_synthesis_without_touching_the_claude_branch(tmp_path):
     """Patch 9 must stop the adapter manufacturing a ``reasoning_effort``.
 
@@ -288,12 +356,15 @@ def test_patch9_gates_synthesis_without_touching_the_claude_branch(tmp_path):
     BELOW the model default (#3624: kimi-k3 means 3130 reasoning tokens with no
     param vs 340 with ``high``), so Patch 7 alone would silently shallow every
     agent turn. The Claude branch, which forwards ``thinking`` unchanged, must
-    be unaffected."""
+    be unaffected — and so must the assignments, which the gate returns before
+    rather than rewriting."""
     patch9 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 9/"))
 
     target = tmp_path / patch9["file"]
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(patch9["needle"])
+    target.write_text(
+        _STOCK_THINKING_TAIL_HEAD + patch9["needle"] + _STOCK_THINKING_TAIL_FOOT,
+    )
 
     plc._apply(
         str(target),
@@ -304,22 +375,51 @@ def test_patch9_gates_synthesis_without_touching_the_claude_branch(tmp_path):
     )
     result = target.read_text()
 
-    claude_branch = (
-        "        if self.is_anthropic_claude_model(model):\n"
-        '            new_kwargs["thinking"] = thinking  # type: ignore\n'
-        "            return\n"
-    )
-    assert claude_branch in result, "patch 9 must leave the Claude path alone"
+    assert _STOCK_THINKING_TAIL_HEAD in result, "patch 9 must leave the Claude path alone"
+    assert _STOCK_THINKING_TAIL_FOOT in result, "patch 9 must not rewrite the assignments"
 
-    # The gate sits between the Claude branch and the synthesis, and returns
-    # (rather than falling through) when synthesis is off.
-    gate = result[result.index(claude_branch) + len(claude_branch) :]
-    gate = gate[: gate.index("reasoning_effort = self.translate_anthropic_thinking")]
+    # The gate sits after the derivation and returns (rather than falling
+    # through) when synthesis is off, so nothing is assigned.
+    gate = result[result.index(patch9["present"]) : result.index(_STOCK_THINKING_TAIL_FOOT)]
     assert "_egg_anthropic_thinking_policy" in gate
-    assert "if not _egg_synthesize:\n            return\n" in gate
+    assert "if not _egg_synthesize:\n                return\n" in gate
     # A missing policy module must fall back to the policy's OWN default (off),
     # not to stock behaviour — otherwise the failure mode is the regression.
     assert "_egg_synthesize = False" in gate
+
+
+def test_patch9_does_not_suppress_an_explicitly_requested_effort(tmp_path):
+    """The gate's scope is the *derived* bucket, not the whole function.
+
+    Stock reaches the assignment two ways: from ``budget_tokens`` (a ceiling
+    nobody asked for) or from ``output_config.effort`` on an adaptive request,
+    which is the caller saying outright what they want. Suppressing the second
+    would be discarding an instruction, not declining to invent one — a
+    different change from the one the patch documents."""
+    patch9 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 9/"))
+
+    target = tmp_path / patch9["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        _STOCK_THINKING_TAIL_HEAD + patch9["needle"] + _STOCK_THINKING_TAIL_FOOT,
+    )
+    plc._apply(
+        str(target),
+        present=patch9["present"],
+        needle=patch9["needle"],
+        replacement=patch9["replacement"],
+        label=patch9["label"],
+    )
+    result = target.read_text()
+
+    # The adaptive override still runs, and it is what exempts the request.
+    override = '                reasoning_effort = output_config["effort"]\n'
+    assert override in result, "the adaptive override must survive the patch"
+    assert result.index(override) < result.index(patch9["present"]), (
+        "the gate must sit after the override, not before it"
+    )
+    assert f"{override}                _egg_effort_is_explicit = True\n" in result
+    assert "if not _egg_effort_is_explicit:\n" in result
 
 
 def test_patch8_needle_disambiguates_the_two_drop_sites(tmp_path):

@@ -148,6 +148,26 @@ def test_env_float_warns_on_out_of_range_value(caps, logger, monkeypatch):
     assert any("must be > 0" in m for m in logger.messages("warning"))
 
 
+def test_env_warning_is_deduplicated_not_emitted_per_request(caps, logger, monkeypatch):
+    """``_ttl_seconds`` runs on every lookup, ahead of the freshness check.
+
+    Warning unconditionally there trades a silent fallback for one WARNING per
+    proxied request forever, burying the log stream egg's per-call cost
+    observability reads — the same unbounded-noise failure the fetch-failure
+    and drop_params dedups exist to avoid.
+    """
+    monkeypatch.setenv("LITELLM_OPENROUTER_CAPABILITY_TTL", "1h")
+    _install_http_stub(monkeypatch, payload=_PAYLOAD)
+    for _ in range(200):
+        caps.get_supported_parameters("moonshotai/kimi-k3")
+    assert len(logger.messages("warning")) == 1
+
+    # A *different* bad value is a different mistake and is still reported.
+    monkeypatch.setenv("LITELLM_OPENROUTER_CAPABILITY_TTL", "-3")
+    caps.get_supported_parameters("moonshotai/kimi-k3")
+    assert len(logger.messages("warning")) == 2
+
+
 def test_ttl_zero_is_accepted_and_disables_caching(caps, logger, monkeypatch):
     """``TTL=0`` is the natural spelling of "always re-fetch", not an error."""
     monkeypatch.setenv("LITELLM_OPENROUTER_CAPABILITY_TTL", "0")
@@ -241,6 +261,27 @@ def test_first_fetch_failure_warns_and_repeats_go_to_debug(caps, logger, monkeyp
     caps.get_supported_parameters("moonshotai/kimi-k3")
     assert len(logger.messages("warning")) == 1
     assert len(logger.messages("debug")) == 1
+
+
+def test_successful_fetch_rearms_the_failure_warning(caps, logger, monkeypatch):
+    """Latching the flag for the process lifetime would let one blip at pod
+    startup permanently demote every later outage to debug — the exact silence
+    the warning exists to break."""
+    _install_http_stub(monkeypatch, boom=OSError("no route to host"))
+    caps.get_supported_parameters("moonshotai/kimi-k3")
+    assert len(logger.messages("warning")) == 1
+
+    # Endpoint recovers...
+    caps._CACHE = None
+    _install_http_stub(monkeypatch, payload=_PAYLOAD)
+    assert caps.get_supported_parameters("moonshotai/kimi-k3") is not None
+    assert caps._WARNED_FETCH_FAILURE is False
+
+    # ...and a genuinely new outage later is visible again.
+    caps._CACHE = None
+    _install_http_stub(monkeypatch, boom=OSError("no route to host"))
+    caps.get_supported_parameters("moonshotai/kimi-k3")
+    assert len(logger.messages("warning")) == 2
 
 
 def test_non_200_is_no_opinion(caps, logger, monkeypatch):

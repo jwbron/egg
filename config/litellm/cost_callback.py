@@ -814,9 +814,18 @@ class LiteLLMCostLogger(CustomLogger):
                     # (#3599). Top-level, not nested under ``call``, so an
                     # incident query can filter on it the same way it filters
                     # on model/role. Per line rather than once per session
-                    # because it is NOT session-stable: LiteLLM rewrites
-                    # ``thinking`` into a ``reasoning_effort`` bucket, so the
-                    # effective effort tracks the per-turn thinking budget.
+                    # because it is NOT session-stable: these are per-request
+                    # values, and a config change or an overlay edit takes
+                    # effect mid-session.
+                    #
+                    # Note ``reasoning_effort`` is normally ABSENT on egg's
+                    # /v1/messages route (#3624): stock LiteLLM rewrites the
+                    # caller's ``thinking`` block into a bucketed
+                    # ``reasoning_effort``, but that bucket is a cap below the
+                    # model default, so egg-litellm's patch 9 gates the
+                    # synthesis off by default. A missing key here means the
+                    # request ran at the model's own reasoning depth, not that
+                    # the field failed to record.
                     "request_params": request_params,
                     "call": {
                         "cost": cost,

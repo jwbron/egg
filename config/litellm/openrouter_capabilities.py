@@ -69,8 +69,17 @@ _LOCK = threading.Lock()
 
 # Whether a fetch failure has already been reported at warning level. The first
 # failure is the one worth seeing (behaviour has silently reverted to the
-# model-cost map); repeats are noise.
+# model-cost map); repeats are noise. Cleared again by a successful fetch, so a
+# blip at startup does not permanently mute a real outage hours later.
 _WARNED_FETCH_FAILURE = False
+
+# Env-var complaints already emitted, keyed by ``(name, raw value)``.
+# ``_env_float`` is reached from ``_ttl_seconds`` on *every* lookup, ahead of
+# the freshness check, so an unconditional warning there is one WARNING line per
+# proxied request forever — a misconfigured TTL would bury the log stream egg's
+# per-call cost observability reads. Bounded by construction: the environment
+# does not change mid-process, so this holds at most one entry per knob.
+_WARNED_ENV: set[tuple[str, str]] = set()
 
 
 def _log(level: str, message: str, *args: object) -> None:
@@ -88,6 +97,20 @@ def _log(level: str, message: str, *args: object) -> None:
         pass
 
 
+def _warn_env_once(name: str, raw: str, message: str, *args: object) -> None:
+    """Warn about a bad env value once per distinct ``(name, value)``.
+
+    Same discipline as ``_log_fetch_failure`` here and ``_SEEN`` in
+    ``drop_params_visibility``: the first occurrence is the one that carries
+    information, and this one sits on the request path.
+    """
+    key = (name, raw)
+    if key in _WARNED_ENV:
+        return
+    _WARNED_ENV.add(key)
+    _log("warning", message, *args)
+
+
 def _env_flag(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -102,6 +125,10 @@ def _env_float(name: str, default: float, *, allow_zero: bool = False) -> float:
     ``TIMEOUT=5s`` pasted with a unit suffix) previously became the default
     with no signal at all, so an operator could set a knob, restart, observe
     nothing change, and have no way to learn the proxy ignored them.
+
+    The warning is deduplicated per ``(name, value)``: this is called from
+    ``_ttl_seconds`` on the per-request path, so warning unconditionally would
+    trade a silent fallback for an unbounded log flood.
     """
     raw = os.getenv(name)
     if raw is None:
@@ -109,8 +136,9 @@ def _env_float(name: str, default: float, *, allow_zero: bool = False) -> float:
     try:
         value = float(raw)
     except ValueError:
-        _log(
-            "warning",
+        _warn_env_once(
+            name,
+            raw,
             "openrouter capabilities: %s=%r is not a number; using the default %s",
             name,
             raw,
@@ -118,8 +146,9 @@ def _env_float(name: str, default: float, *, allow_zero: bool = False) -> float:
         )
         return default
     if value < 0 or (value == 0 and not allow_zero):
-        _log(
-            "warning",
+        _warn_env_once(
+            name,
+            raw,
             "openrouter capabilities: %s=%r must be %s; using the default %s",
             name,
             raw,
@@ -140,6 +169,8 @@ def _ttl_seconds() -> float:
 
 def _fetch() -> dict[str, set[str]]:
     """Fetch the model list. Returns ``{}`` on any failure."""
+    global _WARNED_FETCH_FAILURE
+
     # Imported here rather than at module scope: http_handler pulls in a large
     # slice of litellm, and this module is imported from a transformation that
     # is itself imported during litellm's own startup.
@@ -185,6 +216,12 @@ def _fetch() -> dict[str, set[str]]:
         if not isinstance(model_id, str) or not isinstance(params, list):
             continue
         capabilities[model_id] = {p for p in params if isinstance(p, str)}
+
+    # Re-arm the failure warning. Latching it for the life of the process would
+    # mean a single blip during pod startup permanently demotes every later
+    # outage to debug — silencing exactly the case _log_fetch_failure exists to
+    # surface.
+    _WARNED_FETCH_FAILURE = False
     return capabilities
 
 
@@ -296,3 +333,4 @@ def reset_cache() -> None:
         _CACHE = None
         _CACHE_STAMP = 0.0
         _WARNED_FETCH_FAILURE = False
+        _WARNED_ENV.clear()

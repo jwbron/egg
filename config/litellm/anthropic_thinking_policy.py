@@ -39,6 +39,15 @@ the OpenAI body for non-Claude models and only an explicitly configured
 ``reasoning_effort`` reaches the wire — exactly the property Patch 7 exists to
 restore, without the adapter's bucket riding along.
 
+The gate covers the *derived* value only. On an adaptive request
+(``thinking: {"type": "adaptive"}`` plus ``output_config: {"effort": ...}``)
+the caller states an effort outright; that is an instruction rather than a
+manufactured ceiling, and it still reaches the provider with this policy off.
+A ``thinking.summary`` request is suppressed along with the derived effort,
+because stock carries the summary only as a field of the ``reasoning_effort``
+dict — honouring it would mean sending the ceiling. There is no wire shape for
+"summary, no effort".
+
 Set ``LITELLM_ANTHROPIC_THINKING_TO_REASONING_EFFORT=1`` to restore stock
 behaviour (e.g. for a provider whose models do not reason unless asked, or
 after measuring the ``/v1/messages`` path for a specific model).

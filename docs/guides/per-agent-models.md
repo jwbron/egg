@@ -640,7 +640,10 @@ data:
 >   only an explicitly configured `reasoning_effort` reaches the wire. Set
 >   `LITELLM_ANTHROPIC_THINKING_TO_REASONING_EFFORT=1` to restore stock
 >   behaviour — worth doing only for a model you have measured to reason
->   *more* when asked explicitly.
+>   *more* when asked explicitly. Only the *derived* value is suppressed: an
+>   adaptive request that names an effort outright
+>   (`output_config: {effort: ...}`) is an instruction rather than a
+>   manufactured ceiling, and still reaches the provider with this off.
 >
 > The same measurement is why the commented-out
 > `extra_body.reasoning.effort: "high"` in

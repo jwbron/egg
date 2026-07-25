@@ -767,43 +767,66 @@ PATCHES: list[dict[str, str]] = [
     # reaches the wire — without letting the adapter's bucket become the
     # effective setting. ``LITELLM_ANTHROPIC_THINKING_TO_REASONING_EFFORT=1``
     # restores stock behaviour. The Claude branch above is untouched.
+    #
+    # The gate sits AFTER the adaptive-thinking override, not before the whole
+    # block, and that placement is the contract. Stock reaches the
+    # ``reasoning_effort`` assignment two ways: derived from ``budget_tokens``
+    # (the manufactured ceiling this patch exists to stop) or stated outright by
+    # the caller as ``output_config.effort`` on an adaptive request. Gating the
+    # whole function would discard the second — an explicit instruction, not an
+    # invented cap — so only the derived value is suppressed. egg's own route
+    # never sends the adaptive shape (Claude Code sends
+    # ``thinking.type == "enabled"``), so this is about the patch matching its
+    # own stated scope rather than a live behaviour today.
+    #
+    # A ``thinking.summary`` request is still suppressed along with the derived
+    # effort, and that is deliberate: stock carries the summary only as a field
+    # of the ``reasoning_effort`` dict, so honouring it would require sending
+    # the manufactured ceiling. There is no wire shape for "summary, no effort".
     {
         "file": F2,
         "present": "# egg thinking-synthesis patch",
         "needle": (
-            '        model = new_kwargs.get("model", "")\n'
-            "        if self.is_anthropic_claude_model(model):\n"
-            '            new_kwargs["thinking"] = thinking  # type: ignore\n'
-            "            return\n"
+            "        # For adaptive thinking, override with output_config.effort if available\n"
+            '        if isinstance(thinking, dict) and thinking.get("type") == "adaptive":\n'
+            '            output_config = anthropic_message_request.get("output_config")\n'
+            '            if isinstance(output_config, dict) and output_config.get("effort"):\n'
+            '                reasoning_effort = output_config["effort"]\n'
             "\n"
-            "        reasoning_effort = self.translate_anthropic_thinking_to_reasoning_effort(\n"
+            '        summary = thinking.get("summary") if isinstance(thinking, dict) else None\n'
         ),
         "replacement": (
-            '        model = new_kwargs.get("model", "")\n'
-            "        if self.is_anthropic_claude_model(model):\n"
-            '            new_kwargs["thinking"] = thinking  # type: ignore\n'
-            "            return\n"
+            "        # For adaptive thinking, override with output_config.effort if available\n"
+            "        _egg_effort_is_explicit = False\n"
+            '        if isinstance(thinking, dict) and thinking.get("type") == "adaptive":\n'
+            '            output_config = anthropic_message_request.get("output_config")\n'
+            '            if isinstance(output_config, dict) and output_config.get("effort"):\n'
+            '                reasoning_effort = output_config["effort"]\n'
+            "                _egg_effort_is_explicit = True\n"
             "\n"
-            "        # egg thinking-synthesis patch. The bucketed reasoning_effort this\n"
-            "        # function would derive is a cap BELOW the model default on every\n"
-            "        # model egg routes, so deriving one from a thinking budget nobody\n"
-            "        # meant as a ceiling silently shallows reasoning. Off by default;\n"
-            "        # see patch 9 notes in patch_litellm_cache.py.\n"
-            "        try:\n"
-            "            from litellm._egg_anthropic_thinking_policy import (\n"
-            "                should_synthesize_reasoning_effort as _egg_should_synthesize,\n"
-            "            )\n"
+            "        # egg thinking-synthesis patch. Everything above DERIVES an effort\n"
+            "        # from the caller's thinking budget, and that bucket is a cap BELOW\n"
+            "        # the model default on every model egg routes, so sending it\n"
+            "        # silently shallows reasoning. Off by default; see the patch 9 notes\n"
+            "        # in patch_litellm_cache.py. An effort the caller stated outright\n"
+            "        # (output_config.effort) is an instruction rather than a\n"
+            "        # manufactured ceiling, and is never suppressed.\n"
+            "        if not _egg_effort_is_explicit:\n"
+            "            try:\n"
+            "                from litellm._egg_anthropic_thinking_policy import (\n"
+            "                    should_synthesize_reasoning_effort as _egg_should_synthesize,\n"
+            "                )\n"
             "\n"
-            "            _egg_synthesize = _egg_should_synthesize()\n"
-            "        except Exception:\n"
-            "            # The module is installed by the same build step as this patch,\n"
-            "            # so this is unreachable in a built image; fall back to the\n"
-            "            # policy's own default rather than to stock behaviour.\n"
-            "            _egg_synthesize = False\n"
-            "        if not _egg_synthesize:\n"
-            "            return\n"
+            "                _egg_synthesize = _egg_should_synthesize()\n"
+            "            except Exception:\n"
+            "                # The module is installed by the same build step as this\n"
+            "                # patch, so this is unreachable in a built image; fall back\n"
+            "                # to the policy's own default, not to stock behaviour.\n"
+            "                _egg_synthesize = False\n"
+            "            if not _egg_synthesize:\n"
+            "                return\n"
             "\n"
-            "        reasoning_effort = self.translate_anthropic_thinking_to_reasoning_effort(\n"
+            '        summary = thinking.get("summary") if isinstance(thinking, dict) else None\n'
         ),
         "label": "Patch 9/9 (thinking->reasoning_effort synthesis gate)",
     },
@@ -815,11 +838,20 @@ PATCHES: list[dict[str, str]] = [
 # check rather than a needle match.
 #
 # Every destination carries the ``_egg_`` prefix. It is not decoration: it
-# keeps a future upstream module from colliding with ours, and it is what
-# ``_install_module`` looks for before overwriting anything — an unprefixed
-# name (``capabilities.py``) is one upstream could plausibly take, and the
-# failure mode would be a silently clobbered stock module.
-EGG_MODULE_MARKER = "_egg_"
+# keeps a future upstream module from colliding with ours, since an unprefixed
+# name (``capabilities.py``) is one upstream could plausibly take.
+EGG_MODULE_PREFIX = "_egg_"
+
+# Provenance header written ahead of every installed module. The prefix above
+# makes a collision unlikely; this is what makes the clobber guard *real*.
+# Checking the prefix told us only that our own ``NEW_MODULES`` literals were
+# spelled the way we spelled them — it could never fire on upstream drift,
+# because it never looked at the file on disk. This does: a file at one of our
+# destinations that does not carry this header is not ours, whoever put it
+# there, and overwriting it would break litellm in a way nothing else in this
+# script would report.
+EGG_MODULE_MARKER = "egg-managed module (config/litellm/patch_litellm_cache.py)"
+EGG_MODULE_HEADER = f"# {EGG_MODULE_MARKER} — do not edit in place.\n"
 
 NEW_MODULES: list[dict[str, str]] = [
     {
@@ -856,9 +888,19 @@ def _module_source(name: str, label: str) -> str:
 
 def _install_module(root: str, spec: dict[str, str]) -> None:
     label = spec["label"]
+    # A lint of this file's own constants rather than drift detection (the
+    # provenance check below is that): every destination must carry the prefix,
+    # so an upstream module can never occupy one of our paths to begin with.
+    if not os.path.basename(spec["dest"]).startswith(EGG_MODULE_PREFIX):
+        raise SystemExit(
+            f"{label}: destination {spec['dest']} must be prefixed {EGG_MODULE_PREFIX!r}"
+        )
     source = _module_source(spec["source"], label)
     with open(source) as fh:
-        content = fh.read()
+        # The header goes on disk, not in the repo copy: it is the provenance
+        # the guard below reads. A leading comment leaves the module docstring
+        # as the first statement, so nothing about the module changes.
+        payload = EGG_MODULE_HEADER + fh.read()
     dest = os.path.join(root, spec["dest"])
     dest_dir = os.path.dirname(dest)
     if not os.path.isdir(dest_dir):
@@ -868,21 +910,23 @@ def _install_module(root: str, spec: dict[str, str]) -> None:
     if os.path.isfile(dest):
         with open(dest) as fh:
             existing = fh.read()
-        if existing == content:
+        if existing == payload:
             print(f"{label}: already installed")
             return
-        # Differing content at an egg-owned path is a stale install from an
-        # earlier image layer — overwrite it. Differing content at a path that
-        # is NOT egg-owned means upstream took the name, and clobbering it
-        # would break litellm in a way nothing else in this script would
-        # report. Every other operation here is fail-loud on drift; so is this.
-        if EGG_MODULE_MARKER not in os.path.basename(spec["dest"]):
+        # Differing content that still carries our header is a stale install
+        # from an earlier image layer — overwrite it. Differing content WITHOUT
+        # the header means somebody else owns this path (upstream took the
+        # name, an operator dropped a file in), and clobbering it would break
+        # litellm in a way nothing else in this script would report. Every
+        # other operation here is fail-loud on drift; so is this.
+        if EGG_MODULE_MARKER not in existing:
             raise SystemExit(
                 f"{label}: refusing to overwrite {dest} — it exists with different "
-                "content and is not an egg-owned path. LiteLLM version drift?"
+                "content and no egg provenance header, so it is not ours. "
+                "LiteLLM version drift?"
             )
     with open(dest, "w") as fh:
-        fh.write(content)
+        fh.write(payload)
     print(f"{label}: installed")
 
 
