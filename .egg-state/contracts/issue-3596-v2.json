@@ -319,7 +319,7 @@
           "id": "task-2-1",
           "description": "Add a new deterministic detector detect_forward_progress_stall to the\ndetection plane. The detector fires when an agent has been running\n>N seconds (configurable, default 600s) with zero new commits AND\nzero progress events AND zero file modifications. Reads commit_count\nand last_commit_at from git_state, progress_event_count from\nProgressStore, and worktree file mtime from git_state. Directly\naddresses the issue's key diagnostic: \"a hand-rolled loop counting\ncommits on the agent's worktree.\"",
           "status": "pending",
-          "commit": null,
+          "commit": "840906f8f",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- New detector detect_forward_progress_stall registered in DetectionPlane.default()\n- Detector fires when agent runs >600s with zero commits, zero progress events, and zero file modifications\n- Detector stays silent when agent is making any of: commits, progress events, or file modifications\n- Configurable threshold via PipelineConfig (orchestrator_forward_progress_stall_seconds)\n- requires_adjudication=True (stuck vs. legitimately slow is ambiguous)\n- Test: detector fires on zero-progress agent, stays silent on active agent",
@@ -1051,6 +1051,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-9 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T05:53:49.778370Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "840906f8f",
+      "reason": "Linked commit 840906f to task-2-1",
       "checkpoint_id": null
     }
   ],
