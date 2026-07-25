@@ -67,7 +67,7 @@
           "id": "task-1-3",
           "description": "Populate container_transitions in snapshot_from_health_context. Enrich\nto populate container_transitions from kubernetes_monitor's container\nevent history. Each transition: {container, role, from, to, reason,\nexit_code, restart_count, transient, timestamp}. Best-effort: failures\ndegrade to empty tuple, never crash.",
           "status": "pending",
-          "commit": null,
+          "commit": "840906f8f",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- container_transitions populated with transition events from kubernetes_monitor\n- Each transition has: container, role, from, to, reason, exit_code, restart_count\n- Best-effort: failures degrade to empty tuple, never crash\n- Test: detect_container_death receives populated container_transitions",
@@ -1095,6 +1095,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T05:54:12.408405Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "840906f8f",
+      "reason": "Linked commit 840906f to task-1-3",
       "checkpoint_id": null
     }
   ],
