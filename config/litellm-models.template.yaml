@@ -110,14 +110,25 @@
 # `UnsupportedParamsError` (HTTP 500) instead. It trades a silent no-op
 # for loud request failures.
 #
-# OFF OPENROUTER, `model_info` IS NOT THE FIX. `supports_reasoning` is
-# read only by `OpenrouterConfig`; other providers answer from a static
-# list (e.g. `TogetherAIConfig` subtracts from `OpenAIGPTConfig`'s base
-# list, which carries no `reasoning_effort` at all). Setting the flag on
-# a `together_ai/*` row changes nothing and the parameter is still
-# popped silently — so confirm the provider's chat config advertises
-# `reasoning_effort` before setting it. Most OpenAI-compatible ones do
-# not. The CI guard tracks this separately from the OpenRouter case.
+# THIS IS NOT AN OPENROUTER-ONLY TRAP, and `model_info` is not an
+# OpenRouter-only fix. Verified at litellm 1.86.2, nine other provider
+# configs gate a reasoning knob on the same `litellm.supports_reasoning`
+# call, fail-closed in the same way: `groq`, `xai`, `deepinfra`,
+# `cerebras`, `fireworks_ai`, `perplexity` and `bedrock_mantle` gate
+# `reasoning_effort`; `zai` and `minimax` gate `thinking` (and never
+# advertise `reasoning_effort` at all). On all of them form 1 works,
+# because LiteLLM registers `model_info` into its model-cost map under
+# the raw `litellm_params.model` string whatever the provider.
+#
+# Where `model_info` really is a placebo is a provider whose chat config
+# never consults `supports_reasoning` — e.g. `TogetherAIConfig`, which
+# only subtracts from `OpenAIGPTConfig`'s base list, and that base list
+# carries no reasoning knob at all. On a `together_ai/*` row the
+# parameter is popped silently whatever you set. So: check the
+# provider's `get_supported_openai_params` before setting the knob, and
+# note that the answer is per-knob, not per-provider. The CI guard
+# tracks the two cases separately (see the provider tables in
+# tests/config/test_litellm_template.py).
 #
 # VERIFY, don't assume: the `cost_callback` logs `request_params` per
 # call, read from LiteLLM's post-mapping params — i.e. what the wire

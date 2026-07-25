@@ -654,8 +654,9 @@ kubectl logs -n egg-system deploy/litellm \
   | sort -u
 ```
 
-> **Trap: on `openrouter/*`, `reasoning_effort` in `litellm_params` is a
-> silent no-op unless the model is flagged.** LiteLLM sends it only if it
+> **Trap: `reasoning_effort` in `litellm_params` is a silent no-op unless the
+> model is flagged.** This bites on `openrouter/*` and on nine other providers
+> (enumerated below). LiteLLM sends it only if it
 > believes the model is reasoning-capable:
 > `OpenrouterConfig.get_supported_openai_params` advertises
 > `reasoning_effort`/`thinking` — both under the same condition — only when
@@ -685,7 +686,8 @@ kubectl logs -n egg-system deploy/litellm \
 > ```
 >
 > Form 2 — bypass the mapper with OpenRouter's native block, which never
-> consults the model map:
+> consults the model map (this one lives *inside* `litellm_params`, and like
+> everything else there it must be mirrored onto the paired `[1m]` row):
 >
 > ```yaml
 > - model_name: my-model
@@ -702,13 +704,24 @@ kubectl logs -n egg-system deploy/litellm \
 > through anyway: `_check_valid_arg` raises `UnsupportedParamsError` (HTTP 500)
 > instead. You would trade a silent no-op for loud request failures.
 >
-> **Off OpenRouter, `model_info` is not the fix** — `supports_reasoning` is
-> read only by `OpenrouterConfig`. Other providers answer from a static list
-> (`TogetherAIConfig` just subtracts from `OpenAIGPTConfig`'s base list, which
-> carries no `reasoning_effort` at all), so the flag is a placebo there and the
-> parameter is still popped silently. Check that provider's
-> `get_supported_openai_params` before setting the knob; most
-> OpenAI-compatible ones never advertise it.
+> **This is not an OpenRouter-only trap, and form 1 is not an OpenRouter-only
+> fix.** Verified at litellm 1.86.2, nine other provider configs gate a
+> reasoning knob on the same `litellm.supports_reasoning` call and fail closed
+> identically: `groq`, `xai`, `deepinfra`, `cerebras`, `fireworks_ai`,
+> `perplexity` and `bedrock_mantle` gate `reasoning_effort`; `zai` and
+> `minimax` gate `thinking`, and never advertise `reasoning_effort` at all. On
+> every one of them `model_info` is the working fix, because
+> `Router._create_deployment` registers it into LiteLLM's model-cost map under
+> the raw `litellm_params.model` string — nothing on that path is
+> OpenRouter-specific.
+>
+> Where `model_info` genuinely is a placebo is a provider whose chat config
+> never consults `supports_reasoning` at all: `TogetherAIConfig` only subtracts
+> from `OpenAIGPTConfig`'s base list, and that base list carries no reasoning
+> knob under any condition, so on a `together_ai/*` route the parameter is
+> popped silently whatever you set. Check that provider's
+> `get_supported_openai_params` before setting the knob — and note the answer
+> is per *knob*, not per provider.
 >
 > `tests/config/test_litellm_template.py` guards both cases for the committed
 > template. Operator overlays are not in CI, so verify yours against

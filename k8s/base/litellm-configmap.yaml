@@ -27,13 +27,19 @@ data:
     #
     # Operators add backends per LiteLLM's documented format. Each
     # non-Claude entry SHOULD ship paired (bare, ``[1m]``-suffixed)
-    # ``model_name`` rows that point at the same ``litellm_params``
+    # ``model_name`` rows carrying the same ``litellm_params`` AND the
+    # same ``model_info``
     # (#2832): Claude Code strips the ``[1m]`` suffix from the model
     # field before send, but a handful of startup probes leak the
     # suffix onto the wire — without the alias LiteLLM 400s those
     # probes with ``Invalid model name``. The two-row shape eats that
-    # noise without needing a gateway-side body rewrite. E.g. for the
-    # OpenRouter pilot backend (cq-6):
+    # noise without needing a gateway-side body rewrite. Both blocks
+    # must match: ``model_info.supports_reasoning`` decides whether a
+    # ``reasoning_effort`` / ``thinking`` knob reaches the wire at all,
+    # so divergence there means probes and real requests run at
+    # different reasoning depths. Both parities are CI-enforced for the
+    # committed template by ``tests/config/test_litellm_template.py``.
+    # E.g. for the OpenRouter pilot backend (cq-6):
     #
     #   model_list:
     #     - model_name: qwen3-max
