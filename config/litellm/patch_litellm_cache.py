@@ -116,8 +116,12 @@ OpenRouter. The image pins that same version (see the Dockerfile
      alone matches the wrong one, so the needle includes the pop loop.
      Mirrors jwbron/litellm#7, merged into the fork the HOST proxy runs;
      the cluster image pins stock 1.86.2, which predates it. The message
-     states what is known and does NOT prescribe a config edit: the param
-     most often dropped here is one litellm synthesized itself (see 9).
+     offers the ``allowed_openai_params`` remedy GATED on the params
+     having come from this model's ``litellm_params``, and names the
+     synthesized case alongside it: the param most often dropped here is
+     one litellm manufactured from the request itself (see 9), so an
+     unconditional config edit would send that operator hunting for a
+     line that does not exist.
   9. ``_translate_thinking_to_openai`` (anthropic adapter
      transformation.py) stop synthesizing ``reasoning_effort`` from the
      caller's ``thinking`` block for non-Claude models. On ``/v1/messages``

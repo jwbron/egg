@@ -78,16 +78,19 @@ def warn_dropped_params(
         key = (custom_llm_provider or "", model or "", dropped)
         if key in _SEEN:
             return
-        # Deliberately states what is known and stops short of prescribing. The
-        # param most likely to be dropped on this deployment is
-        # ``reasoning_effort``, and it is frequently NOT in any config file:
-        # litellm's own Anthropic adapter synthesises it from the caller's
-        # `thinking` block on the /v1/messages route. Telling that operator to
-        # edit config.yaml sends them looking for a line that does not exist,
-        # and telling the operator of a genuinely non-reasoning model to force
-        # the param through `allowed_openai_params` converts a correct drop
-        # into a provider-side error. A confidently-worded wrong remedy is
-        # worse than the silence this replaces.
+        # States what is known, and prescribes only under a condition the
+        # operator can check. The param most likely to be dropped on this
+        # deployment is ``reasoning_effort``, and it is frequently NOT in any
+        # config file: litellm's own Anthropic adapter synthesises it from the
+        # caller's `thinking` block on the /v1/messages route. An unconditional
+        # "edit config.yaml" would send that operator looking for a line that
+        # does not exist, and an unconditional "force it through
+        # `allowed_openai_params`" would turn a correct drop on a genuinely
+        # non-reasoning model into a provider-side error. So the remedy is
+        # offered gated on "if they came from this model's litellm_params",
+        # with the synthesized case named alongside it — the operator who has
+        # such a line gets the fix, and the one who does not is told why the
+        # drop is expected instead of being sent editing.
         emitted = _log_warning(
             "litellm.drop_params: dropped %s for model=%s provider=%s — the "
             "provider does not advertise support for them, so they did not "

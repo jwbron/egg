@@ -240,10 +240,44 @@ def test_ttl_negative_warns_and_falls_back(caps, logger, monkeypatch):
     assert any("must be >= 0" in m for m in logger.messages("warning"))
 
 
-@pytest.mark.parametrize("raw,expected", [("0", False), ("off", False), ("no", False), ("1", True)])
-def test_env_flag(caps, monkeypatch, raw, expected):
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("0", False),
+        ("off", False),
+        ("no", False),
+        ("FALSE", False),
+        ("1", True),
+        ("true", True),
+        ("On", True),
+        ("yes", True),
+    ],
+)
+def test_env_flag(caps, logger, monkeypatch, raw, expected):
     monkeypatch.setenv("LITELLM_OPENROUTER_CAPABILITY_FETCH", raw)
     assert caps._env_flag("LITELLM_OPENROUTER_CAPABILITY_FETCH", True) is expected
+    assert logger.messages("warning") == [], "a recognised spelling is not a complaint"
+
+
+@pytest.mark.parametrize("raw", ["disabled", "n", "off ish", "2"])
+def test_env_flag_warns_rather_than_inverting_a_near_miss(caps, logger, monkeypatch, raw):
+    """``not in _FALSY`` read every unrecognized value as *enable*, so a
+    near-miss disable spelling did not fall back to the default — it inverted
+    the operator's instruction, silently. The default here is True, so the
+    observable behaviour is unchanged; what must not be silent is the typo."""
+    monkeypatch.setenv("LITELLM_OPENROUTER_CAPABILITY_FETCH", raw)
+    assert caps._env_flag("LITELLM_OPENROUTER_CAPABILITY_FETCH", True) is True
+    assert caps._env_flag("LITELLM_OPENROUTER_CAPABILITY_FETCH", False) is False, (
+        "an unrecognized value takes the caller's default, not a guess"
+    )
+    (message,) = logger.messages("warning")
+    assert "is not a boolean" in message
+    assert raw in message
+
+    # Dedup: this is read on every lookup, so an unconditional warning would be
+    # one WARNING line per proxied request forever.
+    caps._env_flag("LITELLM_OPENROUTER_CAPABILITY_FETCH", True)
+    assert len(logger.messages("warning")) == 1
 
 
 def test_candidate_slugs_covers_prefix_and_variant_spellings(caps):
@@ -549,3 +583,45 @@ def test_synthesis_opt_in(policy, monkeypatch, raw):
 def test_synthesis_stays_off_for_anything_else(policy, monkeypatch, raw):
     monkeypatch.setenv(policy.ENV_VAR, raw)
     assert policy.should_synthesize_reasoning_effort() is False
+
+
+@pytest.mark.parametrize("raw", ["0", "false", "OFF", "no", ""])
+def test_recognised_off_spellings_do_not_complain(policy, logger, monkeypatch, raw):
+    monkeypatch.setenv(policy.ENV_VAR, raw)
+    assert policy.should_synthesize_reasoning_effort() is False
+    assert logger.messages("warning") == []
+
+
+@pytest.mark.parametrize("raw", ["enabled", "y", "maybe", "2"])
+def test_unrecognised_value_warns_once(policy, logger, monkeypatch, raw):
+    """False is also the default, so without a warning an operator who typed
+    ``=enabled`` cannot tell "ignored" from "working as configured" — on the
+    knob with the ~9x measured effect on reasoning depth."""
+    monkeypatch.setenv(policy.ENV_VAR, raw)
+    assert policy.should_synthesize_reasoning_effort() is False
+    (message,) = logger.messages("warning")
+    assert policy.ENV_VAR in message
+    assert raw in message
+
+    # Read once per translated request, so the complaint must not repeat.
+    for _ in range(4):
+        policy.should_synthesize_reasoning_effort()
+    assert len(logger.messages("warning")) == 1
+
+
+def test_unrecognised_value_warning_survives_a_swallowed_emit_failure(policy, monkeypatch):
+    """Same latch discipline as the other three warn-once sites: the key is
+    recorded only once the emit did not raise, so a logger that is not yet in
+    place on the first request cannot mute the complaint permanently."""
+    recorder = _install_logger(monkeypatch, _FlakyLogger())
+    monkeypatch.setenv(policy.ENV_VAR, "enabled")
+
+    assert policy.should_synthesize_reasoning_effort() is False
+    assert recorder.messages("warning") == [], "first emit raised, and was swallowed"
+    assert policy._WARNED_VALUES == set(), "nothing was emitted, so nothing is deduplicated"
+
+    assert policy.should_synthesize_reasoning_effort() is False
+    assert len(recorder.messages("warning")) == 1, "the signal must survive the failure"
+
+    assert policy.should_synthesize_reasoning_effort() is False
+    assert len(recorder.messages("warning")) == 1, "and dedup still holds once it is out"

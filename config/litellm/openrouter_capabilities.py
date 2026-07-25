@@ -40,9 +40,12 @@ Operator knobs (all optional; see ``docs/guides/per-agent-models.md``):
 * ``LITELLM_OPENROUTER_CAPABILITY_TIMEOUT`` per-phase HTTP timeout in seconds
   (default 5).
 
-An unparseable or out-of-range value for any of these is logged and ignored
-rather than silently swallowed: an operator reaching for these vars is very
-likely already debugging something.
+An unparseable, unrecognized or out-of-range value for any of these is logged
+and ignored rather than silently swallowed: an operator reaching for these vars
+is very likely already debugging something. That covers a near miss on the
+boolean too — ``FETCH=disabled`` is neither a recognised on nor off spelling, so
+it warns and takes the default instead of being read as the opposite of what was
+meant.
 """
 
 import json
@@ -125,11 +128,40 @@ def _warn_env_once(name: str, raw: str, message: str, *args: object) -> None:
         _WARNED_ENV.add(key)
 
 
+_TRUTHY = ("1", "true", "yes", "on")
+_FALSY = ("0", "false", "no", "off")
+
+
 def _env_flag(name: str, default: bool) -> bool:
+    """Read a boolean env var, warning rather than guessing at a near miss.
+
+    A bare ``raw not in _FALSY`` reads every unrecognized value as *enable*, so
+    a near-miss disable spelling (``=disabled``, ``=n``) does not fall back to
+    the default — it inverts the operator's instruction, silently. Anything
+    matching neither list warns once and takes the default, which is the same
+    discipline ``_env_float`` applies and the behaviour this module's docstring
+    promises for all three knobs.
+    """
     raw = os.getenv(name)
     if raw is None:
         return default
-    return raw.strip().lower() not in ("0", "false", "no", "off")
+    value = raw.strip().lower()
+    if value in _TRUTHY:
+        return True
+    if value in _FALSY:
+        return False
+    _warn_env_once(
+        name,
+        raw,
+        "openrouter capabilities: %s=%r is not a boolean (expected one of %s "
+        "or %s); using the default %s",
+        name,
+        raw,
+        ", ".join(_TRUTHY),
+        ", ".join(_FALSY),
+        default,
+    )
+    return default
 
 
 def _env_float(name: str, default: float, *, allow_zero: bool = False) -> float:
