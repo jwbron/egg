@@ -151,7 +151,7 @@
           "id": "task-1-7",
           "description": "Populate decision_state in snapshot_from_health_context. Enrich to\npopulate decision_state with: pending_hitl, open_decisions,\napproved_unapplied, oldest_open_age_s, replay_pending, replay_count,\nreplayed_resolved_id, auto_advance_pending, auto_advance_age_s.\nData source: contract store + decision queue.",
           "status": "pending",
-          "commit": null,
+          "commit": "840906f8f",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- decision_state populated with pending_hitl, open_decisions from contract\n- decision_state populated with approved_unapplied, oldest_open_age_s from decision queue\n- decision_state populated with replay_pending, replay_count from session state\n- Test: detect_approved_decision_orphaned and detect_hitl_queue_backlog receive populated decision_state",
@@ -1007,6 +1007,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T05:53:38.000371Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.6.commit",
+      "old_value": null,
+      "new_value": "840906f8f",
+      "reason": "Linked commit 840906f to task-1-7",
       "checkpoint_id": null
     }
   ],
