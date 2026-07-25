@@ -58,20 +58,63 @@
         {
           "id": "opt-1",
           "label": "Yes \u2014 update test to assert cancel does NOT clear, only delete+create do",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "Keep test as-is, add new test for cancel-not-clearing",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-3",
           "label": "Defer test changes to implement phase",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "cq-3",
+      "question": "Should the refiner adopt Changes 1+2+3 from issue #3632 (stop clearing runtime state on CANCELLED, namespace tracker+message stream by run_epoch, persist BRC history on cancel) and defer Change 4 (per-slice tracker reconstruction on resume)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes adopt Changes 1+2+3 defer Change 4",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Adopt only Change 1 minimal fix",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Adopt all four changes full fix",
           "description": null
         },
         {
           "id": "opt-4",
+          "label": "Adopt Changes 1+2+3+4 but reorder",
+          "description": null
+        },
+        {
+          "id": "opt-5",
           "label": "Other (explain in reply)",
           "description": null
         }
@@ -169,6 +212,54 @@
         "debounce_until": null
       },
       "reason": "Created HITL decision: Should the #2053 regression test (test_pipelines_a...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T23:25:48.561212Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "Should the refiner adopt Changes 1+2+3 from issue #3632 (stop clearing runtime state on CANCELLED, namespace tracker+message stream by run_epoch, persist BRC history on cancel) and defer Change 4 (per-slice tracker reconstruction on resume)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes adopt Changes 1+2+3 defer Change 4",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Adopt only Change 1 minimal fix",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Adopt all four changes full fix",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Adopt Changes 1+2+3+4 but reorder",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the refiner adopt Changes 1+2+3 from issue ...",
       "checkpoint_id": null
     }
   ],
