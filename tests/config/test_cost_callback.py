@@ -177,6 +177,53 @@ class TestExtractCost:
         assert cc._extract_estimated_cost({"response_cost": 0.004}) == 0.004
 
 
+class TestExtractCacheStats:
+    """Token counts get the same guard the cost fields get, for a sharper
+    reason: they are emitted through ``int(...)``, where a non-finite raises
+    rather than merely misreporting."""
+
+    def setup_method(self):
+        cc._session_totals.clear()
+
+    def test_boolean_and_non_finite_token_counts_are_not_counts(self):
+        # Same shapes that make a boolean cost a $1.00 charge: isinstance(True,
+        # int) is True, so a bare numeric check reads `True` as one token that
+        # was never sent, and `inf` as an infinity of them.
+        for bad in (True, float("inf"), float("nan"), -5, "1200", None):
+            assert cc._extract_cache_stats({"prompt_tokens": bad}) == (0.0, 0.0, 0.0, 0.0)
+        assert cc._extract_cache_stats({"prompt_tokens": 1200}) == (1200.0, 0.0, 0.0, 0.0)
+        # The nested schemas are read through the same helper.
+        assert cc._extract_cache_stats(
+            {"prompt_tokens_details": {"cached_tokens": float("inf")}}
+        ) == (0.0, 0.0, 0.0, 0.0)
+        assert cc._extract_cache_stats(
+            {"completion_tokens_details": {"reasoning_tokens": True}}
+        ) == (0.0, 0.0, 0.0, 0.0)
+
+    def test_a_non_finite_count_does_not_silence_the_rest_of_the_session(self, monkeypatch):
+        # The consequence is worse than for cost: `int(inf)` raises OverflowError
+        # inside _record, whose outer handler drops the whole line — and the
+        # value has already landed in the session total, so it stays inf and
+        # every LATER call in that session is dropped too, for the pod's
+        # lifetime (the LRU only evicts under 4096-session pressure).
+        emitted: list[dict] = []
+        monkeypatch.setattr(cc, "_emit", lambda payload: emitted.append(payload))
+        logger = cc.LiteLLMCostLogger()
+        logger._record(
+            _mcd("poisoned"),
+            types.SimpleNamespace(
+                usage={"prompt_tokens": float("inf"), "cache_read_input_tokens": 600}
+            ),
+        )
+        logger._record(
+            _mcd("poisoned"),
+            types.SimpleNamespace(usage={"prompt_tokens": 1000, "cache_read_input_tokens": 600}),
+        )
+        assert len(emitted) == 2
+        assert emitted[-1]["call"]["prompt_tokens"] == 1000
+        assert cc._session_totals["poisoned"]["prompt_tokens"] == 1000.0
+
+
 class TestRecordCostReporting:
     def setup_method(self):
         cc._session_totals.clear()
@@ -325,8 +372,12 @@ class TestEstimatedCost:
             == 0.004
         )
         # Symmetric with _extract_cost, whose BYOK `cost: 0` falls through to
-        # cost_details in exactly the same way.
-        assert cc._extract_cost({"cost": 0, "cost_details": {"upstream_inference_cost": 0.05}})
+        # cost_details in exactly the same way. Pin the value, not truthiness:
+        # a bare `assert` here passes on any non-zero return, including a wrong
+        # one, which is no assertion at all.
+        assert (
+            cc._extract_cost({"cost": 0, "cost_details": {"upstream_inference_cost": 0.05}}) == 0.05
+        )
 
 
 class TestAttribution:
@@ -503,14 +554,27 @@ class TestExtractRequestParams:
         # extra_body is config-supplied and usually pinned in litellm_params, so
         # an unbounded remainder is not one bad line — it is every line for the
         # life of the config.
+        #
+        # The fixture is the stated worst case rather than a merely large one:
+        # every key name past its cap (so each emits the 64-char prefix AND the
+        # size suffix), every value exactly at its cap, and the priority key
+        # drawing on the wider budget. A fixture whose pin is two words leaves
+        # the priority slack term in the bound below as pure headroom — the
+        # assertion then means whatever it meant before that term existed.
+        pin = {"order": [f"backend-{i:03d}" for i in range(130)], "allow_fallbacks": False}
+        # Near the priority cap, not merely over the general one — that is what
+        # makes the slack term below load-bearing rather than headroom.
+        assert cc._MAX_PARAM_JSON_CHARS < len(json.dumps(pin)) <= cc._MAX_PRIORITY_PARAM_JSON_CHARS
         params = cc._extract_request_params(
             _mcd(
                 "r",
                 optional_params={
                     "extra_body": {
-                        "provider": {"order": ["Alibaba"]},
-                        **{f"knob{i}": "v" * 400 for i in range(200)},
-                        "k" * 100000: 1,
+                        "provider": pin,
+                        **{
+                            f"knob{i}" + "k" * 100000: "v" * cc._MAX_PARAM_JSON_CHARS
+                            for i in range(200)
+                        },
                     }
                 },
             )
@@ -518,13 +582,71 @@ class TestExtractRequestParams:
         emitted = params["extra_body"]
         assert len(emitted) == cc._MAX_EXTRA_BODY_KEYS + 1  # + the truncation marker
         assert "more keys omitted" in emitted[cc._EXTRA_BODY_TRUNCATED_KEY]
-        assert emitted["provider"] == {"order": ["Alibaba"]}
+        assert emitted["provider"] == pin
         assert all(len(k) <= cc._MAX_EXTRA_BODY_KEY_CHARS + 32 for k in emitted)
-        # The stated worst case: every key at its name cap and its value cap,
-        # with one priority key drawing on the wider value budget.
-        assert len(json.dumps(emitted)) < cc._MAX_EXTRA_BODY_KEYS * (
-            cc._MAX_PARAM_JSON_CHARS + cc._MAX_EXTRA_BODY_KEY_CHARS + 64
-        ) + (cc._MAX_PRIORITY_PARAM_JSON_CHARS - cc._MAX_PARAM_JSON_CHARS)
+        # The bound stated as it is derived — per key, a name at its cap plus
+        # the size suffix, a value at its cap, and JSON punctuation — with the
+        # one priority key drawing on the wider value budget. Asserted from
+        # below as well as above: a maximal fixture that fits under the general
+        # term alone would leave the slack term unexercised, which is how a
+        # loose bound comes to look like a pinned one.
+        general = cc._MAX_EXTRA_BODY_KEYS * (
+            cc._MAX_EXTRA_BODY_KEY_CHARS + 32 + cc._MAX_PARAM_JSON_CHARS + 8
+        )
+        slack = cc._MAX_PRIORITY_PARAM_JSON_CHARS - cc._MAX_PARAM_JSON_CHARS
+        assert general < len(json.dumps(emitted)) < general + slack
+
+    def test_the_whole_params_block_is_bounded_against_the_log_line_split(self):
+        # Each dimension's cap holds and they still compose: 19 allowlisted keys
+        # at the value cap alongside a maximal extra_body clears 20KB. A line
+        # that long is split into unparseable partials by the container runtime,
+        # so `jq -Rc 'fromjson?'` drops it and the cost data with it — the
+        # outcome allow_nan=False exists to prevent, reached by size instead.
+        params = cc._extract_request_params(
+            _mcd(
+                "r",
+                optional_params={
+                    **dict.fromkeys(cc._REQUEST_PARAM_KEYS, "v" * cc._MAX_PARAM_JSON_CHARS),
+                    "extra_body": {
+                        "provider": {"order": ["Alibaba"]},
+                        **{
+                            f"knob{i}" + "k" * 100000: "v" * cc._MAX_PARAM_JSON_CHARS
+                            for i in range(100)
+                        },
+                    },
+                },
+            )
+        )
+        assert len(json.dumps(params)) <= cc._MAX_REQUEST_PARAMS_CHARS
+        # What survives is what the field exists to answer: the sampling knobs
+        # (a handful of bytes each — never what pushed the block over) and the
+        # provider pin, which collapses out of extra_body rather than with it.
+        assert params["temperature"] == "v" * cc._MAX_PARAM_JSON_CHARS
+        assert params["extra_body"]["provider"] == {"order": ["Alibaba"]}
+        assert "more keys omitted" in params["extra_body"][cc._EXTRA_BODY_TRUNCATED_KEY]
+
+    def test_a_stock_line_is_left_alone_by_the_aggregate_bound(self):
+        # The guard is a backstop, not a filter: nothing a real route emits goes
+        # near the budget, and a trim that fired on stock traffic would be a
+        # regression in exactly the data this PR adds.
+        params = cc._extract_request_params(
+            _mcd(
+                "r",
+                optional_params={
+                    "max_tokens": 32000,
+                    "stream": True,
+                    "temperature": 0.3,
+                    "extra_body": {"provider": {"order": ["Alibaba"], "allow_fallbacks": False}},
+                },
+            )
+        )
+        assert params == {
+            "temperature": 0.3,
+            "max_tokens": 32000,
+            "stream": True,
+            "extra_body": {"provider": {"order": ["Alibaba"], "allow_fallbacks": False}},
+        }
+        assert len(json.dumps(params)) < cc._MAX_REQUEST_PARAMS_CHARS // 10
 
     def test_oversized_extra_body_key_name_is_bounded(self):
         # The key COUNT cap alone doesn't bound the key NAMES: a long key inside

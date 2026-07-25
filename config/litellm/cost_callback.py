@@ -162,15 +162,17 @@ def _usage_from_response_obj(response_obj):
     return _coerce_usage(usage)
 
 
+def _finite_number(value):
+    """True for a real, finite number. ``bool`` is excluded because
+    ``isinstance(True, int)`` is True and a boolean is not a measurement —
+    ``float(True)`` would silently record a 1 (one dollar, one token) that was
+    never billed or sent."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
 def _positive(value):
-    """True for a real, finite, positive number. ``bool`` is excluded because
-    ``isinstance(True, int)`` is True and a boolean cost is not a cost."""
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-        and value > 0
-    )
+    """True for a real, finite, positive number."""
+    return _finite_number(value) and value > 0
 
 
 def _extract_cost(usage):
@@ -203,8 +205,18 @@ def _extract_cache_stats(usage):
     """Extract input + cache + reasoning counts in a provider-agnostic way.
 
     Returns (prompt_tokens, cached_input_tokens, cache_write_tokens,
-    reasoning_tokens). Each defaults to 0; non-numeric values are treated
-    as 0.
+    reasoning_tokens). Each defaults to 0; anything that is not a real,
+    finite, non-negative number is treated as 0.
+
+    That guard is ``_extract_cost``'s, and it matters MORE here than it does
+    for cost, because ``_record`` emits these counts through ``int(...)``: an
+    ``inf`` raises ``OverflowError`` there, ``_record``'s outer handler
+    swallows it, and the whole line — cost data included — is dropped. Worse,
+    the value has already landed in ``agg[...]`` by then, so the session total
+    stays ``inf`` and EVERY subsequent call in that session emits nothing for
+    the pod's lifetime (the LRU only evicts under 4096-session pressure). A
+    ``bool`` is milder but wrong in the same direction as a boolean cost: one
+    token that was never sent.
 
     Providers expose cache numbers under several competing schemas — we read
     all and merge:
@@ -224,7 +236,7 @@ def _extract_cache_stats(usage):
     u = usage or {}
 
     def _num(x):
-        return float(x) if isinstance(x, (int, float)) else 0.0
+        return float(x) if _finite_number(x) and x >= 0 else 0.0
 
     prompt = _num(u.get("prompt_tokens"))
     pdet = u.get("prompt_tokens_details") or {}
@@ -388,12 +400,12 @@ _MAX_PRIORITY_PARAM_JSON_CHARS = 2048
 
 # Key-count cap for the extra_body remainder. Its values are bounded one by one
 # (so a bulky sibling can't collapse the small, load-bearing provider pin), which
-# leaves the number of keys as the remaining unbounded dimension. With the key
-# cap below, the emitted remainder is bounded at ~21KB worst case — high for a
-# ~800-byte baseline line, but it takes 32 maximal keys carrying 512-char values
-# (one of them a priority key at its larger cap) to get there; a real extra_body
-# is one or two small entries.
-_MAX_EXTRA_BODY_KEYS = 32
+# leaves the number of keys as the remaining unbounded dimension. Sized against
+# the whole-block budget below rather than picked as a round number: 16 keys at
+# their name and value caps (one of them a priority key at its larger cap) emit
+# 11,289 chars, measured, which leaves the aggregate guard nothing to undo in
+# the case this cap already covers. A real extra_body is one or two entries.
+_MAX_EXTRA_BODY_KEYS = 16
 
 # Key-NAME cap for the extra_body remainder. Deliberately far tighter than the
 # value cap: a key name contributes to the emitted line exactly as a value does,
@@ -414,6 +426,20 @@ _EXTRA_BODY_PRIORITY_KEYS = ("provider",)
 # Sentinel for the truncation marker. Namespaced so it cannot collide with (and
 # silently overwrite) a real operator-supplied ``extra_body`` key.
 _EXTRA_BODY_TRUNCATED_KEY = "<egg:truncated>"
+
+# Whole-block budget for the emitted request_params. The caps above bound each
+# dimension separately but compose multiplicatively — 19 allowlisted keys at the
+# 512-char value cap alongside a maximal extra_body clears 20KB with every
+# individual cap intact — so the aggregate needs its own ceiling.
+#
+# 16KiB is the number that matters: Docker's json-file driver and containerd's
+# CRI logger both split a stdout line at that size into `P`-marked partials, and
+# neither fragment is valid JSON. The documented ``jq -Rc 'fromjson?'`` query
+# then drops the line, cost data and all — the same outcome ``allow_nan=False``
+# exists to prevent, reached by size instead of by token. 12KiB leaves headroom
+# for the cost/attribution/session fields that share the line (~800 bytes on a
+# stock line, and themselves bounded only by the model and header names).
+_MAX_REQUEST_PARAMS_CHARS = 12288
 
 
 def _scrub_non_finite(value, _depth=0):
@@ -555,6 +581,45 @@ def _bounded_extra_body(leftover):
     return bounded
 
 
+def _fit_request_params(out):
+    """Clamp the assembled block to ``_MAX_REQUEST_PARAMS_CHARS``, returning it.
+
+    The per-dimension caps each hold on their own and still compose into a line
+    big enough to be split by the container runtime (see the constant), so the
+    aggregate gets a ceiling of its own. Every value here has already been
+    through ``_bounded_param``, so re-encoding one cannot raise.
+
+    Two ordering choices, both about what a truncated line should still be able
+    to answer:
+
+    - **Largest entry first.** The sampling scalars this field exists to record
+      are a handful of bytes each; whatever pushed the block over is not one of
+      them. They are the last to go, not the first.
+    - **``extra_body`` collapses to its priority keys before it collapses
+      entirely.** The provider pin is both the most load-bearing entry in the
+      remainder and one of the smallest, so there is no reason for it to share
+      the fate of the bulk it was sitting next to."""
+    if len(json.dumps(out)) <= _MAX_REQUEST_PARAMS_CHARS:
+        return out
+    for key in sorted(out, key=lambda k: len(json.dumps(out[k])), reverse=True):
+        value = out[key]
+        if key == "extra_body" and isinstance(value, dict):
+            pinned = {k: v for k, v in value.items() if k in _EXTRA_BODY_PRIORITY_KEYS}
+            if pinned and len(json.dumps(pinned)) < len(json.dumps(value)):
+                omitted = len(value) - len(pinned)
+                pinned[_uncollided_key(pinned, _EXTRA_BODY_TRUNCATED_KEY)] = (
+                    f"<{omitted} more keys omitted>"
+                )
+                out[key] = pinned
+                if len(json.dumps(out)) <= _MAX_REQUEST_PARAMS_CHARS:
+                    break
+                value = pinned
+        out[key] = f"<{len(json.dumps(value))} chars omitted>"
+        if len(json.dumps(out)) <= _MAX_REQUEST_PARAMS_CHARS:
+            break
+    return out
+
+
 def _extract_request_params(mcd):
     """Return the decoding configuration this call actually ran under (#3599).
 
@@ -617,7 +682,7 @@ def _extract_request_params(mcd):
                 # Size, key count and key names are all bounded there — see
                 # _bounded_extra_body for why each dimension needs its own cap.
                 out["extra_body"] = _bounded_extra_body(leftover)
-        return out
+        return _fit_request_params(out)
     except Exception:
         return None
 

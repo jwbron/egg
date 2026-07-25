@@ -638,7 +638,12 @@ data:
 >   OpenRouter provider pin degrades last, not never: it is ordered ahead of
 >   the key-count cap and gets a 2048-char value budget instead of the usual
 >   512, but a pin larger than that still becomes a `<N chars omitted>`
->   marker.
+>   marker. The block as a whole is capped too, at 12KiB — a line above
+>   ~16KiB is split into unparseable fragments by the container log driver, so
+>   an oversized line is dropped by the `fromjson?` query below exactly like a
+>   malformed one. If that cap binds, the largest entries are marked down
+>   first, so a `<N chars omitted>` on a *small* field means the block was
+>   over budget rather than that field being oversized on its own.
 >
 > Prompt-bearing fields (`messages`, `tools`, `tool_choice`) are excluded by
 > allowlist: the cost stream is not a transcript sink.
