@@ -46,7 +46,7 @@
           "id": "task-1-2",
           "description": "Test for detection plane wiring into runtime tick.",
           "status": "pending",
-          "commit": null,
+          "commit": "4a02ece9b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Test verifies run_detection_plane() is called from _run_runtime_tick_checks\n- Test verifies findings are emitted as DETECTION_FINDING events\n- Test verifies idempotent evaluation (no double-firing from two call sites)",
@@ -1139,6 +1139,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-11 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T06:46:17.012082Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "4a02ece9b",
+      "reason": "Linked commit 4a02ece to task-1-2",
       "checkpoint_id": null
     }
   ],
