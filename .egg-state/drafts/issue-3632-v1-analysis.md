@@ -134,6 +134,48 @@ The #2053 regression test at `test_pipelines_api.py:1069` (`test_cancel_clears_r
 explicitly asserts `_clear_pipeline_runtime_state` IS called on cancel. This test must be updated
 to assert that cancel does NOT clear (only delete and create do).
 
+## Open Questions (HITL decisions registered on contract)
+
+### cq-1: Should the refiner raise a HITL decision on the critical safety finding that start_pipeline does NOT bump run_epoch on CANCELLED recovery (only on FAILED), meaning Change 1 alone would reintroduce #2053?
+
+**Options:**
+- opt-1: Yes — raise as HITL decision, require operator sign-off before implementing Change 1 without Change 2
+- opt-2: No — document in proposal, let implementer handle
+- opt-3: Defer to plan phase
+
+**Refiner position:** The refiner has documented this finding in the analysis draft (see Fact 3
+above) and in the proposal's risk_considered field. The finding is a hard safety constraint:
+Change 1 (stop clearing on CANCELLED) is only safe when paired with Change 2 (run_epoch
+namespacing). This is not a question of preference — it's a correctness requirement. The refiner
+recommends **opt-1**: raise this as a HITL decision so the operator explicitly acknowledges the
+interdependency before implementation proceeds.
+
+### cq-2: Should the #2053 regression test (test_pipelines_api.py:1069, test_cancel_clears_runtime_state) be updated to reflect that cancel no longer clears runtime state (only delete and create do)?
+
+**Options:**
+- opt-1: Yes — update test to assert cancel does NOT clear, only delete+create do
+- opt-2: Keep test as-is, add new test for cancel-not-clearing
+- opt-3: Defer test changes to implement phase
+
+**Refiner position:** The test at `test_pipelines_api.py:1083-1112` explicitly asserts
+`_clear_pipeline_runtime_state` IS called on cancel. If Change 1 is adopted, this test must be
+updated — it currently encodes the exact behavior we are changing. The refiner recommends
+**opt-1**: update the test to assert cancel does NOT clear, and keep the delete/create tests
+as-is.
+
+### cq-3: Should the refiner adopt Changes 1+2+3 from issue #3632 (stop clearing runtime state on CANCELLED, namespace tracker+message stream by run_epoch, persist BRC history on cancel) and defer Change 4 (per-slice tracker reconstruction on resume)?
+
+**Options:**
+- opt-1: Yes adopt Changes 1+2+3 defer Change 4
+- opt-2: Adopt only Change 1 minimal fix
+- opt-3: Adopt all four changes full fix
+- opt-4: Adopt Changes 1+2+3+4 but reorder
+
+**Refiner position:** The refiner recommends **opt-1**. Changes 1+2 are interdependent for
+safety (Change 1 alone reintroduces #2053). Change 3 is cheap insurance. Change 4 is the most
+complex and least urgent — per-slice tracker reconstruction is a nice-to-have for full Redis-loss
+recovery but not required for the core lossless-resume fix.
+
 ## Ergonomics Observations (documented, not blocking)
 
 - No `resume_task` MCP tool exists. The way to resume is `restart_agent` (which bumps
