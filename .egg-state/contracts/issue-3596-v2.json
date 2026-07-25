@@ -405,7 +405,7 @@
           "id": "task-3-2",
           "description": "Test for dependency-aware peer-progress gate fix.",
           "status": "pending",
-          "commit": null,
+          "commit": "4a02ece9b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Test verifies gate only defers on peers in the dependent set\n- Test verifies overseer's own heartbeat no longer suppresses alerts\n- Test verifies busy pipeline with active upstream peers still suppresses false positives",
@@ -1293,6 +1293,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T06:46:59.251604Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": null,
+      "new_value": "4a02ece9b",
+      "reason": "Linked commit 4a02ece to task-3-2",
       "checkpoint_id": null
     }
   ],
