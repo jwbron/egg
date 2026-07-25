@@ -39,6 +39,14 @@
       "registered_at": "2026-07-25T23:26:09.840635+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "b1523c62f906ff3b20b871e3da6899f69acba291": {
+      "branch": "egg/issue-3632-v1/work",
+      "patch_id": "b633d12574347494e8c00bc8b87213f95321cc0a",
+      "pipeline_id": "issue-3632-v1",
+      "registered_at": "2026-07-25T23:26:52.505519+00:00",
+      "repo": null,
+      "role": "refiner"
     }
   },
   "version": 2
