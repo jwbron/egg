@@ -1,0 +1,163 @@
+{
+  "pipeline_id": "issue-3596-v2",
+  "phase": "plan",
+  "producer": "architect",
+  "summary": "Plan for issue #3596: make agent forward-progress state visible and make the system act on it. Based on a thorough codebase audit that confirmed most of the infrastructure already exists but is fragmented, not wired into the runtime tick, and not surfaced in get_status. The plan addresses the four areas from the issue (forward progress, events/alerts, clocks/per-invocation accounting, post-mortem durability) with six concrete work items, ordered by leverage.",
+  "approach": "Option B: targeted, high-leverage changes that unlock existing dormant infrastructure rather than rebuilding from scratch. The codebase already has 25+ deterministic detectors, a HealthMonitor with tripwires, a ProgressStore, an agent_log_store (Redis-backed), and a working_heartbeat emitter. The problem is that (1) the detection plane is never invoked from the runtime tick, (2) the snapshot builder only populates 3 of 10 RunningAgent fields, (3) get_status doesn't surface health alerts or per-agent progress metrics, and (4) the peer-progress gate is dependency-blind. The plan fixes these gaps in order of leverage.",
+  "work_items": [
+    {
+      "id": "task-1",
+      "title": "Wire detection plane into runtime tick + enrich snapshot builder",
+      "description": "Call HealthCheckRunner.run_detection_plane() from kubernetes_monitor._run_runtime_tick_checks, and enrich snapshot_from_health_context() to populate the fields that the 25+ dormant detectors need: container_transitions, git_state (commit count, last commit timestamp), decision_state (pending HITL), phase_state (started_age_s, expected_duration_s), and RunningAgent.liveness fields (last_tool_call_age_s, last_heartbeat_age_s, exit_code, exit_reason). Also fix the role=str(cid) defect (container ID in role field) by mapping container IDs to agent roles via the pipeline's phase execution state.",
+      "files_affected": [
+        "orchestrator/kubernetes_monitor.py",
+        "orchestrator/health_checks/detection_plane.py",
+        "orchestrator/health_checks/runner.py"
+      ],
+      "acceptance_criteria": [
+        "Detection plane evaluates on every RUNTIME_TICK sweep for running pipelines",
+        "snapshot_from_health_context populates last_tool_call_age_s and last_heartbeat_age_s on RunningAgent",
+        "RunningAgent.role is populated with the agent role name, not a container ID",
+        "git_state includes commit_count, last_commit_at, and patch_id_matches",
+        "detect_heartbeat_stall can fire in production (verified by test)",
+        "All 25+ tier-1 detectors receive populated fields in the snapshot"
+      ],
+      "priority": "critical",
+      "estimated_hours": 12
+    },
+    {
+      "id": "task-2",
+      "title": "Add forward-progress detector (commit count + worktree activity rate)",
+      "description": "Add a deterministic detector to the detection plane that fires when an agent has been running >N seconds (configurable, default 600s) with zero new commits AND zero progress events AND zero file modifications. This directly addresses the issue's key diagnostic: 'a hand-rolled loop counting commits on the agent's worktree' that could tell a working agent from one 'exiting rc=0 doing nothing against an empty worktree mount.' The detector reads commit_count and last_commit_at from the enriched git_state snapshot, and progress_event_count from the progress store.",
+      "files_affected": [
+        "orchestrator/health_checks/tier1/forward_progress.py"
+      ],
+      "acceptance_criteria": [
+        "New detector detect_forward_progress_stall registered in DetectionPlane.default()",
+        "Detector fires when an agent runs >600s with zero commits, zero progress events, and zero file modifications",
+        "Detector stays silent when the agent is making any of: commits, progress events, or file modifications",
+        "Configurable threshold via PipelineConfig",
+        "requires_adjudication=True (the verdict — stuck vs. legitimately slow — is ambiguous)"
+      ],
+      "priority": "high",
+      "estimated_hours": 8
+    },
+    {
+      "id": "task-3",
+      "title": "Fix peer-progress gate to be dependency-aware",
+      "description": "Issue #3595 root cause 1: _has_recent_peer_progress defers agent A's alert on ANY peer's heartbeat, including the overseer's own, which suppresses alerts about the very agent the overseer watches. Fix: scope the peer-progress gate to only defer on progress from peers that agent A actually depends on (per the BRC review graph's review_edges). The dependency structure already exists in the consensus tracker's review_edges and in heartbeat metadata (waiting_on).",
+      "files_affected": [
+        "orchestrator/health_monitor.py"
+      ],
+      "acceptance_criteria": [
+        "_has_recent_peer_progress only defers on peers in the dependent set (from review_edges)",
+        "Overseer's own heartbeat no longer suppresses alerts about agents it watches",
+        "Gate still suppresses false positives on busy pipelines (peers A depends on are active)",
+        "Test: a wedged agent with an active overseer peer no longer gets suppressed"
+      ],
+      "priority": "high",
+      "estimated_hours": 6
+    },
+    {
+      "id": "task-4",
+      "title": "Enrich get_status with forward-progress signals and active alerts",
+      "description": "Add a 'progress' sub-object to each entry in concurrent.agents with: last_heartbeat_age_s, last_progress_age_s, commit_count, last_commit_at, last_commit_sha, progress_event_count. Add an 'alerts' array to the top-level status response (capped at 10) sourced from HealthMonitor.get_active_alerts(). Add phase timing (phase_started_at, phase_elapsed_seconds) to the concurrent block. All fields are null when unmeasurable (per operator constraint: distinguish null from zero).",
+      "files_affected": [
+        "orchestrator/routes/pipelines/_status_view.py",
+        "orchestrator/routes/pipelines/_routes_status.py"
+      ],
+      "acceptance_criteria": [
+        "concurrent.agents[].progress contains commit_count, last_commit_at, last_heartbeat_age_s, last_progress_age_s, progress_event_count",
+        "Top-level alerts array present with alert_type, agent_id, message, severity, timestamp",
+        "concurrent.phase_started_at and concurrent.phase_elapsed_seconds present",
+        "All progress fields are null when unmeasurable, never 0",
+        "Best-effort: git subprocess failures degrade to null, never crash the status endpoint"
+      ],
+      "priority": "high",
+      "estimated_hours": 10
+    },
+    {
+      "id": "task-5",
+      "title": "Add consumption breaker (uncached tokens + call count)",
+      "description": "Issue #3595 root cause 4: no consumption breaker of any denomination. 613 calls and 162M cumulative prompt tokens accrued with no intervention. Add a deterministic detector that fires when an agent's call count exceeds a threshold (configurable, default 200) OR uncached prompt tokens exceed a threshold (configurable, default 500K). Both metrics are already in every cost_callback log line. Denominate in uncached tokens (prompt_tokens - cached_tokens) or call count, not raw prompt tokens (which overstates real consumption by ~2 orders of magnitude on cache-heavy routes).",
+      "files_affected": [
+        "orchestrator/health_checks/tier1/consumption_breaker.py"
+      ],
+      "acceptance_criteria": [
+        "New detector detect_consumption_breaker registered in DetectionPlane.default()",
+        "Detector fires on call_count > threshold OR uncached_prompt_tokens > threshold",
+        "Thresholds configurable via PipelineConfig (orchestrator_call_count_limit, orchestrator_uncached_token_limit)",
+        "requires_adjudication=True (intervention decision is high-stakes)",
+        "Detector reads from cost_counters in the snapshot (populated by task 1)"
+      ],
+      "priority": "medium",
+      "estimated_hours": 6
+    },
+    {
+      "id": "task-6",
+      "title": "Record sampling params in cost_callback",
+      "description": "Issue #3595 root cause 5: sampling configuration is unset and unrecorded. Extend cost_callback.py to log optional_params alongside the cost and cache stats it already emits. This is the cheapest item and gates the credibility of any future measurement. Separately, pin explicit temperature/top_p per model against each provider's recommended sampling.",
+      "files_affected": [
+        "orchestrator/cost_callback.py",
+        "config/litellm/litellm_settings.yaml"
+      ],
+      "acceptance_criteria": [
+        "cost_callback logs optional_params (temperature, top_p, top_k, presence_penalty, frequency_penalty, reasoning_effort) per call",
+        "Per-model temperature/top_p pinned in litellm_settings.yaml",
+        "Log format is backward-compatible (new fields are additive)",
+        "Test: cost_callback output includes optional_params field"
+      ],
+      "priority": "low",
+      "estimated_hours": 4
+    }
+  ],
+  "slice_dag": {
+    "description": "Tasks 1 and 4 are tightly coupled (snapshot enrichment feeds status enrichment). Tasks 2, 3, and 5 are independent detectors that all depend on task 1's snapshot enrichment. Task 6 is independent.",
+    "edges": [
+      {"from": "task-1", "to": "task-2"},
+      {"from": "task-1", "to": "task-3"},
+      {"from": "task-1", "to": "task-5"},
+      {"from": "task-1", "to": "task-4"},
+      {"from": "task-4", "to": "task-5"}
+    ],
+    "parallelizable": true
+  },
+  "risks": [
+    {
+      "risk": "Response payload size growth from status enrichment",
+      "mitigation": "Cap alerts at 10 entries, make git/diffstat fields best-effort with timeouts, cache where possible"
+    },
+    {
+      "risk": "Git subprocess cost on every status call",
+      "mitigation": "Cap commit count at 100, use --oneline format, run with 5s timeout, degrade to null on failure"
+    },
+    {
+      "risk": "Detection plane adds CPU load on runtime tick",
+      "mitigation": "Detectors are pure functions, exception-isolated, and only run on RUNTIME_TICK (5s default interval). Each detector is O(1) or O(n) in small bounded data."
+    },
+    {
+      "risk": "Peer-progress gate fix could re-introduce false positives",
+      "mitigation": "The gate still falls back to 'any peer' when the dependency graph is unavailable. Conservative by default."
+    }
+  ],
+  "deferred": [
+    "Session transcript capture on pod exit (issue #3595 root cause: transcripts pushed only on exit, so a wedged agent that never exits has no stored transcript). This requires changes to the agent session lifecycle and is out of scope for this plan.",
+    "Repetition-triggered context surgery (issue #3595 proposed work 5). Requires Claude Code session history rewriting support — needs investigation first.",
+    "Ground-truth verifier role for the review set (issue #3595 proposed work 8). This is a reviewer-graph topology change, not a visibility improvement."
+  ],
+  "already_verified": [
+    "agent_log_store.py exists (#3547) — Redis-backed pod log retention at Job removal, 24h TTL. Do NOT rebuild.",
+    "GET /pipelines/{id}/health/alerts exists — serves active health alerts. Do NOT rebuild.",
+    "evidence_rescue.py exists (#3572) — patch-id rescue for unreachable commits.",
+    "commit_authorship_store.py exists — durable commit authorship registry.",
+    "agent_salvage.py exists (#2429) — unpushed commit salvage.",
+    "AgentExitInfo exists (#2205) — frozen-at-exit snapshots with last_lines.",
+    "working_heartbeat.py exists (#3341) — in-tool-loop WORKING heartbeat emitter.",
+    "driver_heartbeat.py exists (#3540) — driver thread liveness registry.",
+    "DriverLivenessCheck exists (#3540) — dead/hung/no-progress driver detection.",
+    "PhaseOutputPresenceCheck exists — commit presence at phase boundaries.",
+    "_live_event_agents exists (#3230) — running-agent view from live Job labels.",
+    "OverseerSelfMonitor exists (#2270 §5) — overseer self-health tracking.",
+    "detect_heartbeat_stall exists but is dead code — snapshot_from_health_context never populates last_tool_call_age_s/last_heartbeat_age_s."
+  ]
+}
