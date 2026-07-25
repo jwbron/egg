@@ -103,10 +103,44 @@ def test_missing_needle_fails_loud(tmp_path):
 
 
 def test_missing_file_fails_loud(tmp_path):
-    """A missing target file must raise SystemExit, not pass silently."""
-    # Empty root — none of the litellm paths exist.
-    with pytest.raises(SystemExit):
+    """A missing target file must raise SystemExit from ``_apply``.
+
+    ``_patch_root`` installs ``NEW_MODULES`` before it runs ``PATCHES``, so an
+    empty root aborts in ``_install_module``'s "destination package missing"
+    branch and never reaches ``_apply`` at all — the assertion would pass while
+    testing something else entirely. Create the module destinations (but none
+    of the patch targets) so the failure under test is the one named."""
+    for spec in plc.NEW_MODULES:
+        (tmp_path / spec["dest"]).parent.mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(SystemExit) as excinfo:
         plc._patch_root(str(tmp_path))
+    assert "file not found" in str(excinfo.value), "aborted before reaching _apply"
+
+
+def test_new_module_refuses_to_clobber_a_foreign_file(tmp_path):
+    """Every other operation in this script is fail-loud on drift; so is this.
+
+    The destinations carry an ``_egg_`` prefix precisely so an upstream module
+    can never be silently overwritten. If a future litellm ships a file at one
+    of these paths, the build must stop rather than clobber it."""
+    _build_fixture_root(tmp_path)
+    spec = plc.NEW_MODULES[0]
+    dest = tmp_path / spec["dest"]
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text("# upstream took this name\n")
+
+    # An egg-owned path is overwritten (a stale install from an older layer)...
+    assert plc.EGG_MODULE_MARKER in Path(spec["dest"]).name
+    plc._install_module(str(tmp_path), spec)
+    assert dest.read_text() != "# upstream took this name\n"
+
+    # ...but the same collision at a non-egg path aborts the build.
+    unprefixed = dict(spec, dest="llms/openrouter/capabilities.py")
+    (tmp_path / unprefixed["dest"]).write_text("# upstream took this name\n")
+    with pytest.raises(SystemExit) as excinfo:
+        plc._install_module(str(tmp_path), unprefixed)
+    assert "refusing to overwrite" in str(excinfo.value)
 
 
 def test_patch4_needle_anchors_on_content_block_function(tmp_path):
@@ -201,17 +235,91 @@ def test_patch7_gate_is_additive_not_substitutive(tmp_path):
     drop for another. The stock ``supports_reasoning`` branch must therefore
     survive the patch."""
     patch7 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 7/"))
-    replacement = patch7["replacement"]
+
+    # The stock gate, verbatim from 1.86.2, following the needle. Applying the
+    # patch to this and asserting on the RESULT tests the invariant the
+    # docstring claims; substring checks against the replacement string alone
+    # would pass on a patch that deleted the branch entirely.
+    stock_gate = (
+        "            if litellm.supports_reasoning(\n"
+        '                model=model, custom_llm_provider="openrouter"\n'
+        "            ) or litellm.supports_reasoning(model=model):\n"
+        '                supported_params.append("reasoning_effort")\n'
+        '                supported_params.append("thinking")\n'
+        "        except Exception:\n"
+        "            pass\n"
+        "        return list(dict.fromkeys(supported_params))\n"
+    )
+    target = tmp_path / patch7["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(patch7["needle"] + stock_gate)
+
+    plc._apply(
+        str(target),
+        present=patch7["present"],
+        needle=patch7["needle"],
+        replacement=patch7["replacement"],
+        label=patch7["label"],
+    )
+    result = target.read_text()
 
     # The live lookup is consulted...
-    assert "capabilities" in replacement
-    assert '"reasoning_effort" in _advertised' in replacement
-    # ...and the stock gate is still reached afterwards, with no early return
-    # between them that would make the live answer authoritative.
-    assert replacement.rstrip().endswith("try:")
-    assert "return" not in replacement, "patch 7 must not short-circuit the stock model-map branch"
+    assert "_egg_capabilities" in result
+    assert '"reasoning_effort" in _advertised' in result
+    # ...and the stock model-map branch is still there, untouched, downstream
+    # of it: the live answer can ADD a knob, never withhold one.
+    assert stock_gate in result, "patch 7 must not replace the stock model-map branch"
+    # The inserted block precedes it and does not return out of the function.
+    inserted = result[: result.index(stock_gate)]
+    assert "supported_params.append" in inserted
+    assert "\n            return" not in inserted, "patch 7 must not short-circuit the stock branch"
     # Failures in the lookup must never propagate into a request.
-    assert "except Exception:" in replacement
+    assert "except Exception:" in inserted
+    # Only reasoning_effort is admitted. OpenRouter's `reasoning` field is a
+    # different wire shape from Anthropic's `thinking`, not a spelling of it.
+    assert '"thinking"' not in inserted
+
+
+def test_patch9_gates_synthesis_without_touching_the_claude_branch(tmp_path):
+    """Patch 9 must stop the adapter manufacturing a ``reasoning_effort``.
+
+    On ``/v1/messages`` litellm derives ``reasoning_effort`` from the caller's
+    ``thinking`` budget for every non-Claude model. That derived value is a cap
+    BELOW the model default (#3624: kimi-k3 means 3130 reasoning tokens with no
+    param vs 340 with ``high``), so Patch 7 alone would silently shallow every
+    agent turn. The Claude branch, which forwards ``thinking`` unchanged, must
+    be unaffected."""
+    patch9 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 9/"))
+
+    target = tmp_path / patch9["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(patch9["needle"])
+
+    plc._apply(
+        str(target),
+        present=patch9["present"],
+        needle=patch9["needle"],
+        replacement=patch9["replacement"],
+        label=patch9["label"],
+    )
+    result = target.read_text()
+
+    claude_branch = (
+        "        if self.is_anthropic_claude_model(model):\n"
+        '            new_kwargs["thinking"] = thinking  # type: ignore\n'
+        "            return\n"
+    )
+    assert claude_branch in result, "patch 9 must leave the Claude path alone"
+
+    # The gate sits between the Claude branch and the synthesis, and returns
+    # (rather than falling through) when synthesis is off.
+    gate = result[result.index(claude_branch) + len(claude_branch) :]
+    gate = gate[: gate.index("reasoning_effort = self.translate_anthropic_thinking")]
+    assert "_egg_anthropic_thinking_policy" in gate
+    assert "if not _egg_synthesize:\n            return\n" in gate
+    # A missing policy module must fall back to the policy's OWN default (off),
+    # not to stock behaviour — otherwise the failure mode is the regression.
+    assert "_egg_synthesize = False" in gate
 
 
 def test_patch8_needle_disambiguates_the_two_drop_sites(tmp_path):

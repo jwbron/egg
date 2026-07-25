@@ -93,6 +93,34 @@ spec:
                   name: gateway-secrets
                   key: openrouter-api-key
                   optional: true
+            # Escape hatches for the egg-litellm build-time patches (see
+            # ``config/litellm/patch_litellm_cache.py`` and
+            # ``docs/guides/per-agent-models.md``). All optional; the defaults
+            # are what the patches were measured with. Uncomment to revert an
+            # individual patch at runtime without rebuilding the image.
+            #
+            # Patch 7 — live OpenRouter capability lookup. ``0`` restores the
+            # bundled model-cost map as the only source of truth, which
+            # silently drops reasoning knobs on any slug the map has not caught
+            # up to. ``_TTL`` seconds between refreshes (default 3600; 0 means
+            # re-fetch every lookup — a debugging setting). ``_TIMEOUT``
+            # per-phase HTTP timeout in seconds (default 5).
+            # - name: LITELLM_OPENROUTER_CAPABILITY_FETCH
+            #   value: "0"
+            # - name: LITELLM_OPENROUTER_CAPABILITY_TTL
+            #   value: "3600"
+            # - name: LITELLM_OPENROUTER_CAPABILITY_TIMEOUT
+            #   value: "5"
+            #
+            # Patch 9 — thinking -> reasoning_effort synthesis, off by
+            # default. ``1`` restores stock LiteLLM: the Anthropic adapter
+            # derives a bucketed ``reasoning_effort`` from each request's
+            # thinking budget on /v1/messages. Measured on kimi-k3 that bucket
+            # is a CAP BELOW the model default (3130 reasoning tokens with no
+            # param vs 340 with "high"), so only turn this on for a model
+            # measured to need an explicit ask.
+            # - name: LITELLM_ANTHROPIC_THINKING_TO_REASONING_EFFORT
+            #   value: "1"
           livenessProbe:
             httpGet:
               path: /health/liveliness

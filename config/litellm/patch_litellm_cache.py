@@ -6,9 +6,10 @@ LiteLLM's stock Anthropic->OpenAI translation (the path Claude Code's
 backend) drops prompt-cache hits for Qwen/DeepSeek and mis-streams
 reasoning models, and its OpenRouter param gate reads a model-cost map
 that does not carry current OpenRouter slugs, and it discards
-caller-specified params in total silence. Eight independent gaps cause
-it; this script closes all eight by editing the installed ``litellm``
-package in place (and installing two new modules), then
+caller-specified params in total silence, while manufacturing a
+reasoning ceiling nobody asked for. Nine independent gaps cause it; this
+script closes all nine by editing the installed ``litellm``
+package in place (and installing three new modules), then
 ``config/litellm/Dockerfile`` bakes the result into the ``egg-litellm``
 image.
 
@@ -88,15 +89,18 @@ OpenRouter. The image pins that same version (see the Dockerfile
      and ``drop_params: true`` discards the parameter with no exception
      and no log line. Every OpenRouter slug egg routes is absent from the
      1.86.2 map, so a reasoning knob set on any of them never reached the
-     wire. The companion module ``llms/openrouter/capabilities.py``
+     wire. The companion module ``llms/openrouter/_egg_capabilities.py``
      (installed by ``NEW_MODULES``) reads OpenRouter's unauthenticated
      ``/api/v1/models`` and is UNIONED with the map answer, never
      subtractive: ``supported_parameters`` under-reports
      ``reasoning_effort`` (deepseek-r1 advertises only ``reasoning``,
      treating the OpenAI spelling as an alias), so reading its absence as
-     a denial would drop a working param. Fails soft: any fetch error
-     yields no opinion and the stock path runs unchanged. Mirrors
-     jwbron/litellm#8 and jwbron/egg#3624.
+     a denial would drop a working param. Only ``reasoning_effort`` is
+     admitted — OpenRouter's ``reasoning`` field is a different wire shape
+     from Anthropic's ``thinking``, not a spelling of it. Fails soft: any
+     fetch error yields no opinion and the stock path runs unchanged.
+     Mirrors jwbron/litellm#8 and jwbron/egg#3624. Patch 9 is the other
+     half of this one: read them together.
   8. ``get_optional_params`` drop site (utils.py) log what
      ``drop_params`` discards. Stock 1.86.2 pops unsupported params in a
      bare loop with no logging, so a param set in a proxy config that
@@ -111,7 +115,30 @@ OpenRouter. The image pins that same version (see the Dockerfile
      two ``drop_params`` branches in utils.py and the shared condition
      alone matches the wrong one, so the needle includes the pop loop.
      Mirrors jwbron/litellm#7, merged into the fork the HOST proxy runs;
-     the cluster image pins stock 1.86.2, which predates it.
+     the cluster image pins stock 1.86.2, which predates it. The message
+     states what is known and does NOT prescribe a config edit: the param
+     most often dropped here is one litellm synthesized itself (see 9).
+  9. ``_translate_thinking_to_openai`` (anthropic adapter
+     transformation.py) stop synthesizing ``reasoning_effort`` from the
+     caller's ``thinking`` block for non-Claude models. On ``/v1/messages``
+     — egg's primary route — Claude Code sends
+     ``thinking: {"type": "enabled", "budget_tokens": N}``, and because
+     ``is_anthropic_claude_model`` is a substring test for
+     ``anthropic``/``claude``, every OpenRouter slug egg routes takes the
+     non-Claude branch where the adapter REPLACES that block with a
+     bucketed ``reasoning_effort``. Nothing in ``litellm-models.yaml`` is
+     involved: the value is manufactured per request. That was harmless
+     only because patch 7's bug dropped it; the measurements in
+     jwbron/egg#3624 show the bucket is a CAP BELOW the model default
+     (kimi-k3: 3130 reasoning tokens with no param, 340 with
+     ``reasoning_effort: high``, non-overlapping), so shipping patch 7
+     without this would cut reasoning ~9x per agent turn with no config
+     file to point at and nothing logged — patch 8 fires only on drops,
+     and this param would no longer be dropped. Gating the synthesis (off
+     by default, ``LITELLM_ANTHROPIC_THINKING_TO_REASONING_EFFORT=1`` to
+     restore stock) keeps patch 7's actual goal: a knob an operator
+     configured reaches the wire, one nobody configured does not. The
+     Claude branch is untouched.
 
 Idempotent: each patch detects whether it is already applied. Fails
 loudly (non-zero exit) if a needle is missing, so a LiteLLM version bump
@@ -196,7 +223,7 @@ PATCHES: list[dict[str, str]] = [
             '    QWEN = "qwen"\n'
             '    DEEPSEEK = "deepseek"\n'
         ),
-        "label": "Patch 1/8 (CacheControlSupportedModels)",
+        "label": "Patch 1/9 (CacheControlSupportedModels)",
     },
     # Patch 2 — broaden ONLY the cache_control gate (not the shared
     # is_anthropic_claude_model predicate, which also gates thinking
@@ -226,7 +253,7 @@ PATCHES: list[dict[str, str]] = [
             "            )\n"
             "        ):\n"
         ),
-        "label": "Patch 2/8 (cache_control gate)",
+        "label": "Patch 2/9 (cache_control gate)",
     },
     # Patch 3 — drop x-anthropic-billing-header during Anthropic->OpenAI translation.
     {
@@ -260,7 +287,7 @@ PATCHES: list[dict[str, str]] = [
             '                        "text": text,\n'
             "                    }\n"
         ),
-        "label": "Patch 3/8 (x-anthropic-billing-header filter)",
+        "label": "Patch 3/9 (x-anthropic-billing-header filter)",
     },
     # Patch 4 — OpenRouter-style reasoning_content must open a thinking
     # content block, not fall through to a text block. The bare
@@ -298,7 +325,7 @@ PATCHES: list[dict[str, str]] = [
             '                choice.delta, "thinking_blocks"\n'
             "            ):\n"
         ),
-        "label": "Patch 4/8 (reasoning_content thinking block)",
+        "label": "Patch 4/9 (reasoning_content thinking block)",
     },
     # Patch 5a — sync __next__: don't drop the first delta on text or
     # thinking block transitions.
@@ -398,7 +425,7 @@ PATCHES: list[dict[str, str]] = [
             "                        ):\n"
             "                            self.chunk_queue.append(processed_chunk)\n"
         ),
-        "label": "Patch 5a/8 (sync first-delta requeue)",
+        "label": "Patch 5a/9 (sync first-delta requeue)",
     },
     # Patch 5b — async __anext__: same first-delta preservation.
     {
@@ -496,7 +523,7 @@ PATCHES: list[dict[str, str]] = [
             "                            ):\n"
             "                                self.chunk_queue.append(processed_chunk)\n"
         ),
-        "label": "Patch 5b/8 (async first-delta requeue)",
+        "label": "Patch 5b/9 (async first-delta requeue)",
     },
     # Patch 6 — streamed usage must report provider-automatic cache hits.
     # The needle spans the whole usage-merge region so both edit points
@@ -588,7 +615,7 @@ PATCHES: list[dict[str, str]] = [
             "                    elif cached_tokens > 0:\n"
             '                        usage_dict["cache_read_input_tokens"] = cached_tokens\n'
         ),
-        "label": "Patch 6/8 (streaming cache_read fallback)",
+        "label": "Patch 6/9 (streaming cache_read fallback)",
     },
     # Patch 7 — OpenrouterConfig.get_supported_openai_params: consult
     # OpenRouter's published capabilities instead of only the bundled
@@ -612,6 +639,14 @@ PATCHES: list[dict[str, str]] = [
     # plainly a reasoning model, yet OpenRouter advertises only ``reasoning``
     # for it, treating the OpenAI spelling as an alias. Reading that absence as
     # a denial would drop a working param — the very failure this fixes.
+    #
+    # Only ``reasoning_effort`` is admitted. OpenRouter also advertises a
+    # ``reasoning`` param, but that is its own request field
+    # (``{"effort": ...}`` / ``{"max_tokens": ...}``) and is NOT a spelling of
+    # Anthropic's ``thinking`` (``{"type", "budget_tokens"}``). Mapping one to
+    # the other by name similarity would let a raw Anthropic-shaped ``thinking``
+    # dict through to a non-Anthropic provider on the /chat/completions route —
+    # the same spelling conflation patch 2's notes are careful to avoid.
     #
     # Mirrors jwbron/litellm#8 and jwbron/egg#3624. Fails soft throughout: any
     # fetch error yields no opinion and the stock path runs, so the worst case
@@ -639,7 +674,7 @@ PATCHES: list[dict[str, str]] = [
             "        # below fails closed and the knob is dropped in silence. Unioned,\n"
             "        # never subtractive — see patch 7 notes in patch_litellm_cache.py.\n"
             "        try:\n"
-            "            from litellm.llms.openrouter.capabilities import (\n"
+            "            from litellm.llms.openrouter._egg_capabilities import (\n"
             "                get_supported_parameters as _egg_openrouter_capabilities,\n"
             "            )\n"
             "\n"
@@ -647,13 +682,11 @@ PATCHES: list[dict[str, str]] = [
             "            if _advertised is not None:\n"
             '                if "reasoning_effort" in _advertised:\n'
             '                    supported_params.append("reasoning_effort")\n'
-            '                if "reasoning" in _advertised:\n'
-            '                    supported_params.append("thinking")\n'
             "        except Exception:\n"
             "            pass\n"
             "        try:\n"
         ),
-        "label": "Patch 7/8 (openrouter live capabilities)",
+        "label": "Patch 7/9 (openrouter live capabilities)",
     },
     # Patch 8 — get_optional_params: log what ``drop_params`` discards.
     #
@@ -702,7 +735,77 @@ PATCHES: list[dict[str, str]] = [
             "                for k in unsupported_params.keys():\n"
             "                    non_default_params.pop(k, None)\n"
         ),
-        "label": "Patch 8/8 (drop_params visibility)",
+        "label": "Patch 8/9 (drop_params visibility)",
+    },
+    # Patch 9 — _translate_thinking_to_openai: stop synthesizing
+    # ``reasoning_effort`` from the caller's ``thinking`` block for non-Claude
+    # models.
+    #
+    # This is the other half of patch 7, and without it patch 7 is a
+    # regression on egg's primary route. On /v1/messages (Claude Code ->
+    # gateway -> litellm -> OpenRouter) the request body carries
+    # ``thinking: {"type": "enabled", "budget_tokens": N}``.
+    # ``is_anthropic_claude_model`` is a substring test for
+    # ``anthropic``/``claude``, so every OpenRouter slug egg routes takes the
+    # non-Claude branch, where the adapter REPLACES the block with a bucketed
+    # ``reasoning_effort`` (>=10000 -> "high", >=5000 -> "medium",
+    # >=2000 -> "low"). Nothing in litellm-models.yaml is involved: the value
+    # is manufactured per request.
+    #
+    # Until now that param was silently dropped (the model-cost map does not
+    # carry these slugs), which is exactly why these models have been running
+    # at full reasoning depth. Patch 7 unblocks the param — correct for an
+    # operator-configured value, wrong for this one, because the measurements
+    # in jwbron/egg#3624 show the bucket is a CAP BELOW the model default:
+    # kimi-k3 means 3130 reasoning tokens with no param vs 340 with
+    # ``reasoning_effort: high``, distributions non-overlapping. Shipping
+    # patch 7 alone would cut reasoning ~9x on every agent turn with nothing
+    # logged (patch 8 only fires on drops, and this is no longer dropped) and
+    # no config file to point at.
+    #
+    # Gating the synthesis keeps patch 7's actual goal — a configured knob
+    # reaches the wire — without letting the adapter's bucket become the
+    # effective setting. ``LITELLM_ANTHROPIC_THINKING_TO_REASONING_EFFORT=1``
+    # restores stock behaviour. The Claude branch above is untouched.
+    {
+        "file": F2,
+        "present": "# egg thinking-synthesis patch",
+        "needle": (
+            '        model = new_kwargs.get("model", "")\n'
+            "        if self.is_anthropic_claude_model(model):\n"
+            '            new_kwargs["thinking"] = thinking  # type: ignore\n'
+            "            return\n"
+            "\n"
+            "        reasoning_effort = self.translate_anthropic_thinking_to_reasoning_effort(\n"
+        ),
+        "replacement": (
+            '        model = new_kwargs.get("model", "")\n'
+            "        if self.is_anthropic_claude_model(model):\n"
+            '            new_kwargs["thinking"] = thinking  # type: ignore\n'
+            "            return\n"
+            "\n"
+            "        # egg thinking-synthesis patch. The bucketed reasoning_effort this\n"
+            "        # function would derive is a cap BELOW the model default on every\n"
+            "        # model egg routes, so deriving one from a thinking budget nobody\n"
+            "        # meant as a ceiling silently shallows reasoning. Off by default;\n"
+            "        # see patch 9 notes in patch_litellm_cache.py.\n"
+            "        try:\n"
+            "            from litellm._egg_anthropic_thinking_policy import (\n"
+            "                should_synthesize_reasoning_effort as _egg_should_synthesize,\n"
+            "            )\n"
+            "\n"
+            "            _egg_synthesize = _egg_should_synthesize()\n"
+            "        except Exception:\n"
+            "            # The module is installed by the same build step as this patch,\n"
+            "            # so this is unreachable in a built image; fall back to the\n"
+            "            # policy's own default rather than to stock behaviour.\n"
+            "            _egg_synthesize = False\n"
+            "        if not _egg_synthesize:\n"
+            "            return\n"
+            "\n"
+            "        reasoning_effort = self.translate_anthropic_thinking_to_reasoning_effort(\n"
+        ),
+        "label": "Patch 9/9 (thinking->reasoning_effort synthesis gate)",
     },
 ]
 
@@ -710,16 +813,29 @@ PATCHES: list[dict[str, str]] = [
 # Dockerfile stages under /egg. Unlike PATCHES these are additive: there is no
 # stock file to collide with, so installation is a copy guarded by a content
 # check rather than a needle match.
+#
+# Every destination carries the ``_egg_`` prefix. It is not decoration: it
+# keeps a future upstream module from colliding with ours, and it is what
+# ``_install_module`` looks for before overwriting anything — an unprefixed
+# name (``capabilities.py``) is one upstream could plausibly take, and the
+# failure mode would be a silently clobbered stock module.
+EGG_MODULE_MARKER = "_egg_"
+
 NEW_MODULES: list[dict[str, str]] = [
     {
         "source": "openrouter_capabilities.py",
-        "dest": "llms/openrouter/capabilities.py",
-        "label": "Module 1/2 (openrouter capabilities)",
+        "dest": "llms/openrouter/_egg_capabilities.py",
+        "label": "Module 1/3 (openrouter capabilities)",
     },
     {
         "source": "drop_params_visibility.py",
         "dest": "_egg_drop_params_visibility.py",
-        "label": "Module 2/2 (drop_params visibility)",
+        "label": "Module 2/3 (drop_params visibility)",
+    },
+    {
+        "source": "anthropic_thinking_policy.py",
+        "dest": "_egg_anthropic_thinking_policy.py",
+        "label": "Module 3/3 (thinking synthesis policy)",
     },
 ]
 
@@ -751,9 +867,20 @@ def _install_module(root: str, spec: dict[str, str]) -> None:
         )
     if os.path.isfile(dest):
         with open(dest) as fh:
-            if fh.read() == content:
-                print(f"{label}: already installed")
-                return
+            existing = fh.read()
+        if existing == content:
+            print(f"{label}: already installed")
+            return
+        # Differing content at an egg-owned path is a stale install from an
+        # earlier image layer — overwrite it. Differing content at a path that
+        # is NOT egg-owned means upstream took the name, and clobbering it
+        # would break litellm in a way nothing else in this script would
+        # report. Every other operation here is fail-loud on drift; so is this.
+        if EGG_MODULE_MARKER not in os.path.basename(spec["dest"]):
+            raise SystemExit(
+                f"{label}: refusing to overwrite {dest} — it exists with different "
+                "content and is not an egg-owned path. LiteLLM version drift?"
+            )
     with open(dest, "w") as fh:
         fh.write(content)
     print(f"{label}: installed")

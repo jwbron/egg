@@ -593,7 +593,8 @@ data:
 > Claude Code prepends (the block's `cch=` hash invalidates the cache key
 > every turn). egg ships a custom **`egg-litellm`** image
 > ([`config/litellm/Dockerfile`](../../config/litellm/Dockerfile)) that
-> bakes in three patches closing those gaps
+> bakes in nine patches closing those gaps and the reasoning-parameter ones
+> below
 > ([`config/litellm/patch_litellm_cache.py`](../../config/litellm/patch_litellm_cache.py));
 > the build fails loudly if a LiteLLM bump moves the patched code. Pinning
 > the OpenRouter provider (`extra_body.provider.order` + `allow_fallbacks:
@@ -607,6 +608,45 @@ data:
 > hand cross-reference of agent completion logs). Each call emits one JSON
 > line to the LiteLLM pod stream, visible via `get_service_logs` / the
 > structured-logging stream.
+
+> **Reasoning depth on OpenRouter routes, and the four env vars that
+> control it.** Two of the baked-in patches decide whether a reasoning
+> parameter reaches the provider, and both are runtime-overridable on
+> [`k8s/base/litellm-deployment.yaml`](../../k8s/base/litellm-deployment.yaml)
+> (where they are present but commented out) without rebuilding the image:
+>
+> - **Patch 7 — live capability lookup.** LiteLLM gates reasoning params on
+>   its bundled model-cost map, which does not carry current OpenRouter
+>   slugs, so a `reasoning_effort` set in `litellm_params` was discarded
+>   before the request body was built — no exception, no log line. The patch
+>   also reads OpenRouter's unauthenticated `GET /api/v1/models`, **unioned**
+>   with the map answer so it can admit a knob the map does not know but
+>   never withhold one it allows. `LITELLM_OPENROUTER_CAPABILITY_FETCH=0`
+>   restores map-only behaviour exactly;
+>   `LITELLM_OPENROUTER_CAPABILITY_TTL` (default `3600` seconds; `0` means
+>   re-fetch on every lookup, a debugging setting) and
+>   `LITELLM_OPENROUTER_CAPABILITY_TIMEOUT` (default `5` seconds, per HTTP
+>   phase) tune it. A fetch that fails is cached for the TTL too, so an
+>   offline cluster costs one attempt per hour rather than one per request,
+>   and the first failure is logged at `warning`.
+> - **Patch 9 — no synthesized reasoning ceiling.** On `/v1/messages` (the
+>   route Claude Code uses) LiteLLM's Anthropic adapter converts each
+>   request's `thinking: {budget_tokens: N}` into a bucketed
+>   `reasoning_effort` for any non-Claude model. That value is not in any
+>   config file — it is manufactured per request — and measurement (#3624)
+>   shows it acts as a **cap below the model's own default**: kimi-k3 means
+>   3130 reasoning tokens with no parameter vs 340 with `high`,
+>   distributions non-overlapping. So the synthesis is off by default and
+>   only an explicitly configured `reasoning_effort` reaches the wire. Set
+>   `LITELLM_ANTHROPIC_THINKING_TO_REASONING_EFFORT=1` to restore stock
+>   behaviour — worth doing only for a model you have measured to reason
+>   *more* when asked explicitly.
+>
+> The same measurement is why the commented-out
+> `extra_body.reasoning.effort: "high"` in
+> [`config/litellm-models.template.yaml`](../../config/litellm-models.template.yaml)
+> carries a "measure before uncommenting" warning: on these models,
+> sending nothing is what buys full depth.
 
 > **Which decoding config did this run under?** Every `cost_callback` line
 > also carries `request_params` — the sampling configuration that actually
