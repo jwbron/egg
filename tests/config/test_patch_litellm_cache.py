@@ -119,7 +119,10 @@ def test_patch4_needle_anchors_on_content_block_function(tmp_path):
     fixture containing a *second* (sibling-function-style) bare
     ``thinking_blocks`` elif — preceded by a ``tool_calls`` block, not the
     text elif — must be left untouched."""
-    patch4 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 4/6"))
+    # Matched on "Patch 4/" rather than the full label so adding a patch (and
+    # renumbering the denominators) does not silently turn this into a
+    # StopIteration instead of a real assertion.
+    patch4 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 4/"))
 
     # Sibling function: bare thinking_blocks elif preceded by a tool_calls
     # branch (mirrors _translate_streaming_openai_chunk_to_anthropic). It must
@@ -155,3 +158,57 @@ def test_patch4_needle_anchors_on_content_block_function(tmp_path):
     start = result.index("SENTINEL_SIBLING_BEGIN")
     end = result.index("SENTINEL_SIBLING_END") + len("SENTINEL_SIBLING_END\n")
     assert result[start:end] == sibling
+
+
+def test_new_modules_are_installed_into_each_root(tmp_path):
+    """``NEW_MODULES`` drops whole files that have no stock counterpart.
+
+    Patch 7's gate imports ``litellm.llms.openrouter.capabilities``, so if the
+    module install silently no-ops the patched gate raises ImportError on every
+    request — caught by its ``except Exception``, which would put us right back
+    at the silent-drop behaviour the patch exists to remove."""
+    _build_fixture_root(tmp_path)
+    plc._patch_root(str(tmp_path))
+
+    for spec in plc.NEW_MODULES:
+        dest = tmp_path / spec["dest"]
+        assert dest.is_file(), f"{spec['label']}: not installed"
+        source = Path(plc._module_source(spec["source"], spec["label"]))
+        assert dest.read_text() == source.read_text(), f"{spec['label']}: content drift"
+
+
+def test_new_module_install_is_idempotent(tmp_path):
+    _build_fixture_root(tmp_path)
+    plc._patch_root(str(tmp_path))
+    first = {spec["dest"]: (tmp_path / spec["dest"]).read_text() for spec in plc.NEW_MODULES}
+    plc._patch_root(str(tmp_path))
+    for dest, content in first.items():
+        assert (tmp_path / dest).read_text() == content
+
+
+def test_missing_staged_module_fails_loud():
+    """A missing staged file must abort the build, not skip the install."""
+    with pytest.raises(SystemExit):
+        plc._module_source("definitely-not-a-real-module.py", "test label")
+
+
+def test_patch7_gate_is_additive_not_substitutive(tmp_path):
+    """Patch 7 must UNION the live answer with the stock model-map answer.
+
+    OpenRouter's ``supported_parameters`` under-reports ``reasoning_effort``
+    (deepseek-r1 advertises only ``reasoning``), so letting live data win
+    outright would drop a knob the map correctly allows — trading one silent
+    drop for another. The stock ``supports_reasoning`` branch must therefore
+    survive the patch."""
+    patch7 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 7/"))
+    replacement = patch7["replacement"]
+
+    # The live lookup is consulted...
+    assert "capabilities" in replacement
+    assert '"reasoning_effort" in _advertised' in replacement
+    # ...and the stock gate is still reached afterwards, with no early return
+    # between them that would make the live answer authoritative.
+    assert replacement.rstrip().endswith("try:")
+    assert "return" not in replacement, "patch 7 must not short-circuit the stock model-map branch"
+    # Failures in the lookup must never propagate into a request.
+    assert "except Exception:" in replacement

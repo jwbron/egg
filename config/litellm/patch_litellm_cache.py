@@ -4,8 +4,10 @@
 LiteLLM's stock Anthropic->OpenAI translation (the path Claude Code's
 ``/v1/messages`` requests take when routed at a non-Claude OpenRouter
 backend) drops prompt-cache hits for Qwen/DeepSeek and mis-streams
-reasoning models. Six independent gaps cause it; this script closes all
-six by editing the installed ``litellm`` package in place, then
+reasoning models, and its OpenRouter param gate reads a model-cost map
+that does not carry current OpenRouter slugs. Seven independent gaps
+cause it; this script closes all seven by editing the installed
+``litellm`` package in place (and installing one new module), then
 ``config/litellm/Dockerfile`` bakes the result into the ``egg-litellm``
 image.
 
@@ -75,6 +77,25 @@ OpenRouter. The image pins that same version (see the Dockerfile
      exists only in the async ``__anext__`` path upstream (the sync path
      has no equivalent merge block), and that async path is the one the
      litellm proxy drives for Claude Code streaming.
+  7. ``OpenrouterConfig.get_supported_openai_params``
+     (openrouter/chat/transformation.py) consult OpenRouter's published
+     per-model ``supported_parameters`` instead of only the bundled
+     model-cost map. The stock gate asks ``litellm.supports_reasoning``,
+     which reads ``model_prices_and_context_window.json``; OpenRouter
+     ships new slugs faster than that map tracks them, so a current
+     model answers False. The gate is a bare ``if``, so it fails CLOSED,
+     and ``drop_params: true`` discards the parameter with no exception
+     and no log line. Every OpenRouter slug egg routes is absent from the
+     1.86.2 map, so a reasoning knob set on any of them never reached the
+     wire. The companion module ``llms/openrouter/capabilities.py``
+     (installed by ``NEW_MODULES``) reads OpenRouter's unauthenticated
+     ``/api/v1/models`` and is UNIONED with the map answer, never
+     subtractive: ``supported_parameters`` under-reports
+     ``reasoning_effort`` (deepseek-r1 advertises only ``reasoning``,
+     treating the OpenAI spelling as an alias), so reading its absence as
+     a denial would drop a working param. Fails soft: any fetch error
+     yields no opinion and the stock path runs unchanged. Mirrors
+     jwbron/litellm#8 and jwbron/egg#3624.
 
 Idempotent: each patch detects whether it is already applied. Fails
 loudly (non-zero exit) if a needle is missing, so a LiteLLM version bump
@@ -158,7 +179,7 @@ PATCHES: list[dict[str, str]] = [
             '    QWEN = "qwen"\n'
             '    DEEPSEEK = "deepseek"\n'
         ),
-        "label": "Patch 1/6 (CacheControlSupportedModels)",
+        "label": "Patch 1/7 (CacheControlSupportedModels)",
     },
     # Patch 2 — broaden ONLY the cache_control gate (not the shared
     # is_anthropic_claude_model predicate, which also gates thinking
@@ -188,7 +209,7 @@ PATCHES: list[dict[str, str]] = [
             "            )\n"
             "        ):\n"
         ),
-        "label": "Patch 2/6 (cache_control gate)",
+        "label": "Patch 2/7 (cache_control gate)",
     },
     # Patch 3 — drop x-anthropic-billing-header during Anthropic->OpenAI translation.
     {
@@ -222,7 +243,7 @@ PATCHES: list[dict[str, str]] = [
             '                        "text": text,\n'
             "                    }\n"
         ),
-        "label": "Patch 3/6 (x-anthropic-billing-header filter)",
+        "label": "Patch 3/7 (x-anthropic-billing-header filter)",
     },
     # Patch 4 — OpenRouter-style reasoning_content must open a thinking
     # content block, not fall through to a text block. The bare
@@ -260,7 +281,7 @@ PATCHES: list[dict[str, str]] = [
             '                choice.delta, "thinking_blocks"\n'
             "            ):\n"
         ),
-        "label": "Patch 4/6 (reasoning_content thinking block)",
+        "label": "Patch 4/7 (reasoning_content thinking block)",
     },
     # Patch 5a — sync __next__: don't drop the first delta on text or
     # thinking block transitions.
@@ -360,7 +381,7 @@ PATCHES: list[dict[str, str]] = [
             "                        ):\n"
             "                            self.chunk_queue.append(processed_chunk)\n"
         ),
-        "label": "Patch 5a/6 (sync first-delta requeue)",
+        "label": "Patch 5a/7 (sync first-delta requeue)",
     },
     # Patch 5b — async __anext__: same first-delta preservation.
     {
@@ -458,7 +479,7 @@ PATCHES: list[dict[str, str]] = [
             "                            ):\n"
             "                                self.chunk_queue.append(processed_chunk)\n"
         ),
-        "label": "Patch 5b/6 (async first-delta requeue)",
+        "label": "Patch 5b/7 (async first-delta requeue)",
     },
     # Patch 6 — streamed usage must report provider-automatic cache hits.
     # The needle spans the whole usage-merge region so both edit points
@@ -550,13 +571,127 @@ PATCHES: list[dict[str, str]] = [
             "                    elif cached_tokens > 0:\n"
             '                        usage_dict["cache_read_input_tokens"] = cached_tokens\n'
         ),
-        "label": "Patch 6/6 (streaming cache_read fallback)",
+        "label": "Patch 6/7 (streaming cache_read fallback)",
+    },
+    # Patch 7 — OpenrouterConfig.get_supported_openai_params: consult
+    # OpenRouter's published capabilities instead of only the bundled
+    # model-cost map.
+    #
+    # The stock gate asks ``litellm.supports_reasoning``, which reads
+    # ``model_prices_and_context_window.json``. For OpenRouter that map is
+    # wrong by construction: OpenRouter ships new slugs continuously and the
+    # bundled map lags, so a current model answers False. The gate is a bare
+    # ``if``, so it fails CLOSED, and ``drop_params: true`` then discards the
+    # parameter with no exception and no log line. Every OpenRouter slug egg
+    # routes is absent from the 1.86.2 map (kimi-k3, glm-5.2, laguna-s-2.1,
+    # deepseek-v4-*), so any reasoning knob set on them never reached the wire.
+    #
+    # The companion module (installed by ``NEW_MODULES`` below) reads
+    # OpenRouter's unauthenticated /api/v1/models and is UNIONED with the
+    # existing map answer rather than replacing it. Live data can admit a knob
+    # the map does not know about but never withholds one the map allows,
+    # because ``supported_parameters`` under-reports ``reasoning_effort``:
+    # deepseek/deepseek-r1 is flagged supports_reasoning in the map and is
+    # plainly a reasoning model, yet OpenRouter advertises only ``reasoning``
+    # for it, treating the OpenAI spelling as an alias. Reading that absence as
+    # a denial would drop a working param — the very failure this fixes.
+    #
+    # Mirrors jwbron/litellm#8 and jwbron/egg#3624. Fails soft throughout: any
+    # fetch error yields no opinion and the stock path runs, so the worst case
+    # is exactly the unpatched behaviour.
+    {
+        "file": F1,
+        "present": "# egg openrouter capability patch",
+        "needle": (
+            "    def get_supported_openai_params(self, model: str) -> list:\n"
+            '        """\n'
+            "        Allow reasoning parameters for models flagged as reasoning-capable.\n"
+            '        """\n'
+            "        supported_params = super().get_supported_openai_params(model=model)\n"
+            "        try:\n"
+        ),
+        "replacement": (
+            "    def get_supported_openai_params(self, model: str) -> list:\n"
+            '        """\n'
+            "        Allow reasoning parameters for models flagged as reasoning-capable.\n"
+            '        """\n'
+            "        supported_params = super().get_supported_openai_params(model=model)\n"
+            "        # egg openrouter capability patch. OpenRouter publishes per-model\n"
+            "        # supported_parameters over an unauthenticated endpoint; the bundled\n"
+            "        # model-cost map does not carry current slugs, so the stock gate\n"
+            "        # below fails closed and the knob is dropped in silence. Unioned,\n"
+            "        # never subtractive — see patch 7 notes in patch_litellm_cache.py.\n"
+            "        try:\n"
+            "            from litellm.llms.openrouter.capabilities import (\n"
+            "                get_supported_parameters as _egg_openrouter_capabilities,\n"
+            "            )\n"
+            "\n"
+            "            _advertised = _egg_openrouter_capabilities(model)\n"
+            "            if _advertised is not None:\n"
+            '                if "reasoning_effort" in _advertised:\n'
+            '                    supported_params.append("reasoning_effort")\n'
+            '                if "reasoning" in _advertised:\n'
+            '                    supported_params.append("thinking")\n'
+            "        except Exception:\n"
+            "            pass\n"
+            "        try:\n"
+        ),
+        "label": "Patch 7/7 (openrouter live capabilities)",
+    },
+]
+
+# Whole modules to drop into each litellm tree, sourced from files the
+# Dockerfile stages under /egg. Unlike PATCHES these are additive: there is no
+# stock file to collide with, so installation is a copy guarded by a content
+# check rather than a needle match.
+NEW_MODULES: list[dict[str, str]] = [
+    {
+        "source": "openrouter_capabilities.py",
+        "dest": "llms/openrouter/capabilities.py",
+        "label": "Module 1/1 (openrouter capabilities)",
     },
 ]
 
 
+def _module_source(name: str, label: str) -> str:
+    """Locate a staged module by basename.
+
+    In the image the Dockerfile drops it beside this script under /egg; in the
+    repo (and in tests) it sits beside this script in config/litellm. Checking
+    both means the same script runs in either place without a path flag, and it
+    still fails loudly rather than silently skipping the install."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for candidate in (os.path.join("/egg", name), os.path.join(here, name)):
+        if os.path.isfile(candidate):
+            return candidate
+    raise SystemExit(f"{label}: staged source not found: {name} (looked in /egg and {here})")
+
+
+def _install_module(root: str, spec: dict[str, str]) -> None:
+    label = spec["label"]
+    source = _module_source(spec["source"], label)
+    with open(source) as fh:
+        content = fh.read()
+    dest = os.path.join(root, spec["dest"])
+    dest_dir = os.path.dirname(dest)
+    if not os.path.isdir(dest_dir):
+        raise SystemExit(
+            f"{label}: destination package missing: {dest_dir} — LiteLLM version drift?"
+        )
+    if os.path.isfile(dest):
+        with open(dest) as fh:
+            if fh.read() == content:
+                print(f"{label}: already installed")
+                return
+    with open(dest, "w") as fh:
+        fh.write(content)
+    print(f"{label}: installed")
+
+
 def _patch_root(root: str) -> None:
     print(f"== patching {root}")
+    for spec in NEW_MODULES:
+        _install_module(root, spec)
     for spec in PATCHES:
         _apply(
             os.path.join(root, spec["file"]),

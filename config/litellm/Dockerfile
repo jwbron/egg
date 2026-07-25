@@ -21,6 +21,11 @@ FROM ghcr.io/berriai/litellm:v1.86.2
 USER root
 
 COPY patch_litellm_cache.py /egg/patch_litellm_cache.py
+# Staged, not baked directly into the patch script: this is a whole module the
+# script installs into every litellm tree (see NEW_MODULES). Keeping it a real
+# file means it stays lintable and testable in the egg repo rather than living
+# as a string literal.
+COPY openrouter_capabilities.py /egg/openrouter_capabilities.py
 RUN python3 /egg/patch_litellm_cache.py
 
 # Custom cost/cache logger, registered as `cost_callback.cost_logger` under
