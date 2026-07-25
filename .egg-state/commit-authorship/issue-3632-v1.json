@@ -1,0 +1,29 @@
+{
+  "entries": {
+    "2131a9bebfd0b7069b1711ced750cd6626595ef4": {
+      "branch": "egg/issue-3632-v1/work",
+      "patch_id": "2a0f5348d17e5c476361d1454ad2365e8f67c6df",
+      "pipeline_id": "issue-3632-v1",
+      "registered_at": "2026-07-25T23:26:08.003121+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
+    "2e33a7eb9c686b2c6835cf898c1b3f24b7886a0b": {
+      "branch": "egg/issue-3632-v1/work",
+      "patch_id": "7b0a5e805c7ce2ac17ac9a20dd3a986076f7a162",
+      "pipeline_id": "issue-3632-v1",
+      "registered_at": "2026-07-25T23:26:08.000299+00:00",
+      "repo": null,
+      "role": "refiner"
+    },
+    "8b6121263fb879e2b25611796d83d294d78fec60": {
+      "branch": "egg/issue-3632-v1/work",
+      "patch_id": "1d98317ca8f9f96572004c51852f22329a33b386",
+      "pipeline_id": "issue-3632-v1",
+      "registered_at": "2026-07-25T23:26:07.995656+00:00",
+      "repo": null,
+      "role": "refiner"
+    }
+  },
+  "version": 2
+}
