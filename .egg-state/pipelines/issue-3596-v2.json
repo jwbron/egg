@@ -146,9 +146,27 @@
       }
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "The refiner attests the refine phase deliberately raises no operator decisions (#3462):\n\n> This is a refinement proposal, not a production-phase proposal. The four decisions (commit counting scope, tool-call counting proxy, alert surface format, log retention TTL) are operator-facing design choices that should be resolved during planning, not refinement. The refiner's job is to surface the gap and propose scope, not to make these binding decisions.\n\nCandidates considered and dispositioned away:\n\n- **Should commit counting use local worktree commits or remote-pushed commits?** (deferred to plan): The implementer needs to decide whether to shell out to git in the orchestrator worktree or read from the agent's worktree mount; this is a plan-phase implementation detail.\n- **Should tool-call counting use progress events as a proxy or add a new event type?** (deferred to plan): Requires either reusing existing ProgressStore data or adding a new CONTAINER_ACTIVITY-like event; the plan phase should evaluate the trade-offs.\n- **Should get_status include all active alerts or just a summary?** (deferred to plan): Affects API response size and client rendering; the plan phase should specify the exact payload shape.\n- **Should agent_log_store TTL be configurable?** (deferred to plan): Requires a PipelineConfig field addition and plumbing through the store; the plan phase should decide the default and configurability.\n\nConfirm to proceed to the phase gate, or choose “Re-run phase to register decisions” to send the phase back so its agents register the decisions as first-class contract entries (cq-N). Any free-text reply is treated as a re-run directive and forwarded to the agents.",
+      "context": "Decision ledger: explicitly none — refiner attested: This is a refinement proposal, not a production-phase proposal. The four decisions (commit counting scope, tool-call counting proxy, alert surface format, log retention TTL) are operator-facing design choices that should be resolved during planning, not refinement. The refiner's job is to surface the gap and propose scope, not to make these binding decisions. (4 candidate(s) considered)",
+      "options": [
+        "Confirm — no open decisions this phase",
+        "Re-run phase to register decisions"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-07-25T00:02:19.077545Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-07-24T23:26:12.128692Z",
-  "updated_at": "2026-07-25T00:02:19.029281Z",
+  "updated_at": "2026-07-25T00:02:19.090323Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -161,7 +179,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 10,
+  "version": 11,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
