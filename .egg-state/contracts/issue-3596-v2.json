@@ -192,7 +192,7 @@
         {
           "id": "task-1-9",
           "description": "Populate RunningAgent liveness fields + fix role=str(cid) defect in\nsnapshot_from_health_context. Populate last_tool_call_age_s (from\nworking_heartbeat emitter or agent session), last_heartbeat_age_s (from\nHealthMonitor._last_heartbeat), exit_code, exit_reason (from container\nexit info). CRITICAL FIX: role=str(cid) currently puts a container UUID\nin the role field \u2014 map container IDs to agent roles via the pipeline's\nphase execution state (AgentExecution.container_id -> AgentExecution.role).",
-          "status": "pending",
+          "status": "complete",
           "commit": "840906f8f",
           "checkpoint_id": null,
           "notes": "",
@@ -1040,6 +1040,17 @@
       "old_value": null,
       "new_value": "840906f8f",
       "reason": "Linked commit 840906f to task-1-9",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T05:53:46.912462Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.8.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-9 as complete",
       "checkpoint_id": null
     }
   ],
