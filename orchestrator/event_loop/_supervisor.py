@@ -581,6 +581,55 @@ def exhausted_report(self) -> list[dict[str, Any]]:
     return report
 
 
+def restart_propagation_report(
+    self, live_keys: Iterable[str], *, deadline_s: float
+) -> dict[str, Any]:
+    """Report an arm whose respawn is overdue past ``deadline_s`` (#3596 task-1-11).
+
+    An abnormally-terminated key leaves the live set so the next poll can
+    re-derive and respawn it once :meth:`ready_to_respawn` goes true. If the
+    key is *still* absent from ``live_keys`` well past that point, the restart
+    never propagated — the loop stopped re-deriving that arm, and nothing else
+    reports it.
+
+    Exhausted keys are excluded: retirement is deliberate and already carries
+    the arms-exhausted HITL escalation, so surfacing it a second time here
+    would be the crying-wolf class #2270 §2 exists to avoid. So are keys with
+    no live failure streak — :meth:`record_success` clears the streak but
+    leaves the abort timestamp behind, so the streak is what distinguishes a
+    key that never came back from one that recovered.
+
+    Returns the *worst*-overdue arm as a mapping with ``deadline_exceeded``,
+    ``age_s``, ``deadline_s``, ``role``, ``action`` and ``dedupe_key``; when
+    nothing is overdue only ``{"deadline_exceeded": False}`` is returned, which
+    is the shape ``detect_agent_restart_propagation`` reads as "no finding".
+    """
+    live = set(live_keys)
+    now = self.clock()
+    worst: dict[str, Any] | None = None
+    worst_overdue = 0.0
+    for key, aborted_at in self._last_abort_time.items():
+        if key in live or key in self._exhausted or self._streaks.get(key, 0) <= 0:
+            continue
+        # Overdue is measured from the moment the respawn became *due* — the
+        # end of the backoff window — not from the abort, so a long backoff is
+        # never mistaken for a dropped restart.
+        overdue = now - aborted_at - self.backoff_seconds(key)
+        if overdue <= deadline_s or overdue <= worst_overdue:
+            continue
+        action, role = self._last_action.get(key, ("", ""))
+        worst_overdue = overdue
+        worst = {
+            "deadline_exceeded": True,
+            "age_s": now - aborted_at,
+            "deadline_s": deadline_s,
+            "role": role,
+            "action": action,
+            "dedupe_key": key,
+        }
+    return worst or {"deadline_exceeded": False}
+
+
 def reset_exhausted(self) -> list[str]:
     """Forget ALL supervision state for every exhausted key (#3496).
 

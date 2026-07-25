@@ -601,6 +601,7 @@ class JobSupervisor:
     _record_exit = _supervisor._record_exit
     _format_exit_history = _supervisor._format_exit_history
     exhausted_report = _supervisor.exhausted_report
+    restart_propagation_report = _supervisor.restart_propagation_report
     reset_exhausted = _supervisor.reset_exhausted
     noop_park_report = _supervisor.noop_park_report
     reset_noop_parks = _supervisor.reset_noop_parks

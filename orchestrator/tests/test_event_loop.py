@@ -2650,3 +2650,146 @@ class TestFirstProposeGateThroughLoop:
         assert decision.spawned is True
         assert spawner.spawned_actions == ["propose"]
         assert spawner.calls[0]["role"] == "tester"
+
+
+class _SettableClock:
+    """A monotonic clock the test moves explicitly."""
+
+    def __init__(self, start: float = 1000.0) -> None:
+        self.now = start
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class TestRestartPropagationReport:
+    """``JobSupervisor.restart_propagation_report`` (#3596 task-1-11).
+
+    Feeds ``raw.runtime.restart_propagation``, which is the primary signal
+    ``detect_agent_restart_propagation`` reads. The supervisor is the only
+    component that knows when a respawn became *due* — abort time plus
+    backoff — so the "overdue" judgement has to live here.
+    """
+
+    DEADLINE = 300.0
+
+    def _supervisor(self, clock):
+        import event_loop
+
+        return event_loop.JobSupervisor(clock=clock)
+
+    def test_no_aborts_reports_not_exceeded(self):
+        supervisor = self._supervisor(_SettableClock())
+
+        report = supervisor.restart_propagation_report([], deadline_s=self.DEADLINE)
+
+        assert report == {"deadline_exceeded": False}
+
+    def test_live_key_is_not_overdue(self):
+        """A key still in flight has not failed to propagate — it IS propagating."""
+        clock = _SettableClock()
+        supervisor = self._supervisor(clock)
+        supervisor.record_abort("key-1", "propose", "coder")
+        clock.now += 10_000.0
+
+        report = supervisor.restart_propagation_report(["key-1"], deadline_s=self.DEADLINE)
+
+        assert report == {"deadline_exceeded": False}
+
+    def test_within_deadline_is_not_overdue(self):
+        """Backoff plus the grace window has not elapsed yet."""
+        clock = _SettableClock()
+        supervisor = self._supervisor(clock)
+        supervisor.record_abort("key-1", "propose", "coder")
+        clock.now += supervisor.backoff_seconds("key-1") + self.DEADLINE - 1.0
+
+        report = supervisor.restart_propagation_report([], deadline_s=self.DEADLINE)
+
+        assert report == {"deadline_exceeded": False}
+
+    def test_overdue_key_is_reported_with_arm_identity(self):
+        clock = _SettableClock()
+        supervisor = self._supervisor(clock)
+        supervisor.record_abort("key-1", "propose", "coder")
+        clock.now += supervisor.backoff_seconds("key-1") + self.DEADLINE + 60.0
+
+        report = supervisor.restart_propagation_report([], deadline_s=self.DEADLINE)
+
+        assert report["deadline_exceeded"] is True
+        assert report["deadline_s"] == self.DEADLINE
+        assert report["role"] == "coder"
+        assert report["action"] == "propose"
+        assert report["dedupe_key"] == "key-1"
+        # age_s is measured from the abort, not from the end of the backoff.
+        assert report["age_s"] == supervisor.backoff_seconds("key-1") + self.DEADLINE + 60.0
+
+    def test_overdue_measured_from_end_of_backoff_not_abort(self):
+        """A long backoff must not read as a dropped restart.
+
+        A high streak pushes the respawn far into the future by design; only
+        time past *that* point is evidence the loop stopped re-deriving.
+        """
+        import supervision_policy
+
+        clock = _SettableClock()
+        supervisor = self._supervisor(clock)
+        # Just under the exhaustion threshold, so the arm is still supervised.
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT - 1):
+            supervisor.record_abort("key-1", "propose", "coder")
+        assert not supervisor.is_exhausted("key-1")
+        backoff = supervisor.backoff_seconds("key-1")
+        assert backoff > 0
+
+        clock.now += self.DEADLINE + 1.0
+        assert supervisor.restart_propagation_report([], deadline_s=self.DEADLINE) == {
+            "deadline_exceeded": False
+        }
+
+        clock.now += backoff
+        assert supervisor.restart_propagation_report([], deadline_s=self.DEADLINE)[
+            "deadline_exceeded"
+        ]
+
+    def test_exhausted_key_excluded(self):
+        """Retirement is deliberate and already has its own HITL escalation."""
+        import supervision_policy
+
+        clock = _SettableClock()
+        supervisor = self._supervisor(clock)
+        for _ in range(supervision_policy.SUPERVISION_FAILURE_STREAK_ALERT):
+            supervisor.record_abort("key-1", "propose", "coder")
+        assert supervisor.is_exhausted("key-1")
+        clock.now += 100_000.0
+
+        report = supervisor.restart_propagation_report([], deadline_s=self.DEADLINE)
+
+        assert report == {"deadline_exceeded": False}
+
+    def test_worst_overdue_arm_wins(self):
+        clock = _SettableClock()
+        supervisor = self._supervisor(clock)
+        supervisor.record_abort("key-old", "propose", "coder")
+        clock.now += 5_000.0
+        supervisor.record_abort("key-new", "review", "tester")
+        clock.now += self.DEADLINE + 60.0
+
+        report = supervisor.restart_propagation_report([], deadline_s=self.DEADLINE)
+
+        assert report["dedupe_key"] == "key-old"
+        assert report["role"] == "coder"
+
+    def test_success_clears_the_overdue_report(self):
+        """A key that came back is not a dropped restart."""
+        clock = _SettableClock()
+        supervisor = self._supervisor(clock)
+        supervisor.record_abort("key-1", "propose", "coder")
+        clock.now += 100_000.0
+        assert supervisor.restart_propagation_report([], deadline_s=self.DEADLINE)[
+            "deadline_exceeded"
+        ]
+
+        supervisor.record_success("key-1")
+
+        assert supervisor.restart_propagation_report([], deadline_s=self.DEADLINE) == {
+            "deadline_exceeded": False
+        }

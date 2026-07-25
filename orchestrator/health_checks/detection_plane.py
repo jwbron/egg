@@ -1327,47 +1327,97 @@ def _build_midturn_messages(pipeline_id: str) -> tuple[dict[str, Any], ...]:
         return ()
 
 
-# Default expected phase durations (seconds) when no config is available.
-# Used by detect_duration_drift to compute drift_ratio.
-_DEFAULT_PHASE_DURATIONS_S: dict[str, float] = {
-    "refine": 600.0,  # 10 minutes
-    "plan": 900.0,  # 15 minutes
-    "apply": 300.0,  # 5 minutes
-    "implement": 3600.0,  # 1 hour
-}
-
-
 def _query_expected_duration(pipeline: Any, phase_value: str) -> float | None:
-    """Query the expected duration for a phase from the pipeline config.
+    """The phase's expected duration in seconds, from ``PipelineConfig``.
 
-    Falls back to phase-specific defaults when the config is unavailable.
-    Returns None when the phase is unknown.
+    ``detect_duration_drift`` divides the phase's age by this and fires past
+    ``_DEFAULT_DURATION_DRIFT_FACTOR`` (2×), so the value has to be the
+    operator's *own* declared budget for the phase or the detector is
+    calibrated against a number nobody chose. The budget the operator already
+    sets is the per-phase BRC consensus timeout, resolved by
+    :func:`models.resolve_consensus_timeout_minutes` through the documented
+    precedence ``consensus_timeout_minutes_<phase>`` → ``consensus_timeout_minutes``
+    → :data:`models.PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN` — so that is what
+    this reads (#3596 task-1-11).
+
+    Returns ``None`` for a phase with no consensus budget (``pr``, ``done``,
+    and anything else outside the defaults map). Drift is undefined there and
+    the detector skips a ``None``, which is the right outcome: a pipeline
+    parked in a terminal phase must not accrue a drift finding per tick.
     """
     try:
-        config = getattr(pipeline, "config", None)
-        if config is not None:
-            # Check for a per-phase duration override
-            duration = getattr(config, f"{phase_value}_expected_duration_s", None)
-            if duration is not None:
-                return float(duration)
-        # Fall back to defaults
-        return _DEFAULT_PHASE_DURATIONS_S.get(phase_value)
+        from models import (
+            PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN,
+            resolve_consensus_timeout_minutes,
+        )
     except Exception:  # noqa: BLE001 — defensive
-        return _DEFAULT_PHASE_DURATIONS_S.get(phase_value)
+        return None
+
+    if phase_value not in PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN:
+        return None
+    fallback = float(PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN[phase_value]) * 60.0
+
+    config = getattr(pipeline, "config", None)
+    if config is None:
+        return fallback
+    try:
+        return float(resolve_consensus_timeout_minutes(config, phase_value)) * 60.0
+    except Exception:  # noqa: BLE001 — defensive
+        return fallback
+
+
+def _query_restart_propagation(pipeline_id: str) -> dict[str, Any]:
+    """Whether a supervised respawn for this pipeline is overdue (#3596 task-1-11).
+
+    Delegates to :meth:`JobSupervisor.restart_propagation_report` on each live
+    event loop — the supervisor is the only component that knows when a
+    respawn became *due* (abort time plus backoff) versus merely pending. The
+    worst-overdue arm across loops wins, matching the detector's single-finding
+    shape.
+
+    Returns ``{}`` when the event loop is unavailable, so ``raw.runtime`` gains
+    no key at all and ``detect_agent_restart_propagation`` stays on its legacy
+    ``phase_state`` fallback rather than reading a falsely-negative report.
+    """
+    try:
+        import event_loop as event_loop_pkg
+        from health_checks.tier1.runtime_liveness import (
+            _DEFAULT_RESTART_PROPAGATION_DEADLINE_S,
+        )
+
+        loops = event_loop_pkg.get_live_event_loops(pipeline_id)
+    except Exception:  # noqa: BLE001 — defensive
+        return {}
+
+    worst: dict[str, Any] = {}
+    for loop in loops or ():
+        try:
+            report = loop.supervisor.restart_propagation_report(
+                loop.live_dedupe_keys(),
+                deadline_s=_DEFAULT_RESTART_PROPAGATION_DEADLINE_S,
+            )
+        except Exception:  # noqa: BLE001 — one bad loop must not blind the rest
+            continue
+        if not report.get("deadline_exceeded"):
+            continue
+        if not worst or float(report.get("age_s") or 0.0) > float(worst.get("age_s") or 0.0):
+            worst = report
+    return worst or {"deadline_exceeded": False}
 
 
 def _build_raw_runtime(pipeline_id: str, pipeline: Any, phase_value: str) -> dict[str, Any]:
-    """Populate ``raw.runtime`` with driver-liveness signals (#3540).
+    """Populate ``raw.runtime`` with driver-liveness signals (#3540, #3596).
 
     Fields:
     - ``run_pipeline_thread_alive``: whether the driver thread is registered
     - ``thread_last_tick_age_s``: seconds since the last driver heartbeat
     - ``spawn_age_s``: seconds since the last agent spawn
+    - ``restart_propagation``: the overdue-respawn report read by
+      ``detect_agent_restart_propagation`` (see :func:`_query_restart_propagation`)
     """
+    raw: dict[str, Any] = {}
     try:
         import driver_heartbeat
-
-        raw: dict[str, Any] = {}
 
         tick_age = driver_heartbeat.tick_age_seconds(pipeline_id)
         if tick_age is not None:
@@ -1380,10 +1430,16 @@ def _build_raw_runtime(pipeline_id: str, pipeline: Any, phase_value: str) -> dic
         spawn_age = driver_heartbeat.spawn_age_seconds(pipeline_id)
         if spawn_age is not None:
             raw["spawn_age_s"] = spawn_age
-
-        return {"runtime": raw}
     except Exception:  # noqa: BLE001 — defensive
-        return {}
+        pass
+
+    # Independent of the driver-heartbeat block: a dead heartbeat module must
+    # not also starve the restart-propagation detector.
+    propagation = _query_restart_propagation(pipeline_id)
+    if propagation:
+        raw["restart_propagation"] = propagation
+
+    return {"runtime": raw} if raw else {}
 
 
 __all__ = [
