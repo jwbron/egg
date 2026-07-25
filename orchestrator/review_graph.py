@@ -475,8 +475,10 @@ def register_phase_graph(phase: str, graph: ReviewGraph) -> None:
 # (``agent_model_resolution.resolve_agent_model`` imports :func:`risk_router_mode`
 # and :func:`resolve_risk_decision` from here).
 #
-# Everything rides ONE staged flag, ``EGG_RISK_ROUTER``, resolved EXACTLY like
-# ``slice_green_gate.green_gate_mode()`` (``off`` default, unknown => ``off``):
+# Everything rides ONE staged flag, ``EGG_RISK_ROUTER``, resolved with the
+# shared staged ``off``/``log``/``on`` pattern but keeping an ``off``-default
+# (unknown => ``off``; ``slice_green_gate.green_gate_mode()`` now defaults to
+# ``log`` and degrades unknown to ``log`` — this resolver deliberately does not):
 #   * ``off``  — inert. The live graph + efforts are byte-identical to legacy.
 #   * ``log``  — compute the would-be gated graph / tier / effort and record it
 #                (:func:`risk_route_log_record` + a structured log line), but
@@ -497,9 +499,11 @@ _RISK_ROUTER_LOG_VALUES = frozenset({"log", "log-only", "log_only"})
 def risk_router_mode() -> Literal["off", "log", "on"]:
     """Resolve the ``EGG_RISK_ROUTER`` switch to ``off`` / ``log`` / ``on``.
 
-    Resolved EXACTLY like ``slice_green_gate.green_gate_mode()``: an unknown
-    value resolves to ``off`` so an operator typo degrades to "router does
-    nothing" (full graph, legacy effort), never to "silently review less".
+    Shares the staged ``off``/``log``/``on`` shape but keeps an ``off``-default:
+    an unknown value resolves to ``off`` so an operator typo degrades to "router
+    does nothing" (full graph, legacy effort), never to "silently review less".
+    (Unlike ``slice_green_gate.green_gate_mode()``, which now defaults to
+    ``log`` and degrades unknown values to ``log`` + a warning.)
     """
     raw = os.environ.get(RISK_ROUTER_ENV_VAR, "off").strip().lower()
     if raw in _RISK_ROUTER_ENABLED_VALUES:
