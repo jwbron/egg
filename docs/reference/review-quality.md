@@ -16,22 +16,26 @@ rather than a bespoke one.
 ## Staged rollout convention (`off → log → on`)
 
 Every behavior-shifting piece below ships behind the established staged-flag
-convention (originally mirrored in `orchestrator/slice_green_gate.py`, which has
-since diverged — that gate now defaults to `on` and degrades an unknown value to
-`on` with a warning, since over-verifying is its safe direction. The flags below
-keep the off-default shape, since under-reviewing is never safe for them):
+convention — for which `orchestrator/slice_green_gate.py` was the original
+reference implementation, though it has since diverged (see the note below):
 
 - **`off`** (default) — inert. Behavior is byte-identical to the pre-#3523 pipeline.
-  Unknown / mistyped flag values resolve to `off` (fail-safe): an operator typo
-  must never silently activate a behavior shift.
+  Unknown / mistyped flag values resolve to `off` (fail-safe), silently and with no
+  warning: an operator typo must never silently activate a behavior shift.
 - **`log`** — compute the would-be behavior and record it (to logs / existing BRC
   artifacts), but do **not** apply it. This is the measurement/observation stage.
 - **`on`** — apply the behavior.
 
-The flags are read in code, not in prompts, so the gate is deterministic. The two
-runtime flags governing this rollout are `EGG_RISK_ROUTER` (§4) and
-`EGG_REVIEW_EVIDENCE_PREFIX` (§5); the per-finding tool-call cap has its own
-`…_MODE` flag (§2).
+**Note — the green gate diverged.** `orchestrator/slice_green_gate.py` now defaults
+to `on`, and degrades an unknown value to `on` *with a logged warning*, since
+over-verifying is that gate's safe direction. The flags below keep the original
+shape: off by default, and an unknown value resolves to `off` silently, since
+under-reviewing is never safe for them.
+
+The flags are read in code, not in prompts, so the gate is deterministic. The
+runtime flags governing this rollout are `EGG_REVIEW_FINDINGS_MODE` (§1 — it also
+governs the per-finding tool-call cap, §2), `EGG_RISK_ROUTER` (§4), and
+`EGG_REVIEW_EVIDENCE_PREFIX` (§5).
 
 ## 1. Structured findings and the server-side computed verdict
 
@@ -96,6 +100,14 @@ The three outcomes:
 the computed verdict through the same `record_ack` / `record_nack` primitives the
 legacy path uses, so advisory obligations flow into the existing conditional-ACK
 machinery unchanged.
+
+The whole computed-verdict path rides one staged flag, `EGG_REVIEW_FINDINGS_MODE`
+(`off` / `log` / `on`), resolved by `review_findings_mode()` in
+[`orchestrator/review_findings_verdict.py`](../../orchestrator/review_findings_verdict.py):
+`off` (the default, and where an unknown value lands) leaves the legacy prose-NACK
+path authoritative; `log` records the computed verdict alongside it without acting
+on it; `on` lets the computed verdict drive the edge. The same flag also governs
+the per-finding tool-call cap in §2.
 
 ### Mechanism dedup and convergence-as-signal
 
@@ -167,15 +179,31 @@ the checkout, never the network) to confirm or refute a claim — e.g. actually
 running a disputed command, or reading a pinned dependency's real source instead of
 trusting memory.
 
-Their cost is bounded by a **per-finding tool-call cap**, enforced in the wrapper
-(not the prompt) in
+Their cost is bounded by a **per-finding tool-call cap** owned by the wrapper (not
+the prompt) in
 [`orchestrator/consensus_wrapper.py`](../../orchestrator/consensus_wrapper.py)
-(`review_finding_tool_call_cap()`, `evaluate_finding_tool_call_cap()`). It is
-governed by two env vars:
+(`review_finding_tool_call_cap()`, `evaluate_finding_tool_call_cap()`). The cap has
+**no staged flag of its own** — it rides `EGG_REVIEW_FINDINGS_MODE` (§1). In `log` /
+`on` mode the wrapper exports two vars into the reviewer's environment, on the
+`ack` / `nack` arms only (the `tester` role and the producer `propose` arm are
+exempt):
 
-- `EGG_REVIEW_FINDING_TOOL_CALL_CAP` — the integer cap.
-- `EGG_REVIEW_FINDING_TOOL_CALL_CAP_MODE` — the staged flag (`off` / `log` / `on`);
-  `log` records would-have-been-capped outcomes without enforcing.
+- `EGG_REVIEW_FINDING_TOOL_CALL_CAP` — the integer cap. Defaults to 8; an unset,
+  non-integer, or non-positive value resolves to that default.
+- `EGG_REVIEW_FINDING_TOOL_CALL_CAP_MODE` — a marker the wrapper **exports**, not an
+  operator knob, telling the reviewer runtime whether the cap is advisory (`log`) or
+  enforced (`on`).
+
+In `off` mode the export block is omitted wholesale, so the spawn command stays
+byte-identical to the legacy path. Setting `EGG_REVIEW_FINDING_TOOL_CALL_CAP_MODE`
+in the orchestrator environment therefore does nothing on its own: with
+`EGG_REVIEW_FINDINGS_MODE` unset, neither var reaches the reviewer.
+
+**Not yet enforced.** As of this snapshot the cap is resolved and exported, but
+nothing consumes it: `evaluate_finding_tool_call_cap()` has no production caller,
+and no code outside `consensus_wrapper.py` and its tests reads either exported var.
+The enforcement point — a sandbox-side tool-call counter honoring the exported cap —
+is not yet wired.
 
 ## 3. Method-angle procedures (the four finder angles)
 
