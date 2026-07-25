@@ -419,32 +419,6 @@ def _detect_commit_stall(
         # where the agent is active but not making BRC progress.
         if has_activity:
             continue
-            findings.append(Finding(
-                finding_class=FINDING_FORWARD_PROGRESS_STALL,
-                severity=Severity.HIGH,
-                evidence={
-                    "pipeline_id": pipeline_id,
-                    "agent_role": role,
-                    "last_commit_age_s": commit_age,
-                    "last_tool_call_age_s": tool_call_age,
-                    "stall_threshold_seconds": stall_seconds,
-                    "brc_progress_age_s": consensus.get("latest_proposal_age_s"),
-                    "brc_progress_window_s": brc_progress_window_s,
-                    "stall_mode": "livelocked",
-                },
-                recommended_action=(
-                    f"Agent '{role}' is active (tool calls/commits) but has not "
-                    f"made BRC progress (no CONSENSUS_PROPOSE/CONSENSUS_CONFIRMED "
-                    f"for {consensus.get('latest_proposal_age_s', '?')}s, "
-                    f"threshold {brc_progress_window_s}s). This is a livelock: "
-                    f"the agent is spinning but not advancing the consensus protocol. "
-                    f"Check what the agent is doing and whether it should be "
-                    f"proposing or waiting on reviewers."
-                ),
-                requires_adjudication=True,
-                detector_key="forward_progress",
-            ))
-            continue
 
         # If the agent has no activity and no BRC progress, check for
         # deadlocked_contract or generic stall
