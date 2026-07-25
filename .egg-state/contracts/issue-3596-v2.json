@@ -756,6 +756,44 @@
       "resolved_at": "2026-07-25T04:50:46.361064Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "cq-3",
+      "question": "Issue #3596 asks for operator visibility into pipeline state across four areas: forward progress, events/alerts, clocks/per-invocation accounting, and post-mortem durability. I've explored the codebase and found that some partial mechanisms exist (detection plane, agent_log_store, supervision_policy, discarded-tip recording) but none of the four areas are fully addressed. I propose implementing all four areas as deterministic detection-plane detectors + Redis-backed durable stores, following the existing #2270 overseer overhaul patterns. Should I proceed with this scope, or would you like to narrow/widen it?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Proceed with all four areas as planned",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Narrow to just forward progress + alert log (highest impact)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Narrow to just forward progress detector only",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (specify in reply)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -893,6 +931,54 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-13 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T05:20:48.290850Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "Issue #3596 asks for operator visibility into pipeline state across four areas: forward progress, events/alerts, clocks/per-invocation accounting, and post-mortem durability. I've explored the codebase and found that some partial mechanisms exist (detection plane, agent_log_store, supervision_policy, discarded-tip recording) but none of the four areas are fully addressed. I propose implementing all four areas as deterministic detection-plane detectors + Redis-backed durable stores, following the existing #2270 overseer overhaul patterns. Should I proceed with this scope, or would you like to narrow/widen it?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Proceed with all four areas as planned",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Narrow to just forward progress + alert log (highest impact)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Narrow to just forward progress detector only",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (specify in reply)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Issue #3596 asks for operator visibility into pipe...",
       "checkpoint_id": null
     }
   ],
