@@ -222,10 +222,28 @@
       "resolution": "{\"action\": \"approve\", \"context\": \"Approved. The analysis is strong and its prior-art verification was independently spot-checked against the tree before approval. Four notes to carry into planning.\\n\\n1. GAP 5 IS CONFIRMED, AND IS WORSE THAN STATED. Verified independently: snapshot_from_health_context builds RunningAgent(role=..., state=..., lifecycle_owner=...) only, so last_tool_call_age_s and last_heartbeat_age_s stay None, and detect_heartbeat_stall (health_checks/tier1/consensus_stall.py:238-239) can never fire in production. Correct finding. There is a SECOND defect in those same three lines that the analysis did not flag: role=str(cid) populates the role field with a CONTAINER ID drawn from live_container_ids, not a role name. Any detector keying on role name is matching a UUID. Plan should audit the other tier-1 detectors for the same assumption and fix both defects together, since they share a construction site.\\n\\n2. PRIOR-ART VERIFICATION WAS CORRECT AND SHOULD BE TRUSTED. agent_log_store.py (#3547, closed) does provide Redis-backed pod-log retention at Job removal, and GET /pipelines/{id}/health/alerts does serve active alerts. Both were verified. Do NOT rebuild either. The operator's own earlier analysis wrongly claimed log retention was absent; the refiner's reading is the correct one.\\n\\n3. ONE GAP SURVIVES THAT THE ANALYSIS UNDERSTATES. Session TRANSCRIPTS (the Claude Code session JSONL, distinct from pod logs) are pushed to the session store only on event-pod EXIT. An agent that never exits therefore has no stored transcript at all, not merely a stale one. This is the specific gap that destroyed the decisive evidence in the incident that motivated this issue: a refiner wedged for 94 minutes never exited, so nothing was ever captured, and get_agent_transcript returned found:false for that role while its peers had transcripts. agent_log_store does not cover this because it captures at Job removal. Worth scoping explicitly rather than folding into item 4.\\n\\n4. SCOPE IS ACCEPTED AS PROPOSED. Six items, with the deferred design choices (commit counting scope, tool-call proxy, alert payload shape, log TTL configurability) correctly left to planning. When those come up, raise them as contract decisions rather than choosing silently; the operator will answer them.\\n\\nOne constraint to preserve from the original brief: distinguish null from zero. A missing measurement must not render as a real zero. This bug class already exists in the tree (occ=0 reported where the contract expects None on LiteLLM routes) and is being tracked separately; do not add more of it. Any new progress field must be null when unmeasurable, never 0.\\n\\nContext: this analysis and its findings are recorded in issue #3595, which is the single source of truth for this run. Root cause 7 there is the dead-detector finding above.\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Consensus timed out; consensus incomplete; agents never confirmed: risk_analyst, simplifier, architect, reviewer_plan, task_planner. 'Retry phase' re-runs the phase from the shared work branch tip (work pushed to the shared branch is preserved; unpushed per-role commits are salvaged best-effort to egg/recovered/*). How to proceed?",
+      "context": "consensus_timeout_incomplete",
+      "options": [
+        "Retry phase",
+        "Accept current state",
+        "Abort phase"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-07-25T03:04:29.617786Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan",
+      "content_changed": null
     }
   ],
   "created_at": "2026-07-24T23:26:12.128692Z",
-  "updated_at": "2026-07-25T01:51:10.469438Z",
+  "updated_at": "2026-07-25T03:04:29.618665Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -238,7 +256,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-25T00:04:22.461160Z",
-  "version": 23,
+  "version": 24,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
