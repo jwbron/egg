@@ -67,27 +67,49 @@ Mechanics mirror the two established precedents:
   OOM and fails open. ``EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=off``
   restores the strict every-red-blocks behavior.
 
-Rollout is staged via ``EGG_SLICE_GREEN_GATE``: ``off`` → ``log``
-(**the default**: run checks, log the verdict loudly, never block) →
-``on`` (block).
+Rollout is staged via ``EGG_SLICE_GREEN_GATE``: ``off`` → ``log`` (run
+the checks, log the verdict loudly, never block) → ``on`` (**the
+default**: block PR-open on a definitive red).
 
-``log`` is the default rather than ``off`` because a gate nobody runs
+``on`` is the default rather than ``off`` because a gate nobody runs
 verifies nothing: the switch shipped in #3398 defaulting to ``off`` and
 was never set in any deployment, so the check-runner path had not
-executed once in the ~3 weeks after it landed. Defaulting to ``log``
-makes every slice close produce a real verdict — the soak evidence that
-``on`` needs — while keeping the blocking decision opt-in. It is also
-the soak mode for #3301 contract-single-writer, since a stale contract
-snapshot on the slice tip can red contract-hygiene tests for reasons
-unrelated to the slice's code.
+executed once in the ~3 weeks after it landed. #3602 is the shape that
+costs — a contract task marked ``complete`` while five tests failed on
+the slice tip — and it is a shape only a *blocking* gate prevents.
 
-The cost of the default is real and deliberate: ``log`` mode still
-*runs* the checks and still waits for the runner pod, so slice-close
-latency grows by the check duration (bounded by
-``EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS``, default 1800s, plus the
-``_POD_SCHEDULING_GRACE_SECONDS`` the orchestrator's wait adds on top —
-see the next paragraph — after which the gate fails open). ``off``
-remains available for deployments that cannot absorb that.
+``log`` stays available for the deployment that wants verdicts without
+the blocking decision, and it is the right posture for a fleet, where a
+false red stalls a pipeline whose owner is not the person watching the
+rollout. It is not the default because its evidence is **passive**: a
+verdict is a structured log line, with no metric, audit event, or PR
+comment behind it (#3623). ``log`` therefore only informs an operator
+who goes looking, and this switch's own history is that nobody does.
+Under ``on`` a wrong verdict announces itself on the next slice close,
+to the operator who can act on it — which makes ``on`` the *better*
+instrument for measuring the false-red rate, not merely the stricter
+one.
+
+Expect the first reds to be the gate's own wiring rather than the
+slice's code, and note that each of these reds *every* slice close
+until it is fixed: a stale contract snapshot on the slice tip can red
+contract-hygiene tests for reasons unrelated to the slice (#3301), a
+declared-but-missing prebuilt-deps snapshot exits the runner non-zero,
+and ``make test``'s changeset narrowing derives its baseline from ``git
+merge-base`` inside a fresh worktree, so it sees the cumulative slice
+diff. Recovery is bounded and self-documenting: the failure message
+names the branch to fix, the slice restarts, and
+``EGG_SLICE_GREEN_GATE=off`` is quoted inline as the bypass. The slice's
+commits stay on the integration branch through all of it — a red gate
+withholds the PR, it does not discard work.
+
+The latency cost is identical under ``log`` and ``on`` — both spawn the
+runner and wait for the pod — so it is the price of *running* the gate,
+not of blocking on it. Slice-close latency grows by the check duration
+(bounded by ``EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS``, default 1800s,
+plus the ``_POD_SCHEDULING_GRACE_SECONDS`` the orchestrator's wait adds
+on top — see the next paragraph — after which the gate fails open).
+``off`` remains available for deployments that cannot absorb that.
 
 Whoever watches the rollout should know the worst case is **not** a slow
 check suite: it is a runner pod that never schedules. ``_wait_for_runner_pod``
@@ -103,8 +125,8 @@ rather than being added to it (``_POD_SCHEDULING_GRACE_SECONDS`` widens only
 the orchestrator's wait). A pod delayed N seconds gets N fewer seconds to run
 checks, and a ``DeadlineExceeded`` kill emits no verdict line, so the gate
 fails open with no verdict at all. Capacity starvation therefore raises the
-rate of *spurious no-verdict fail-opens* as well as dead time — degrading the
-soak signal this default exists to collect.
+rate of *spurious no-verdict fail-opens* as well as dead time — silently
+narrowing how much of the slice stream the gate actually covers.
 
 Which log line an operator sees for that is not fixed, so grep for both: on
 ``DeadlineExceeded`` the Job controller *deletes* the active pod rather than
@@ -113,9 +135,11 @@ leaving it terminal, so ``_wait_for_runner_pod`` usually never observes
 "runner pod did not reach a terminal state". If a poll happens to catch the
 pod reporting ``Failed`` mid-termination, the log read returns partial output
 and "no parseable verdict from runner" fires instead. Both fail open, and
-neither is distinguishable from a runner-harness crash. Tracked in #3622; it
-should land before ``on``, where a missing verdict is a gate that silently
-does not gate.
+neither is distinguishable from a runner-harness crash. Tracked in #3622,
+which this default makes the top follow-up: under ``on`` a missing verdict
+is a slice close you believed was gated and wasn't. Note the direction — a
+no-verdict fail-open can only *under*-block, never produce a false red, so
+it is a coverage gap rather than a correctness risk.
 
 Someone should watch the first wave directly rather than discovering the cost
 from a slice-throughput drop later; ``off`` is the escape hatch.
@@ -153,10 +177,10 @@ if TYPE_CHECKING:
 
 logger = get_logger("orchestrator.slice_green_gate")
 
-# Operator switch for the green gate. Three-state, default "log":
-# "off" → gate skipped entirely; "log"/unset → checks run and a red
-# verdict is logged loudly but never blocks; "on" → a red verdict blocks
-# the slice PR from opening.
+# Operator switch for the green gate. Three-state, default "on":
+# "off" → gate skipped entirely; "log" → checks run and a red verdict is
+# logged loudly but never blocks; "on"/unset → a red verdict blocks the
+# slice PR from opening.
 GREEN_GATE_ENV_VAR = "EGG_SLICE_GREEN_GATE"
 
 _ENABLED_VALUES = frozenset({"on", "1", "true", "yes"})
@@ -164,13 +188,17 @@ _LOG_ONLY_VALUES = frozenset({"log", "log-only", "log_only"})
 _DISABLED_VALUES = frozenset({"off", "0", "false", "no"})
 
 # Mode used when the switch is unset or carries a value we do not
-# recognise. "log" satisfies both halves of the safety property an
-# unparseable switch needs: it never blocks a slice (an operator typo
-# must not start failing slices) and it never silently disables the
-# gate (a typo must not leave a deployment with less verification than
-# the product default). Only an explicit _DISABLED_VALUES entry turns
-# the gate off.
-_DEFAULT_MODE: Literal["off", "log", "on"] = "log"
+# recognise. Weakening the gate takes an explicit, correctly-spelled
+# _DISABLED_VALUES or _LOG_ONLY_VALUES entry: a typo must not leave a
+# deployment with less verification than the product default. Note the
+# earlier "a typo must not start blocking slices" half of this rule
+# retired with the "log" default — under an "on" default, setting
+# nothing at all blocks, so a mistyped value resolving to "on" is no
+# stricter than the deployment an operator gets by doing nothing. This
+# is also the same rule _infra_fail_open_enabled() applies (unrecognised
+# → the default, loudly), so both switches in this module degrade
+# alike.
+_DEFAULT_MODE: Literal["off", "log", "on"] = "on"
 
 # Comma-separated check *names* (from repositories.yaml ``checks``) the
 # gate skips. Default skips ``security``: the full scan belongs on the
@@ -431,11 +459,12 @@ print("EGG_GREEN_GATE_VERDICT:" + json.dumps({"checks": results}), flush=True)
 def green_gate_mode() -> Literal["off", "log", "on"]:
     """Resolve the operator switch to one of ``off`` / ``log`` / ``on``.
 
-    Unset resolves to ``_DEFAULT_MODE`` (``log``). Turning the gate off
-    requires an explicit ``off`` / ``0`` / ``false`` / ``no``; any other
-    unrecognised value also resolves to ``log`` and logs a warning, so a
-    typo can neither start blocking slices nor silently drop the
-    deployment below the product default.
+    Unset resolves to ``_DEFAULT_MODE`` (``on``). Weakening the gate
+    requires an explicit, correctly-spelled value — ``off`` / ``0`` /
+    ``false`` / ``no`` to skip it, ``log`` / ``log-only`` / ``log_only``
+    to run it without blocking. Any other value resolves to ``on`` and
+    logs a warning, so a typo cannot silently drop the deployment below
+    the product default.
     """
     raw = os.environ.get(GREEN_GATE_ENV_VAR, "").strip().lower()
     if not raw:
@@ -461,11 +490,13 @@ def _infra_fail_open_enabled() -> bool:
     Only the exact disabled values turn it off; anything else degrades
     to the default *and logs a warning*. Mirrors ``green_gate_mode``'s
     posture on both counts: an operator typo resolves to the documented
-    default behavior, and it never does so silently. That matters more
-    here than for the mode switch, because the typo direction is
-    strict-every-red-blocks -> lenient-infra-reds-fail-open: an operator
-    reaching for ``off`` and typing ``offf`` would otherwise get the
-    lenient posture with no signal.
+    default behavior, and it never does so silently. The warning matters
+    more here than on the mode switch, because the two typos point in
+    opposite directions. A mistyped ``EGG_SLICE_GREEN_GATE`` resolves to
+    ``on``, the strictest mode, so it can only over-verify. A mistyped
+    value here resolves to fail-open, so an operator reaching for ``off``
+    and typing ``offf`` gets the *lenient* posture — silently, without
+    the warning.
     """
     raw = os.environ.get(GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, "on").strip().lower()
     if not raw or raw in _INFRA_FAIL_OPEN_ENABLED_VALUES:

@@ -64,7 +64,7 @@ EVIDENCE_PACK_SCHEMA_VERSION = 1
 # The shared-evidence prefix ships behind the same ``off -> log -> on`` staged
 # flag every #3523 behaviour-shift rides, using that shared pattern but keeping
 # an ``off``-default (``slice_green_gate.green_gate_mode()`` now defaults to
-# ``log`` and degrades unknown to ``log`` — this resolver deliberately does
+# ``on`` and degrades unknown to ``on`` — this resolver deliberately does
 # not): an operator typo must degrade to "reviewer prompts unchanged", never
 # to "one gatherer silently anchors every lens". The resolver lives HERE, with
 # the feature's core, and is imported by the S7 wiring (``_criteria.py``

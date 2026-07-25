@@ -2,8 +2,8 @@
 
 Covers:
 
-* ``green_gate_mode`` — the three-state operator switch (log default,
-  explicit off, on; unrecognised values degrade to the default).
+* ``green_gate_mode`` — the three-state operator switch (on default,
+  explicit off/log; unrecognised values degrade to the default).
 * ``_gate_checks`` / ``_repo_requires_prebuilt`` — config-driven check
   selection (skip set, default ``security``) and the prebuilt-toolchain
   requirement derived from ``build_commands.persist_dirs``.
@@ -88,14 +88,16 @@ def gate_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
 
 
 class TestGreenGateMode:
-    def test_default_is_log(self, gate_env: pytest.MonkeyPatch) -> None:
-        """Unset resolves to the product default, not to a disabled gate.
+    def test_default_is_on(self, gate_env: pytest.MonkeyPatch) -> None:
+        """Unset resolves to the product default: a blocking gate.
 
         The #3398 switch shipped defaulting to ``off`` and was never set
         in any deployment, so the check-runner path never executed. The
-        default is the rollout.
+        default is the rollout, and #3602 — a task marked ``complete``
+        over five failing tests on the slice tip — is a shape only a
+        *blocking* gate prevents.
         """
-        assert sgg.green_gate_mode() == "log"
+        assert sgg.green_gate_mode() == "on"
 
     @pytest.mark.parametrize("value", ["on", "ON", " true ", "1", "yes"])
     def test_enabled_values(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
@@ -120,6 +122,9 @@ class TestGreenGateMode:
             ("enabled", "enabled"),
             ("tru", "tru"),
             ("onn", "onn"),
+            # The disable-side typo — the direction that matters now
+            # that the default blocks.
+            ("offf", "offf"),
             # Padded/uppercase inputs pin what the resolver actually
             # logs — the post-strip/lower value, not the raw env string.
             # Without these the assertion below passes either way.
@@ -130,24 +135,28 @@ class TestGreenGateMode:
     def test_unrecognised_values_degrade_to_default_with_a_warning(
         self, gate_env: pytest.MonkeyPatch, value: str, logged: str
     ) -> None:
-        """A typo can neither block slices nor silently disable the gate.
+        """A typo cannot silently weaken the gate.
 
         ``"tru"`` / ``"onn"`` are the realistic shapes: an operator
-        reaching for ``on`` must not land on "gate does nothing". The
-        warning is the other half — a misconfiguration that silently
-        resolves is the failure mode this PR's default flip exists to
-        close, so the log line is asserted, not just the return value.
+        reaching for ``on`` must not land on "gate does nothing".
+        ``"offf"`` is the other direction and the reason the resolved
+        value is pinned to ``on`` rather than merely "not off": someone
+        reaching for the escape hatch and missing gets the product
+        default, loudly, instead of a silently ungated deployment. The
+        warning is asserted alongside the return value because a
+        misconfiguration that resolves silently is the failure mode this
+        default flip exists to close.
         """
         gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, value)
         with patch.object(sgg.logger, "warning") as warn:
-            assert sgg.green_gate_mode() == sgg._DEFAULT_MODE == "log"
+            assert sgg.green_gate_mode() == sgg._DEFAULT_MODE == "on"
         assert warn.call_count == 1
         assert warn.call_args.kwargs["value"] == logged
         assert warn.call_args.kwargs["env_var"] == sgg.GREEN_GATE_ENV_VAR
         # Resolved value as a structured field, matching the shape
         # ``_infra_fail_open_enabled``'s warning uses (``fail_open=``),
         # so both typo warnings are greppable the same way.
-        assert warn.call_args.kwargs["mode"] == "log"
+        assert warn.call_args.kwargs["mode"] == "on"
 
     @pytest.mark.parametrize(
         ("value", "expected"),
@@ -155,8 +164,8 @@ class TestGreenGateMode:
             ("on", "on"),
             ("log", "log"),
             ("off", "off"),
-            ("", "log"),
-            ("   ", "log"),
+            ("", "on"),
+            ("   ", "on"),
         ],
     )
     def test_recognised_values_do_not_warn(
@@ -972,9 +981,9 @@ class TestRunSliceGreenGate:
     ) -> None:
         """``off`` still short-circuits before any spawn side effect.
 
-        This must set the switch explicitly: since the default became
-        ``log`` the unset case *runs* the gate, so an implicit-off
-        assertion here would silently start exercising the runner.
+        This must set the switch explicitly: the default is ``on``, so
+        an implicit-off assertion here would silently start exercising
+        the runner.
         """
         gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, "off")
         spawner = _spawner()
@@ -1110,6 +1119,31 @@ class TestRunSliceGreenGate:
         delete_job.assert_called_once()
         spawner.gateway.delete_session_by_container.assert_called_once()
         spawner.gateway.delete_worktrees.assert_called_once()
+
+    def test_unset_switch_blocks_on_a_red_verdict(
+        self, gate_env: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        """The default deployment — nothing set — withholds the PR.
+
+        Every other blocking test here sets the switch to ``on``
+        explicitly, so without this one the resolver's ``on`` default
+        could regress to ``log`` and the whole suite would stay green.
+        This is the seam that makes the default load-bearing.
+        """
+        spawner = _spawner()
+        log = _verdict_line([{"name": "test", "ok": False, "exit_code": 2, "output_tail": "x"}])
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+        ):
+            failure = _run_gate(spawner)
+        assert failure is not None
+        assert "test" in failure
+        # The bypass is quoted in the message itself: an operator who
+        # hits an unexpected red must not have to find the env var.
+        assert sgg.GREEN_GATE_ENV_VAR in failure
 
     def test_red_verdict_in_log_mode_does_not_block(
         self, gate_env: pytest.MonkeyPatch, configured_checks: None

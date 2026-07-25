@@ -32,7 +32,7 @@ on escalation) is the point.
 **Staged rollout.** The whole path is gated behind ``EGG_REVIEW_FINDINGS_MODE``,
 resolved with the shared staged ``off``/``log``/``on`` pattern but keeping an
 ``off``-default (unknown => ``off``; note ``slice_green_gate.green_gate_mode()``
-now defaults to ``log`` and degrades unknown to ``log`` — this resolver
+now defaults to ``on`` and degrades unknown to ``on`` — this resolver
 deliberately does not, so a typo leaves the legacy path authoritative). ``log``
 records the computed-vs-legacy verdict into the BRC artifacts without acting;
 ``on`` uses the computed verdict. Everything in this module is a pure function
@@ -84,7 +84,9 @@ def review_findings_mode() -> Literal["off", "log", "on"]:
     unknown values resolve to ``off`` so an operator typo degrades to "legacy
     path unchanged", never to "computed verdict silently drives consensus".
     (Unlike ``slice_green_gate.green_gate_mode()``, which now defaults to
-    ``log`` and degrades unknown values to ``log`` + a warning.)
+    ``on`` and degrades unknown values to ``on`` + a warning: a wrong
+    resolution there blocks a slice visibly and recoverably, whereas a wrong
+    resolution here would silently drive consensus off a computed verdict.)
     """
     raw = os.environ.get(FINDINGS_MODE_ENV_VAR, "off").strip().lower()
     if raw in _ENABLED_VALUES:

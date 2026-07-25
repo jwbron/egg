@@ -18,7 +18,7 @@ Per task-3-2 acceptance, this file exercises the pure-layer half:
 - ``review_findings_mode`` resolves a flag typo to ``off`` (never silently to
   ``on``) — the shared staged ``off``/``log``/``on`` shape, but with an
   ``off``-default, unlike ``slice_green_gate.green_gate_mode`` which now
-  defaults to ``log`` and degrades a typo to ``log`` + a warning;
+  defaults to ``on`` and degrades a typo to ``on`` + a warning;
 - ``verdict_log_record`` records the computed verdict against the legacy one.
 
 The matrix-integration half (``record_findings_verdict`` routing + the

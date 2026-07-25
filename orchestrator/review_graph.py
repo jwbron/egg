@@ -478,7 +478,7 @@ def register_phase_graph(phase: str, graph: ReviewGraph) -> None:
 # Everything rides ONE staged flag, ``EGG_RISK_ROUTER``, resolved with the
 # shared staged ``off``/``log``/``on`` pattern but keeping an ``off``-default
 # (unknown => ``off``; ``slice_green_gate.green_gate_mode()`` now defaults to
-# ``log`` and degrades unknown to ``log`` — this resolver deliberately does not):
+# ``on`` and degrades unknown to ``on`` — this resolver deliberately does not):
 #   * ``off``  — inert. The live graph + efforts are byte-identical to legacy.
 #   * ``log``  — compute the would-be gated graph / tier / effort and record it
 #                (:func:`risk_route_log_record` + a structured log line), but
@@ -503,7 +503,8 @@ def risk_router_mode() -> Literal["off", "log", "on"]:
     an unknown value resolves to ``off`` so an operator typo degrades to "router
     does nothing" (full graph, legacy effort), never to "silently review less".
     (Unlike ``slice_green_gate.green_gate_mode()``, which now defaults to
-    ``log`` and degrades unknown values to ``log`` + a warning.)
+    ``on`` and degrades unknown values to ``on`` + a warning: over-verifying
+    is that switch's safe direction, under-reviewing is never this one's.)
     """
     raw = os.environ.get(RISK_ROUTER_ENV_VAR, "off").strip().lower()
     if raw in _RISK_ROUTER_ENABLED_VALUES:

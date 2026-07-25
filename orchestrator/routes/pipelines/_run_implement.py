@@ -917,9 +917,11 @@ def _run_implement_phase_slices(
                 # evidence gate above: fail-open on infra errors,
                 # fail-closed only on a definitive red verdict;
                 # EGG_SLICE_GREEN_GATE is the operator switch
-                # (off / log / on), defaulting to log: the checks
-                # run and the verdict is logged loudly on every
-                # slice close, but only "on" blocks PR-open.
+                # (off / log / on), defaulting to "on": the checks
+                # run on every slice close and a definitive red
+                # withholds the PR. "log" runs them without
+                # blocking; "off" is the escape hatch, and is
+                # quoted in the failure message itself.
                 if pipeline.repo:
                     try:
                         import slice_green_gate as _green_gate

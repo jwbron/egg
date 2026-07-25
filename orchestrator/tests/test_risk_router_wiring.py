@@ -5,7 +5,7 @@ function from a changed-file set to (lenses, tier, stance). Slice-6 is the
 WIRING half: it threads that pure decision into the live review machinery behind
 the ``EGG_RISK_ROUTER`` staged flag (``off`` default / ``log`` / ``on`` — the
 shared staged shape ``slice_green_gate.green_gate_mode()`` uses, but keeping an
-``off``-default, unlike that resolver which now defaults to ``log``). The wiring
+``off``-default, unlike that resolver which now defaults to ``on``). The wiring
 lives in three seams:
 
 * ``review_graph`` — ``risk_router_mode`` / ``resolve_risk_decision`` /
