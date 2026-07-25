@@ -41,21 +41,25 @@ class ReviewEdge:
     # human-focused companion that retains an advisory edge over the
     # upstream refine/plan producer but issues no ACK/NACK on it.
     #
-    # It does NOT drive the wake. The simplifier is woken to write its
-    # companion by the ordinary producer **propose-arm**: a WORKING
-    # producer re-derives ``propose`` on every event-loop poll, and a clean
-    # orient-and-exit is a *legitimate* outcome that frees the spawn-dedupe
-    # key, so the orchestrator re-spawns it until it proposes (see
-    # ``test_event_loop.py::test_stale_exit_is_a_non_trigger_through_loop``).
-    # The simplifier self-gates on the upstream draft existing, so it
-    # orients-and-exits until the draft is committed, then proposes.
+    # ``wake_only`` NEUTRALIZES the review obligation, not the dependency.
+    # It is excluded from pending-review derivation (so the de-roled
+    # reviewer is never assigned a spawn-able ``ack`` it cannot satisfy —
+    # the regression #3381 fixed) and from the reviewer confirm guards (so
+    # it can confirm without a verdict it will never cast). A wake-only
+    # edge is always ADVISORY.
     #
-    # ``wake_only`` exists only to NEUTRALIZE the residual advisory edge so
-    # it carries no review obligation: it is excluded from pending-review
-    # derivation (so the de-roled reviewer is never assigned a spawn-able
-    # ``ack`` it cannot satisfy — the regression #3381 fixed) and from the
-    # reviewer confirm guards (so it can confirm without a verdict it will
-    # never cast). A wake-only edge is always ADVISORY.
+    # It IS honoured as an ordering dependency: the edge exists precisely
+    # because the companion is written against the upstream producer's
+    # draft, so ``_pre_propose_upstream_producers`` (#3478) gates the
+    # simplifier's first ``propose`` on that producer having proposed
+    # (#3603). Until #3603 the wake was instead a poll loop — the WORKING
+    # simplifier re-derived ``propose`` every event-loop tick and
+    # oriented-and-exited until the draft appeared — but those clean exits
+    # are exactly what the #3425 no-op park counts, so the simplifier was
+    # parked with a ``[high]`` wedge alert for correct behaviour in 4/4
+    # assessment runs across both the refine and plan phases (#3595 root
+    # cause 2). The wake is now the derivation itself: the first poll that
+    # sees the upstream's proposal derives ``propose`` and spawns the arm.
     wake_only: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -259,16 +263,16 @@ def get_default_refine_graph() -> ReviewGraph:
             ReviewEdge("first_principles_reviewer", "refiner", ReviewCriticality.CRITICAL),
             # The simplifier produces the human-focused analysis companion
             # (faithful + jargon-free), gated CRITICAL by reviewer_refine.
-            # It is a PRODUCER ONLY (#3381): the propose-arm wakes it to
-            # write the companion (it self-gates on the refiner's draft
-            # existing), and it casts no verdict on anyone. It retains a
-            # WAKE-ONLY advisory edge over the refiner only as a structural
-            # marker; wake_only carries no review obligation — it excludes
-            # the edge from pending-review derivation and the confirm guards
-            # so the simplifier is never derived a spawn-able ``ack`` it
-            # cannot satisfy and can confirm its own companion without ever
-            # voting on the refiner. (See the ReviewEdge.wake_only docstring
-            # for why the propose-arm, not this edge, is the wake.)
+            # It is a PRODUCER ONLY (#3381): it writes the companion against
+            # the refiner's draft and casts no verdict on anyone. Its
+            # WAKE-ONLY advisory edge over the refiner carries no review
+            # obligation — it is excluded from pending-review derivation and
+            # the confirm guards, so the simplifier is never derived a
+            # spawn-able ``ack`` it cannot satisfy and can confirm its own
+            # companion without ever voting on the refiner — but it IS the
+            # dependency the first-propose gate orders on: the simplifier
+            # derives ``wait`` until the refiner proposes (#3478/#3603).
+            # (See the ReviewEdge.wake_only docstring.)
             ReviewEdge("reviewer_refine", "simplifier", ReviewCriticality.CRITICAL),
             ReviewEdge("simplifier", "refiner", ReviewCriticality.ADVISORY, wake_only=True),
         ]
@@ -314,12 +318,12 @@ def get_default_plan_graph() -> ReviewGraph:
             ReviewEdge("risk_analyst", "task_planner", ReviewCriticality.CRITICAL),
             # The simplifier produces the human-focused plan companion,
             # gated CRITICAL by reviewer_plan. Wake-only like the refine-phase
-            # simplifier: a PRODUCER ONLY (#3381) woken to write the companion
-            # by the propose-arm (self-gating on task_planner's draft), casting
-            # no verdict. It retains a WAKE-ONLY advisory edge over task_planner
-            # only as a structural marker; wake_only excludes it from
-            # pending-review derivation and the confirm guards (see the refine
-            # graph above and the ReviewEdge.wake_only docstring).
+            # simplifier: a PRODUCER ONLY (#3381) that writes the companion
+            # against task_planner's draft and casts no verdict. Its WAKE-ONLY
+            # advisory edge over task_planner is excluded from pending-review
+            # derivation and the confirm guards, and is the dependency the
+            # first-propose gate orders on (#3478/#3603) — see the refine
+            # graph above and the ReviewEdge.wake_only docstring.
             ReviewEdge("reviewer_plan", "simplifier", ReviewCriticality.CRITICAL),
             ReviewEdge("simplifier", "task_planner", ReviewCriticality.ADVISORY, wake_only=True),
         ]

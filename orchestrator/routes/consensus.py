@@ -321,38 +321,63 @@ def _producer_has_unresolved_nacks_on_current_version(
 
 
 def _pre_propose_upstream_producers(tracker: PeerConsensusTracker, role: str) -> list[str]:
-    """Upstream producers that gate ``role``'s first ``propose`` (#3478).
+    """Upstream producers that gate ``role``'s first ``propose`` (#3478, #3603).
 
-    A dual-role producer builds on the artifacts of the producers it
-    reviews. This is phase-agnostic: in the default implement graph it
-    is the ``tester`` (producer of test files, reviewer of the coder's
-    source, gated on ``coder``); in the default plan graph it is the
-    ``risk_analyst`` (producer of the risk register, reviewer of
-    ``architect`` + ``task_planner``, gated on both). Any future graph
-    with the same shape gates the same way. Deriving ``propose`` for
-    such a role while every one of those
-    upstream producers is still pre-first-propose spawns an agent that
-    can only orient-and-exit (nothing to build against, nothing to
-    review); three such no-ops burn the #3425 streak and park the arm,
-    which the #3465 BRC-movement release then has to claw back.
+    A producer that sits downstream of another producer builds on that
+    producer's artifact. This is phase-agnostic: in the default implement
+    graph it is the ``tester`` (producer of test files, gated on
+    ``coder``); in the default plan graph the ``risk_analyst`` (producer
+    of the risk register, gated on ``architect`` + ``task_planner``) and
+    the ``simplifier`` (producer of the human companion, gated on
+    ``task_planner``); in the default refine graph the ``simplifier``
+    again (gated on ``refiner``). Any future graph with the same shape
+    gates the same way. Deriving ``propose`` for such a role while every
+    one of those upstream producers is still pre-first-propose spawns an
+    agent that can only orient-and-exit (nothing to build against,
+    nothing to review); three such no-ops burn the #3425 streak and park
+    the arm, which the #3465 BRC-movement release then has to claw back.
+
+    **Dependency edges, not review obligations (#3603).** The upstream
+    set is every producer ``role`` has an edge to — *including*
+    ``wake_only`` edges. ``wake_only`` means "casts no verdict" (it is
+    excluded from ``_has_pending_peer_proposals`` and the confirm guards
+    so the de-roled simplifier is never assigned an ``ack`` it cannot
+    satisfy, #3381); it does NOT mean "no dependency". The simplifier's
+    edge over its upstream producer exists precisely *because* the
+    companion depends on that producer's draft, which is what this gate
+    orders on. #3478 originally exempted wake-only edges here on the
+    theory that the simplifier is woken by its own propose-arm
+    re-spawning until the draft appears — but that wake mechanism is a
+    poll loop of clean no-op exits, which is exactly what the #3425 park
+    counts. The assessment in #3595 reproduced the resulting mis-park
+    **4/4, in both the refine and plan phases**: the simplifier reported
+    ``WAITING_ON_ROLE`` on its upstream, exited clean three times, and
+    was parked with a ``[high]`` ``agent-invocation-noop-streak`` alert
+    for doing exactly what its own prompt tells it to do ("you begin
+    writing only once that producer issues ``CONSENSUS_PROPOSE`` — do not
+    race ahead before the draft exists", ``_prompt_phase.py``). Gating
+    here makes the derivation agree with that prompt contract: the
+    simplifier is spawned by the poll that first sees the upstream's
+    proposal instead of polling for it, so there is no no-op streak to
+    park and no wedge-shaped alert to mis-target.
 
     Returns the role's upstream producer set (the derivation defers the
     first propose with ``wait``) when ALL of the following hold, else an
     empty list (derive ``propose`` exactly as before):
 
-    * ``role`` reviews at least one peer producer, excluding itself and
-      wake-only edges; the same exemptions as
-      ``_has_pending_peer_proposals``. The wake-only exclusion is
-      load-bearing: the de-roled simplifier (#3381) is deliberately
-      woken by its own propose-arm re-spawning until the upstream draft
-      exists, so its wake-only edge must never convert to a ``wait``.
-    * at least one upstream producer is *terminal* (it reviews no peer
+    * ``role`` has at least one upstream producer edge, excluding only
+      self-edges.
+    * at least one upstream producer is *terminal* (it has no upstream
       producers of its own, so it can never derive this wait itself).
       This keeps the waits-on relation acyclic by construction: a gated
       role always has an ungated producer to wait on, so a custom
       review graph with mutual producer edges cannot mutually ``wait``
       into a deadlock. In the default implement graph the coder is
-      terminal.
+      terminal; in refine the refiner; in plan the architect and
+      task_planner. Terminality is judged over the SAME edge set the
+      upstream computation uses (wake-only included) — judging it over a
+      narrower set could call a role terminal while it is itself gated,
+      which is how a mutual wake-only pair would deadlock.
     * every upstream producer is pre-first-propose: WORKING phase at
       proposal version 0. Any proposal at all (a current one, a
       withdrawn one, a no-changes one) means there is something to
@@ -369,29 +394,20 @@ def _pre_propose_upstream_producers(tracker: PeerConsensusTracker, role: str) ->
     helpers above).
     """
     graph = tracker.graph
-    wake_only = graph.wake_only_producers_for(role)
     # dict.fromkeys dedupes while preserving first-seen order:
     # graph.producers_for(role) yields one element per edge, so a graph
     # with parallel role->X edges would otherwise repeat X in both the
     # gate check and the waiting_on_producers payload.
     upstream = list(
-        dict.fromkeys(
-            producer
-            for producer in graph.producers_for(role)
-            if producer != role and producer not in wake_only
-        )
+        dict.fromkeys(producer for producer in graph.producers_for(role) if producer != role)
     )
     if not upstream:
         return []
 
-    def _reviews_peer_producers(producer: str) -> bool:
-        producer_wake_only = graph.wake_only_producers_for(producer)
-        return any(
-            peer != producer and peer not in producer_wake_only
-            for peer in graph.producers_for(producer)
-        )
+    def _has_upstream_producers(producer: str) -> bool:
+        return any(peer != producer for peer in graph.producers_for(producer))
 
-    if all(_reviews_peer_producers(producer) for producer in upstream):
+    if all(_has_upstream_producers(producer) for producer in upstream):
         # No terminal upstream producer: waiting could form a cycle, so
         # keep the pre-#3478 behavior and propose immediately.
         return []
@@ -421,14 +437,15 @@ def _derive_next_action(
       * sub-case b: dual-role post-own-propose with peer reviews
         pending → review the peer (``ack``).
 
-    First-propose gate (#3478): a dual-role producer in WORKING whose
-    reviewed peer producers are ALL still pre-first-propose derives
-    ``wait`` instead of ``propose`` (see
-    ``_pre_propose_upstream_producers``). This is phase-agnostic — it
-    fires for the implement-phase ``tester`` (gated on ``coder``) and
-    the plan-phase ``risk_analyst`` (gated on ``architect`` +
-    ``task_planner``) alike. R11a is untouched: the moment any upstream
-    producer has proposed, propose-own-work-first applies.
+    First-propose gate (#3478, #3603): a producer in WORKING whose
+    upstream producers are ALL still pre-first-propose derives ``wait``
+    instead of ``propose`` (see ``_pre_propose_upstream_producers``).
+    This is phase-agnostic — it fires for the implement-phase ``tester``
+    (gated on ``coder``), the plan-phase ``risk_analyst`` (gated on
+    ``architect`` + ``task_planner``), and the refine/plan ``simplifier``
+    (gated on ``refiner`` / ``task_planner``) alike. R11a is untouched:
+    the moment any upstream producer has proposed,
+    propose-own-work-first applies.
     """
     with tracker._lock:
         # ---- 1. role-complete short-circuit ----
@@ -479,14 +496,16 @@ def _derive_next_action(
                 if nacks:
                     payload["unresolved_nacks"] = nacks
                 else:
-                    # #3478: defer the FIRST propose of a dual-role
-                    # producer while every producer it reviews is still
-                    # pre-first-propose (the tester racing its coder, or
-                    # the risk_analyst racing architect + task_planner).
-                    # Spawning at that state can only no-op; the arm
-                    # burns its #3425 streak and parks. With unresolved
-                    # NACKs the producer has actionable feedback of its
-                    # own, so the gate never applies.
+                    # #3478/#3603: defer the FIRST propose of a producer
+                    # while every producer it depends on is still
+                    # pre-first-propose (the tester racing its coder, the
+                    # risk_analyst racing architect + task_planner, or the
+                    # simplifier racing the refiner / task_planner whose
+                    # draft its companion summarizes). Spawning at that
+                    # state can only no-op; the arm burns its #3425 streak
+                    # and parks. With unresolved NACKs the producer has
+                    # actionable feedback of its own, so the gate never
+                    # applies.
                     waiting_on = _pre_propose_upstream_producers(tracker, role)
                     if waiting_on:
                         return (
