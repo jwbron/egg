@@ -50,8 +50,10 @@
 #
 # ## reasoning_effort is silently dropped unless the model is flagged
 #
-# On `openrouter/*` routes, `litellm_params.reasoning_effort` reaches
-# the wire only when LiteLLM believes the model is reasoning-capable.
+# On many providers — `openrouter/*` among them, but far from only it
+# (see the shape to look for below) — `litellm_params.reasoning_effort`
+# reaches the wire only when LiteLLM believes the model is
+# reasoning-capable. Taking OpenRouter as the worked example:
 # `OpenrouterConfig.get_supported_openai_params` advertises
 # `reasoning_effort` / `thinking` — both under the same condition — only
 # if `litellm.supports_reasoning(model)` is true, and that reads
@@ -111,24 +113,42 @@
 # for loud request failures.
 #
 # THIS IS NOT AN OPENROUTER-ONLY TRAP, and `model_info` is not an
-# OpenRouter-only fix. Verified at litellm 1.86.2, nine other provider
-# configs gate a reasoning knob on the same `litellm.supports_reasoning`
-# call, fail-closed in the same way: `groq`, `xai`, `deepinfra`,
-# `cerebras`, `fireworks_ai`, `perplexity` and `bedrock_mantle` gate
-# `reasoning_effort`; `zai` and `minimax` gate `thinking` (and never
-# advertise `reasoning_effort` at all). On all of them form 1 works,
-# because LiteLLM registers `model_info` into its model-cost map under
-# the raw `litellm_params.model` string whatever the provider.
+# OpenRouter-only fix. Many other provider configs consult the same
+# `litellm.supports_reasoning` call — at litellm 1.86.2: `gemini` and
+# `vertex_ai` with exactly OpenRouter's shape (a bare gate, both knobs);
+# `groq`, `xai`, `deepinfra`, `cerebras`, `fireworks_ai`, `perplexity`,
+# `bedrock_mantle` gating `reasoning_effort`; `zai` and `minimax` gating
+# `thinking` and never advertising `reasoning_effort` at all;
+# `github_copilot` gating both but only for a "claude" model name; and
+# `anthropic` / `bedrock` falling back to the gate for any name their
+# heuristics don't already recognise. On all of them form 1 works,
+# because LiteLLM registers `model_info` into its model-cost map under a
+# key derived from `litellm_params` — `custom_llm_provider + "/" + model`
+# when that field is set, the raw `model` string otherwise — and the gate
+# reads that same map. Nothing on the path is OpenRouter-specific.
 #
-# Where `model_info` really is a placebo is a provider whose chat config
-# never consults `supports_reasoning` — e.g. `TogetherAIConfig`, which
-# only subtracts from `OpenAIGPTConfig`'s base list, and that base list
-# carries no reasoning knob at all. On a `together_ai/*` row the
-# parameter is popped silently whatever you set. So: check the
-# provider's `get_supported_openai_params` before setting the knob, and
-# note that the answer is per-knob, not per-provider. The CI guard
-# tracks the two cases separately (see the provider tables in
-# tests/config/test_litellm_template.py).
+# LOOK FOR THE SHAPE, NOT THE PROVIDER NAME. Any list here is a snapshot
+# of one litellm version; the durable question is what that provider's
+# `get_supported_openai_params` does when the model is ABSENT from
+# LiteLLM's map. Fails closed (drops the knob) — set `model_info`. Fails
+# open — you don't need it: azure's o-series config calls
+# `supports_reasoning` too, but assumes an unrecognised deployment name
+# IS reasoning-capable, so the same call has the opposite failure mode.
+# Advertises the knob nowhere — nothing in this file helps: that is
+# `TogetherAIConfig`, which only subtracts from `OpenAIGPTConfig`'s base
+# list, and that base list carries no reasoning knob at all, so on a
+# `together_ai/*` row the parameter is popped silently whatever you set.
+# The answer is also per-knob, not per-provider (see `zai` above). The CI
+# guard tracks these cases separately, and pins the litellm version its
+# reading was done at — bump the image and the guard tells you to re-read
+# (see the provider tables in tests/config/test_litellm_template.py).
+#
+# One shape to avoid whichever form you use: do not spell the provider
+# twice. A prefixed `model: openrouter/vendor/x` PLUS
+# `custom_llm_provider: openrouter` registers `model_info` under
+# `openrouter/openrouter/vendor/x` (LiteLLM prepends unconditionally)
+# while the gate looks up `openrouter/vendor/x` — flag set, flag never
+# read, knob dropped, config looking correct. Pick one spelling.
 #
 # VERIFY, don't assume: the `cost_callback` logs `request_params` per
 # call, read from LiteLLM's post-mapping params — i.e. what the wire

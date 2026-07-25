@@ -655,10 +655,11 @@ kubectl logs -n egg-system deploy/litellm \
 ```
 
 > **Trap: `reasoning_effort` in `litellm_params` is a silent no-op unless the
-> model is flagged.** This bites on `openrouter/*` and on nine other providers
-> (enumerated below). LiteLLM sends it only if it
-> believes the model is reasoning-capable:
-> `OpenrouterConfig.get_supported_openai_params` advertises
+> model is flagged.** This bites on `openrouter/*` and on a range of other
+> providers — the shape to look for is below, and it is not a short list.
+> LiteLLM sends the knob only if it
+> believes the model is reasoning-capable; taking OpenRouter as the worked
+> example, `OpenrouterConfig.get_supported_openai_params` advertises
 > `reasoning_effort`/`thinking` — both under the same condition — only when
 > `litellm.supports_reasoning(model)` is true, and that reads LiteLLM's
 > built-in model-cost map. **A model absent from that map answers `False`**,
@@ -705,23 +706,48 @@ kubectl logs -n egg-system deploy/litellm \
 > instead. You would trade a silent no-op for loud request failures.
 >
 > **This is not an OpenRouter-only trap, and form 1 is not an OpenRouter-only
-> fix.** Verified at litellm 1.86.2, nine other provider configs gate a
-> reasoning knob on the same `litellm.supports_reasoning` call and fail closed
-> identically: `groq`, `xai`, `deepinfra`, `cerebras`, `fireworks_ai`,
-> `perplexity` and `bedrock_mantle` gate `reasoning_effort`; `zai` and
-> `minimax` gate `thinking`, and never advertise `reasoning_effort` at all. On
-> every one of them `model_info` is the working fix, because
-> `Router._create_deployment` registers it into LiteLLM's model-cost map under
-> the raw `litellm_params.model` string — nothing on that path is
-> OpenRouter-specific.
+> fix.** Many other provider configs consult the same
+> `litellm.supports_reasoning` call. At litellm 1.86.2: `gemini` and
+> `vertex_ai` with exactly OpenRouter's shape — a bare gate on both knobs;
+> `groq`, `xai`, `deepinfra`, `cerebras`, `fireworks_ai`, `perplexity` and
+> `bedrock_mantle` gating `reasoning_effort`; `zai` and `minimax` gating
+> `thinking` and never advertising `reasoning_effort` at all;
+> `github_copilot` gating both but only for a `claude`-named model; and
+> `anthropic` / `bedrock` (converse) falling back to the gate for any name
+> their own heuristics don't recognise. On all of them `model_info` is the
+> working fix, because `Router._create_deployment` registers it into LiteLLM's
+> model-cost map under a key built from `litellm_params`
+> (`custom_llm_provider + "/" + model` when that field is set, the raw `model`
+> string otherwise) and the gate reads back that same map — nothing on the path
+> is OpenRouter-specific.
 >
-> Where `model_info` genuinely is a placebo is a provider whose chat config
-> never consults `supports_reasoning` at all: `TogetherAIConfig` only subtracts
-> from `OpenAIGPTConfig`'s base list, and that base list carries no reasoning
-> knob under any condition, so on a `together_ai/*` route the parameter is
-> popped silently whatever you set. Check that provider's
-> `get_supported_openai_params` before setting the knob — and note the answer
-> is per *knob*, not per provider.
+> **Look for the shape, not the provider name.** Any such list is a snapshot of
+> one litellm version, and a hard count of providers rots on the next bump. The
+> durable question about a provider you are about to configure is what its
+> `get_supported_openai_params` does when the model is *absent* from LiteLLM's
+> map:
+>
+> - **Fails closed** (drops the knob) → set `model_info`. Every provider named
+>   above is this case.
+> - **Fails open** → you don't need it. Azure's o-series config calls
+>   `supports_reasoning` too but *assumes* an unrecognised deployment name is
+>   reasoning-capable — the same call with the opposite failure mode, which is
+>   why the call alone isn't the test.
+> - **Never advertises the knob** → nothing in the config helps.
+>   `TogetherAIConfig` only subtracts from `OpenAIGPTConfig`'s base list, and
+>   that base list carries no reasoning knob under any condition, so on a
+>   `together_ai/*` route the parameter is popped silently whatever you set.
+>
+> Note the answer is per *knob*, not per provider (`zai` above), and per
+> litellm version: `tests/config/test_litellm_template.py` pins the version its
+> provider tables were read at and fails the build when the image moves past
+> it, so a bump forces the re-read instead of quietly invalidating the tables.
+>
+> Whichever form you use, don't spell the provider twice: a prefixed
+> `model: openrouter/vendor/x` *plus* `custom_llm_provider: openrouter`
+> registers `model_info` under `openrouter/openrouter/vendor/x` (LiteLLM
+> prepends unconditionally) while the gate looks up `openrouter/vendor/x` — the
+> flag is set, never read, and the knob is dropped by a config that looks right.
 >
 > `tests/config/test_litellm_template.py` guards both cases for the committed
 > template. Operator overlays are not in CI, so verify yours against
