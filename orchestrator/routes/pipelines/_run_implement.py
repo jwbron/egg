@@ -910,14 +910,18 @@ def _run_implement_phase_slices(
                 # #3398 — per-slice green gate: execute the repo's
                 # configured checks (repositories.yaml, via
                 # get_repo_checks) against the integration-branch tip
-                # in a sandboxed one-shot runner, and refuse to open
-                # the slice PR while any check is red. Closes the
-                # trust-vs-verify gap in the propose-time
+                # in a sandboxed one-shot runner and, in "on" mode,
+                # refuse to open the slice PR while any check is red.
+                # Closes the trust-vs-verify gap in the propose-time
                 # checks_passed self-report. Same posture as the
                 # evidence gate above: fail-open on infra errors,
                 # fail-closed only on a definitive red verdict;
                 # EGG_SLICE_GREEN_GATE is the operator switch
-                # (off during rollout / log / on).
+                # (off / log / on), defaulting to "on": the checks
+                # run on every slice close and a definitive red
+                # withholds the PR. "log" runs them without
+                # blocking; "off" is the escape hatch, and is
+                # quoted in the failure message itself.
                 if pipeline.repo:
                     try:
                         import slice_green_gate as _green_gate

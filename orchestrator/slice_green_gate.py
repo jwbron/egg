@@ -67,11 +67,84 @@ Mechanics mirror the two established precedents:
   OOM and fails open. ``EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=off``
   restores the strict every-red-blocks behavior.
 
-Rollout is staged via ``EGG_SLICE_GREEN_GATE``: ``off`` (default) →
-``log`` (run checks, log the verdict loudly, never block — the soak mode
-while #3301 contract-single-writer is still landing, since a stale
-contract snapshot on the slice tip can red contract-hygiene tests for
-reasons unrelated to the slice's code) → ``on`` (block).
+Rollout is staged via ``EGG_SLICE_GREEN_GATE``: ``off`` → ``log`` (run
+the checks, log the verdict loudly, never block) → ``on`` (**the
+default**: block PR-open on a definitive red).
+
+``on`` is the default rather than ``off`` because a gate nobody runs
+verifies nothing: the switch shipped in #3398 defaulting to ``off`` and
+was never set in any deployment, so the check-runner path had not
+executed once in the ~3 weeks after it landed. #3602 is the shape that
+costs — a contract task marked ``complete`` while five tests failed on
+the slice tip — and it is a shape only a *blocking* gate prevents.
+
+``log`` stays available for the deployment that wants verdicts without
+the blocking decision, and it is the right posture for a fleet, where a
+false red stalls a pipeline whose owner is not the person watching the
+rollout. It is not the default because its evidence is **passive**: a
+verdict is a structured log line, with no metric, audit event, or PR
+comment behind it (#3623). ``log`` therefore only informs an operator
+who goes looking, and this switch's own history is that nobody does.
+Under ``on`` a wrong verdict announces itself on the next slice close,
+to the operator who can act on it — which makes ``on`` the *better*
+instrument for measuring the false-red rate, not merely the stricter
+one.
+
+Expect the first reds to be the gate's own wiring rather than the
+slice's code, and note that either of these reds *every* slice close
+until it is fixed: a stale contract snapshot on the slice tip can red
+contract-hygiene tests for reasons unrelated to the slice (#3301), and
+``make test``'s changeset narrowing derives its baseline from ``git
+merge-base`` inside a fresh worktree, so it sees the cumulative slice
+diff rather than the tester's own-files scope. (A missing prebuilt-deps
+snapshot is *not* in this list: the runner exits non-zero and the gate
+fails open — see the toolchain paragraph below — so it costs coverage,
+not slice throughput.) Recovery from a wrong red is bounded and
+self-documenting: the failure message names the branch to fix, the
+slice restarts, and ``EGG_SLICE_GREEN_GATE=off`` is quoted inline as
+the bypass. The slice's commits stay on the integration branch through
+all of it — a red gate withholds the PR, it does not discard work.
+
+The latency cost is identical under ``log`` and ``on`` — both spawn the
+runner and wait for the pod — so it is the price of *running* the gate,
+not of blocking on it. Slice-close latency grows by the check duration
+(bounded by ``EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS``, default 1800s,
+plus the ``_POD_SCHEDULING_GRACE_SECONDS`` the orchestrator's wait adds
+on top — see the next paragraph — after which the gate fails open).
+``off`` remains available for deployments that cannot absorb that.
+
+Whoever watches the rollout should know the worst case is **not** a slow
+check suite: it is a runner pod that never schedules. ``_wait_for_runner_pod``
+waits ``timeout + _POD_SCHEDULING_GRACE_SECONDS`` (~32 min at the defaults)
+before failing open, so a capacity-starved cluster pays that in dead time on
+*every* slice close, in every deployment, from the moment this default lands.
+
+A *partially* delayed pod is the quieter half of the same problem, and on a
+busy cluster the more common one. The runner's deadline is the **Job's**
+``activeDeadlineSeconds``, counted from the Job's ``startTime`` — before any
+pod is bound — so time spent Pending or pulling comes out of the check budget
+rather than being added to it (``_POD_SCHEDULING_GRACE_SECONDS`` widens only
+the orchestrator's wait). A pod delayed N seconds gets N fewer seconds to run
+checks, and a ``DeadlineExceeded`` kill emits no verdict line, so the gate
+fails open with no verdict at all. Capacity starvation therefore raises the
+rate of *spurious no-verdict fail-opens* as well as dead time — silently
+narrowing how much of the slice stream the gate actually covers.
+
+Which log line an operator sees for that is not fixed, so grep for both: on
+``DeadlineExceeded`` the Job controller *deletes* the active pod rather than
+leaving it terminal, so ``_wait_for_runner_pod`` usually never observes
+``Succeeded``/``Failed``, polls out its own (larger) budget, and the gate logs
+"runner pod did not reach a terminal state". If a poll happens to catch the
+pod reporting ``Failed`` mid-termination, the log read returns partial output
+and "no parseable verdict from runner" fires instead. Both fail open, and
+neither is distinguishable from a runner-harness crash. Tracked in #3622,
+which this default makes the top follow-up: under ``on`` a missing verdict
+is a slice close you believed was gated and wasn't. Note the direction — a
+no-verdict fail-open can only *under*-block, never produce a false red, so
+it is a coverage gap rather than a correctness risk.
+
+Someone should watch the first wave directly rather than discovering the cost
+from a slice-throughput drop later; ``off`` is the escape hatch.
 
 The check toolchain is the **repo-defined** one, not the sandbox
 image's: ``repositories.yaml::build_commands`` builds the repo's pinned
@@ -106,14 +179,28 @@ if TYPE_CHECKING:
 
 logger = get_logger("orchestrator.slice_green_gate")
 
-# Operator switch for the green gate. Three-state, default off during
-# rollout (#3398): "off"/unset → gate skipped entirely; "log" → checks
-# run and a red verdict is logged loudly but never blocks; "on" → a red
-# verdict blocks the slice PR from opening.
+# Operator switch for the green gate. Three-state, default "on":
+# "off" → gate skipped entirely; "log" → checks run and a red verdict is
+# logged loudly but never blocks; "on"/unset → a red verdict blocks the
+# slice PR from opening.
 GREEN_GATE_ENV_VAR = "EGG_SLICE_GREEN_GATE"
 
 _ENABLED_VALUES = frozenset({"on", "1", "true", "yes"})
 _LOG_ONLY_VALUES = frozenset({"log", "log-only", "log_only"})
+_DISABLED_VALUES = frozenset({"off", "0", "false", "no"})
+
+# Mode used when the switch is unset or carries a value we do not
+# recognise. Weakening the gate takes an explicit, correctly-spelled
+# _DISABLED_VALUES or _LOG_ONLY_VALUES entry: a typo must not leave a
+# deployment with less verification than the product default. Note the
+# earlier "a typo must not start blocking slices" half of this rule
+# retired with the "log" default — under an "on" default, setting
+# nothing at all blocks, so a mistyped value resolving to "on" is no
+# stricter than the deployment an operator gets by doing nothing. This
+# is also the same rule _infra_fail_open_enabled() applies (unrecognised
+# → the default, loudly), so both switches in this module degrade
+# alike.
+_DEFAULT_MODE: Literal["off", "log", "on"] = "on"
 
 # Comma-separated check *names* (from repositories.yaml ``checks``) the
 # gate skips. Default skips ``security``: the full scan belongs on the
@@ -125,8 +212,16 @@ _DEFAULT_SKIP_CHECKS = "security"
 # red verdict where every failed check matches an infra signature fails
 # open instead of blocking. "off" (or 0/false/no) restores the strict
 # pre-#3417 behavior where every red blocks. Any other value degrades
-# to the default, matching green_gate_mode's typo posture.
+# to the default *and logs a warning*, matching green_gate_mode's typo
+# posture on both the resolution and the signal: the typo direction
+# here is strict -> lenient, so it must not be silent.
 GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR = "EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN"
+# Deliberately separate from _ENABLED_VALUES / _DISABLED_VALUES above,
+# not a missed dedup: this is an independent operator switch, and the
+# two are free to diverge (e.g. if the mode switch grows a fourth state).
+# The alias sets happening to be equal today is a coincidence to
+# preserve, not a duplication to collapse.
+_INFRA_FAIL_OPEN_ENABLED_VALUES = frozenset({"on", "1", "true", "yes"})
 _INFRA_FAIL_OPEN_DISABLED_VALUES = frozenset({"off", "0", "false", "no"})
 
 # Exact output signatures that identify an infrastructure fault inside a
@@ -184,13 +279,30 @@ _DEFAULT_TIMEOUT_SECONDS = 1800
 
 # Extra wall-clock the orchestrator's wait loop allows on top of the
 # in-pod check budget, to absorb pod scheduling + image-pull latency.
-# The wait clock starts at Job submit, before the pod is scheduled/pulled
-# — so on a cold node a long image pull would otherwise eat into the
-# check budget and trip a spurious fail-open timeout even when the checks
-# would have passed. The pod's own ``activeDeadlineSeconds`` (which the
-# kubelet counts from pod *start*, i.e. after scheduling) still caps the
-# actual check duration, so a genuinely hung check is killed by the pod
-# deadline rather than lingering for the full grace-padded wait.
+# The wait clock starts at Job submit, before the pod is scheduled or
+# pulled — so on a cold node that latency would otherwise be charged to
+# the orchestrator's own timeout and trip a spurious fail-open even when
+# the checks would have passed.
+#
+# The grace widens the *orchestrator's* wait only; it does not protect
+# the check budget. The deadline this module sets is the **Job's**
+# ``activeDeadlineSeconds`` (``spec.activeDeadlineSeconds``, see
+# ``_build_runner_job_manifest`` / ``_submit_runner_job``), which Kubernetes
+# counts from the Job's ``status.startTime`` — set by the controller
+# *before* any pod is bound. ``PodSpec.activeDeadlineSeconds``, the field
+# the kubelet would count from pod start on the node, is never set. So
+# scheduling and image-pull time count against the deadline: a pod that
+# waits N seconds for capacity gets N fewer seconds to run checks, and
+# with ``backoffLimit: 0`` / ``restartPolicy: Never`` a ``DeadlineExceeded``
+# kill prints no verdict line at all, so the gate fails open with no
+# verdict. It fails open via one of *two* branches, depending on timing:
+# the Job controller deletes the active pod on ``DeadlineExceeded``
+# rather than leaving it terminal, so ``_wait_for_runner_pod`` normally
+# never sees ``Succeeded``/``Failed`` and times out ("runner pod did not
+# reach a terminal state"); a poll that catches the pod reporting
+# ``Failed`` mid-termination instead reads partial output and lands on
+# "no parseable verdict from runner". Tracked in #3622; text here
+# describes what the code does today, not what it should do.
 _POD_SCHEDULING_GRACE_SECONDS = 120
 
 # Per-check output tail retained in the verdict (runner side) and the
@@ -349,26 +461,61 @@ print("EGG_GREEN_GATE_VERDICT:" + json.dumps({"checks": results}), flush=True)
 def green_gate_mode() -> Literal["off", "log", "on"]:
     """Resolve the operator switch to one of ``off`` / ``log`` / ``on``.
 
-    Unknown values resolve to ``off``: during rollout an operator typo
-    must degrade to "gate does nothing", never to "gate blocks slices".
+    Unset resolves to ``_DEFAULT_MODE`` (``on``). Weakening the gate
+    requires an explicit, correctly-spelled value — ``off`` / ``0`` /
+    ``false`` / ``no`` to skip it, ``log`` / ``log-only`` / ``log_only``
+    to run it without blocking. Any other value resolves to ``on`` and
+    logs a warning, so a typo cannot silently drop the deployment below
+    the product default.
     """
-    raw = os.environ.get(GREEN_GATE_ENV_VAR, "off").strip().lower()
+    raw = os.environ.get(GREEN_GATE_ENV_VAR, "").strip().lower()
+    if not raw:
+        return _DEFAULT_MODE
     if raw in _ENABLED_VALUES:
         return "on"
     if raw in _LOG_ONLY_VALUES:
         return "log"
-    return "off"
+    if raw in _DISABLED_VALUES:
+        return "off"
+    logger.warning(
+        "Unrecognised green-gate switch value; falling back to the default mode",
+        env_var=GREEN_GATE_ENV_VAR,
+        value=raw,
+        mode=_DEFAULT_MODE,
+    )
+    return _DEFAULT_MODE
 
 
 def _infra_fail_open_enabled() -> bool:
     """Resolve the #3417 infra-red fail-open switch (default on).
 
     Only the exact disabled values turn it off; anything else degrades
-    to the default. Mirrors ``green_gate_mode``'s posture: an operator
-    typo resolves to the documented default behavior.
+    to the default *and logs a warning*. Mirrors ``green_gate_mode``'s
+    posture on both counts: an operator typo resolves to the documented
+    default behavior, and it never does so silently. The warning matters
+    more here than on the mode switch, because the two typos point in
+    opposite directions. A mistyped ``EGG_SLICE_GREEN_GATE`` resolves to
+    ``on``, the strictest mode, so it can only over-verify. A mistyped
+    value here resolves to fail-open, so an operator reaching for ``off``
+    and typing ``offf`` gets the *lenient* posture — silently, without
+    the warning.
     """
     raw = os.environ.get(GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, "on").strip().lower()
-    return raw not in _INFRA_FAIL_OPEN_DISABLED_VALUES
+    if not raw or raw in _INFRA_FAIL_OPEN_ENABLED_VALUES:
+        return True
+    if raw in _INFRA_FAIL_OPEN_DISABLED_VALUES:
+        return False
+    logger.warning(
+        "Unrecognised green-gate infra-fail-open switch value; "
+        "falling back to the default (fail open on all-infra reds)",
+        env_var=GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR,
+        value=raw,
+        # Structured resolved value, mirroring green_gate_mode's
+        # ``mode=`` kwarg, so both typo warnings are greppable the
+        # same way rather than carrying the resolution in prose only.
+        fail_open=True,
+    )
+    return True
 
 
 def _gate_checks(repo: str) -> list[dict[str, str]]:
@@ -504,9 +651,12 @@ def _build_runner_job_manifest(
             # only extends lifetime when the orchestrator crashed before
             # reaching it (probe precedent).
             "ttlSecondsAfterFinished": 300,
-            # Give the in-pod checks the full budget; the orchestrator's
-            # wait loop enforces the same ceiling, and the deadline
-            # guarantees a hung check terminates rather than lingering.
+            # Job-level deadline: counted from the Job's ``startTime``,
+            # i.e. from before the pod is bound, so scheduling and pull
+            # latency come out of the check budget (#3622 — see
+            # ``_POD_SCHEDULING_GRACE_SECONDS``). It bounds a hung check
+            # rather than sizing it; the orchestrator's wait loop is the
+            # outer ceiling.
             "activeDeadlineSeconds": timeout_seconds + 60,
             "backoffLimit": 0,
             "template": {
@@ -550,11 +700,23 @@ def _build_runner_job_manifest(
 
 
 def _submit_runner_job(k8s: Any, namespace: str, manifest: dict[str, Any]) -> None:
-    """Convert the manifest dict to V1 objects and create the Job."""
+    """Convert the manifest dict to V1 objects and create the Job.
+
+    Every field is read *from the manifest* rather than restated here.
+    Three of them used to be hardcoded (``automountServiceAccountToken``,
+    ``allowPrivilegeEscalation``, ``capabilities.drop``) while the
+    manifest also declared them: the values agreed, so there was no live
+    bug, but the dict was not the source of truth it looks like, and a
+    test asserting on the submitted body could not tell the two apart.
+    Keep new fields flowing through the dict —
+    ``test_every_manifest_field_reaches_the_body`` fails on any manifest
+    key this function does not copy.
+    """
     from kubernetes import client as k8s_client_pkg
 
     container = manifest["spec"]["template"]["spec"]["containers"][0]
     pod_spec = manifest["spec"]["template"]["spec"]
+    container_security = container["securityContext"]
     body = k8s_client_pkg.V1Job(
         api_version=manifest["apiVersion"],
         kind=manifest["kind"],
@@ -572,7 +734,7 @@ def _submit_runner_job(k8s: Any, namespace: str, manifest: dict[str, Any]) -> No
                 ),
                 spec=k8s_client_pkg.V1PodSpec(
                     restart_policy=pod_spec["restartPolicy"],
-                    automount_service_account_token=False,
+                    automount_service_account_token=pod_spec["automountServiceAccountToken"],
                     security_context=k8s_client_pkg.V1PodSecurityContext(
                         run_as_user=pod_spec["securityContext"]["runAsUser"],
                         run_as_group=pod_spec["securityContext"]["runAsGroup"],
@@ -589,8 +751,12 @@ def _submit_runner_job(k8s: Any, namespace: str, manifest: dict[str, Any]) -> No
                                 for e in container["env"]
                             ],
                             security_context=k8s_client_pkg.V1SecurityContext(
-                                allow_privilege_escalation=False,
-                                capabilities=k8s_client_pkg.V1Capabilities(drop=["ALL"]),
+                                allow_privilege_escalation=container_security[
+                                    "allowPrivilegeEscalation"
+                                ],
+                                capabilities=k8s_client_pkg.V1Capabilities(
+                                    drop=container_security["capabilities"]["drop"],
+                                ),
                             ),
                             volume_mounts=[
                                 k8s_client_pkg.V1VolumeMount(
@@ -900,7 +1066,14 @@ def run_slice_green_gate(
         if verdict is None:
             # Covers pod Failed (runner harness crashed — the verdict is
             # printed even when checks are red, so a missing verdict is
-            # never a check failure) and unparseable output.
+            # never a *check* failure), unparseable output, and a Job
+            # ``activeDeadlineSeconds`` kill caught mid-termination, where
+            # the checks may have been about to pass and the budget was
+            # simply cut short by scheduling delay (#3622 — see
+            # ``_POD_SCHEDULING_GRACE_SECONDS``). A deadline kill more
+            # often lands on the "did not reach a terminal state" branch
+            # above, since the Job controller deletes the pod; check both
+            # when diagnosing a missing verdict.
             logger.warning(
                 "Green gate skipped: no parseable verdict from runner (#3398)",
                 pipeline_id=pipeline_id,
