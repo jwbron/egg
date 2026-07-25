@@ -340,7 +340,7 @@
           "id": "task-2-2",
           "description": "Test for forward-progress detector.",
           "status": "pending",
-          "commit": null,
+          "commit": "4a02ece9b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Test verifies detector fires on zero-progress agent running >600s\n- Test verifies detector stays silent on active agent (commits/progress/file mods)\n- Test verifies configurable threshold via PipelineConfig",
@@ -1271,6 +1271,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-12 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T06:46:53.267154Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "4a02ece9b",
+      "reason": "Linked commit 4a02ece to task-2-2",
       "checkpoint_id": null
     }
   ],
