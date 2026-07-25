@@ -88,6 +88,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "840906f8fb0473aa748a518de440fab32fbc46e8": {
+      "branch": "egg/issue-3596-v2/slice-1",
+      "patch_id": "393d1aa91a60b513bd1d01e08091c8a46ba4dd8d",
+      "pipeline_id": "issue-3596-v2",
+      "registered_at": "2026-07-25T04:57:26.207734+00:00",
+      "repo": null,
+      "role": "documenter"
+    },
     "8add02cc996cd5a0578de7145fd5d06363453b5a": {
       "branch": "egg/issue-3596-v2/work",
       "patch_id": "e969c1e766ca7a876a45561ec5936a781265c753",
