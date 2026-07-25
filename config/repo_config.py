@@ -364,21 +364,27 @@ except ImportError:
         """Validate and normalize a list of check command entries.
 
         Filters out malformed entries and coerces values to strings.
+        Mirrors ``egg_config.validators.validate_checks``, including
+        the optional ``fix`` auto-remediation command (#3409).
 
         Args:
             checks: Raw list of check entries (e.g. from YAML or JSON).
 
         Returns:
-            List of {"name": "...", "command": "..."} dicts with only
-            valid entries retained.
+            List of {"name": "...", "command": "..."} dicts (plus
+            "fix" when configured) with only valid entries retained.
         """
         if not isinstance(checks, list):
             return []
-        return [
-            {"name": str(c["name"]), "command": str(c["command"])}
-            for c in checks
-            if isinstance(c, dict) and "name" in c and "command" in c
-        ]
+        result = []
+        for c in checks:
+            if not (isinstance(c, dict) and "name" in c and "command" in c):
+                continue
+            entry = {"name": str(c["name"]), "command": str(c["command"])}
+            if c.get("fix"):
+                entry["fix"] = str(c["fix"])
+            result.append(entry)
+        return result
 
 
 def reload_config() -> None:
@@ -572,14 +578,16 @@ def get_repo_checks(repo: str) -> list[dict[str, str]]:
 
     These are the commands to run during the SDLC pipeline implement phase
     checker step. Each check has a "name" (display label) and "command"
-    (shell command to execute). They run sequentially.
+    (shell command to execute). They run sequentially. A check may also
+    carry an optional "fix" command — an auto-remediation the per-slice
+    green gate runs when the check is red at the slice tip (#3409).
 
     Args:
         repo: Repository in "owner/repo" format
 
     Returns:
-        List of {"name": "...", "command": "..."} dicts,
-        or empty list if no checks configured.
+        List of {"name": "...", "command": "..."} dicts (plus "fix"
+        when configured), or empty list if no checks configured.
     """
     checks = get_repo_setting(repo, "checks", [])
     result: list[dict[str, str]] = validate_checks(checks)

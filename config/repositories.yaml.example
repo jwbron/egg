@@ -77,6 +77,13 @@ readable_repos:
 #   - checks: List of check commands for the SDLC pipeline implement phase
 #     Each entry has "name" (display label) and "command" (shell command)
 #     These run sequentially during the checker step
+#     An entry may also set "fix" (shell command): when the per-slice green
+#     gate finds that check red at the slice tip, it runs the fix command,
+#     re-runs the check, and — if the fix turned it green — commits and
+#     pushes the result to the slice integration branch as the orchestrator
+#     (#3409). Only configure deterministic auto-remediations here, e.g.
+#     "make lint-fix" for a format/lint check. Checks without "fix" route
+#     red verdicts back to the slice team unchanged.
 #   - build_commands: Commands to run during Docker image build to install
 #     project-specific dependencies. Results are baked into the image so
 #     containers start with dependencies pre-installed (critical for private
@@ -138,6 +145,7 @@ repo_settings:
   #   checks:
   #     - name: lint
   #       command: make lint
+  #       fix: make lint-fix  # optional green-gate auto-remediation (#3409)
   #     - name: test
   #       command: make test
   # some-org/external-repo:

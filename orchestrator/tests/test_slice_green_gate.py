@@ -11,8 +11,12 @@ Covers:
 * ``_RUNNER_PROGRAM`` — executed for real in a subprocess: check
   execution + verdict shape, output tails, the prebuilt-deps restore
   (copy-if-missing), the required-but-missing infra exit, and the
-  #3417 infra tagging (signature match over full output, SIGKILL exit,
-  green checks never tagged).
+  #3409 fix flow (fix executed only on a red check, re-run verdict,
+  changed-files reporting + cap, no-git degrade), and the #3417 infra
+  tagging (signature match over full output, SIGKILL exit, green checks
+  never tagged).
+* ``_commit_and_push_autofix`` — real-git stage/commit + gateway push
+  wiring, the no-tracked-changes refusal, and push-failure reporting.
 * ``_build_runner_job_manifest`` — labels (NetworkPolicy component
   label present; monitor/agent-supervision labels absent), env, mounts,
   deadline.
@@ -323,8 +327,8 @@ class TestGateTimeout:
 # ----------------------------------------------------------------------
 
 
-def _verdict_line(checks: list[dict[str, Any]]) -> str:
-    return sgg.VERDICT_SENTINEL + json.dumps({"checks": checks})
+def _verdict_line(checks: list[dict[str, Any]], **extra: Any) -> str:
+    return sgg.VERDICT_SENTINEL + json.dumps({"checks": checks, **extra})
 
 
 class TestParseVerdict:
@@ -368,6 +372,7 @@ def _run_runner(
     *,
     require_prebuilt: str = "0",
     prebuilt_base: Path | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     repo_dir = tmp_path / "egg"
     repo_dir.mkdir(exist_ok=True)
@@ -389,6 +394,7 @@ def _run_runner(
             ),
         }
     )
+    env.update(extra_env or {})
     return subprocess.run(
         [sys.executable, "-c", sgg._RUNNER_PROGRAM],
         capture_output=True,
@@ -609,6 +615,181 @@ class TestRunnerProgram:
         verdict = sgg.parse_verdict(proc.stdout)
         assert verdict is not None
         assert verdict["checks"][0]["ok"] is True
+
+
+def _git(repo_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+def _init_git_repo(repo_dir: Path) -> None:
+    repo_dir.mkdir(exist_ok=True)
+    _git(repo_dir, "init", "-q", ".")
+    (repo_dir / "file.txt").write_text("bad\n")
+    _git(repo_dir, "add", "file.txt")
+    _git(repo_dir, "commit", "-q", "-m", "init")
+
+
+class TestRunnerFixFlow:
+    """#3409 — the runner's fix execution + re-run reporting."""
+
+    FIXABLE_CHECK = {
+        "name": "lint",
+        "command": "grep -q good file.txt",
+        "fix": "printf 'good\\n' > file.txt",
+    }
+
+    def test_red_check_with_fix_reports_fix_result(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path / "egg")
+        (tmp_path / "egg" / "junk.log").write_text("untracked check dropping")
+        proc = _run_runner(tmp_path, [dict(self.FIXABLE_CHECK)])
+        assert proc.returncode == 0
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        entry = verdict["checks"][0]
+        # The tip as pushed is still red; only the orchestrator commit
+        # may turn the verdict green.
+        assert entry["ok"] is False
+        fix = entry["fix"]
+        assert fix["command"] == self.FIXABLE_CHECK["fix"]
+        assert fix["exit_code"] == 0
+        assert fix["check_ok_after_fix"] is True
+        # Tracked modification reported; untracked droppings are not.
+        assert fix["changed_files"] == ["file.txt"]
+        assert fix["changed_file_count"] == 1
+
+    def test_fix_that_does_not_repair_reports_red_rerun(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path / "egg")
+        proc = _run_runner(
+            tmp_path,
+            [{"name": "lint", "command": "grep -q good file.txt", "fix": "true"}],
+        )
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        fix = verdict["checks"][0]["fix"]
+        assert fix["check_ok_after_fix"] is False
+        assert fix["changed_files"] == []
+
+    def test_green_check_never_runs_fix(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path / "egg")
+        proc = _run_runner(
+            tmp_path,
+            [{"name": "lint", "command": "true", "fix": "touch fix-ran.marker"}],
+        )
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        assert "fix" not in verdict["checks"][0]
+        assert not (tmp_path / "egg" / "fix-ran.marker").exists()
+
+    def test_red_check_without_fix_reports_plain_red(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path / "egg")
+        proc = _run_runner(tmp_path, [{"name": "lint", "command": "false"}])
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        entry = verdict["checks"][0]
+        assert entry["ok"] is False
+        assert "fix" not in entry
+
+    def test_changed_files_capped_but_count_exact(self, tmp_path: Path) -> None:
+        repo_dir = tmp_path / "egg"
+        _init_git_repo(repo_dir)
+        for i in range(3):
+            (repo_dir / f"extra{i}.txt").write_text("bad\n")
+            _git(repo_dir, "add", f"extra{i}.txt")
+        _git(repo_dir, "commit", "-q", "-m", "more files")
+        proc = _run_runner(
+            tmp_path,
+            [
+                {
+                    "name": "lint",
+                    "command": "grep -q good file.txt",
+                    "fix": "for f in file.txt extra0.txt extra1.txt extra2.txt; "
+                    "do printf 'good\\n' > \"$f\"; done",
+                }
+            ],
+            extra_env={"EGG_GREEN_GATE_CHANGED_FILES_CAP": "2"},
+        )
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        fix = verdict["checks"][0]["fix"]
+        assert fix["check_ok_after_fix"] is True
+        assert len(fix["changed_files"]) == 2
+        assert fix["changed_file_count"] == 4
+
+    def test_no_git_repo_degrades_changed_files_to_none(self, tmp_path: Path) -> None:
+        # No git init: the gateway-routed git diff is best-effort and a
+        # failure must degrade to an unreported list, not a crash.
+        #
+        # Assumption: pytest's ``tmp_path`` (under the system temp root,
+        # e.g. ``/tmp``) is NOT nested inside any git repository, so the
+        # runner's ``git diff`` / ``git ls-files`` genuinely fail. If the
+        # tmp root ever moves under a checkout, git would succeed against
+        # the enclosing repo and these ``is None`` assertions would flip —
+        # a confusing failure that this note is here to explain.
+        repo_dir = tmp_path / "egg"
+        repo_dir.mkdir(exist_ok=True)
+        (repo_dir / "file.txt").write_text("bad\n")
+        proc = _run_runner(tmp_path, [dict(self.FIXABLE_CHECK)])
+        assert proc.returncode == 0
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        fix = verdict["checks"][0]["fix"]
+        assert fix["check_ok_after_fix"] is True
+        assert fix["changed_files"] is None
+        assert fix["changed_file_count"] is None
+        # Best-effort git failed, so the untracked delta is unknown and
+        # the orchestrator will refuse autofix (fail-safe).
+        final = verdict["final_verification"]
+        assert final["new_untracked_count"] is None
+
+    def test_final_verification_green_for_fixed_tree(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path / "egg")
+        proc = _run_runner(tmp_path, [dict(self.FIXABLE_CHECK)])
+        assert proc.returncode == 0
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        final = verdict["final_verification"]
+        assert final["ran"] is True
+        # The final full re-run of every check against the fixed tree is
+        # green, and the fix only touched a tracked file.
+        assert final["all_ok"] is True
+        assert final["failed"] == []
+        assert final["new_untracked_count"] == 0
+
+    def test_final_verification_flags_fix_created_untracked_file(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path / "egg")
+        # The fix repairs file.txt AND emits a new, non-ignored source
+        # file that git add -u would never stage.
+        proc = _run_runner(
+            tmp_path,
+            [
+                {
+                    "name": "lint",
+                    "command": "grep -q good file.txt",
+                    "fix": "printf 'good\\n' > file.txt; printf 'x\\n' > generated.py",
+                }
+            ],
+        )
+        assert proc.returncode == 0
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        final = verdict["final_verification"]
+        assert final["all_ok"] is True
+        assert final["new_untracked_count"] == 1
+        assert final["new_untracked_files"] == ["generated.py"]
+
+    def test_no_fix_applied_omits_final_verification(self, tmp_path: Path) -> None:
+        _init_git_repo(tmp_path / "egg")
+        proc = _run_runner(tmp_path, [{"name": "lint", "command": "true"}])
+        verdict = sgg.parse_verdict(proc.stdout)
+        assert verdict is not None
+        # No fix ran, so there is no combined tree to re-validate.
+        assert "final_verification" not in verdict
 
 
 # ----------------------------------------------------------------------
@@ -1307,4 +1488,480 @@ class TestRunSliceGreenGate:
         }
         assert env["EGG_GREEN_GATE_REQUIRE_PREBUILT"] == "1"
         assert env["EGG_SESSION_TOKEN"] == "tok-123"
+        assert env["EGG_GREEN_GATE_CHANGED_FILES_CAP"] == str(sgg._FIX_CHANGED_FILES_CAP)
         assert json.loads(env["EGG_GREEN_GATE_CHECKS"]) == CHECKS
+
+
+# ----------------------------------------------------------------------
+# _commit_and_push_autofix (#3409)
+# ----------------------------------------------------------------------
+
+
+def _autofix_repo(tmp_path: Path) -> Path:
+    repo_dir = tmp_path / "egg"
+    _init_git_repo(repo_dir)
+    return repo_dir
+
+
+def _run_autofix(repo_dir: Path, gateway: MagicMock) -> str | None:
+    return sgg._commit_and_push_autofix(
+        gateway,
+        pipeline_id=PIPELINE_ID,
+        slice_id=SLICE_ID,
+        worktree_path=str(repo_dir),
+        integration_branch=INTEGRATION_BRANCH,
+        gateway_mode="public",
+        fixed_checks=[{"name": "lint", "fix": {"check_ok_after_fix": True}}],
+    )
+
+
+class TestCommitAndPushAutofix:
+    def test_stages_commits_and_pushes(self, tmp_path: Path) -> None:
+        repo_dir = _autofix_repo(tmp_path)
+        (repo_dir / "file.txt").write_text("good\n")
+        (repo_dir / "junk.log").write_text("untracked check dropping")
+        gateway = MagicMock()
+        gateway.push_worktree_branch.return_value = SimpleNamespace(ok=True)
+
+        assert _run_autofix(repo_dir, gateway) is None
+
+        head = _git(repo_dir, "log", "-1", "--format=%an|%ae|%s")
+        author, email, subject = head.stdout.strip().split("|")
+        assert author == "egg-green-gate"
+        assert email == "egg-green-gate@localhost"
+        assert "lint" in subject
+        # Untracked droppings never enter the commit.
+        shown = _git(repo_dir, "show", "--name-only", "--format=", "HEAD")
+        assert shown.stdout.split() == ["file.txt"]
+        gateway.push_worktree_branch.assert_called_once_with(
+            PIPELINE_ID,
+            repo_path=str(repo_dir),
+            branch=INTEGRATION_BRANCH,
+            mode="public",
+        )
+
+    def test_no_tracked_changes_refuses_without_push(self, tmp_path: Path) -> None:
+        repo_dir = _autofix_repo(tmp_path)
+        gateway = MagicMock()
+        error = _run_autofix(repo_dir, gateway)
+        assert error is not None
+        assert "no tracked" in error
+        gateway.push_worktree_branch.assert_not_called()
+
+    def test_push_failure_is_reported(self, tmp_path: Path) -> None:
+        repo_dir = _autofix_repo(tmp_path)
+        (repo_dir / "file.txt").write_text("good\n")
+        gateway = MagicMock()
+        gateway.push_worktree_branch.return_value = SimpleNamespace(
+            ok=False, category="auth_failed", detail="denied"
+        )
+        error = _run_autofix(repo_dir, gateway)
+        assert error is not None
+        assert "auth_failed" in error
+        assert "denied" in error
+
+    def test_push_raising_is_reported(self, tmp_path: Path) -> None:
+        repo_dir = _autofix_repo(tmp_path)
+        (repo_dir / "file.txt").write_text("good\n")
+        gateway = MagicMock()
+        gateway.push_worktree_branch.side_effect = RuntimeError("gateway down")
+        error = _run_autofix(repo_dir, gateway)
+        assert error is not None
+        assert "gateway down" in error
+
+    def test_not_a_git_repo_is_reported(self, tmp_path: Path) -> None:
+        repo_dir = tmp_path / "not-a-repo"
+        repo_dir.mkdir()
+        gateway = MagicMock()
+        error = _run_autofix(repo_dir, gateway)
+        assert error is not None
+        gateway.push_worktree_branch.assert_not_called()
+
+
+# ----------------------------------------------------------------------
+# run_slice_green_gate — #3409 autofix wiring
+# ----------------------------------------------------------------------
+
+
+def _fixed(ok: bool = True) -> dict[str, Any]:
+    return {
+        "command": "make lint-fix",
+        "exit_code": 0,
+        "check_ok_after_fix": ok,
+        "changed_files": ["a.py"],
+        "changed_file_count": 1,
+        "output_tail": "",
+        "recheck_output_tail": "",
+    }
+
+
+def _final_verification(
+    *,
+    all_ok: bool = True,
+    failed: list[str] | None = None,
+    new_untracked_count: int | None = 0,
+    new_untracked_files: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "ran": True,
+        "all_ok": all_ok,
+        "failed": failed or [],
+        "new_untracked_files": (new_untracked_files if new_untracked_files is not None else []),
+        "new_untracked_count": new_untracked_count,
+    }
+
+
+def _red_lint_verdict(*, fix: dict[str, Any] | None, final: Any = "default") -> str:
+    entry: dict[str, Any] = {
+        "name": "lint",
+        "ok": False,
+        "exit_code": 1,
+        "output_tail": "would reformat a.py",
+    }
+    if fix is not None:
+        entry["fix"] = fix
+    checks = [entry, {"name": "test", "ok": True, "exit_code": 0, "output_tail": ""}]
+    # A fixable verdict carries the runner's final full re-run by default;
+    # pass ``final=None`` to model an old/degraded runner that omitted it.
+    if final == "default":
+        final = _final_verification() if fix is not None else None
+    if final is not None:
+        return _verdict_line(checks, final_verification=final)
+    return _verdict_line(checks)
+
+
+class TestGreenGateAutofixWiring:
+    def test_fixed_red_verdict_pushes_and_passes(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        spawner = _spawner()
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=_red_lint_verdict(fix=_fixed())),
+            patch.object(sgg, "_delete_runner_job"),
+            patch.object(sgg, "_commit_and_push_autofix", return_value=None) as autofix,
+        ):
+            assert _run_gate(spawner) is None
+        autofix.assert_called_once()
+        kwargs = autofix.call_args.kwargs
+        # The autofix stages the SAME hostPath worktree the runner
+        # mutated, and pushes to the slice integration branch.
+        assert kwargs["worktree_path"] == "/home/host/.egg-worktrees/runner/egg"
+        assert kwargs["integration_branch"] == INTEGRATION_BRANCH
+        assert kwargs["gateway_mode"] == "public"
+        assert [c["name"] for c in kwargs["fixed_checks"]] == ["lint"]
+        # Cleanup still runs after the autofix path.
+        spawner.gateway.delete_session_by_container.assert_called_once()
+        spawner.gateway.delete_worktrees.assert_called_once()
+
+    def test_autofix_failure_blocks_with_note(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        spawner = _spawner()
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=_red_lint_verdict(fix=_fixed())),
+            patch.object(sgg, "_delete_runner_job"),
+            patch.object(sgg, "_commit_and_push_autofix", return_value="push exploded"),
+        ):
+            failure = _run_gate(spawner)
+        assert failure is not None
+        assert "lint" in failure
+        assert "push exploded" in failure
+
+    def test_rerun_still_red_blocks_without_autofix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        spawner = _spawner()
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(
+                sgg, "_read_runner_log", return_value=_red_lint_verdict(fix=_fixed(ok=False))
+            ),
+            patch.object(sgg, "_delete_runner_job"),
+            patch.object(sgg, "_commit_and_push_autofix") as autofix,
+        ):
+            failure = _run_gate(spawner)
+        assert failure is not None
+        autofix.assert_not_called()
+
+    def test_partially_fixable_verdict_blocks_without_autofix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        spawner = _spawner()
+        log = _verdict_line(
+            [
+                {"name": "lint", "ok": False, "exit_code": 1, "output_tail": "", "fix": _fixed()},
+                {"name": "test", "ok": False, "exit_code": 2, "output_tail": "FAILED"},
+            ]
+        )
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+            patch.object(sgg, "_commit_and_push_autofix") as autofix,
+        ):
+            failure = _run_gate(spawner)
+        assert failure is not None
+        autofix.assert_not_called()
+
+    def test_log_mode_never_pushes_a_fix(
+        self, gate_env: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, "log")
+        spawner = _spawner()
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=_red_lint_verdict(fix=_fixed())),
+            patch.object(sgg, "_delete_runner_job"),
+            patch.object(sgg, "_commit_and_push_autofix") as autofix,
+        ):
+            assert _run_gate(spawner) is None
+        autofix.assert_not_called()
+
+    def _assert_blocks_without_autofix(self, spawner: MagicMock, log: str) -> None:
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+            patch.object(sgg, "_commit_and_push_autofix") as autofix,
+        ):
+            failure = _run_gate(spawner)
+        assert failure is not None
+        autofix.assert_not_called()
+
+    def test_final_rerun_red_blocks_without_autofix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # #3409: every failed check's own re-run went green, but the final
+        # full re-run of all checks against the combined tree is red (a
+        # fix broke another check) — the committed tip would be red.
+        log = _red_lint_verdict(
+            fix=_fixed(), final=_final_verification(all_ok=False, failed=["test"])
+        )
+        self._assert_blocks_without_autofix(_spawner(), log)
+
+    def test_fix_created_untracked_files_blocks_without_autofix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # #3409: the fix emitted a new source file. ``git add -u`` would
+        # drop it, so the pushed tip omits it and the check is red as
+        # pushed even though the runner's on-disk re-run was green.
+        log = _red_lint_verdict(
+            fix=_fixed(),
+            final=_final_verification(new_untracked_count=1, new_untracked_files=["gen/new.py"]),
+        )
+        self._assert_blocks_without_autofix(_spawner(), log)
+
+    def test_unknown_untracked_count_blocks_without_autofix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # #3409: a best-effort git failure left the untracked delta
+        # unknown; the gate refuses rather than risk a red pushed tip.
+        log = _red_lint_verdict(fix=_fixed(), final=_final_verification(new_untracked_count=None))
+        self._assert_blocks_without_autofix(_spawner(), log)
+
+    def test_missing_final_verification_blocks_without_autofix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # #3409: an old/degraded runner that omitted final_verification
+        # cannot prove the committed tree is green — refuse autofix.
+        log = _red_lint_verdict(fix=_fixed(), final=None)
+        self._assert_blocks_without_autofix(_spawner(), log)
+
+
+def _infra_plus_fixable_verdict(*, final: dict[str, Any]) -> str:
+    """An infra-tagged red (#3417) co-occurring with a fixable red (#3409)."""
+    return _verdict_line(
+        [
+            {
+                "name": "test",
+                "ok": False,
+                "exit_code": 137,
+                "output_tail": "GATEWAY SIDECAR NOT AVAILABLE",
+                "infra": "GATEWAY SIDECAR NOT AVAILABLE",
+            },
+            {
+                "name": "lint",
+                "ok": False,
+                "exit_code": 1,
+                "output_tail": "would reformat a.py",
+                "infra": None,
+                "fix": _fixed(),
+            },
+        ],
+        final_verification=final,
+    )
+
+
+class TestInfraFailOpenAutofixComposition:
+    """#3417 infra fail-open composed with #3409 autofix.
+
+    The gate narrows ``failed`` to ``genuine_failed`` *before* the autofix
+    decision, so ``_autofix_ready`` and ``_commit_and_push_autofix`` both
+    see only the non-infra reds. Neither #3417 nor #3409 alone exercises
+    this: the infra tests build verdicts with no ``fix`` block and the
+    autofix tests build verdicts with no ``infra`` field.
+    """
+
+    def test_infra_red_alongside_fixable_red_pushes_only_the_genuine_fix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # The infra-tagged red is filtered out, the genuine red's fix went
+        # green, and the final full re-run — which covers *every* check,
+        # infra-tagged ones included — is green, so the tip is provably
+        # green and the autofix pushes.
+        log = _infra_plus_fixable_verdict(final=_final_verification())
+        spawner = _spawner()
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+            patch.object(sgg, "_commit_and_push_autofix", return_value=None) as autofix,
+        ):
+            assert _run_gate(spawner) is None
+        autofix.assert_called_once()
+        # Only the genuine red is reported as fixed — the infra red never
+        # reaches the commit path even though it was red at the tip.
+        assert [c["name"] for c in autofix.call_args.kwargs["fixed_checks"]] == ["lint"]
+
+    def test_infra_red_still_red_in_final_rerun_blocks_the_fixable_red(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # The infra red is filtered from the *presented* failures, but the
+        # final full re-run still covers it — so a persistent infra fault
+        # blocks the push rather than letting a tree only partly proven
+        # green reach the integration branch.
+        log = _infra_plus_fixable_verdict(final=_final_verification(all_ok=False, failed=["test"]))
+        spawner = _spawner()
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+            patch.object(sgg, "_commit_and_push_autofix") as autofix,
+        ):
+            failure = _run_gate(spawner)
+        autofix.assert_not_called()
+        assert failure is not None
+        # #3409: every red the operator is shown had a working fix, so the
+        # message must say why the gate refused to self-heal anyway —
+        # otherwise they re-run `make lint-fix`, watch it succeed, and see
+        # no reason for the block. The hidden check is named as the cause
+        # of the *autofix refusal*, not routed as a slice failure: its
+        # output tail stays out of the presented failure list (#3417).
+        assert "did not self-heal" in failure
+        assert "final full re-run of all checks was not green (red: test)" in failure
+        assert "GATEWAY SIDECAR NOT AVAILABLE" not in failure
+
+    def test_no_note_when_the_genuine_red_had_no_fix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # Contrast: the genuine red carries no fix at all, so the reds in
+        # the message are the operator's own to fix and the failure text
+        # is self-explanatory. No autofix explanation is appended.
+        log = _verdict_line(
+            [
+                {
+                    "name": "lint",
+                    "ok": False,
+                    "exit_code": 1,
+                    "output_tail": "infra",
+                    "infra": "ENOSPC",
+                },
+                {"name": "test", "ok": False, "exit_code": 2, "output_tail": "FAILED"},
+            ]
+        )
+        spawner = _spawner()
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+        ):
+            failure = _run_gate(spawner)
+        assert failure is not None
+        assert "did not self-heal" not in failure
+
+    def test_fail_open_switch_off_makes_the_infra_red_block_the_autofix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # With the #3417 switch off there is no narrowing, so the
+        # unfixable infra-tagged red stays in the set `_autofix_ready`
+        # judges and the verdict is only partially fixable — no push.
+        # This pins the narrowing itself as what enables the push above.
+        enabled_gate.setenv(sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, "off")
+        log = _infra_plus_fixable_verdict(final=_final_verification())
+        spawner = _spawner()
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+            patch.object(sgg, "_commit_and_push_autofix") as autofix,
+        ):
+            failure = _run_gate(spawner)
+        autofix.assert_not_called()
+        assert failure is not None
+        assert "test" in failure
+
+
+class TestAutofixReady:
+    """#3409 — ``_autofix_ready`` gating on the final full re-run."""
+
+    LINT_FAILED = [{"name": "lint", "fix": {"check_ok_after_fix": True}}]
+
+    def test_ready_when_final_green_and_no_new_untracked(self) -> None:
+        verdict = {"checks": [], "final_verification": _final_verification()}
+        ready, reason = sgg._autofix_ready(verdict, self.LINT_FAILED)
+        assert ready is True
+        assert reason == ""
+
+    def test_not_ready_when_a_failed_check_is_unfixable(self) -> None:
+        failed = [{"name": "lint", "fix": {"check_ok_after_fix": True}}, {"name": "test"}]
+        verdict = {"checks": [], "final_verification": _final_verification()}
+        ready, reason = sgg._autofix_ready(verdict, failed)
+        assert ready is False
+        assert "no fix" in reason
+
+    def test_not_ready_when_final_missing(self) -> None:
+        ready, reason = sgg._autofix_ready({"checks": []}, self.LINT_FAILED)
+        assert ready is False
+        assert "final full re-run" in reason
+
+    def test_not_ready_when_final_red(self) -> None:
+        verdict = {
+            "checks": [],
+            "final_verification": _final_verification(all_ok=False, failed=["test"]),
+        }
+        ready, reason = sgg._autofix_ready(verdict, self.LINT_FAILED)
+        assert ready is False
+        assert "test" in reason
+
+    def test_not_ready_when_untracked_created(self) -> None:
+        verdict = {
+            "checks": [],
+            "final_verification": _final_verification(
+                new_untracked_count=2, new_untracked_files=["a.py", "b.py"]
+            ),
+        }
+        ready, reason = sgg._autofix_ready(verdict, self.LINT_FAILED)
+        assert ready is False
+        assert "untracked" in reason
+        assert "a.py" in reason
+
+    def test_not_ready_when_untracked_count_unknown(self) -> None:
+        verdict = {
+            "checks": [],
+            "final_verification": _final_verification(new_untracked_count=None),
+        }
+        ready, reason = sgg._autofix_ready(verdict, self.LINT_FAILED)
+        assert ready is False
+        assert "untracked" in reason

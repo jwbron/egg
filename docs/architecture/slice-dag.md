@@ -555,7 +555,20 @@ shape:
        rollout via `EGG_SLICE_GREEN_GATE` — default `on` (a red verdict
        withholds the slice PR), `log` runs the checks and logs the
        verdict without blocking; fail-open on infra errors, including
-       infra-signature-tagged reds inside check execution, #3417) — calls
+       infra-signature-tagged reds inside check execution, #3417.
+       **The gate can also write to the integration branch**: when every
+       genuine red carries an optional `fix:` command in
+       `repositories.yaml` (e.g. `lint: {fix: make lint-fix}`), the
+       runner applies the fixes in its worktree and the orchestrator
+       commits them as `egg-green-gate` and pushes to the integration
+       branch via the launcher-authed gateway push route, #3409. This is
+       the one place the orchestrator authors commits on a slice branch;
+       it fires only in `on` mode, and only when the runner proves the
+       exact tree `git add -u` will stage is green — one full re-run of
+       *every* configured check against the all-fixes-applied tree
+       (`final_verification.all_ok`) plus a no-new-untracked-files
+       check. Any failure to commit or push blocks the slice exactly
+       like an unfixed red) — calls
        `GatewayClient.create_slice_pr` with `base` resolved from the
        slice's DAG parent (root → latest completed chain tip, else the
        pipeline branch (#3541); child → parent's

@@ -467,11 +467,15 @@ except ImportError:
     def validate_checks(checks: list) -> list[dict[str, str]]:  # type: ignore[misc]
         if not isinstance(checks, list):
             return []
-        return [
-            {"name": str(c["name"]), "command": str(c["command"])}
-            for c in checks
-            if isinstance(c, dict) and "name" in c and "command" in c
-        ]
+        result = []
+        for c in checks:
+            if not (isinstance(c, dict) and "name" in c and "command" in c):
+                continue
+            entry = {"name": str(c["name"]), "command": str(c["command"])}
+            if c.get("fix"):
+                entry["fix"] = str(c["fix"])
+            result.append(entry)
+        return result
 
 
 pipelines_bp = Blueprint("pipelines", __name__, url_prefix="/api/v1/pipelines")
