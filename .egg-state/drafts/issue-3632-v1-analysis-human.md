@@ -61,17 +61,31 @@ Currently, only pipeline-level trackers are reconstructed from messages (per-sli
 recreated fresh each iteration, per #2535). This change would allow per-slice tracker
 reconstruction for resumed slices. Highest complexity, lowest urgency.
 
-## The critical safety finding
+## The critical safety finding (corrected per operator feedback)
 
 The only recovery paths for a CANCELLED pipeline are `restart_agent` and `restart_phase` —
 `start_pipeline` returns 409 for CANCELLED pipelines. Both `restart_agent` and `restart_phase`
-already bump `run_epoch`. This means:
+already bump `run_epoch`.
+
+**The hazard is NOT #2053.** #2053 is about a *new* pipeline reusing a terminal pipeline's id —
+that's defended by the create-path clear, which Change 1 keeps intact. The real hazard is
+**same-pipeline stale-state replay**:
+
+With Change 1 alone, the message stream survives a cancel (keyed by bare `pipeline_id`). Resume
+via `restart_agent`/`restart_phase` resets consensus state and flips the pipeline to RUNNING. If
+the orchestrator then restarts, `startup_reconciliation` (`startup_reconciliation.py:305`)
+processes RUNNING pipelines and calls `reconstruct_tracker_from_messages` — which replays the
+retained pre-cancel CONSENSUS_* messages, resurrecting the confirmations the restart had just
+cleared. The window opens AFTER resume flips the pipeline to RUNNING, not during the CANCELLED
+interval (reconstruction skips non-RUNNING pipelines).
 
 - **Change 1 + Change 2 together are safe:** Stop clearing on CANCELLED, and namespace by
   `run_epoch`. The old tracker/message stream is orphaned (isolated by the old epoch), and the
-  new `run_epoch` gets fresh state. #2053 is preserved.
-- **Change 1 alone is NOT safe:** Without namespacing, the old CONFIRMED tracker and old messages
-  would be reused by the restarted pipeline, reintroducing #2053.
+  new `run_epoch` gets fresh state. `reconstruct_tracker_from_messages` would replay the old
+  epoch's messages into the old epoch's (empty) tracker, not the new one.
+- **Change 1 alone is NOT safe:** Without namespacing, `reconstruct_tracker_from_messages`
+  replays the retained pre-cancel CONSENSUS_* messages into the reset round's tracker after an
+  orchestrator restart, resurrecting stale confirmations.
 
 ## Recommended scope
 
@@ -82,6 +96,24 @@ already bump `run_epoch`. This means:
 
 ## Test impact
 
-The #2053 regression test (`test_cancel_clears_runtime_state` in `test_pipelines_api.py`) currently
-asserts that `_clear_pipeline_runtime_state` IS called on cancel. This test must be updated to
-assert that cancel does NOT clear — only delete and create do.
+Per the operator's resolution of cq-2, three test changes are required:
+
+1. **Rewrite `test_cancel_clears_runtime_state`** (`test_pipelines_api.py:1083`) to assert that
+   cancel does NOT clear. Rename it (e.g. `test_cancel_preserves_runtime_state`) — a test called
+   `test_cancel_clears_runtime_state` that asserts the opposite is a trap for the next reader.
+2. **Pin the CREATE path explicitly** — `test_create_clears_runtime_state` must assert that create
+   still clears. Change 1's safety argument for #2053 rests on create still clearing, so this
+   assertion is now load-bearing.
+3. **Add a NEW regression test** for the hazard described in cq-1's resolution: cancel → resume
+   (`restart_agent` or `restart_phase`) → simulated orchestrator restart → assert the pre-cancel
+   consensus state is NOT resurrected by `reconstruct_tracker_from_messages`. This is the
+   regression that Change 2 exists to prevent, and without it Change 2 is untested.
+
+## Scope constraints (from cq-3 resolution)
+
+1. **Changes 1 and 2 ship together, in one slice** — landing 1 alone is strictly worse than today.
+2. **Change 3 is independent and may land first** — it makes the next incident diagnosable
+   regardless of the other two.
+3. **Change 4 is deferred, not dropped** — the #2535 rationale addresses new slices, not resumed
+   ones, so the deferral is a scope call, not a correctness one.
+4. **#3633 is out of scope** — it is a distinct fix in a different code path.
