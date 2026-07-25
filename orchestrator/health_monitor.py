@@ -198,11 +198,11 @@ class HealthMonitor:
         # ``reset_agent`` drops it. Forward steps do not defeat this guard
         # either: ``now`` inflates ``elapsed`` and ``monitor_age`` by the
         # same amount, so ``elapsed <= monitor_age`` survives. They are not
-        # harmless, though — every ``elapsed`` grows
-        # by the step, so a role that heartbeated seconds ago can trip the
-        # timeout itself, and the guard cannot catch that precisely because
-        # ``monitor_age`` inflated too. Worth revisiting if this module ever
-        # moves to ``time.monotonic``.
+        # harmless, though — every ``elapsed`` grows by the step, so a role
+        # that heartbeated seconds ago can trip the timeout itself, and the
+        # guard cannot catch that precisely because ``monitor_age`` inflated
+        # too. Worth revisiting if this module ever moves to
+        # ``time.monotonic``.
         self._created_at: float = time.time()
 
         # Subscribe to events
@@ -601,12 +601,16 @@ class HealthMonitor:
         stall-demotion path in ``_run_concurrent``) cannot be tripped by the
         corrupt value.
 
-        The only anchor that can actually go corrupt today is the heartbeat
-        one (``_job_active_since``, via the never-seen path this issue fixed).
-        ``check_progress`` calls this too, but ``AgentState.last_progress`` is
-        only ever assigned ``now``, so its corrupt branch is purely defensive
-        symmetry — kept so a future writer of that anchor inherits the guard
-        rather than reintroducing the epoch bug on the progress side.
+        The only anchor that can go corrupt today by *bookkeeping* is the
+        heartbeat one (``_job_active_since``, via the never-seen path this
+        issue fixed). ``check_progress`` calls this too, but
+        ``AgentState.last_progress`` is only ever assigned ``now``, so its
+        corrupt branch is purely defensive symmetry — kept so a future writer
+        of that anchor inherits the guard rather than reintroducing the epoch
+        bug on the progress side. The one thing that does reach it is the
+        clock skew documented at ``_created_at``: an ``AgentState`` created
+        after a large backward step is anchored behind ``_created_at`` and is
+        flagged like any other such anchor, on either tripwire.
         """
         monitor_age = max(0.0, now - self._created_at)
         if elapsed <= monitor_age + _ELAPSED_SANITY_SLACK_SECONDS:
@@ -1010,8 +1014,9 @@ class HealthMonitor:
 
         for agent_id, last_progress, already_escalated in snapshot:
             # Defensive symmetry only: ``last_progress`` is never anchored at
-            # the epoch, so ``anchor_corrupt`` cannot fire here in production.
-            # The real #3605 trigger is heartbeat-side. See ``_sanitize_elapsed``.
+            # the epoch, so ``anchor_corrupt`` cannot fire here absent the
+            # clock skew documented at ``_created_at``. The real #3605 trigger
+            # is heartbeat-side. See ``_sanitize_elapsed``.
             elapsed, anchor_corrupt = self._sanitize_elapsed(
                 agent_id, now - last_progress, now, "progress"
             )

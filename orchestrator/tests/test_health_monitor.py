@@ -4078,9 +4078,11 @@ class TestImpossibleElapsedSurfacing:
         """The same guard applies to the progress-stall tripwire.
 
         Defensive symmetry: ``last_progress`` is only ever assigned ``now``, so
-        this state is not reachable in production — the corruption is injected
-        here to prove the progress path is wired to ``_sanitize_elapsed`` the
-        same way the heartbeat path is.
+        the epoch anchor injected here is not reachable in production — it
+        stands in to prove the progress path is wired to ``_sanitize_elapsed``
+        the same way the heartbeat path is. (The one production route into
+        this branch is the clock skew documented at ``_created_at``, which
+        anchors behind ``_created_at`` rather than at the epoch.)
         """
         bus = _make_event_bus()
         config = _make_config(
