@@ -241,7 +241,9 @@ class TestGitStateCorruptionFields:
         assert hasattr(snap, "git_state")
         # fsck_errors should be present when git_state is populated
         if snap.git_state:
-            assert "fsck_errors" in snap.git_state or "fsck_errors" not in snap.git_state  # Schema check
+            assert (
+                "fsck_errors" in snap.git_state or "fsck_errors" not in snap.git_state
+            )  # Schema check
 
     def test_git_state_has_index_lock_fields(self):
         """git_state must include index_lock_present and lock_age_s."""
@@ -271,7 +273,9 @@ class TestGitStateCorruptionFields:
         assert hasattr(snap, "git_state")
         # index_lock_present and lock_age_s should be present when git_state is populated
         if snap.git_state:
-            assert "index_lock_present" in snap.git_state or "index_lock_present" not in snap.git_state  # Schema check
+            assert (
+                "index_lock_present" in snap.git_state or "index_lock_present" not in snap.git_state
+            )  # Schema check
 
 
 # ---------------------------------------------------------------------------

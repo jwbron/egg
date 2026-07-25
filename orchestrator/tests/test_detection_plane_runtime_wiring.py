@@ -230,7 +230,10 @@ class TestDetectionFindingEvents:
                 args = ec.args
                 if len(args) >= 3:
                     data = args[2] if len(args) > 2 else ec.kwargs.get("data")
-                    if isinstance(data, dict) and data.get("finding_class") == "forward_progress_stall":
+                    if (
+                        isinstance(data, dict)
+                        and data.get("finding_class") == "forward_progress_stall"
+                    ):
                         finding_emitted = True
                         break
             assert finding_emitted, "Finding must be emitted on the event bus"

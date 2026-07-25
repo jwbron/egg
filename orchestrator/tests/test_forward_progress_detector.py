@@ -219,7 +219,10 @@ class TestForwardProgressDetector:
         snap = _FakeSnapshot(
             git_state={
                 "agent_commit_counts": {"coder": 5, "tester": 3},
-                "agent_last_commit_age_s": {"coder": 700, "tester": 30},  # Coder stalled, tester healthy
+                "agent_last_commit_age_s": {
+                    "coder": 700,
+                    "tester": 30,
+                },  # Coder stalled, tester healthy
             },
         )
         result = detect_forward_progress(snap)

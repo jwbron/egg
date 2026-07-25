@@ -227,7 +227,9 @@ class TestDecisionStateForDetectors:
 
         finding = detect_approved_decision_orphaned(snap)
 
-        assert finding is not None, "detect_approved_decision_orphaned must fire on approved_unapplied"
+        assert finding is not None, (
+            "detect_approved_decision_orphaned must fire on approved_unapplied"
+        )
         assert finding.finding_class == "approved_decision_orphaned"
 
     def test_detect_approved_decision_orphaned_silent_without_approved(self):
