@@ -894,6 +894,61 @@ class TestRestartAgentEndpoint:
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
+    def test_restart_does_not_report_a_failed_delete_as_a_clean_teardown(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
+    ):
+        """A delete that RAISED is not "there was nothing to tear down" (#3597).
+
+        The delete is best-effort and its failure is swallowed, so
+        ``jobs_torn_down`` stays 0 — byte-identical to the genuine clean-exit
+        case above. The Job is in fact still live and NOT terminating, so the
+        next event-loop poll adopts it and no respawn follows: the operator's
+        restart was a complete no-op. ``teardown_confirmed`` is the only field
+        that can carry that, so it must not stay ``True``.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        live_job = MagicMock()
+        live_job.job_name = "egg-agent-issue-100-coder-aaaaaaaa"
+        live_job.container_id = "uid-1"
+
+        mock_spawner = MagicMock()
+        mock_spawner.k8s.list_containers.return_value = [live_job]
+        mock_spawner.k8s.namespace = "egg-agents"
+        mock_spawner.remove_agent_job.side_effect = JobOperationError("apiserver rejected delete")
+        mock_spawner.check_and_increment_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with patch("event_loop.get_live_event_loops", return_value=[]):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        mock_spawner.remove_agent_job.assert_called_once_with(
+            "egg-agent-issue-100-coder-aaaaaaaa", force=True
+        )
+        data = response.get_json()["data"]
+        # The failure is swallowed, so the count cannot distinguish this case.
+        assert data["jobs_torn_down"] == 0
+        # ... which is exactly why the flag has to.
+        assert data["teardown_confirmed"] is False
+        # Nothing was deleted, so there is nothing to wait on either.
+        mock_spawner.k8s.wait_for_job_gone.assert_not_called()
+
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
     def test_restart_does_not_claim_teardown_it_could_not_observe(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, mock_spawn_thread, client
     ):

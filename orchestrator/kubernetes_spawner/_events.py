@@ -165,13 +165,18 @@ def _await_terminating_event_jobs(
     # backend whose listing is thinner, mirroring the restart route's
     # ``addressable=False`` branch.
     pending: list[str] = []
-    unnamed = 0
+    unnamed: list[str] = []
     for job in terminating:
         job_name = getattr(job, "job_name", None) or getattr(job, "container_name", None)
         if job_name:
             pending.append(job_name)
         else:
-            unnamed += 1
+            # No name to wait on, but the listing still carries a container id
+            # (``KubernetesClient.list_jobs`` sets it from the Job's uid). Carry
+            # it through so this line hands the operator the same actionable
+            # handle the restart route's counterpart does, rather than a bare
+            # count they cannot trace back to an object.
+            unnamed.append(str(getattr(job, "container_id", None) or "<unknown>"))
     if unnamed:
         logger.warning(
             "Event spawn: teardown wait not performed; terminating Job(s) unobserved",
@@ -179,7 +184,8 @@ def _await_terminating_event_jobs(
             role=role,
             action=action,
             dedupe_key=dedupe_key,
-            terminating=unnamed,
+            terminating=len(unnamed),
+            container_ids=unnamed,
             reason="unaddressable",
         )
     if not pending:

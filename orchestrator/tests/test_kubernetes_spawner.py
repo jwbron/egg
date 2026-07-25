@@ -2595,6 +2595,10 @@ class TestSpawnEventJobOneShot:
         warnings = mock_logger.warning.call_args_list
         assert [c.kwargs.get("reason") for c in warnings] == ["unaddressable"]
         assert warnings[0].kwargs["terminating"] == 1
+        # A bare count is not actionable: carry the id through so an operator
+        # grepping ``reason=unaddressable`` gets the same handle the restart
+        # route's counterpart line reports.
+        assert warnings[0].kwargs["container_ids"] == ["uid-unnamed"]
         # Only the nameable Job was ever waitable, so only it is counted.
         infos = [
             c for c in mock_logger.info.call_args_list if c.args and "waiting for" in c.args[0]

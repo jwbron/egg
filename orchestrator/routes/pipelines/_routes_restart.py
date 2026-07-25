@@ -402,6 +402,21 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
                 removed_jobs += 1
                 deleted_names.append((target, bool(job_name)))
             except Exception as job_err:  # noqa: BLE001 - best-effort teardown
+                # The delete never landed, so this Job is neither torn down nor
+                # waited on: it is still live (and NOT terminating), which means
+                # the next event-loop poll adopts it on its dedupe-key label and
+                # no respawn happens. Leaving the flag ``True`` here would report
+                # the operator's no-op restart as the payload's "there was
+                # nothing to tear down" case — the one branch in this route that
+                # OVER-claims. Clear it: we did not observe the Job gone.
+                #
+                # A benign already-gone race (the TTL controller reaps the Job
+                # between ``list_containers`` and the delete) lands here too, as
+                # a 404 for which ``True`` would have been correct. We cannot
+                # discriminate at this layer — ``remove_container`` re-wraps
+                # every failure into ``JobOperationError`` — so we under-claim
+                # on both, consistent with the rest of the field.
+                teardown_confirmed = False
                 _pkg.logger.warning(
                     "Failed to delete live one-shot Job during restart (best-effort)",
                     pipeline_id=pipeline_id,
@@ -773,15 +788,18 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
         "respawn": respawn_note,
         "live_event_loop": live_loop_found,
         "arms_invalidated": invalidated_keys,
-        # Legible teardown (#3597). ``jobs_torn_down: 0`` says "there was
-        # nothing to kill" (the role had already exited); a non-zero count
-        # with ``teardown_confirmed: true`` says "the pod is gone and the
-        # respawn starts clean". ``teardown_confirmed: false`` means the
-        # delete was issued but not observed to finish within the route's
-        # budget — the respawn may take an extra poll. It is a deliberate
-        # under-claim, never a failure signal: it also fires when the event
-        # loop recreates the same deterministic Job name inside the wait
-        # window, i.e. when the respawn has in fact already succeeded.
+        # Legible teardown (#3597). ``jobs_torn_down: 0`` with
+        # ``teardown_confirmed: true`` says "there was nothing to kill" (the
+        # role had already exited); a non-zero count with
+        # ``teardown_confirmed: true`` says "the pod is gone and the respawn
+        # starts clean". ``teardown_confirmed: false`` means the teardown was
+        # not observed to complete — either a delete failed outright (so the
+        # Job may still be live and no respawn will follow) or the delete
+        # landed but did not finish within the route's budget (the respawn may
+        # take an extra poll). It is a deliberate under-claim, not by itself a
+        # failure signal: it also fires when the event loop recreates the same
+        # deterministic Job name inside the wait window, i.e. when the respawn
+        # has in fact already succeeded.
         "jobs_torn_down": removed_jobs,
         "teardown_confirmed": teardown_confirmed,
         "restart_count": new_restart_count,
