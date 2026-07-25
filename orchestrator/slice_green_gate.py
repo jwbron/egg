@@ -84,9 +84,10 @@ unrelated to the slice's code.
 The cost of the default is real and deliberate: ``log`` mode still
 *runs* the checks and still waits for the runner pod, so slice-close
 latency grows by the check duration (bounded by
-``EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS``, default 1800s, after which the
-gate fails open). ``off`` remains available for deployments that cannot
-absorb that.
+``EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS``, default 1800s, plus the
+``_POD_SCHEDULING_GRACE_SECONDS`` the orchestrator's wait adds on top —
+see the next paragraph — after which the gate fails open). ``off``
+remains available for deployments that cannot absorb that.
 
 Whoever watches the rollout should know the worst case is **not** a slow
 check suite: it is a runner pod that never schedules. ``_wait_for_runner_pod``
@@ -100,12 +101,21 @@ busy cluster the more common one. The runner's deadline is the **Job's**
 pod is bound — so time spent Pending or pulling comes out of the check budget
 rather than being added to it (``_POD_SCHEDULING_GRACE_SECONDS`` widens only
 the orchestrator's wait). A pod delayed N seconds gets N fewer seconds to run
-checks, and a deadline kill emits no verdict line, so the gate logs "no
-parseable verdict" and fails open. Capacity starvation therefore raises the
+checks, and a ``DeadlineExceeded`` kill emits no verdict line, so the gate
+fails open with no verdict at all. Capacity starvation therefore raises the
 rate of *spurious no-verdict fail-opens* as well as dead time — degrading the
-soak signal this default exists to collect, and indistinguishable in the logs
-from a runner-harness crash. Tracked in #3622; it should land before ``on``,
-where a missing verdict is a gate that silently does not gate.
+soak signal this default exists to collect.
+
+Which log line an operator sees for that is not fixed, so grep for both: on
+``DeadlineExceeded`` the Job controller *deletes* the active pod rather than
+leaving it terminal, so ``_wait_for_runner_pod`` usually never observes
+``Succeeded``/``Failed``, polls out its own (larger) budget, and the gate logs
+"runner pod did not reach a terminal state". If a poll happens to catch the
+pod reporting ``Failed`` mid-termination, the log read returns partial output
+and "no parseable verdict from runner" fires instead. Both fail open, and
+neither is distinguishable from a runner-harness crash. Tracked in #3622; it
+should land before ``on``, where a missing verdict is a gate that silently
+does not gate.
 
 Someone should watch the first wave directly rather than discovering the cost
 from a slice-throughput drop later; ``off`` is the escape hatch.
@@ -254,8 +264,14 @@ _DEFAULT_TIMEOUT_SECONDS = 1800
 # scheduling and image-pull time count against the deadline: a pod that
 # waits N seconds for capacity gets N fewer seconds to run checks, and
 # with ``backoffLimit: 0`` / ``restartPolicy: Never`` a ``DeadlineExceeded``
-# kill prints no verdict line at all, which the gate reads as "no
-# parseable verdict" and fails open. Tracked in #3622; text here
+# kill prints no verdict line at all, so the gate fails open with no
+# verdict. It fails open via one of *two* branches, depending on timing:
+# the Job controller deletes the active pod on ``DeadlineExceeded``
+# rather than leaving it terminal, so ``_wait_for_runner_pod`` normally
+# never sees ``Succeeded``/``Failed`` and times out ("runner pod did not
+# reach a terminal state"); a poll that catches the pod reporting
+# ``Failed`` mid-termination instead reads partial output and lands on
+# "no parseable verdict from runner". Tracked in #3622; text here
 # describes what the code does today, not what it should do.
 _POD_SCHEDULING_GRACE_SECONDS = 120
 
@@ -1001,7 +1017,14 @@ def run_slice_green_gate(
         if verdict is None:
             # Covers pod Failed (runner harness crashed — the verdict is
             # printed even when checks are red, so a missing verdict is
-            # never a check failure) and unparseable output.
+            # never a *check* failure), unparseable output, and a Job
+            # ``activeDeadlineSeconds`` kill caught mid-termination, where
+            # the checks may have been about to pass and the budget was
+            # simply cut short by scheduling delay (#3622 — see
+            # ``_POD_SCHEDULING_GRACE_SECONDS``). A deadline kill more
+            # often lands on the "did not reach a terminal state" branch
+            # above, since the Job controller deletes the pod; check both
+            # when diagnosing a missing verdict.
             logger.warning(
                 "Green gate skipped: no parseable verdict from runner (#3398)",
                 pipeline_id=pipeline_id,

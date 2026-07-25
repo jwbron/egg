@@ -16,6 +16,11 @@ Covers:
 * ``_build_runner_job_manifest`` — labels (NetworkPolicy component
   label present; monitor/agent-supervision labels absent), env, mounts,
   deadline.
+* ``_submit_runner_job`` — the manifest-dict -> V1 object translation,
+  asserted on the ``create_namespaced_job`` body: the function copies a
+  fixed field list, so a field present in the manifest but absent from
+  that list is dropped silently (including the pod-level deadline
+  #3622 tracks).
 * ``run_slice_green_gate`` — gate wiring: kill switch, fail-open on
   every infrastructure failure (worktree, session, submit, timeout,
   unparseable verdict), fail-closed only on a definitive red verdict,
@@ -106,17 +111,58 @@ class TestGreenGateMode:
         gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, value)
         assert sgg.green_gate_mode() == "off"
 
-    @pytest.mark.parametrize("value", ["", "   ", "banana", "enabled", "tru", "onn"])
-    def test_unrecognised_values_degrade_to_default(
-        self, gate_env: pytest.MonkeyPatch, value: str
+    @pytest.mark.parametrize(
+        ("value", "logged"),
+        [
+            ("banana", "banana"),
+            ("enabled", "enabled"),
+            ("tru", "tru"),
+            ("onn", "onn"),
+            # Padded/uppercase inputs pin what the resolver actually
+            # logs — the post-strip/lower value, not the raw env string.
+            # Without these the assertion below passes either way.
+            (" Onn ", "onn"),
+            ("BANANA", "banana"),
+        ],
+    )
+    def test_unrecognised_values_degrade_to_default_with_a_warning(
+        self, gate_env: pytest.MonkeyPatch, value: str, logged: str
     ) -> None:
         """A typo can neither block slices nor silently disable the gate.
 
         ``"tru"`` / ``"onn"`` are the realistic shapes: an operator
-        reaching for ``on`` must not land on "gate does nothing".
+        reaching for ``on`` must not land on "gate does nothing". The
+        warning is the other half — a misconfiguration that silently
+        resolves is the failure mode this PR's default flip exists to
+        close, so the log line is asserted, not just the return value.
         """
         gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, value)
-        assert sgg.green_gate_mode() == sgg._DEFAULT_MODE == "log"
+        with patch.object(sgg.logger, "warning") as warn:
+            assert sgg.green_gate_mode() == sgg._DEFAULT_MODE == "log"
+        assert warn.call_count == 1
+        assert warn.call_args.kwargs["value"] == logged
+        assert warn.call_args.kwargs["env_var"] == sgg.GREEN_GATE_ENV_VAR
+        # Resolved value as a structured field, matching the shape
+        # ``_infra_fail_open_enabled``'s warning uses (``fail_open=``),
+        # so both typo warnings are greppable the same way.
+        assert warn.call_args.kwargs["mode"] == "log"
+
+    @pytest.mark.parametrize("value", ["on", "log", "off", "", "   "])
+    def test_recognised_values_do_not_warn(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
+        """Only genuinely unrecognised values warn.
+
+        ``""`` / ``"   "`` are deliberately in this list rather than the
+        one above: both resolvers short-circuit on a falsy value
+        (``green_gate_mode``'s ``if not raw`` / ``_infra_fail_open_enabled``'s
+        ``if not raw or ...``), so an unset-equivalent value resolves to
+        the default *silently* on both sides. Pinning it here keeps that
+        symmetry from drifting — an empty value is "unset", not a typo,
+        and should not page an operator.
+        """
+        gate_env.setenv(sgg.GREEN_GATE_ENV_VAR, value)
+        with patch.object(sgg.logger, "warning") as warn:
+            sgg.green_gate_mode()
+        assert warn.call_count == 0
 
 
 # ----------------------------------------------------------------------
@@ -630,6 +676,84 @@ class TestBuildRunnerJobManifest:
         manifest = _manifest(host_uid=1234, host_gid=5678)
         ctx = manifest["spec"]["template"]["spec"]["securityContext"]
         assert ctx == {"runAsUser": 1234, "runAsGroup": 5678, "fsGroup": 5678}
+
+
+# ----------------------------------------------------------------------
+# _submit_runner_job
+# ----------------------------------------------------------------------
+
+
+class TestSubmitRunnerJob:
+    """Pin the manifest-dict -> V1 object translation.
+
+    ``_submit_runner_job`` hand-copies a *fixed* field list out of the
+    manifest dict; anything it does not name is silently dropped, and
+    every ``run_slice_green_gate`` test patches it out. So a manifest
+    assertion alone cannot prove a field reaches the apiserver — the
+    concrete trap being #3622's cheapest option ("move
+    ``activeDeadlineSeconds`` onto ``spec.template.spec``"), which would
+    pass ``test_one_shot_job_shape`` while this function dropped the
+    field and the submitted Job carried no pod deadline at all.
+    """
+
+    @staticmethod
+    def _submit(**overrides: Any) -> Any:
+        manifest = _manifest(**overrides)
+        k8s = MagicMock()
+        sgg._submit_runner_job(k8s, "egg-ns", manifest)
+        k8s.batch_api.create_namespaced_job.assert_called_once()
+        kwargs = k8s.batch_api.create_namespaced_job.call_args.kwargs
+        assert kwargs["namespace"] == "egg-ns"
+        return kwargs["body"]
+
+    def test_job_spec_fields_reach_the_apiserver(self) -> None:
+        body = self._submit(timeout_seconds=600)
+        assert body.api_version == "batch/v1"
+        assert body.kind == "Job"
+        assert body.metadata.labels[sgg._GATE_ID_LABEL] == "abc123def456"
+        assert body.spec.active_deadline_seconds == 660
+        assert body.spec.backoff_limit == 0
+        assert body.spec.ttl_seconds_after_finished == 300
+
+    def test_pod_spec_fields_reach_the_apiserver(self) -> None:
+        body = self._submit(host_uid=1234, host_gid=5678)
+        pod = body.spec.template.spec
+        assert pod.restart_policy == "Never"
+        assert pod.automount_service_account_token is False
+        assert pod.security_context.run_as_user == 1234
+        assert pod.security_context.run_as_group == 5678
+        assert pod.security_context.fs_group == 5678
+        assert body.spec.template.metadata.labels[sgg._GATE_ID_LABEL] == "abc123def456"
+
+    def test_container_and_volumes_reach_the_apiserver(self) -> None:
+        body = self._submit()
+        container = body.spec.template.spec.containers[0]
+        assert container.name == "green-gate"
+        assert container.image_pull_policy == "IfNotPresent"
+        assert container.command[:2] == ["python3", "-c"]
+        assert container.security_context.allow_privilege_escalation is False
+        assert container.security_context.capabilities.drop == ["ALL"]
+        env = {e.name: e.value for e in container.env}
+        assert env["EGG_GREEN_GATE_REPO_DIR"] == "/home/egg/repos/egg"
+        assert json.loads(env["EGG_GREEN_GATE_CHECKS"]) == CHECKS
+        volume = body.spec.template.spec.volumes[0]
+        assert volume.host_path.path == "/home/host/.egg-worktrees/x/egg"
+        mount = container.volume_mounts[0]
+        assert mount.mount_path == "/home/egg/repos/egg"
+        assert mount.name == volume.name
+
+    def test_pod_level_deadline_is_not_set_today(self) -> None:
+        """The deadline is Job-level only — the defect #3622 tracks.
+
+        Asserted at the *submission* seam rather than on the manifest
+        dict, so #3622's fix cannot land by editing the dict alone: the
+        whitelist in ``_submit_runner_job`` has to grow the field too or
+        this assertion keeps passing while the pod deadline goes
+        nowhere. Flip it to ``== <budget>`` when #3622 lands.
+        """
+        body = self._submit(timeout_seconds=600)
+        assert body.spec.active_deadline_seconds == 660
+        assert body.spec.template.spec.active_deadline_seconds is None
 
 
 # ----------------------------------------------------------------------
