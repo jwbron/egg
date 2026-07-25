@@ -554,19 +554,37 @@ shape:
        repo's configured checks at the integration-branch tip; staged
        rollout via `EGG_SLICE_GREEN_GATE` — default `on` (a red verdict
        withholds the slice PR), `log` runs the checks and logs the
-       verdict without blocking; fail-open on infra errors, including
-       infra-signature-tagged reds inside check execution, #3417.
-       **The gate can also write to the integration branch**: when every
+       verdict without blocking, `off` returns before the runner Job is
+       spawned at all; fail-open on infra errors, including
+       infra-signature-tagged reds inside check execution, #3417; the
+       gate can also write to the integration branch — see
+       "Green-gate autofix" below) — calls
+       `GatewayClient.create_slice_pr` with `base` resolved from the
+       slice's DAG parent (root → latest completed chain tip, else the
+       pipeline branch (#3541); child → parent's
+       integration branch). On failure the worker calls
+       `scheduler.record_failure(slice_id)`, which arms the cascade
+       timer.
+
+       **Green-gate autofix (Stage A, #3409)** — the one place the
+       orchestrator authors commits on a slice branch. When every
        genuine red carries an optional `fix:` command in
-       `repositories.yaml` (e.g. `lint: {fix: make lint-fix}` — reds
-       tagged with an infra signature are excluded from "genuine" only
-       under the default `EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=on`;
-       set it `off` and every red must carry a fix that re-ran green),
-       the runner applies the fixes in its worktree and the orchestrator
+       `repositories.yaml` (e.g. `lint: {fix: make lint-fix}`), the
+       runner applies the fixes in its worktree and the orchestrator
        commits them as `egg-green-gate` and pushes to the integration
-       branch via the launcher-authed gateway push route, #3409. This is
-       the one place the orchestrator authors commits on a slice branch;
-       it fires only in `on` mode — which is the *default*, not an
+       branch via the launcher-authed gateway push route. Reds tagged
+       with an infra signature are excluded from "genuine" only under
+       the default `EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=on`; set it
+       `off` and every red must carry a fix that re-ran green. When
+       *every* red is infra-tagged the gate fails open and returns
+       **before** the autofix decision, so a fix that re-ran green is
+       discarded with the worktree rather than committed — deliberately,
+       since the run that proved it was already classified as
+       untrustworthy. In the mixed case the commit message names only
+       the genuine reds (`fixed_checks=genuine_failed`) even though the
+       committed tree also carries any infra-tagged check's fix.
+
+       Autofix fires only in `on` mode — which is the *default*, not an
        opt-in: `EGG_SLICE_GREEN_GATE` is unset in the shipped
        configuration and both an unset and an unrecognised value
        resolve to `on`. It fires only when the runner proves the exact
@@ -580,14 +598,13 @@ shape:
        droppings don't count) over the runner's whole session rather
        than the fix alone, plus at least one tracked modification for
        `git add -u` to stage — the gate refuses when the re-runs went
-       green but staged nothing. Any failure to commit or push blocks
-       the slice exactly like an unfixed red) — calls
-       `GatewayClient.create_slice_pr` with `base` resolved from the
-       slice's DAG parent (root → latest completed chain tip, else the
-       pipeline branch (#3541); child → parent's
-       integration branch). On failure the worker calls
-       `scheduler.record_failure(slice_id)`, which arms the cascade
-       timer.
+       green but staged nothing. `_autofix_ready` also refuses when the
+       runner reported no final-verification verdict at all
+       (`final_verification.ran` false) or could not determine the
+       untracked count (`new_untracked_count is None`, a best-effort
+       git failure); every refusal is logged as `autofix_block_reason`.
+       Any failure to commit or push blocks the slice exactly like an
+       unfixed red.
     4. After the wave completes, `scheduler.poll_cascades()` drains any
        expired cascades and emits the orchestrator-side
        `OVERSEER_ALERT` for each (see "Failure cascade").

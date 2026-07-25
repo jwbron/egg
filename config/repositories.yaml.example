@@ -76,7 +76,9 @@ readable_repos:
 #     "user": Use personal access token with user identity
 #   - checks: List of check commands for the SDLC pipeline implement phase
 #     Each entry has "name" (display label), "command" (shell command) and
-#     an optional "fix" (single shell command string)
+#     an optional "fix" (single shell command string — a YAML list is
+#     silently coerced to its Python repr and will never run, so chain
+#     steps with "&&" or point at a make target)
 #     These run sequentially during the tester step
 #     "fix" auto-remediates that check at the per-slice green gate: when the
 #     gate finds the check red at the slice tip it runs the fix command and
@@ -91,8 +93,13 @@ readable_repos:
 #     from the fix or from the checks themselves (the baseline is taken
 #     before the first check runs; the gate stages with "git add -u", which
 #     would silently drop them); at least one tracked file in that tree is
-#     modified, so there is something to commit; and the gate is running in
-#     "on" mode.
+#     modified, so there is something to commit; the runner reported a
+#     final-verification verdict at all and could determine that untracked
+#     count (a best-effort git failure in the runner is treated as unsafe);
+#     and the gate is running in "on" mode. Every refusal is logged as
+#     autofix_block_reason. When EVERY red is infra-tagged the gate fails
+#     open and returns BEFORE this decision, so even a fix that re-ran
+#     green is discarded with the worktree rather than committed.
 #     NOTE: "on" is the DEFAULT mode — no opt-in is required. Nothing in
 #     the shipped configuration sets EGG_SLICE_GREEN_GATE, and both an
 #     unset and an unrecognised value resolve to "on", so autofix commits
