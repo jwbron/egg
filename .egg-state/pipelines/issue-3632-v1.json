@@ -11,7 +11,7 @@
     }
   ],
   "prompt": "Pausing a pipeline is lossy: `cancel_task(cleanup=false)` documents that state is preserved and resumable, but the same call destroys the BRC consensus tracker and the pipeline's message history — exactly the state a resume needs. See issue #3632 for the mechanism, the evidence from a live run, and four candidate fixes.\n\n## Ground rules\n\n**Verify before you build.** #3632 was written from a live incident plus a read of the tree, but treat the repository as the source of truth. Check every claim in it — including the file/line citations — and say what you checked. If a claim is wrong, say so; that is a more valuable outcome than implementing something that was never broken.\n\n**Scope is yours to propose.** The issue lists four candidate changes (don't clear on CANCELLED; namespace tracker + message stream by `run_epoch`; persist BRC history on pause as well as slice close; reconstruct per-slice trackers on resume) plus three ergonomics observations. Decide which are worth doing, in what order, and what to leave out. They are not equally sound and they are not all independent — in particular, ask whether the minimal fix (stop clearing on CANCELLED) is safe on its own given #2053, or whether it strictly requires the `run_epoch` namespacing to land first.\n\n**The regression you must not cause is #2053**: a fresh pipeline reusing a terminal pipeline's id must never inherit the prior run's CONFIRMED consensus or message history. Whatever you change, that has to stay closed, and the tests must show it.\n\n**Distinguish null from zero, and absent from empty.** A cleared message stream and a pipeline that never emitted messages must not look alike to a caller.\n\nIf a judgement call would materially change the shape of the work, raise it as a decision rather than guessing.",
-  "status": "awaiting_human",
+  "status": "running",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -93,14 +93,14 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "awaiting_human",
+      "status": "running",
       "started_at": "2026-07-25T22:57:42.380904Z",
       "work_started_at": "2026-07-25T23:35:23.225829Z",
-      "completed_at": "2026-07-25T23:40:28.668787Z",
+      "completed_at": null,
       "containers": [],
       "agents": [],
       "review_cycles": 0,
-      "hitl_review_cycles": 1,
+      "hitl_review_cycles": 2,
       "cycle_timings": [
         {
           "cycle": 0,
@@ -122,6 +122,11 @@
           "iteration_n": 0,
           "created_at": "2026-07-25T23:35:22.128948Z",
           "feedback_text": "approve\n\nApproved. The analysis is sound in its conclusion and its scope, and it contains one finding the issue did not have. Three notes carry into planning, and cq-1/cq-2/cq-3 are resolved with binding detail — read those resolutions, particularly cq-1.\n\nWHAT THE ANALYSIS GOT RIGHT, AND CREDIT WHERE IT IS DUE\n\nFact 5 is a real contribution: `restart_phase` does call `_persist_phase_brc_history`, but with `write_per_slice=False`, so the per-slice CONSENSUS_* buckets are never written. That is the precise explanation for why the incident that motivated #3632 lost its in-flight slice's record while the closed slice survived — I had attributed it only to \"the slice never closed\". It directly sharpens Change 3.\n\nFact 6 is the kind of thing a plan phase usually discovers too late: naming `TestPipelineRuntimeStateClear` and its three tests up front means the test impact is scoped before implementation rather than during it.\n\nTHE ONE THING THE PLAN MUST NOT INHERIT\n\nFact 3 is false and is struck. `start_pipeline` returns 409 for CANCELLED at `_routes_lifecycle.py:753-757`, before the lock block at L759, so the L801 assignment it describes is unreachable and the scenario it calls \"the critical safety finding\" cannot happen. The analysis's own Fact 7 says exactly this. The conclusion (Changes 1+2 together) survives on a different and better argument, which is now binding and is set out in full in cq-1's resolution: stale-state replay by `reconstruct_tracker_from_messages` after a resume flips the pipeline back to RUNNING. Plan against that mechanism, not against Fact 3's, and do not label it \"#2053\" — it is a distinct bug and mislabelling it will produce the wrong test.\n\nThe human-facing summary has already absorbed the correction; the technical draft and cq-1's question text have not. Fix the draft so the artifact is internally consistent before the plan builds on it.\n\nA NOTE ON THE REVIEW ROUND, FOR THE RECORD\n\nThis gate is being approved because the review graph worked, not because the producer was right. reviewer_agent_design and first_principles_reviewer both caught the Fact 3 contradiction independently, and first_principles_reviewer supplied the replacement argument that is now binding — an argument better than the one in my own issue. reviewer_refine marked Fact 3 \"VERIFIED - CRITICAL\" while stating its refutation in the same sentence; simplifier restated the conclusion without noticing. That is 2 of 4 catching a self-contradiction planted between adjacent numbered facts, which is a genuinely good result and worth knowing about this reviewer set.\n\nThe lesson for the plan phase: an assertion that carries a file:line citation is not thereby verified. Every citation in Fact 3 resolved correctly; what was missed was the guard one screen above. When you verify a claim about control flow, read the enclosing function, not the cited lines.\n\nProceed to plan."
+        },
+        {
+          "iteration_n": 1,
+          "created_at": "2026-07-25T23:41:33.634166Z",
+          "feedback_text": "approve\n\nApproved. The amendment is verified against the tree, not just against its own commit message.\n\n`4084420c3` marks Fact 3 STRUCK rather than softening it, states the correct reason (the 409 at `_routes_lifecycle.py:753-757` precedes the lock block at L759, so the L801 assignment is unreachable for a cancelled pipeline), acknowledges the self-contradiction with Fact 7, credits `first_principles_reviewer` for the replacement argument, and carries the correction that the exposed window opens after the resume flips the pipeline to RUNNING rather than during the cancelled interval. The artifact and the human summary now agree. That is exactly what the gate asked for.\n\nAll three contract decisions are resolved and persisted. Their content is binding on the plan phase; cq-1's resolution in particular is the authoritative statement of why Changes 1 and 2 are coupled, and it supersedes the original cq-1 question text, whose premise is void.\n\nCarrying into plan, restated so nothing depends on reading back through this thread:\n\n1. Changes 1+2 in one slice, on the stale-state-replay argument. Not labelled #2053 — that is a distinct bug that stays closed via the create path, and mislabelling it will produce the wrong test.\n2. Change 3 independent, may land first, and must write the per-slice CONSENSUS_* buckets — `write_per_slice=False` is precisely the gap that made the last incident's in-flight slice unrecoverable.\n3. Change 4 deferred with the #2535 rationale recorded, noting that rationale addresses new slices rather than resumed ones.\n4. #3633 out of scope, tracked separately.\n5. New test required: cancel → resume → orchestrator restart → assert consensus state is not resurrected. Change 2 is untested without it.\n6. Rename `test_cancel_clears_runtime_state` when you invert it, and pin the create path explicitly — that assertion is now load-bearing.\n\nOne standing instruction for the plan phase, learned from this round: an assertion carrying a file:line citation is not thereby verified. Every citation in the original Fact 3 resolved correctly; what was missed was the guard one screen above the cited lines. When a claim is about control flow, read the enclosing function. And when you decline an operator directive, say so and give the reason rather than omitting it silently.\n\nProceed to plan."
         }
       ],
       "iteration_history": [
@@ -131,6 +136,23 @@
           "final_proposal_commit": {
             "refiner": "b1523c62f906ff3b20b871e3da6899f69acba291",
             "simplifier": "dbf03e841624b252414ed6ae278baf973f2a79af"
+          },
+          "verdict_matrix": {
+            "reviewer_refine->refiner": "acked",
+            "reviewer_agent_design->refiner": "acked",
+            "first_principles_reviewer->refiner": "acked",
+            "reviewer_refine->simplifier": "acked",
+            "simplifier->refiner": "acked"
+          },
+          "nack_reasons": [],
+          "artifacts_snapshot": {}
+        },
+        {
+          "iteration_n": 1,
+          "completed_at": "2026-07-25T23:41:33.634189Z",
+          "final_proposal_commit": {
+            "refiner": "4084420c3bd01bb092d83bb33614fc7fc1d570a6",
+            "simplifier": "1ed05211cf83201d188349c1cab90c5bb82b001a"
           },
           "verdict_matrix": {
             "reviewer_refine->refiner": "acked",
@@ -196,7 +218,7 @@
     }
   ],
   "created_at": "2026-07-25T22:57:36.434898Z",
-  "updated_at": "2026-07-25T23:41:29.590099Z",
+  "updated_at": "2026-07-25T23:41:33.637233Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -209,7 +231,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 24,
+  "version": 25,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
