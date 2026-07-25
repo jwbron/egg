@@ -133,8 +133,8 @@ Slice 2 (Change 3) is independent and may land first. Slice 1 (Changes 1+2) is t
 2. **Stale-state replay regression test:** The new test (cancel → resume → orchestrator restart → assert not resurrected) requires simulating an orchestrator restart, which may need careful mocking of `startup_reconciliation`.
 3. **Change 3 per-slice bucket writing:** Must ensure `write_per_slice=True` on cancel doesn't conflict with the #2755 add/add merge issue on the `work` branch. The cancel path writes to the pipeline's worktree, which should be fine since it's not a slice PR.
 
+```yaml
 # yaml-tasks
-
 slices:
   - id: 1
     name: "Changes 1+2: Stop clearing runtime state on CANCELLED + namespace tracker+message stream by run_epoch"
@@ -207,3 +207,4 @@ slices:
         description: "Green the boundary — make lint + make test-all."
         acceptance: "All tests pass."
         files: []
+```
