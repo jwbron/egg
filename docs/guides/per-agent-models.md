@@ -717,7 +717,7 @@ the built-in default (`"opus"` for all roles).
 Submit a pipeline. The gateway audit log records the per-session
 routing decision **once per session** (the gateway's
 `audit_log("session_created", …)` at
-`gateway/gateway.py:8920` includes the resolved `upstream` and
+`gateway/gateway/_sessions.py:535` includes the resolved `upstream` and
 `upstream_model`); every subsequent `/v1/messages` request from that
 session inherits the decision implicitly via the session-keyed
 lookup, with no per-request routing log line:

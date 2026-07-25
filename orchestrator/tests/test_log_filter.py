@@ -1,4 +1,4 @@
-"""Unit tests for the ``get_service_logs`` server-side filter (#3032)."""
+"""Unit tests for the ``get_service_logs`` server-side filter (#3032, #3547)."""
 
 from __future__ import annotations
 
@@ -15,6 +15,12 @@ def _line(severity: str, message: str, task_id: str | None = None) -> str:
     if task_id is not None:
         obj["context"] = {"task_id": task_id}
     return json.dumps(obj)
+
+
+def _console_line(severity: str, message: str, pipeline_id: str | None = None) -> str:
+    """A ConsoleFormatter-shaped line; what the k8s pods actually emit (#3547)."""
+    suffix = f" pipeline_id={pipeline_id}" if pipeline_id is not None else ""
+    return f"2026-07-07 21:30:00 [{severity:<8}] orchestrator: {message}{suffix}"
 
 
 def _line_extra_pipeline(severity: str, message: str, pipeline_id: str) -> str:
@@ -58,9 +64,11 @@ class TestFilterLogLines:
         raw = "\n".join(
             [
                 _line("INFO", "info"),
+                # Attached to the INFO record as a continuation line (#3547),
+                # so the level floor drops it along with its record.
+                "plain non-json line",
                 _line("WARNING", "warn"),
                 _line("ERROR", "err"),
-                "plain non-json line",
             ]
         )
         out = filter_log_lines(raw, min_level="WARNING")
@@ -68,6 +76,18 @@ class TestFilterLogLines:
         assert "err" in out
         assert "info" not in out
         assert "plain non-json" not in out
+
+    def test_continuation_lines_survive_with_their_record(self):
+        """A continuation line rides along when its record passes the floor (#3547)."""
+        raw = "\n".join(
+            [
+                _line("ERROR", "boom"),
+                "  raw stderr detail",
+            ]
+        )
+        out = filter_log_lines(raw, min_level="ERROR")
+        assert "boom" in out
+        assert "raw stderr detail" in out
 
     def test_pipeline_id_scopes_to_task(self):
         raw = "\n".join(
@@ -224,3 +244,222 @@ class TestFilterLogLines:
     def test_limit_negative_returns_empty(self):
         raw = "\n".join(_line("INFO", f"m{i}") for i in range(3))
         assert filter_log_lines(raw, limit=-5) == ""
+
+
+class TestConsoleFormatLines:
+    """Console-formatted (non-JSON) lines; what production pods emit (#3547).
+
+    ``EggLogger`` only installs ``JsonFormatter`` when the environment detects
+    as GCP (``K_SERVICE`` set); the k8s pods detect as ``container`` and emit
+    ``ConsoleFormatter`` text with ``pipeline_id=...`` inline. Pre-fix the
+    ``pipeline_id`` filter parsed only JSON and dropped every production line.
+    """
+
+    def test_pipeline_id_matches_inline_pair(self):
+        raw = "\n".join(
+            [
+                _console_line("INFO", "mine", pipeline_id="issue-3523"),
+                _console_line("INFO", "theirs", pipeline_id="issue-9999"),
+                _console_line("INFO", "untagged"),
+            ]
+        )
+        out = filter_log_lines(raw, pipeline_id="issue-3523")
+        assert "mine" in out
+        assert "theirs" not in out
+        assert "untagged" not in out
+
+    def test_pipeline_id_matches_inline_task_id_spelling(self):
+        raw = "2026-07-07 21:30:00 [INFO    ] orchestrator: msg task_id=issue-3523"
+        assert "msg" in filter_log_lines(raw, pipeline_id="issue-3523")
+
+    def test_pipeline_id_prefix_does_not_partial_match(self):
+        """``issue-35`` must not match ``issue-3523`` and vice versa."""
+        raw = _console_line("INFO", "mine", pipeline_id="issue-3523")
+        assert filter_log_lines(raw, pipeline_id="issue-35") == ""
+        # ...and a longer requested id doesn't match a shorter logged one.
+        raw_short = _console_line("INFO", "short", pipeline_id="issue-35")
+        assert filter_log_lines(raw_short, pipeline_id="issue-3523") == ""
+
+    def test_sub_task_id_key_does_not_match_task_id(self):
+        raw = "2026-07-07 21:30:00 [INFO    ] orchestrator: msg sub_task_id=p-1"
+        assert filter_log_lines(raw, pipeline_id="p-1") == ""
+
+    def test_min_level_reads_console_bracket(self):
+        raw = "\n".join(
+            [
+                _console_line("INFO", "quiet"),
+                _console_line("WARNING", "warn"),
+                _console_line("ERROR", "err"),
+            ]
+        )
+        out = filter_log_lines(raw, min_level="WARNING")
+        assert "warn" in out
+        assert "err" in out
+        assert "quiet" not in out
+
+    def test_end_to_end_via_console_formatter(self):
+        """Producer/consumer parity with the real ``ConsoleFormatter``."""
+        from egg_logging.formatters import ConsoleFormatter
+
+        formatter = ConsoleFormatter(service="orchestrator", use_colors=False)
+
+        def _emit(level: int, message: str, exc_info=None, **kwargs: object) -> str:
+            record = logging.LogRecord(
+                name="orchestrator.executor",
+                level=level,
+                pathname=__file__,
+                lineno=1,
+                msg=message,
+                args=(),
+                exc_info=exc_info,
+            )
+            for key, value in kwargs.items():
+                setattr(record, key, value)
+            return formatter.format(record)
+
+        raw = "\n".join(
+            [
+                _emit(logging.WARNING, "spawn failed", pipeline_id="issue-3523"),
+                _emit(logging.INFO, "routine poll", pipeline_id="issue-3523"),
+                _emit(logging.ERROR, "boom", pipeline_id="other-1"),
+            ]
+        )
+
+        out = filter_log_lines(raw, pipeline_id="issue-3523", min_level="WARNING")
+        assert "spawn failed" in out
+        assert "routine poll" not in out
+        assert "boom" not in out
+
+        out = filter_log_lines(raw, pipeline_id="issue-3523")
+        assert "spawn failed" in out
+        assert "routine poll" in out
+
+    def test_pipeline_id_prefers_trailing_kwarg_over_message_body(self):
+        """The authoritative id is the LAST token; a body id must not win (#3566).
+
+        A logged URL/command in the message body can carry a ``pipeline_id=``
+        token, but the record's own id is the structured kwarg appended at the
+        end. A leftmost match would surface the wrong record (false positive)
+        and hide the right one (false negative).
+        """
+        # Record belongs to issue-3523 but its message body mentions other-1.
+        raw = (
+            "2026-07-07 21:30:00 [INFO    ] orchestrator: "
+            "GET /api/v1/pipelines?pipeline_id=other-1 pipeline_id=issue-3523"
+        )
+        # Filtering for the real (trailing) id keeps it...
+        assert "GET /api/v1/pipelines" in filter_log_lines(raw, pipeline_id="issue-3523")
+        # ...and filtering for the body-embedded id does not.
+        assert filter_log_lines(raw, pipeline_id="other-1") == ""
+
+    def test_colorized_console_lines_parity(self):
+        """A colorized (``use_colors=True``) capture still filters correctly (#3566).
+
+        Production pods are non-TTY (colors off), but ANSI escapes wrapping the
+        level bracket / inline kwargs must not defeat head detection or the id
+        lookbehind if a colorized source is ever filtered.
+        """
+        from egg_logging.formatters import ConsoleFormatter
+
+        formatter = ConsoleFormatter(service="orchestrator", use_colors=True)
+
+        def _emit(level: int, message: str, **kwargs: object) -> str:
+            record = logging.LogRecord(
+                name="orchestrator.executor",
+                level=level,
+                pathname=__file__,
+                lineno=1,
+                msg=message,
+                args=(),
+                exc_info=None,
+            )
+            for key, value in kwargs.items():
+                setattr(record, key, value)
+            return formatter.format(record)
+
+        raw = "\n".join(
+            [
+                _emit(logging.WARNING, "spawn failed", pipeline_id="issue-3523"),
+                _emit(logging.INFO, "routine poll", pipeline_id="issue-3523"),
+                _emit(logging.ERROR, "boom", pipeline_id="other-1"),
+            ]
+        )
+        # Sanity: the fixture really carries ANSI escapes.
+        assert "\x1b[" in raw
+
+        out = filter_log_lines(raw, pipeline_id="issue-3523", min_level="WARNING")
+        assert "spawn failed" in out
+        assert "routine poll" not in out
+        assert "boom" not in out
+
+
+class TestTracebackGrouping:
+    """Multi-line tracebacks stay attached to their record (#3547)."""
+
+    def _raw_with_traceback(self) -> str:
+        from egg_logging.formatters import ConsoleFormatter
+
+        formatter = ConsoleFormatter(service="orchestrator", use_colors=False)
+        try:
+            raise RuntimeError("kaboom")
+        except RuntimeError:
+            import sys
+
+            exc_info = sys.exc_info()
+        record = logging.LogRecord(
+            name="orchestrator.executor",
+            level=logging.ERROR,
+            pathname=__file__,
+            lineno=1,
+            msg="unhandled exception in poll loop",
+            args=(),
+            exc_info=exc_info,
+        )
+        record.pipeline_id = "issue-3523"
+        with_tb = formatter.format(record)
+        after = _console_line("INFO", "next tick", pipeline_id="issue-3523")
+        return f"{_console_line('INFO', 'before')}\n{with_tb}\n{after}"
+
+    def test_pattern_on_message_returns_whole_traceback(self):
+        out = filter_log_lines(
+            self._raw_with_traceback(), pattern=re.compile("unhandled exception")
+        )
+        assert "Traceback (most recent call last):" in out
+        assert "RuntimeError: kaboom" in out
+        assert "next tick" not in out
+
+    def test_pattern_on_frame_returns_whole_record(self):
+        """Matching inside the stack returns the record head too; no more
+        orphaned ``File "..."`` lines (#3547 pain point 6)."""
+        out = filter_log_lines(self._raw_with_traceback(), pattern=re.compile("kaboom"))
+        assert "unhandled exception in poll loop" in out
+        assert "Traceback (most recent call last):" in out
+
+    def test_min_level_keeps_traceback_with_error_record(self):
+        out = filter_log_lines(self._raw_with_traceback(), min_level="ERROR")
+        assert "RuntimeError: kaboom" in out
+        assert "before" not in out
+        assert "next tick" not in out
+
+    def test_pipeline_filter_keeps_traceback(self):
+        out = filter_log_lines(self._raw_with_traceback(), pipeline_id="issue-3523")
+        assert "RuntimeError: kaboom" in out
+        assert "next tick" in out
+        assert "before" not in out
+
+    def test_limit_counts_records_not_lines(self):
+        out = filter_log_lines(
+            self._raw_with_traceback(),
+            pipeline_id="issue-3523",
+            limit=1,
+        )
+        # The newest matching record is the single-line "next tick" one.
+        assert out == _console_line("INFO", "next tick", pipeline_id="issue-3523")
+
+    def test_leading_headless_lines_form_their_own_record(self):
+        """A tail cut mid-record can start with continuation lines; they must
+        not crash the grouper and stay matchable by pattern."""
+        raw = '  File "x.py", line 1, in f\nRuntimeError: cut\n' + _console_line("INFO", "head")
+        out = filter_log_lines(raw, pattern=re.compile("cut"))
+        assert "RuntimeError: cut" in out
+        assert "head" not in out

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import driver_heartbeat
 import routes.pipelines as _pkg  # noqa: E402,F401
 
 
@@ -82,10 +83,13 @@ def _run_implement_phase_slices(
     # raises ``ValueError`` with the structured forest errors; surface
     # them to the operator via the existing return path so the run
     # loop can route to HITL escalation rather than wedge the pipeline.
+    _emit_slice_closed = _pkg._build_slice_closed_emitter_impl(pipeline_id)
+
     try:
         scheduler = SliceScheduler(
             contract,
             max_parallel_slices=pipeline.config.max_parallel_slices,
+            slice_closed_emitter=_emit_slice_closed,
         )
     except ValueError as exc:
         _pkg.logger.error(
@@ -95,38 +99,7 @@ def _run_implement_phase_slices(
         )
         return 1, f"slice scheduler validation failed: {exc}"
 
-    # Defensive idempotent context-PR opener (#2777 cq-4). The
-    # canonical advance_phase REST path enforces hard-required, but
-    # the runner-driven entries (auto-advance, implement-entry,
-    # HITL-resume, this slice-loop entry) must also fire it to avoid
-    # silent strands on ``egg/<id>/work``. Soft-fail on transient
-    # gateway errors here — the canonical site already enforces the
-    # 422 contract.
-    try:
-        # Pass the main repo path (``store.repo_path``) — not
-        # ``worktree_repo_path`` — so all four opener call sites of
-        # ``_open_context_pr_at_implement_start`` read identically.
-        # The opener rederives its own per-pipeline worktree internally
-        # via ``resolve_worktree_path(pipeline_id, store.repo_path)``.
-        _pkg._open_context_pr_at_implement_start(pipeline_id, repo_path=_pkg.Path(store.repo_path))
-    except _pkg.ContextPrCreationError as ctx_err:
-        _pkg.logger.warning(
-            "Context PR opener: slice-loop entry safety net failed "
-            "(continuing — hard-require enforced at advance_phase and "
-            "the implement-start plan pre-flight gate) (#2777, #3100)",
-            pipeline_id=pipeline_id,
-            reason=ctx_err.reason,
-            error=str(ctx_err),
-        )
-    except Exception as safety_err:  # noqa: BLE001
-        # Defence in depth: import / lookup failures must not strand
-        # the slice loop.
-        _pkg.logger.warning(
-            "Context PR opener: slice-loop entry safety net outer "
-            "wrapper raised (continuing) (#2777)",
-            pipeline_id=pipeline_id,
-            error=str(safety_err),
-        )
+    _pkg._open_context_pr_safety_net_impl(pipeline_id=pipeline_id, store=store)
 
     _contract_loader = _pkg.functools.partial(
         _pkg._contract_loader_impl,
@@ -171,6 +144,28 @@ def _run_implement_phase_slices(
         pipeline_id=pipeline_id,
         worktree_repo_path=worktree_repo_path,
         commit_and_push=_commit_and_push_slice_statefiles,
+    )
+    _probe_parent_branch_exists = _pkg.functools.partial(
+        _pkg._parent_branch_probe_impl,
+        pipeline=pipeline,
+        spawner=spawner,
+        worktree_repo_path=worktree_repo_path,
+        pipeline_id=pipeline_id,
+        gateway_mode=gateway_mode,
+    )
+    _fresh_contract_for_base = _pkg.functools.partial(
+        _pkg._fresh_contract_for_base_impl,
+        pipeline_id=pipeline_id,
+        worktree_repo_path=worktree_repo_path,
+    )
+    _admission_base_ancestry_gate = _pkg.functools.partial(
+        _pkg._admission_base_ancestry_gate_impl,
+        pipeline_id=pipeline_id,
+        spawner=spawner,
+        worktree_repo_path=worktree_repo_path,
+        gateway_mode=gateway_mode,
+        issue_branch=issue_branch,
+        scheduler=scheduler,
     )
 
     # Bootstrap reconciliation pass (#2549). Before the run loop ticks,
@@ -527,10 +522,12 @@ def _run_implement_phase_slices(
         pipeline,
         worktree_repo_path=worktree_repo_path,
         repo=getattr(pipeline, "repo", None),
+        store=store,
     )
 
     try:
         while not scheduler.all_done():
+            driver_heartbeat.record_tick(pipeline_id)  # #3540 liveness tick
             # 1. Snapshot ready slices for this tick.
             ready_batch = list(scheduler.iter_ready())
             if not ready_batch:
@@ -588,58 +585,15 @@ def _run_implement_phase_slices(
                 parent_slice_id: str | None,  # noqa: ARG001 — kept for caller compat; resolver reads contract
             ) -> tuple[int, str]:
                 # Resolve parent branch for stacking via
-                # :func:`_resolve_slice_base_branch` (#2777, cq-2 / cq-4 /
-                # cq-9 / cq-10). The helper handles both:
-                #
-                # * eager-persisted ``parent_branch_at_creation`` (the
-                #   primary path post-slice-4 TASK-4-2), and
-                # * fresh-pipeline derivation from
-                #   ``slice.dependencies[0]`` (the path #2777's slice-2
-                #   takes before slice-4 lands).
-                #
-                # The legacy ``egg/<id>/context`` branch was removed in
-                # cq-4 so slice-1 (the root) now stacks on
-                # ``pipeline_branch`` like every other root slice — the
-                # work-branch context PR's diff already encompasses the
-                # slice-1 integration branch via ancestry.
-                # #2928: wire a parent-branch-existence probe so the
-                # resolver can tell a FRESH non-root slice (whose
-                # dependency parent branch is still on origin → stack
-                # on it) apart from an orphaned one (parent merged
-                # into ``work`` and cascade-deleted → base on
-                # ``pipeline_branch``). This replaces the pre-#2928
-                # merge-base probe, which probed the slice's OWN
-                # integration branch — non-existent on a first run —
-                # and so mis-routed every fresh non-root slice onto
-                # ``work`` whenever ``work`` had advanced ahead of the
-                # parent. Repoless test scaffolds short-circuit to
-                # ``True`` (no origin to check; the derived parent is
-                # the correct DAG target), mirroring the resolver's
-                # conservative "assume parent exists" default.
-                #
-                # IMPORTANT: this wrapper calls the STRICT ls-remote
-                # variant (``ls_remote_branch_strict``) so a gateway /
-                # network / policy failure RAISES into the resolver's
-                # ``try/except`` instead of being collapsed to
-                # ``False``. The lenient ``ls_remote_branch`` /
-                # ``get_remote_branch_sha`` helpers swallow all
-                # exceptions and return ``False`` / ``None`` for both
-                # "branch absent" AND "gateway error" — using either
-                # here would silently route a real slice onto
-                # ``pipeline_branch`` on a flaky gateway, re-creating
-                # the #2928 wedge that this PR claims to fix.
-                def _probe_parent_branch_exists(parent_branch: str) -> bool:
-                    if not pipeline.repo:
-                        return True
-                    return spawner.gateway.ls_remote_branch_strict(
-                        pipeline_id,
-                        str(worktree_repo_path),
-                        f"refs/heads/{parent_branch}",
-                        mode=gateway_mode,  # type: ignore[arg-type]
-                    )
-
+                # :func:`_resolve_slice_base_branch` (#2777 / #2928 /
+                # #3541). The strict parent-existence probe lives in
+                # :func:`_parent_branch_probe_impl`; the resolver reads
+                # a FRESH contract snapshot
+                # (:func:`_fresh_contract_for_base_impl`) so root
+                # linearization sees sibling completions that flipped
+                # while this run loop iterated.
                 parent_branch = _pkg._resolve_slice_base_branch(
-                    contract,
+                    _fresh_contract_for_base(slice_id, fallback_contract=contract),
                     slice_id,
                     pipeline_id=pipeline_id,
                     pipeline_branch=pipeline_branch,
@@ -890,6 +844,15 @@ def _run_implement_phase_slices(
                                 error=str(base_err),
                             )
 
+                    # #3541: base-ancestry gate — fail the admission
+                    # loudly (recording the slice failure) when the
+                    # just-created branch's base excludes completed
+                    # predecessors' recorded commits. See
+                    # :func:`_admission_base_ancestry_gate_impl`.
+                    ancestry_failure = _admission_base_ancestry_gate(slice_id, integration_branch)
+                    if ancestry_failure is not None:
+                        return 1, ancestry_failure
+
                 _pkg.logger.info(
                     "Slice spawn",
                     pipeline_id=pipeline_id,
@@ -924,55 +887,25 @@ def _run_implement_phase_slices(
                     )
                     return exit_code_inner, logs_inner
 
-                # Slice consensus reached — load the contract ONCE
-                # under the per-pipeline state lock and reuse the same
-                # snapshot for the #3125 evidence-reachability gate
-                # AND the slice's PR data snapshot below. Both readers
-                # previously took the lock independently; collapsing
-                # them eliminates one file read + lock acquire per
-                # slice close (#3125 review).
-                #
-                # The slice_pr_data block below originally documented
-                # the lock as covering only the contract read so the
-                # gateway HTTP round-trip wouldn't serialise other
-                # writers — the same posture applies here: we release
-                # the lock before the gateway call inside the gate.
-                contract_post: _pkg.Any | None = None
-                try:
-                    with get_pipeline_state_lock(pipeline_id):
-                        contract_post = load_contract(pipeline_id, worktree_repo_path)
-                except Exception as load_err:  # noqa: BLE001
-                    _pkg.logger.warning(
-                        "Slice close: contract load failed (continuing) (#3125)",
-                        pipeline_id=pipeline_id,
-                        slice_id=slice_id,
-                        error=str(load_err),
-                    )
-
-                # #3125 — evidence-reachability gate: every commit SHA
-                # cited by this slice's contract task records must be
-                # an ancestor of the integration branch tip, or the
-                # slice PR would ship without a deliverable the task
-                # record claims is done (the post-confirmation
-                # ``complete-task --commit`` unblock flow, #3124).
-                # Fails the slice BEFORE any close side effect so the
-                # cascade + HITL machinery surfaces the gap loudly.
-                # ``contract_post`` may be None if the load above
-                # raised — the gate falls back to its own load in that
-                # case (and skips gracefully if that fails too).
-                if pipeline.repo:
-                    evidence_failure = _pkg._check_slice_evidence_reachability(
-                        pipeline_id,
-                        spawner,
-                        worktree_repo_path,
-                        slice_id,
-                        integration_branch,
-                        gateway_mode=gateway_mode,  # type: ignore[arg-type]
-                        contract=contract_post,
-                    )
-                    if evidence_failure is not None:
-                        scheduler.record_failure(slice_id)
-                        return 1, evidence_failure
+                # Slice consensus reached: one contract load (reused
+                # by the slice PR data snapshot below) + the #3125
+                # evidence-reachability gate, which runs BEFORE any
+                # close side effect. On a definitive failure the helper
+                # lands an unresolved HITL Decision (#3572) and the
+                # slice fails through the cascade machinery. See
+                # ``_slice_close_evidence_gate`` for the full posture.
+                contract_post, evidence_failure = _pkg._slice_close_evidence_gate(
+                    pipeline_id,
+                    spawner,
+                    worktree_repo_path,
+                    slice_id,
+                    integration_branch,
+                    gateway_mode=gateway_mode,  # type: ignore[arg-type]
+                    pipeline=pipeline,
+                )
+                if evidence_failure is not None:
+                    scheduler.record_failure(slice_id)
+                    return 1, evidence_failure
 
                 # #3398 — per-slice green gate: execute the repo's
                 # configured checks (repositories.yaml, via

@@ -6,10 +6,20 @@ the circular ACK problem where a producer would be incentivized to
 NACK a negative review of their own code.
 """
 
-from collections.abc import Callable
+from __future__ import annotations
+
+import os
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
+
+from egg_logging import get_logger
+
+if TYPE_CHECKING:
+    from risk_router import RiskConfig, RiskRouteDecision
+
+logger = get_logger("orchestrator.review_graph")
 
 
 class ReviewCriticality(StrEnum):
@@ -395,7 +405,13 @@ from egg_contracts.agent_roles import EGG_ONLY_REVIEWER_NAMES as _EGG_ONLY_REVIE
 from egg_contracts.agent_roles import EGG_REPO as _EGG_REPO
 
 
-def get_review_graph_for_phase(phase: str, repo: str | None = None) -> ReviewGraph:
+def get_review_graph_for_phase(
+    phase: str,
+    repo: str | None = None,
+    *,
+    changed_files: Iterable[str] | None = None,
+    repo_root: str | None = None,
+) -> ReviewGraph:
     """Get the review graph for a pipeline phase.
 
     Returns the default review graph for refine, plan, and implement phases.
@@ -405,6 +421,19 @@ def get_review_graph_for_phase(phase: str, repo: str | None = None) -> ReviewGra
         phase: Pipeline phase name.
         repo: Repository in owner/name format. When provided, egg-specific
             reviewer roles are excluded for non-egg repos.
+        changed_files: Optional per-slice changed-file set (#3523 S6). This is
+            the single seam through which the deterministic risk router
+            (:mod:`risk_router`) reaches EVERY consumer of the review graph:
+            callers that know the slice's changed files pass them here, and the
+            gating is applied ONCE at this chokepoint rather than forked into
+            each caller. ``None`` (the default) preserves the pre-#3523 graph
+            byte-for-byte regardless of the flag, so non-slice callers are
+            untouched. Gating only ever *narrows* the implement-phase critical
+            lens set — never refine/plan — and always honours the router's HARD
+            floors (no-match => full graph + loud warning; security lens
+            un-gatable on auth/session/input-boundary paths).
+        repo_root: Optional repo root for resolving ``.egg/review-risk.yaml``
+            (defaults to the process CWD via :func:`risk_router.default_config_path`).
     """
     if phase in _PHASE_GRAPHS:
         graph = _PHASE_GRAPHS[phase]
@@ -420,9 +449,198 @@ def get_review_graph_for_phase(phase: str, repo: str | None = None) -> ReviewGra
             for producer in graph.producers_for(role):
                 graph.remove_edge(role, producer)
 
+    # Risk-router gating (#3523 S6). Applied last, only for the implement phase
+    # and only when a caller threads the slice's changed-file set. The flag
+    # defaults ``off``, so this is inert unless an operator opts in.
+    if changed_files is not None and phase == "implement":
+        graph = _maybe_gate_graph_by_risk(graph, changed_files, repo_root=repo_root)
+
     return graph
 
 
 def register_phase_graph(phase: str, graph: ReviewGraph) -> None:
     """Register a custom review graph for a phase."""
     _PHASE_GRAPHS[phase] = graph
+
+
+# ---------------------------------------------------------------------------
+# Risk-router wiring (#3523 S6 / task-6-1)
+# ---------------------------------------------------------------------------
+#
+# Slice-5 (``risk_router.py``) is the PURE half: it maps a slice's changed-file
+# set to (lenses, tier, stance) against ``.egg/review-risk.yaml`` and encodes
+# the HARD floors, but nothing imports it. This section is the WIRING half: it
+# threads the router into the single review-graph resolution chokepoint
+# (:func:`get_review_graph_for_phase`) and the effort plumbing
+# (``agent_model_resolution.resolve_agent_model`` imports :func:`risk_router_mode`
+# and :func:`resolve_risk_decision` from here).
+#
+# Everything rides ONE staged flag, ``EGG_RISK_ROUTER``, resolved EXACTLY like
+# ``slice_green_gate.green_gate_mode()`` (``off`` default, unknown => ``off``):
+#   * ``off``  — inert. The live graph + efforts are byte-identical to legacy.
+#   * ``log``  — compute the would-be gated graph / tier / effort and record it
+#                (:func:`risk_route_log_record` + a structured log line), but
+#                run the UNCHANGED full graph. The soak mode.
+#   * ``on``   — apply the router's lens gating + effort.
+#
+# The HARD floors are re-asserted at THIS wiring layer, not merely trusted from
+# the pure core: a config that fails to load falls open to the full graph
+# (missing config must never mean less review), and the security lens is never
+# dropped off a protected path even if a future edit to the pure core regressed.
+
+RISK_ROUTER_ENV_VAR = "EGG_RISK_ROUTER"
+
+_RISK_ROUTER_ENABLED_VALUES = frozenset({"on", "1", "true", "yes"})
+_RISK_ROUTER_LOG_VALUES = frozenset({"log", "log-only", "log_only"})
+
+
+def risk_router_mode() -> Literal["off", "log", "on"]:
+    """Resolve the ``EGG_RISK_ROUTER`` switch to ``off`` / ``log`` / ``on``.
+
+    Resolved EXACTLY like ``slice_green_gate.green_gate_mode()``: an unknown
+    value resolves to ``off`` so an operator typo degrades to "router does
+    nothing" (full graph, legacy effort), never to "silently review less".
+    """
+    raw = os.environ.get(RISK_ROUTER_ENV_VAR, "off").strip().lower()
+    if raw in _RISK_ROUTER_ENABLED_VALUES:
+        return "on"
+    if raw in _RISK_ROUTER_LOG_VALUES:
+        return "log"
+    return "off"
+
+
+def resolve_risk_decision(
+    changed_files: Iterable[str],
+    *,
+    repo_root: str | None = None,
+) -> RiskRouteDecision | None:
+    """Load ``.egg/review-risk.yaml`` and route ``changed_files`` (fail-open).
+
+    Shared by the graph-gating seam here and the effort seam in
+    ``agent_model_resolution``. Returns ``None`` when the config cannot be
+    loaded — a bad or missing risk config must never *narrow* review, so both
+    callers fall back to the full graph / legacy effort on ``None`` (the HARD
+    "missing config never means less review" floor, enforced at the wiring
+    layer). A successfully-loaded config always yields a decision, including
+    the router's own no-match full-graph-plus-warning floor.
+    """
+    from risk_router import default_config_path, load_risk_config, route_slice
+
+    try:
+        config: RiskConfig = load_risk_config(default_config_path(repo_root))
+    except Exception as exc:  # noqa: BLE001 — a bad config fails OPEN to full review
+        logger.warning(
+            "risk_router: review-risk.yaml failed to load; falling back to the "
+            "FULL review graph + legacy effort (fail-open). See #3523 S6.",
+            error=str(exc),
+        )
+        return None
+    return route_slice(changed_files, config)
+
+
+def _gate_able_lenses() -> frozenset[str]:
+    """The implement-phase critical lens universe the router may narrow.
+
+    Deliberately the SAME set as ``risk_router.FULL_IMPLEMENT_LENSES`` — a
+    reviewer role NOT in this set (e.g. ``tester``, which reviews by executing
+    the proposal and stays cold-start, or the advisory ``reviewer_code ->
+    documenter`` edge's producer) is never gated off, regardless of the router
+    decision. Imported lazily so this module stays import-light.
+    """
+    from risk_router import FULL_IMPLEMENT_LENSES
+
+    return FULL_IMPLEMENT_LENSES
+
+
+def apply_risk_router(graph: ReviewGraph, decision: RiskRouteDecision) -> ReviewGraph:
+    """Return a copy of ``graph`` narrowed to the router's lens set (pure).
+
+    Only edges whose ``reviewer_role`` is in the gate-able implement lens
+    universe AND absent from ``decision.lenses`` are dropped; every other edge
+    (tester, advisory documenter edges, any non-implement reviewer) is kept
+    verbatim. The security lens is re-asserted un-gatable at this layer: if the
+    decision forced security on (a protected path), ``reviewer_security`` edges
+    are never dropped even if some upstream bug omitted it from ``decision.lenses``.
+    """
+    keep_lenses = set(decision.lenses)
+    from risk_router import REVIEWER_SECURITY
+
+    if decision.forced_security:
+        keep_lenses.add(REVIEWER_SECURITY)
+    gate_able = _gate_able_lenses()
+
+    kept: list[ReviewEdge] = []
+    for edge in graph.edges:
+        if edge.reviewer_role in gate_able and edge.reviewer_role not in keep_lenses:
+            continue
+        kept.append(edge)
+    return ReviewGraph(kept)
+
+
+def risk_route_log_record(graph: ReviewGraph, decision: RiskRouteDecision) -> dict[str, Any]:
+    """A JSON-serializable would-be-gating record for ``log`` mode (pure).
+
+    In ``log`` mode the caller records this alongside the unchanged full graph
+    so an operator can compare what the router *would* have done — which lenses
+    it would drop, the risk tier, the effort it would pin, and the stance —
+    before flipping the flag to ``on``. Real per-wave *token* cost is captured
+    separately by the gateway/LiteLLM per-session cost logging (#3523 §5); the
+    dropped-lens count here is the structural cost proxy the router itself owns.
+    """
+    gated = apply_risk_router(graph, decision)
+    full_reviewers = graph.reviewer_roles()
+    gated_reviewers = gated.reviewer_roles()
+    dropped = sorted(full_reviewers - gated_reviewers)
+    return {
+        "mode": "log",
+        "risk_tier": decision.tier.name.lower(),
+        "effort": decision.effort,
+        "stance": decision.stance.value if decision.stance is not None else None,
+        "lenses": sorted(decision.lenses),
+        "dropped_lenses": dropped,
+        "dropped_lens_count": len(dropped),
+        "unrouted": decision.unrouted,
+        "forced_security": decision.forced_security,
+        "warnings": list(decision.warnings),
+    }
+
+
+def _maybe_gate_graph_by_risk(
+    graph: ReviewGraph,
+    changed_files: Iterable[str],
+    *,
+    repo_root: str | None = None,
+) -> ReviewGraph:
+    """Apply router gating to ``graph`` per the ``EGG_RISK_ROUTER`` mode.
+
+    ``off`` => return ``graph`` unchanged. ``log`` => record the would-be
+    gating (structured log + :func:`risk_route_log_record`) but return the
+    UNCHANGED full graph. ``on`` => return the narrowed graph. A ``None``
+    decision (config load failed) falls open to the full graph in every mode.
+    """
+    mode = risk_router_mode()
+    if mode == "off":
+        return graph
+
+    # Materialize once — the iterable may be a generator, and both the log
+    # line and the routing need it.
+    files = list(changed_files)
+    decision = resolve_risk_decision(files, repo_root=repo_root)
+    if decision is None:
+        return graph  # fail-open: bad/missing config never narrows review
+
+    if mode == "log":
+        record = risk_route_log_record(graph, decision)
+        logger.info(
+            "risk_router log-mode: would gate the implement review graph (#3523 S6)",
+            changed_file_count=len(files),
+            **record,
+        )
+        for warning in decision.warnings:
+            logger.warning("risk_router: %s", warning)
+        return graph
+
+    # on: apply the gating. Surface the router's loud warnings regardless.
+    for warning in decision.warnings:
+        logger.warning("risk_router: %s", warning)
+    return apply_risk_router(graph, decision)

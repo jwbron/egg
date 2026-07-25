@@ -1,7 +1,8 @@
 # Repository Configuration for egg
 #
-# This is a TEMPLATE file. Copy to ~/.config/egg/repositories.yaml and customize.
-# Or run ./setup.py which will create this file interactively.
+# This is a TEMPLATE file. `bin/egg-deploy init` copies it to
+# ~/.config/egg/repositories.yaml; customize it there (or use /egg-setup
+# from an MCP-connected Claude Code session for a guided walkthrough).
 #
 # This file is the SINGLE SOURCE OF TRUTH for which repositories egg has
 # read/write access to. All components should import this config rather than
@@ -16,7 +17,7 @@
 # - writable: egg can respond to comments, push changes, create PRs
 # - readable: egg can sync and analyze but not modify
 
-# Your GitHub username (set by setup.py)
+# Your GitHub username
 github_username: YOUR_USERNAME
 
 # Bot username - the bot's GitHub identity for filtering out its own comments

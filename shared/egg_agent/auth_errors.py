@@ -39,6 +39,19 @@ import re
 # nor the SIGTERM code (143) the kubernetes monitor treats as a clean stop.
 EX_AUTH_FATAL = 77
 
+# POSIX ``EX_UNAVAILABLE`` (sysexits.h): "service unavailable". Reused here as
+# the agent CLI's TRANSIENT rate-limit / cap-wall exit code (#3364 PR C). A
+# bare HTTP 429 / "rate limit" / "overloaded" throttle is neither a credential
+# failure (it self-heals once the rolling cap window lifts) nor an ordinary
+# crash — retrying it on the 30s abnormal backoff hammers the API and, worse,
+# feeds the >=10 agent-invocation-fail-streak halt that stops the pipeline in
+# minutes. So it carries its OWN exit code, distinct from ``EX_AUTH_FATAL``
+# (77) and from the consensus wrapper's reserved codes (64 ``EX_USAGE`` /
+# 75 ``EX_TEMPFAIL`` / the SIGTERM 143), which the orchestrator maps to a
+# transient rate-limit outcome and paces across the cap window instead of
+# counting toward the abnormal streak.
+EX_RATE_LIMITED = 69
+
 # Case-insensitive patterns that mark a credential / quota failure a retry
 # cannot fix. Kept narrow and specific on purpose (see the module docstring):
 # every entry names an unambiguous non-retryable cause, so there is no need to
@@ -91,3 +104,46 @@ def is_auth_fatal_error(text: str | None) -> bool:
     if not text:
         return False
     return any(pattern.search(text) for pattern in _AUTH_FATAL_PATTERNS)
+
+
+# Case-insensitive patterns that mark a TRANSIENT throttle / cap wall — exactly
+# the bare-throttling signatures the auth-fatal patterns above deliberately
+# EXCLUDE (module docstring). These recover on a paced retry once the rolling
+# cap window lifts, so they classify as transient rate-limit rather than
+# auth-fatal or an ordinary crash.
+_RATE_LIMIT_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # Bare HTTP 429 (as a standalone token / status), the canonical throttle.
+    re.compile(r"\b429\b", re.IGNORECASE),
+    # "rate limit" / "rate-limited" / "rate_limit_error" — the plain throttle
+    # wording the auth-fatal classifier intentionally does NOT match (only the
+    # anchored "weekly/usage limit" stop phrasing routes fatal).
+    re.compile(r"rate[\s_-]*limit", re.IGNORECASE),
+    # Anthropic "Overloaded" (529) / "overloaded_error".
+    re.compile(r"\boverloaded\b", re.IGNORECASE),
+    # HTTP 429 canonical reason phrase.
+    re.compile(r"too many requests", re.IGNORECASE),
+)
+
+
+def is_transient_rate_limit_error(text: str | None) -> bool:
+    """Return ``True`` iff *text* names a TRANSIENT throttle / cap wall.
+
+    The disjoint counterpart of :func:`is_auth_fatal_error`: it matches the
+    bare throttling signatures (HTTP 429, "rate limit", "overloaded", "too many
+    requests") that recover on a paced retry once the rolling cap window lifts.
+
+    Provably disjoint from :func:`is_auth_fatal_error` (AC-C6): a message that
+    is auth-fatal is returned ``False`` here even if it also carries a 429 —
+    so a subscription weekly/usage cap that the API delivers as a 429 stays
+    auth-fatal (non-retryable) and is never misread as a bare transient
+    throttle. A weekly/usage cap and a bare throttle can therefore never both
+    classify true for the same text. Returns ``False`` for empty/``None``.
+    """
+    if not text:
+        return False
+    # Disjointness guard: a matched weekly/usage cap (or any auth-fatal cause)
+    # is non-retryable and MUST stay auth-fatal — never reclassify it as a
+    # transient throttle just because it rides on a 429.
+    if is_auth_fatal_error(text):
+        return False
+    return any(pattern.search(text) for pattern in _RATE_LIMIT_PATTERNS)

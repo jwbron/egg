@@ -735,6 +735,46 @@ class CommitAuthorshipStore:
                     result[sha_s] = entry.get("role")
         return result
 
+    def lookup_patch_ids(self, shas: list[str]) -> dict[str, str | None]:
+        """Return the ``patch_id`` recorded at registration time per SHA.
+
+        The inverse direction of :meth:`lookup_bulk_by_patch_id`: given
+        SHAs, recover the content identity the observer recorded when
+        the commit was created. This is what lets the evidence
+        patch-id rescue (#3572) re-identify a cited commit whose
+        pre-rebase object was pruned from every odb. Every *valid*
+        input sha maps to its recorded patch-id, or ``None`` when the
+        sha is unregistered or its entry predates schema v2 (#2932).
+        Invalid shas are silently dropped, matching :meth:`lookup_bulk`.
+        """
+        seen: dict[str, None] = {}
+        normalized: list[str] = []
+        for raw in shas or []:
+            try:
+                sha_s = _validate_sha(raw)
+            except CommitAuthorshipStoreError:
+                continue
+            if sha_s in seen:
+                continue
+            seen[sha_s] = None
+            normalized.append(sha_s)
+
+        if not normalized:
+            return {}
+
+        result: dict[str, str | None] = dict.fromkeys(normalized)
+        for shard in self._iter_all_shards():
+            entries = shard.get("entries", {})
+            for sha_s in normalized:
+                if result[sha_s] is not None:
+                    continue
+                entry = entries.get(sha_s)
+                if isinstance(entry, dict):
+                    pid = entry.get("patch_id")
+                    if isinstance(pid, str) and pid:
+                        result[sha_s] = pid
+        return result
+
     def lookup_bulk_by_patch_id(self, patch_ids: list[str]) -> dict[str, str | None]:
         """Content-based attribution fallback for SHA-rewritten commits.
 

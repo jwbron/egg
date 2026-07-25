@@ -1,0 +1,1343 @@
+{
+  "schemaVersion": "1.4",
+  "issue": {
+    "number": 3364,
+    "title": "Issue #3364",
+    "url": "https://github.com/jwbron/egg/issues/3364"
+  },
+  "task_description": "This pipeline's task is GitHub issue #3364 \u2014 https://github.com/jwbron/egg/issues/3364. Fetch the live issue body (`gh issue view 3364`) before structural decisions. Worktree artifacts (drafts, agent outputs) that reference any other issue or pipeline are leftovers from previous runs \u2014 they are NOT your task.\n\n# Slim the /sdlc skill to run + report + HITL \u2014 move monitoring/recovery into the orchestrator + overseer (issue #3364)\n\n## Scope for this pipeline\n\nIssue #3364 planned four independent PRs. **PR A already landed** (#3421: the consensus-timeout \"Retry phase\" decision now routes to the restart_phase path via `CONSENSUS_TIMEOUT_RETRY_OPTION` in `orchestrator/routes/decisions/_handlers.py`). This pipeline covers the **three remaining PRs: B, C, and D**. They are mutually independent; implement them as separate slices/units of work with separate risk profiles.\n\n### PR B \u2014 Long-haul monitoring tooling (issue items 3 + 4)\n\n- Add `--exclude-types` and `--quiet` flags to `skills/sdlc/bin/wait-status` (client-side JSON-line filtering; the file currently exposes only `--since` / `--inner-timeout` / `--max-iterations`). The launcher is pure stdlib and self-contained; keep it that way.\n- Add a `slice.closed` event: new `EventType`, emitted at the slice scheduler's `record_complete` / `record_failure` sites, and added to the `/status/wait` allowlist (`_STATUS_WAIT_EVENT_TYPES`). Verified 2026-07-06: no slice event types exist anywhere in `orchestrator/` or `shared/` yet.\n- Both changes are additive/low-risk; the skill consumes both.\n\n### PR C \u2014 Supervision hardening (issue items 1 + 6)\n\nAll in `JobSupervisor` / `orchestrator/supervision_policy.py`:\n- **Rate-limit (\"quota\" / cap-wall) classification distinct from `abnormal`**: `shared/egg_agent/auth_errors.py` deliberately excludes 429 / \"rate limit\" / \"overloaded\" from `EX_AUTH_FATAL` (#3373), so cap walls currently fall through to the `abnormal` path, hit the `agent-invocation-failure` streak (>=10), and halt in minutes because backoff caps at 30s in `supervision_policy.py`. Detect the all-producers failure-streak signature, classify as transient rate-limit.\n- **Windowed paced retry**: retry across the rolling cap window (hours, not 30s), don't hammer, and preserve landed slices (a `restart_phase`-equivalent that does not discard completed slice work).\n- **Deterministic-loop guard**: distinguish transient (paced retry) from deterministic failures \u2014 if a restart reproduces the identical failure at the same point, stop and escalate instead of looping.\n\n### PR D \u2014 Slim the skill (issue item cleanup + items 2/7 backstops)\n\n- Delete from `skills/sdlc/SKILL.md` (1600 lines as of 2026-07-06): the \"Host detector migration (issue #1962)\" section, the Overseer-Absent Fallback, and all five host-side detector blocks \u2014 Stall detection, Silent agent detection, NACK escalation, Long-Running Phase Detection, and the host-side detection trigger of Stuck Pipeline Rescue (roughly lines 553-793 plus the short-flow Stall detection block near line 1517). #1962 is closed; these are dead/duplicated logic.\n- **Prerequisite (gate the deletion on this)**: coverage-map each deleted detector to an overseer detector that emits an `OVERSEER_ALERT` the skill already surfaces (`orchestrator/overseer/monitor/` \u2014 `_consensus_stall.py`, `_anomaly_checks.py`, `_escalation.py`), so nothing goes dark.\n- Conclude the calibration window by **removing** `overseer_owns_host_detection` entirely (it still defaults to False in `orchestrator/models/_config.py` and is referenced in `orchestrator/routes/pipelines/_routes_status.py`), rather than flipping the default.\n- Keep in the skill: argument parsing/seed, pre-refine triage, submit, the Monitor `wait-status` loop (render + cursor threading), HITL decision brokering (phase_gate / choice / feedback, two-wave surfacing, contract `cq-N` / `feedback-N`), surfacing `OVERSEER_ALERT`s to the user, the user-initiated Stuck Pipeline Rescue workflow (only its host-side detection trigger goes), and a short last-resort debugging section with thin backstop rules (never blind-action a destructive recommendation; `TaskStop` before Monitor re-arm).\n\n## Out of scope\n\n- Item 8 (durable context-measurement surface) \u2014 deferred to #3249.\n- The 13 visibility-gap items from the issue comments (per-role commits_ahead surface, consensus-window countdown, alert feed, etc.) \u2014 those are follow-up orchestrator surfaces tracked in the issue comments and sibling issues (#3369, #3499, #3508, #3509), not this pipeline.\n\n## Sequencing note\n\nB, C, D are independent, but D's detector deletion must be gated on the coverage-map confirming overseer parity (the overseer detection loop in `orchestrator/overseer/monitor/` genuinely exists and #3341/#3343 landed the liveness-before-destructive gating).\n\n## Additional Context\n\nCode-verified state as of 2026-07-06 (this machine, main @ ca193b85b):\n- `_handle_retry_phase`-equivalent exists (PR A landed, #3421) \u2014 do not redo it.\n- `skills/sdlc/bin/wait-status`: no filtering flags yet.\n- No `slice.closed` / slice EventType anywhere.\n- `shared/egg_agent/auth_errors.py` lines 24-28 and 45-46: throttling signatures intentionally absent from fatal patterns; the transient path is what needs the new classification.\n- `overseer_owns_host_detection` lives in `orchestrator/models/_config.py` and `orchestrator/routes/pipelines/_routes_status.py`.\n- `skills/sdlc/SKILL.md` is exactly 1600 lines with all five detector blocks still present.",
+  "pipeline_id": "issue-3364",
+  "current_phase": "implement",
+  "acceptance_criteria": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "PR B follow-ups (tasks 1-1..1-4 landed; not re-derived) \u2014 wire production slice.closed emitter + production-chain integration test",
+      "goal": "Additive / low risk. PR B's four original tasks ALREADY LANDED and are NOT\nre-listed (re-deriving them would re-run completed work): TASK-1-1\n(bin/wait-status --exclude-types/--quiet, commit 4fcf1ed7a), TASK-1-2\n(slice.closed EventType + emit at SliceScheduler.record_complete/record_failure,\nc2a77847a), TASK-1-3 (_STATUS_WAIT_EVENT_TYPES allowlist, 4fcf1ed7a),\nTASK-1-4 (tests, 3593d497c). Two post-consensus review follow-ups remain and\nMUST be carried forward (not lost): TASK-1-5 wires the production\nslice_closed_emitter \u2014 currently default-None at\norchestrator/routes/pipelines/_run_implement.py:86 so slice.closed never\nfires in production (green-but-dead) \u2014 and TASK-1-6 adds a production-chain\nintegration test (real record_complete/record_failure -> emitter -> event\nbus -> _STATUS_WAIT_EVENT_TYPES allowlist), closing the reviewer_contract\nslice-1 NACK and proving AC-B5 end-to-end.",
+      "status": "complete",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-5",
+          "description": "Wire the production slice_closed_emitter at the real SliceScheduler\nconstruction site (orchestrator/routes/pipelines/_run_implement.py:86),\nwhich today calls SliceScheduler(contract, max_parallel_slices=...) with\nNO emitter (default None) \u2014 so the slice.closed emit path added in\nTASK-1-2 never fires in production (green-but-dead). Construct the\nproduction scheduler with a non-None emitter Callable that publishes the\nslice.closed event to the orchestrator event bus, so real\nrecord_complete/record_failure emissions reach /status/wait consumers.",
+          "status": "complete",
+          "commit": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- The production SliceScheduler at _run_implement.py:86 is constructed\n  with a non-None slice_closed_emitter that publishes to the event bus.\n- Real record_complete/record_failure now emit slice.closed in\n  production (no longer default-None / green-but-dead).",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_run_implement.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-6",
+          "description": "Add a production-chain integration test that drives the REAL emission\npath \u2014 record_complete/record_failure -> the wired emitter -> event bus\n-> _STATUS_WAIT_EVENT_TYPES allowlist \u2014 NOT a hand-published event.\nAssert exactly one allowlisted slice.closed(success) on a completion and\nexactly one allowlisted slice.closed(failure) on a failure, via the\nproduction wiring from TASK-1-5. Closes the reviewer_contract slice-1\nNACK and proves AC-B5 end-to-end. make lint + make test green.",
+          "status": "complete",
+          "commit": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- AC-B5 (end-to-end): the test exercises production wiring (not a\n  hand-published event) and asserts one allowlisted slice.closed(success)\n  and one slice.closed(failure); suite green.",
+          "files_affected": [
+            "orchestrator/tests/test_slice_closed_production_emission.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": "egg/issue-3364/work",
+      "integration_base_sha": "743b241f64519f06ab1230aee969bbf0bf99d2ba",
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "PR C \u2014 Supervision hardening (RE-SCOPED per HITL cq-2): EX_RATE_LIMITED exit-code mirror + windowed paced retry + deterministic-loop guard",
+      "goal": "Behavioral / medium-high risk (highest here \u2014 weight toward test coverage\non the exit-code plumbing seam). RE-SCOPED to honor binding HITL cq-2\n(human-resolved opt-3: pause + re-plan to reconcile the file set with the\n#3447 JobSupervisor relocation; opt-2's stay-in-3-files partial-AC-C1\ndeviation was explicitly NOT chosen). AC-C1 (\"classify as transient\nrate-limit, NOT abnormal, does NOT trip the fail-streak halt\") is\nunreachable within the original 3 files: the orchestrator only propagates\na per-agent EXIT CODE to the streak site (never the error TEXT), and #3447\nmoved the per-arm failure-recording layer (JobSupervisor) out of\nconcurrent_executor.py into orchestrator/event_loop/_supervisor.py (+\n_loop.py). The faithful mechanism (== cq-2 opt-1) is a distinct exit code\nEX_RATE_LIMITED mirroring EX_AUTH_FATAL end-to-end: auth_errors.py (define\nEX_RATE_LIMITED + is_transient_rate_limit_error for 429/rate-limit/\noverloaded) -> egg_agent/__main__.py (emit it, auth-fatal precedence) ->\nkubernetes_spawner/_models.py (JOB_OUTCOME_RATE_LIMITED outcome mapping) ->\nevent_loop/_loop.py + __init__.py (_observe_jobs branch -> record_rate_limited)\n-> event_loop/_supervisor.py (record_rate_limited: NO abnormal-streak\nincrement) -> supervision_policy.py (pacing/fingerprint/threshold constants)\n-> concurrent_executor.py (windowed-retry / loop-guard / threshold-alert /\nlanded-slice wiring at the on_exhausted / hitl_probe seam). cq-1: no hard\nceiling, OVERSEER_ALERT once cumulative wait crosses threshold. AC-C6\ninvariance is a NEW risk surface: EX_RATE_LIMITED must not perturb the\nEX_AUTH_FATAL(=77) exit-code path or the ordinary abnormal path. ~8 source\nfiles vs the original 3 \u2014 blast radius up; test the plumbing seam heavily.",
+      "status": "complete",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "shared/egg_agent/auth_errors.py: add EX_RATE_LIMITED (a NEW process\nexit code, distinct from EX_AUTH_FATAL=77 and the reserved codes\n64/75/143 the module docstring names) and is_transient_rate_limit_error(text)\nmatching the throttling signatures (bare 429 / \"rate limit\" /\n\"overloaded\") that _AUTH_FATAL_PATTERNS deliberately EXCLUDES. Do NOT\nwiden EX_AUTH_FATAL / _AUTH_FATAL_PATTERNS. Keep the two classifiers\ndisjoint (a matched weekly/usage cap stays auth-fatal; a bare throttle\nis rate-limited).",
+          "status": "complete",
+          "commit": "2bd6124a3bc23457d12a044c6f466f742b5a58a0",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- EX_RATE_LIMITED defined, distinct from 77/64/75/143;\n  is_transient_rate_limit_error matches 429/\"rate limit\"/\"overloaded\".\n- AC-C6: EX_AUTH_FATAL and _AUTH_FATAL_PATTERNS unchanged; is_auth_fatal_error\n  behavior byte-identical; the two classifiers do not overlap.",
+          "files_affected": [
+            "shared/egg_agent/auth_errors.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-2",
+          "description": "shared/egg_agent/__main__.py (~:142): emit EX_RATE_LIMITED when\nis_transient_rate_limit_error(result.error), as a distinct branch\nalongside the existing `if not result.success and\nis_auth_fatal_error(result.error): return EX_AUTH_FATAL`. auth-fatal\nMUST take precedence (check it first), so a matched weekly cap still\nreturns EX_AUTH_FATAL; the rate-limit branch fires only for the bare\nthrottling signatures.",
+          "status": "complete",
+          "commit": "2bd6124a3bc23457d12a044c6f466f742b5a58a0",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- A throttled failure returns EX_RATE_LIMITED; an auth-fatal failure\n  (incl. weekly cap) still returns EX_AUTH_FATAL; success/other return\n  the prior code.\n- AC-C6: existing auth-fatal exit path unchanged.",
+          "files_affected": [
+            "shared/egg_agent/__main__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-3",
+          "description": "orchestrator/kubernetes_spawner/_models.py: add a JOB_OUTCOME_RATE_LIMITED\nmapping in outcome_for \u2014 an _is_rate_limited_exit check\n(container exit_code == EX_RATE_LIMITED) mirroring the existing\n_is_auth_fatal_exit -> FATAL detection (which reads exit_code ==\nEX_AUTH_FATAL). A non-matching exit code MUST still fall back to\nabnormal (today's behavior). Import EX_RATE_LIMITED from\negg_agent.auth_errors alongside the existing EX_AUTH_FATAL import.",
+          "status": "complete",
+          "commit": "2bd6124a3bc23457d12a044c6f466f742b5a58a0",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- outcome_for returns JOB_OUTCOME_RATE_LIMITED for an EX_RATE_LIMITED\n  exit; JOB_OUTCOME_FATAL for EX_AUTH_FATAL; abnormal otherwise.\n- AC-C6: the EX_AUTH_FATAL -> FATAL mapping and the abnormal fallback\n  are unchanged.",
+          "files_affected": [
+            "orchestrator/kubernetes_spawner/_models.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-4",
+          "description": "orchestrator/event_loop/__init__.py + _loop.py: define the\nJOB_OUTCOME_RATE_LIMITED constant (export it alongside the existing\nJOB_OUTCOME_* constants) and add a _observe_jobs branch (mirroring the\nexisting `elif outcome == JOB_OUTCOME_FATAL` / `JOB_OUTCOME_ABNORMAL`\nbranches at _loop.py ~:94/:116) that routes a rate-limited outcome to a\nNEW supervisor.record_rate_limited(...) call. This is the per-arm\ninterception point that keeps the throttle signature OFF the abnormal\nstreak (record_abort is NOT called for this outcome).",
+          "status": "complete",
+          "commit": "2bd6124a3bc23457d12a044c6f466f742b5a58a0",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- JOB_OUTCOME_RATE_LIMITED constant exists and is observed;\n  _observe_jobs routes it to record_rate_limited and NOT to record_abort.\n- AC-C6: the SUCCESS/LEGITIMATE/FATAL/ABNORMAL observe branches are\n  unchanged.",
+          "files_affected": [
+            "orchestrator/event_loop/__init__.py",
+            "orchestrator/event_loop/_loop.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-5",
+          "description": "orchestrator/event_loop/_supervisor.py: add record_rate_limited(...)\nthat does NOT increment the per-key abnormal streak (mirror\nrecord_legitimate_outcome's \"streak untouched\" pattern at ~:100), so\nthe throttling signature never trips the per-key streak>=10 halt \u2014\nfully satisfying AC-C1. Capture/expose the failure fingerprint\n(signature + phase/slice progression) that the loop-guard (TASK-2-7)\nconsumes; do not itself halt or escalate.",
+          "status": "complete",
+          "commit": "2bd6124a3",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- AC-C1: record_rate_limited leaves the abnormal streak untouched (the\n  fail-streak halt does not fire on repeated rate-limit outcomes).\n- The fingerprint needed by the loop-guard is captured/exposed.\n- AC-C6: record_abort / record_success / record_legitimate_outcome\n  streak behavior is unchanged.",
+          "files_affected": [
+            "orchestrator/event_loop/_supervisor.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-6",
+          "description": "orchestrator/supervision_policy.py: add the pacing + fingerprint +\nthreshold constants/helpers the executor wiring consumes \u2014 the windowed\nretry window (hours-scale, NOT the 30s SUPERVISION_BACKOFF_CAP_SECONDS),\na reset-time parse helper (pace from the error's reset time when\npresent, else bounded backoff), the loop-guard fingerprint model\n(signature + progression identity + equality), and the cumulative-wait\nthreshold that arms the cq-1 OVERSEER_ALERT. Leave\nSUPERVISION_BACKOFF_CAP_SECONDS and the existing abnormal backoff\nuntouched.",
+          "status": "complete",
+          "commit": "2bd6124a3bc23457d12a044c6f466f742b5a58a0",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- AC-C2: windowed-retry window (hours) + reset-time-paced-else-backoff\n  helpers exist and are distinct from the 30s abnormal cap.\n- AC-C4/AC-C5: fingerprint-equality model + cumulative-wait threshold\n  constant present.\n- AC-C6: the existing 30s abnormal backoff/streak constants unchanged.",
+          "files_affected": [
+            "orchestrator/supervision_policy.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-7",
+          "description": "orchestrator/concurrent_executor.py (only the wiring that stays here \u2014\nthe JobSupervisor on_exhausted / hitl_probe seam, ~:1023/:1311): on the\nall-producers rate-limited signature, run the WINDOWED PACED RETRY\n(cq-1: NO hard wall-clock ceiling; emit an OVERSEER_ALERT once the\ncumulative wait crosses the TASK-2-6 threshold), using a\nrestart_phase-equivalent that PRESERVES landed slices (re-arm only the\nin-flight/failed frontier \u2014 do not discard completed slice work), and\nthe DETERMINISTIC-LOOP GUARD (using the TASK-2-5 fingerprint: escalate/\nhalt on an identical fingerprint at the same point; continue when state\nadvances). Keep the threshold OVERSEER_ALERT orthogonal to the\nloop-guard escalation.",
+          "status": "complete",
+          "commit": "2bd6124a3bc23457d12a044c6f466f742b5a58a0",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- AC-C2/AC-C5: paced windowed retry with no hard ceiling + threshold\n  OVERSEER_ALERT.\n- AC-C3: landed slices preserved across the paced restart.\n- AC-C4: loop-guard escalates on identical fingerprint at same point,\n  continues when state advances.",
+          "files_affected": [
+            "orchestrator/concurrent_executor.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-8",
+          "description": "Tests for PR C, weighted on the exit-code plumbing seam:\nis_transient_rate_limit_error classification (429/rate-limit/overloaded\nmatch; auth-fatal wording does NOT match); __main__ emits\nEX_RATE_LIMITED for a throttle and still EX_AUTH_FATAL for a weekly cap;\noutcome_for maps EX_RATE_LIMITED -> JOB_OUTCOME_RATE_LIMITED and a stray\ncode -> abnormal; _observe_jobs routes rate-limited -> record_rate_limited\n(NOT record_abort); record_rate_limited does NOT trip the streak halt;\npaced-retry pacing/window + threshold OVERSEER_ALERT (cq-1); landed-slice\npreservation across a paced restart; loop-guard escalates on identical\nfingerprint and continues when state advances. AC-C6 REGRESSION (new\nrisk surface): EX_AUTH_FATAL(=77) exit-code handling and the ordinary\nabnormal path are unchanged by the new EX_RATE_LIMITED path. make lint +\nmake test green.",
+          "status": "complete",
+          "commit": "b74fa6bbb",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- AC-C7: classification, exit-code emission, outcome mapping, observe\n  routing, no-streak-halt, pacing/window+threshold, landed-slice\n  preservation, and loop-guard (both directions) all covered and green.\n- AC-C6: explicit regression asserting EX_AUTH_FATAL + abnormal paths\n  unchanged.",
+          "files_affected": [
+            "shared/egg_agent/tests/test_auth_errors_rate_limit.py",
+            "orchestrator/tests/test_kubernetes_spawner_rate_limited.py",
+            "orchestrator/tests/test_event_loop_rate_limited.py",
+            "orchestrator/tests/test_supervision_policy.py",
+            "orchestrator/tests/test_concurrent_executor_rate_limit.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": "egg/issue-3364/work",
+      "integration_base_sha": "22fb304d1da8900fb259a4cb8b08644bb8a5235d",
+      "commit": null,
+      "pr_number": 3573,
+      "pr_url": "https://github.com/jwbron/egg/pull/3573",
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "PR D \u2014 Slim the skill (GATED): coverage-map, then delete host detectors, then remove overseer_owns_host_detection",
+      "goal": "Deletion / medium risk with a HARD internal gate (TASK-3-1 gates\nTASK-3-2 and TASK-3-3). TASK-3-1 (GATE, first): produce the coverage-map \u2014\nfor EACH of the five host-detector blocks in skills/sdlc/SKILL.md name the\nconcrete overseer emitter (deterministic _broadcast_alert structural check\nOR the classifier action:{action} path) and the OVERSEER_ALERT subject the\nskill already surfaces; any block with NO confirmed emitter is raised as a\nHITL at point of discovery, NOT a silent delete. TASK-3-2 (after gate):\ndelete the host-detector blocks + migration section + Overseer-Absent\nFallback + Stuck-Rescue host trigger + short-flow Stall block, PRESERVING\nthe Long-Running Implement Phase and Unresolved NACK AskUserQuestion\nrender-on-alert flows and the user-initiated Rescue Steps 1-3. TASK-3-3\n(after gate): remove overseer_owns_host_detection ENTIRELY (field in\norchestrator/models/_config.py + both refs in\norchestrator/routes/pipelines/_routes_status.py; grep-clean). Independent\nof slices 1 and 2 (disjoint files: slice 1 edits routes/pipelines/\n__init__.py, this edits _routes_status.py \u2014 same package, different\nregions, flagged for merge-seam awareness).",
+      "status": "complete",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "GATE (hard predecessor of TASK-3-2 and TASK-3-3): produce the\ncoverage-map. For EACH of the five host-detector blocks in\nskills/sdlc/SKILL.md (Stall detection ~637, Silent agent detection\n~644, NACK escalation ~679, Long-Running Phase Detection ~722, and the\nhost-side detection TRIGGER of Stuck Pipeline Rescue ~750) name the\nconcrete overseer emitter (a deterministic _broadcast_alert(...)\nstructural check in orchestrator/overseer/monitor/ OR the classifier/\nadjudicator action:{action} path) and the OVERSEER_ALERT subject the\nskill ALREADY surfaces. Record the map in the PR body. This is REAL\nverification: the host vocab (agent-stall / agent-silent /\nagent-nack-unresolved / phase-long-running) exists in production only\nas a last-alert dedup map (shared/egg_overseer/state.py) and is\notherwise produced by the overseer Haiku classifier (LLM path), while\nthe live monitor emits a DIFFERENT deterministic vocab\n(post_consensus_stall / incomplete_consensus_stall / rerun_anomaly /\nstatus_inconsistency / hitl_propagation_failure /\ncross_phase_inconsistency / orchestrator_unreachable). Any block that\nmaps to NO confirmed emitter is raised as a HITL via\nmcp__sdlc__register_open_question at the point of discovery (carrying\nthe specific block + evidence) \u2014 NOT a silent delete into a dark gap.",
+          "status": "complete",
+          "commit": "96bb88f49dc53fa6520fd33e3d6f9c29e48fd21f",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- AC-D6: every one of the five blocks is mapped to a named overseer\n  emitter + the OVERSEER_ALERT subject the skill surfaces, recorded in\n  the PR; any unmapped block is escalated as a HITL rather than\n  deleted. No block is deleted without a confirmed emitter.",
+          "files_affected": [
+            "skills/sdlc/SKILL.md"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-2",
+          "description": "GATED on TASK-3-1. Delete from skills/sdlc/SKILL.md (detection/trigger\nprose ONLY): the \"Host detector migration (issue #1962)\" section\n(~553), the \"Overseer-Absent Fallback\" (~573), the five host-side\ndetector blocks \u2014 Stall (~637), Silent agent (~644), NACK escalation\n(~679), Long-Running Phase Detection (~722), the host-side detection\nTRIGGER of Stuck Pipeline Rescue (~750; workflow Steps 1-3 STAY) \u2014 and\nthe short-flow Stall detection block (~1517). Drop the orphaned\noverseer_owns_host_detection State-tracking conditionals (571/716/718).\nPRESERVE (AC-D3, key regression surface): the Long-Running Implement\nPhase and Unresolved NACK AskUserQuestion render-on-alert flows must\nstill fire on their OVERSEER_ALERTs.",
+          "status": "complete",
+          "commit": "96bb88f49",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- AC-D1: listed sections/blocks deleted; Stuck Pipeline Rescue\n  workflow Steps 1-3 retained (only its host-side trigger removed).\n- AC-D3: Long-Running Implement Phase and Unresolved NACK\n  AskUserQuestion render-on-alert flows preserved and still fire on\n  their OVERSEER_ALERT.",
+          "files_affected": [
+            "skills/sdlc/SKILL.md"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-3",
+          "description": "GATED on TASK-3-1. Remove overseer_owns_host_detection ENTIRELY\n(conclude the calibration window; do NOT flip the default): delete the\nField at orchestrator/models/_config.py:388 and both getattr\nreferences at orchestrator/routes/pipelines/_routes_status.py:126-127.\ngrep -rn overseer_owns_host_detection must be clean repo-wide (code +\nSKILL.md prose). Note: PR B (slice 1) also edits the routes/pipelines\npackage (__init__.py allowlist) \u2014 a different region from this\n_routes_status.py edit, but flag the shared package for merge-seam\nawareness.",
+          "status": "complete",
+          "commit": "96bb88f49",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- AC-D2: field + both route references removed; grep for\n  overseer_owns_host_detection is clean repo-wide.",
+          "files_affected": [
+            "orchestrator/models/_config.py",
+            "orchestrator/routes/pipelines/_routes_status.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-4",
+          "description": "Verify the KEPT skill surface is intact (argument parsing/seed,\npre-refine triage, submit, the Monitor wait-status loop with render +\ncursor threading, HITL decision brokering \u2014 phase_gate/choice/feedback,\ntwo-wave surfacing, cq-N/feedback-N \u2014 surfacing OVERSEER_ALERTs, and\nthe user-initiated Stuck Pipeline Rescue workflow Steps 1-3), and add a\nshort last-resort debugging section carrying the two thin backstop\nrules: (1) never blind-action a destructive recommendation \u2014 always\nroute a destructive rec through AskUserQuestion; (2) TaskStop the\nMonitor before re-arming it.",
+          "status": "complete",
+          "commit": "96bb88f49",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- AC-D4: all listed kept sections remain and are coherent\n  post-deletion.\n- AC-D5: a short last-resort debugging section carries both backstop\n  rules (destructive-rec-through-AskUserQuestion; TaskStop-before-\n  Monitor-re-arm).",
+          "files_affected": [
+            "skills/sdlc/SKILL.md"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-5",
+          "description": "Verification for PR D: grep-clean for overseer_owns_host_detection and\nrun_migrated_detectors and the removed detector headings; update/remove\nany orchestrator tests that reference the removed config field; confirm\nSKILL.md still renders and the preserved AskUserQuestion flows are\nstructurally intact. make lint + make test green.",
+          "status": "complete",
+          "commit": "4444378f0dd7cf5861fd92107a6819c977ca3f67",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- AC-D2 (grep-clean) confirmed; no dangling references; suite green.",
+          "files_affected": [
+            "orchestrator/tests/test_config_overseer_flag_removed.py",
+            "orchestrator/tests/test_routes_status.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": "egg/issue-3364/work",
+      "integration_base_sha": "eba3ca554f752fa8d8447ee594a1a11f3a7eea50",
+      "commit": null,
+      "pr_number": 3574,
+      "pr_url": "https://github.com/jwbron/egg/pull/3574",
+      "repo": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [
+    {
+      "id": "cq-1",
+      "question": "PR C \u2014 when a rate-limit / subscription cap-wall persists, how should the windowed paced-retry bound itself? A weekly/subscription cap can stay shut for hours-to-days; \"retry across the rolling window, don't hammer\" sets the pacing but not the ceiling, and the ceiling is directly operator-visible (an unattended pipeline could sit paused a long time).",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Retry until the cap lifts with NO wall-clock ceiling \u2014 parse the reset time from the error to pace when present, else bounded backoff. Cap walls (incl. multi-day weekly caps) self-heal with no operator action.",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Paced-retry up to a max wall-clock ceiling (e.g. a few hours), then escalate to HITL / halt so an unattended pipeline cannot silently sit for days.",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Retry until the cap lifts (no hard ceiling) BUT emit an OVERSEER_ALERT once the wait crosses a threshold, so an attended operator is informed while auto-recovery continues.",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Retry until the cap lifts (no hard ceiling) BUT emit an OVERSEER_ALERT once the wait crosses a threshold, so an attended operator is informed while auto-recovery continues.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-06T18:30:26.906084Z",
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.\n\nDecision ledger: 1 decision(s) registered this phase (cq-1), 0 resolved.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Resolved Questions:\n\n**PR C \u2014 when a rate-limit / subscription cap-wall persists, how should the windowed paced-retry bound itself?**\nAnswer: Retry until the cap lifts (no hard ceiling) BUT emit an OVERSEER_ALERT once the wait crosses a threshold, so an attended operator is informed while auto-recovery continues. (Resolved as cq-1 on the contract.)",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-06T18:40:46.469923Z",
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "cq-2",
+      "question": "PR C (slice-2) file-scope mismatch discovered during implement. AC-C1 requires the throttling signature to \"classify as transient rate-limit, NOT abnormal, and NOT trip the fail-streak halt\" (the per-key streak>=10 exhaustion). But the code only propagates a per-agent EXIT CODE to the orchestrator, never the agent's error TEXT: handle_agent_failure gets f\"Container exited with code {N}\" (_run_concurrent.py:737) and the exhaustion report's exit_detail is just \"exit_code=N\" (kubernetes_spawner/_models.py:102-131). The throttle wording (429/\"rate limit\"/\"overloaded\") the plan/architect assumed is \"observable at the streak site\" is NOT present there. The ONLY faithful mechanism is a distinct exit code, mirroring EX_AUTH_FATAL: auth_errors.py -> egg_agent/__main__.py:142 -> outcome_for (kubernetes_spawner) -> _observe_jobs (event_loop/_loop.py) -> record_fatal (event_loop/_supervisor.py). To satisfy AC-C1 (\"does not trip the fail-streak halt\"), the new transient class must be intercepted at the per-arm RECORDING layer, which now lives in event_loop/_supervisor.py (JobSupervisor moved there in the #3447 decomposition, AFTER the plan's \"concurrent_executor.py (JobSupervisor integration)\" anchor was written). PR C's contracted task files (orchestrator/supervision_policy.py, orchestrator/concurrent_executor.py, shared/egg_agent/auth_errors.py) do not include egg_agent/__main__.py, kubernetes_spawner/_models.py, event_loop/_loop.py, or event_loop/_supervisor.py. How should I proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Expand PR C scope to the full EX_AUTH_FATAL-style mirror across the necessary files (add EX_RATE_LIMITED + is_transient_rate_limit_error to auth_errors.py; emit it in egg_agent/__main__.py; add a JOB_OUTCOME_RATE_LIMITED outcome + outcome_for mapping in kubernetes_spawner/_models.py; a _observe_jobs branch in event_loop/_loop.py; a record_rate_limited paced/no-streak-halt path in event_loop/_supervisor.py; pacing+fingerprint constants in supervision_policy.py; and the windowed-retry/loop-guard/threshold-alert/landed-slice wiring in concurrent_executor.py). Faithful to AC-C1/C6 but touches ~7 files vs the contracted 3.",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Keep strictly to the 3 contracted files: classify at the all-producers _handle_arms_exhausted site in concurrent_executor.py and convert that terminal wedge into a paced windowed retry + loop guard. Meets AC-C2/C3/C4/C5, but the throttle streak still records as abnormal and DOES trip the per-key streak halt (per-producer AGENT_FAILED HITLs fire first) \u2014 i.e. AC-C1's 'not abnormal / does not trip the fail-streak halt' is only partially met; documented as a known deviation.",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Pause PR C and send it back for re-planning/re-scoping (the file set and the #3447 JobSupervisor relocation need to be reconciled before implement).",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Pause PR C and send it back for re-planning/re-scoping (the file set and the #3447 JobSupervisor relocation need to be reconciled before implement).",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-06T23:47:47.549782Z",
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "[Phase gate: plan] The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.\n\nDecision ledger: 1 decision(s) registered this phase (decision-2), 1 resolved.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Auto-approved per operator instruction after conformance check: PR C re-scoped to the EX_RATE_LIMITED exit-code mirror per binding cq-2 (correct 8-file set, #3447 anchors); PR B tasks 1-1..1-4 landed with the two post-consensus follow-ups (production emitter wiring at _run_implement.py:86, production-chain integration test) carried as explicit tasks; PR D gated scope unchanged; cq-1 threshold-alert resolution adopted. Note: the gate's plain-terms context is the stale pre-rescope human render (simplifier did not re-render after task_planner v3); the canonical yaml-tasks block is correct and authoritative.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-07T00:18:44.007640Z",
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "cq-3",
+      "question": "BLOCKED (slice-1, coder): cannot mark task-1-5 complete \u2014 the contract completer fails deterministically with \"Failed to apply mutation: list index out of range\" at field_path phases.0.tasks.4.commit, via BOTH mcp__task__complete AND `egg-contract complete-task`. Root cause: the completer resolves a task id POSITIONALLY by its numeric suffix (task-1-5 -> slice-1.tasks[4]) instead of by id lookup. After slice-1 was re-scoped (per decision-3) to hold only [task-1-5, task-1-6] at list positions 0-1, index 4 is out of range \u2014 so task-1-5 AND task-1-6 can never be flipped complete as structured. (Also observed: read vs write desync \u2014 mcp__sdlc__show_contract returns slice-1=[task-1-5, task-1-6] while the local .egg-state/contracts/issue-3364.json still holds [task-1-1..task-1-4].) IMPORTANT: the work itself is COMPLETE and landed \u2014 commit c2a77847ac88f0deb37a746bce1c9da9fc228022 wires the production slice_closed_emitter at orchestrator/routes/pipelines/_run_implement.py:86 and adds an end-to-end test; it is the current tip of origin/egg/issue-3364/slice-1 and satisfies task-1-5's ACs. Only the bookkeeping status flip is blocked, which in turn blocks the coder propose (propose requires task-1-5 complete) and thus all of slice-1 consensus. A prior plan_bug report_impasse did not clear the wedge (re-spawned on the identical blocker). This needs an operator/orchestrator-side repair; no coder-side file/staging workaround exists (hand-editing the gateway contract is a restricted write). How should this be resolved?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Operator/orchestrator marks task-1-5 (coder) and task-1-6 (tester) complete out-of-band, linking commit c2a77847a \u2014 bypassing the buggy positional completer \u2014 so slice-1 can proceed to consensus.",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Re-index slice-1's tasks to dense low ids (rename task-1-5 -> task-1-1, task-1-6 -> task-1-2) so positional resolution (tasks[0], tasks[1]) matches, then agents complete them normally.",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Fix the contract completer to resolve tasks by id rather than positional numeric-suffix, redeploy the orchestrator, then re-run completion (deeper fix; unblocks any future re-scoped-task pipeline).",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Reconcile the read/write contract desync (sync the live re-scoped contract [task-1-5, task-1-6] to the on-disk .egg-state copy) so both paths agree, then re-run completion.",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Operator/orchestrator marks task-1-5 (coder) and task-1-6 (tester) complete out-of-band, linking commit c2a77847a \u2014 bypassing the buggy positional completer \u2014 so slice-1 can proceed to consensus.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-07T03:30:29.915985Z",
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "cq-4",
+      "question": "PR D coverage-map GATE (task-3-1): 4 of the 5 host-side detector blocks in skills/sdlc/SKILL.md map cleanly to a confirmed overseer OVERSEER_ALERT emitter that the skill already surfaces generically (Stall\u2192incomplete_consensus_stall; Silent agent\u2192action:{action} via heartbeat_timeout; NACK\u2192incomplete_consensus_stall; Stuck-Pipeline-Rescue-trigger\u2192post_consensus_stall). The FIFTH \u2014 \"Long-Running Phase Detection\" (~SKILL.md:722, the proactive \"implement phase 60m+ / majority confirmed \u2192 offer early PR exit\" affordance) \u2014 maps to NO overseer emitter. Evidence: post_consensus_stall requires FULL consensus (is_complete) + a failed transition (_consensus_stall.py:57,91); incomplete_consensus_stall DEFERS its alert while blocking agents are active (_consensus_stall.py:343) \u2014 exactly the healthy-but-slow case this block targets; the classifier action:{action} path is per-agent on a health alert and a healthy long-running phase raises none; and the detect_phase_long_running referenced by overseer_long_running_phase_seconds (models/_config.py:430) DOES NOT EXIST (detection_plane.py has only detect_phase_stall, a wedged-phase detector, unwired to _broadcast_alert). It is a phase-DURATION UX affordance, not an anomaly, so the anomaly-only overseer has no equivalent. Deleting its host-side detection (as PR D's delete-all-five list directs) removes the early-exit offer entirely. How should the Long-Running Implement Phase block be handled?</question>\n<parameter name=\"options\">[\"Keep the Long-Running Implement Phase block (detection 60m-timer + AskUserQuestion render) in the skill as a host-side proactive early-exit affordance \u2014 it has no overseer equivalent and is cheap; delete the other four detector blocks per plan. This is the minimal-regression choice (nothing goes dark).\", \"Delete the Long-Running Implement Phase block entirely (detection + render), accepting loss of the proactive 60-min early-exit offer \u2014 the user can still manually invoke Stuck Pipeline Rescue or cancel. Fully honors the delete-all-five list; the affordance is a known dropped feature.\", \"Delete only the 60-min host-side timer; keep the AskUserQuestion render flow rewired to fire on the existing post_consensus_stall OVERSEER_ALERT (narrower trigger: only fires once ALL agents confirm + transition stalls, not on majority-confirmed).\", \"Other (explain in reply)\"]",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [],
+      "resolved": true,
+      "resolution": "Keep the Long-Running Implement Phase block (detection 60m-timer + AskUserQuestion render) in the skill as a host-side proactive early-exit affordance; it has no overseer equivalent and is cheap; delete the other four detector blocks per plan. This is the minimal-regression choice (nothing goes dark) and honors the contract rule that no block is deleted without a confirmed replacement. A follow-up issue may later move the affordance into the overseer as a phase-duration detector, but that is out of scope for PR D.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-10T01:21:22.747062Z",
+      "debounce_until": null,
+      "redirect_seed": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-07-06T18:19:54.432123Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "PR C \u2014 when a rate-limit / subscription cap-wall persists, how should the windowed paced-retry bound itself? A weekly/subscription cap can stay shut for hours-to-days; \"retry across the rolling window, don't hammer\" sets the pacing but not the ceiling, and the ceiling is directly operator-visible (an unattended pipeline could sit paused a long time).",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Retry until the cap lifts with NO wall-clock ceiling \u2014 parse the reset time from the error to pace when present, else bounded backoff. Cap walls (incl. multi-day weekly caps) self-heal with no operator action.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Paced-retry up to a max wall-clock ceiling (e.g. a few hours), then escalate to HITL / halt so an unattended pipeline cannot silently sit for days.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Retry until the cap lifts (no hard ceiling) BUT emit an OVERSEER_ALERT once the wait crosses a threshold, so an attended operator is informed while auto-recovery continues.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: PR C \u2014 when a rate-limit / subscription cap-wall p...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T22:58:13.251579Z",
+      "actor": "orchestrator",
+      "role": "system",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "implement",
+      "reason": "orchestrator phase-transition sync (driver_startup; #3521)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:05:04.065016Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "4fcf1ed7abf4ecfc6e3fcab94e0f68ab61d5f3f4",
+      "reason": "Linked commit 4fcf1ed to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:05:07.486075Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:05:10.928832Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "4fcf1ed7abf4ecfc6e3fcab94e0f68ab61d5f3f4",
+      "reason": "Linked commit 4fcf1ed to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:05:13.998702Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:05:16.924516Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "4fcf1ed7abf4ecfc6e3fcab94e0f68ab61d5f3f4",
+      "reason": "Linked commit 4fcf1ed to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:05:19.777709Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:19:34.503919Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.3.commit",
+      "old_value": null,
+      "new_value": "3593d497c311a30508c7205404df6abf7af07a03",
+      "reason": "Linked commit 3593d49 to task-1-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:19:37.519741Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:21:29.905444Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": "4fcf1ed7abf4ecfc6e3fcab94e0f68ab61d5f3f4",
+      "new_value": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
+      "reason": "Linked commit c2a7784 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-06T23:35:11.278436Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "PR C (slice-2) file-scope mismatch discovered during implement. AC-C1 requires the throttling signature to \"classify as transient rate-limit, NOT abnormal, and NOT trip the fail-streak halt\" (the per-key streak>=10 exhaustion). But the code only propagates a per-agent EXIT CODE to the orchestrator, never the agent's error TEXT: handle_agent_failure gets f\"Container exited with code {N}\" (_run_concurrent.py:737) and the exhaustion report's exit_detail is just \"exit_code=N\" (kubernetes_spawner/_models.py:102-131). The throttle wording (429/\"rate limit\"/\"overloaded\") the plan/architect assumed is \"observable at the streak site\" is NOT present there. The ONLY faithful mechanism is a distinct exit code, mirroring EX_AUTH_FATAL: auth_errors.py -> egg_agent/__main__.py:142 -> outcome_for (kubernetes_spawner) -> _observe_jobs (event_loop/_loop.py) -> record_fatal (event_loop/_supervisor.py). To satisfy AC-C1 (\"does not trip the fail-streak halt\"), the new transient class must be intercepted at the per-arm RECORDING layer, which now lives in event_loop/_supervisor.py (JobSupervisor moved there in the #3447 decomposition, AFTER the plan's \"concurrent_executor.py (JobSupervisor integration)\" anchor was written). PR C's contracted task files (orchestrator/supervision_policy.py, orchestrator/concurrent_executor.py, shared/egg_agent/auth_errors.py) do not include egg_agent/__main__.py, kubernetes_spawner/_models.py, event_loop/_loop.py, or event_loop/_supervisor.py. How should I proceed?",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Expand PR C scope to the full EX_AUTH_FATAL-style mirror across the necessary files (add EX_RATE_LIMITED + is_transient_rate_limit_error to auth_errors.py; emit it in egg_agent/__main__.py; add a JOB_OUTCOME_RATE_LIMITED outcome + outcome_for mapping in kubernetes_spawner/_models.py; a _observe_jobs branch in event_loop/_loop.py; a record_rate_limited paced/no-streak-halt path in event_loop/_supervisor.py; pacing+fingerprint constants in supervision_policy.py; and the windowed-retry/loop-guard/threshold-alert/landed-slice wiring in concurrent_executor.py). Faithful to AC-C1/C6 but touches ~7 files vs the contracted 3.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Keep strictly to the 3 contracted files: classify at the all-producers _handle_arms_exhausted site in concurrent_executor.py and convert that terminal wedge into a paced windowed retry + loop guard. Meets AC-C2/C3/C4/C5, but the throttle streak still records as abnormal and DOES trip the per-key streak halt (per-producer AGENT_FAILED HITLs fire first) \u2014 i.e. AC-C1's 'not abnormal / does not trip the fail-streak halt' is only partially met; documented as a known deviation.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Pause PR C and send it back for re-planning/re-scoping (the file set and the #3447 JobSupervisor relocation need to be reconciled before implement).",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: PR C (slice-2) file-scope mismatch discovered duri...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T00:24:58.022177Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "BLOCKED (slice-1, coder): cannot mark task-1-5 complete \u2014 the contract completer fails deterministically with \"Failed to apply mutation: list index out of range\" at field_path phases.0.tasks.4.commit, via BOTH mcp__task__complete AND `egg-contract complete-task`. Root cause: the completer resolves a task id POSITIONALLY by its numeric suffix (task-1-5 -> slice-1.tasks[4]) instead of by id lookup. After slice-1 was re-scoped (per decision-3) to hold only [task-1-5, task-1-6] at list positions 0-1, index 4 is out of range \u2014 so task-1-5 AND task-1-6 can never be flipped complete as structured. (Also observed: read vs write desync \u2014 mcp__sdlc__show_contract returns slice-1=[task-1-5, task-1-6] while the local .egg-state/contracts/issue-3364.json still holds [task-1-1..task-1-4].) IMPORTANT: the work itself is COMPLETE and landed \u2014 commit c2a77847ac88f0deb37a746bce1c9da9fc228022 wires the production slice_closed_emitter at orchestrator/routes/pipelines/_run_implement.py:86 and adds an end-to-end test; it is the current tip of origin/egg/issue-3364/slice-1 and satisfies task-1-5's ACs. Only the bookkeeping status flip is blocked, which in turn blocks the coder propose (propose requires task-1-5 complete) and thus all of slice-1 consensus. A prior plan_bug report_impasse did not clear the wedge (re-spawned on the identical blocker). This needs an operator/orchestrator-side repair; no coder-side file/staging workaround exists (hand-editing the gateway contract is a restricted write). How should this be resolved?",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Operator/orchestrator marks task-1-5 (coder) and task-1-6 (tester) complete out-of-band, linking commit c2a77847a \u2014 bypassing the buggy positional completer \u2014 so slice-1 can proceed to consensus.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Re-index slice-1's tasks to dense low ids (rename task-1-5 -> task-1-1, task-1-6 -> task-1-2) so positional resolution (tasks[0], tasks[1]) matches, then agents complete them normally.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Fix the contract completer to resolve tasks by id rather than positional numeric-suffix, redeploy the orchestrator, then re-run completion (deeper fix; unblocks any future re-scoped-task pipeline).",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Reconcile the read/write contract desync (sync the live re-scoped contract [task-1-5, task-1-6] to the on-disk .egg-state copy) so both paths agree, then re-run completion.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: BLOCKED (slice-1, coder): cannot mark task-1-5 com...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T04:56:04.792615Z",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
+      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T04:56:04.792615Z",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T04:56:04.792615Z",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "c2a77847ac88f0deb37a746bce1c9da9fc228022",
+      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-07T04:56:04.792615Z",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Operator task completion (#3124): cq-3 opt-1 out-of-band completion; mirrors the audited complete_task_as_operator mutation applied to the orchestrator worktree at 2026-07-07T03:33Z, which routes/contracts.py does not push (see #3527)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:02:54.716041Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "reason": "Linked commit 681bdd4 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:02:58.106085Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:01.535163Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "reason": "Linked commit 681bdd4 to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:04.491517Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:07.598699Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.commit",
+      "old_value": null,
+      "new_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "reason": "Linked commit 681bdd4 to task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:10.853606Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:14.040872Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.3.commit",
+      "old_value": null,
+      "new_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "reason": "Linked commit 681bdd4 to task-2-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:17.476711Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:20.541677Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.5.commit",
+      "old_value": null,
+      "new_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "reason": "Linked commit 681bdd4 to task-2-6",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:23.698884Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.5.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-6 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:27.322816Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.6.commit",
+      "old_value": null,
+      "new_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "reason": "Linked commit 681bdd4 to task-2-7",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:03:30.208391Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.6.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-7 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:04:23.488833Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "new_value": "2bd6124a3bc23457d12a044c6f466f742b5a58a0",
+      "reason": "Linked commit 2bd6124 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:04:26.901831Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.6.commit",
+      "old_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "new_value": "2bd6124a3bc23457d12a044c6f466f742b5a58a0",
+      "reason": "Linked commit 2bd6124 to task-2-7",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:21:22.890520Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.7.commit",
+      "old_value": null,
+      "new_value": "b74fa6bbb",
+      "reason": "Linked commit b74fa6b to task-2-8",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:21:26.570953Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.7.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-8 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:21:29.811593Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.4.commit",
+      "old_value": null,
+      "new_value": "2bd6124a3",
+      "reason": "Linked commit 2bd6124 to task-2-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T20:21:33.077377Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T21:06:40.028863Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-4",
+        "question": "PR D coverage-map GATE (task-3-1): 4 of the 5 host-side detector blocks in skills/sdlc/SKILL.md map cleanly to a confirmed overseer OVERSEER_ALERT emitter that the skill already surfaces generically (Stall\u2192incomplete_consensus_stall; Silent agent\u2192action:{action} via heartbeat_timeout; NACK\u2192incomplete_consensus_stall; Stuck-Pipeline-Rescue-trigger\u2192post_consensus_stall). The FIFTH \u2014 \"Long-Running Phase Detection\" (~SKILL.md:722, the proactive \"implement phase 60m+ / majority confirmed \u2192 offer early PR exit\" affordance) \u2014 maps to NO overseer emitter. Evidence: post_consensus_stall requires FULL consensus (is_complete) + a failed transition (_consensus_stall.py:57,91); incomplete_consensus_stall DEFERS its alert while blocking agents are active (_consensus_stall.py:343) \u2014 exactly the healthy-but-slow case this block targets; the classifier action:{action} path is per-agent on a health alert and a healthy long-running phase raises none; and the detect_phase_long_running referenced by overseer_long_running_phase_seconds (models/_config.py:430) DOES NOT EXIST (detection_plane.py has only detect_phase_stall, a wedged-phase detector, unwired to _broadcast_alert). It is a phase-DURATION UX affordance, not an anomaly, so the anomaly-only overseer has no equivalent. Deleting its host-side detection (as PR D's delete-all-five list directs) removes the early-exit offer entirely. How should the Long-Running Implement Phase block be handled?</question>\n<parameter name=\"options\">[\"Keep the Long-Running Implement Phase block (detection 60m-timer + AskUserQuestion render) in the skill as a host-side proactive early-exit affordance \u2014 it has no overseer equivalent and is cheap; delete the other four detector blocks per plan. This is the minimal-regression choice (nothing goes dark).\", \"Delete the Long-Running Implement Phase block entirely (detection + render), accepting loss of the proactive 60-min early-exit offer \u2014 the user can still manually invoke Stuck Pipeline Rescue or cancel. Fully honors the delete-all-five list; the affordance is a known dropped feature.\", \"Delete only the 60-min host-side timer; keep the AskUserQuestion render flow rewired to fire on the existing post_consensus_stall OVERSEER_ALERT (narrower trigger: only fires once ALL agents confirm + transition stalls, not on majority-confirmed).\", \"Other (explain in reply)\"]",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: PR D coverage-map GATE (task-3-1): 4 of the 5 host...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T22:02:11.781701Z",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "new_value": "2bd6124a3bc23457d12a044c6f466f742b5a58a0",
+      "reason": "Operator task completion (#3124): Evidence repair (#3125): record cited phantom pre-rebase SHA 681bdd470 absent from egg/issue-3364/slice-2; work landed as 2bd6124a3 and was reviewed/ACKed at v2 (94fbf7c6e).",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T22:02:11.781766Z",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.status",
+      "old_value": "complete",
+      "new_value": "complete",
+      "reason": "Operator task completion (#3124): Evidence repair (#3125): record cited phantom pre-rebase SHA 681bdd470 absent from egg/issue-3364/slice-2; work landed as 2bd6124a3 and was reviewed/ACKed at v2 (94fbf7c6e).",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T22:02:11.909936Z",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.commit",
+      "old_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "new_value": "2bd6124a3bc23457d12a044c6f466f742b5a58a0",
+      "reason": "Operator task completion (#3124): Evidence repair (#3125): record cited phantom pre-rebase SHA 681bdd470 absent from egg/issue-3364/slice-2; work landed as 2bd6124a3 and was reviewed/ACKed at v2 (94fbf7c6e).",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T22:02:11.909958Z",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.status",
+      "old_value": "complete",
+      "new_value": "complete",
+      "reason": "Operator task completion (#3124): Evidence repair (#3125): record cited phantom pre-rebase SHA 681bdd470 absent from egg/issue-3364/slice-2; work landed as 2bd6124a3 and was reviewed/ACKed at v2 (94fbf7c6e).",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T22:02:11.949449Z",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.1.tasks.3.commit",
+      "old_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "new_value": "2bd6124a3bc23457d12a044c6f466f742b5a58a0",
+      "reason": "Operator task completion (#3124): Evidence repair (#3125): record cited phantom pre-rebase SHA 681bdd470 absent from egg/issue-3364/slice-2; work landed as 2bd6124a3 and was reviewed/ACKed at v2 (94fbf7c6e).",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T22:02:11.949490Z",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.1.tasks.3.status",
+      "old_value": "complete",
+      "new_value": "complete",
+      "reason": "Operator task completion (#3124): Evidence repair (#3125): record cited phantom pre-rebase SHA 681bdd470 absent from egg/issue-3364/slice-2; work landed as 2bd6124a3 and was reviewed/ACKed at v2 (94fbf7c6e).",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T22:02:12.092258Z",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.1.tasks.5.commit",
+      "old_value": "681bdd470e2b4b186cb02aece4ba87bd2a3b4155",
+      "new_value": "2bd6124a3bc23457d12a044c6f466f742b5a58a0",
+      "reason": "Operator task completion (#3124): Evidence repair (#3125): record cited phantom pre-rebase SHA 681bdd470 absent from egg/issue-3364/slice-2; work landed as 2bd6124a3 and was reviewed/ACKed at v2 (94fbf7c6e).",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-09T22:02:12.092329Z",
+      "actor": "operator",
+      "role": "human",
+      "action": "update",
+      "field_path": "phases.1.tasks.5.status",
+      "old_value": "complete",
+      "new_value": "complete",
+      "reason": "Operator task completion (#3124): Evidence repair (#3125): record cited phantom pre-rebase SHA 681bdd470 absent from egg/issue-3364/slice-2; work landed as 2bd6124a3 and was reviewed/ACKed at v2 (94fbf7c6e).",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T01:22:47.071820Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:49:31.179286Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": null,
+      "new_value": "8082a83ae",
+      "reason": "Linked commit 8082a83 to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:49:34.459966Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:49:38.388451Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.commit",
+      "old_value": null,
+      "new_value": "8082a83ae",
+      "reason": "Linked commit 8082a83 to task-3-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:49:41.588591Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:49:44.768232Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.3.commit",
+      "old_value": null,
+      "new_value": "8082a83ae",
+      "reason": "Linked commit 8082a83 to task-3-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:49:48.244818Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:51:50.480207Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": "8082a83ae",
+      "new_value": "96bb88f49",
+      "reason": "Linked commit 96bb88f to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:51:53.531280Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.commit",
+      "old_value": "8082a83ae",
+      "new_value": "96bb88f49",
+      "reason": "Linked commit 96bb88f to task-3-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:51:56.422689Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.3.commit",
+      "old_value": "8082a83ae",
+      "new_value": "96bb88f49",
+      "reason": "Linked commit 96bb88f to task-3-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:54:05.336843Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": null,
+      "new_value": "96bb88f49dc53fa6520fd33e3d6f9c29e48fd21f",
+      "reason": "Linked commit 96bb88f to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:59:29.244723Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.4.commit",
+      "old_value": null,
+      "new_value": "4444378f0dd7cf5861fd92107a6819c977ca3f67",
+      "reason": "Linked commit 4444378 to task-3-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-10T02:59:32.035075Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-5 as complete",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Slim the /sdlc skill to run+report+HITL; harden supervision + long-haul monitoring (PRs B/C/D of #3364)",
+    "description": "The three remaining, mutually-independent PRs of #3364 (PR A landed via\n#3421 \u2014 not redone). Three independent slices, one PR each, disjoint file\nsets so there is no integration collision:\n\n- Slice 1 / PR B (additive, low risk): add client-side --exclude-types and\n  --quiet filter flags to the pure-stdlib skills/sdlc/bin/wait-status, and\n  add a new slice.closed EventType emitted at both SliceScheduler\n  close sites (record_complete / record_failure) with an outcome field\n  distinguishing success vs failure, allowlisted in _STATUS_WAIT_EVENT_TYPES\n  so it reaches wait-status consumers.\n- Slice 2 / PR C (behavioral, medium-high risk \u2014 highest here): a NEW\n  transient rate-limit classification distinct from abnormal that keys off\n  the all-producers agent-invocation-failure streak carrying the bare\n  throttling wording auth_errors.py deliberately excludes from EX_AUTH_FATAL\n  (429 / rate limit / overloaded); a windowed paced retry across the rolling\n  cap window (hours, not the 30s cap) using a restart_phase-equivalent that\n  preserves landed slices; and a deterministic-loop guard that escalates\n  instead of looping when a restart reproduces the identical failure\n  fingerprint at the same point. Per resolved cq-1: NO hard wall-clock\n  ceiling, but an OVERSEER_ALERT fires once the cumulative wait crosses a\n  threshold. EX_AUTH_FATAL (incl. matched weekly caps) and ordinary abnormal\n  halts behave unchanged.\n- Slice 3 / PR D (deletion, medium risk \u2014 GATED): task-3-1 coverage-maps\n  each of the five host-detector blocks in SKILL.md to a concrete overseer\n  emitter FIRST; any block with no confirmed emitter is raised as a HITL at\n  point of discovery, not silently deleted. Only after the gate: delete the\n  host-detector blocks + migration section + Overseer-Absent Fallback +\n  Stuck-Rescue host trigger + short-flow Stall block (preserving the\n  render-on-OVERSEER_ALERT AskUserQuestion flows and the user-initiated\n  Rescue Steps 1-3), and remove overseer_owns_host_detection entirely.\n\nGrounded live @ ca193b85b (2026-07-06). Critical grounded fact: there is NO\ndeterministic overseer emitter for agent-stall / agent-silent /\nagent-nack-unresolved / phase-long-running \u2014 those ride the Haiku\nclassifier action:{action} path only \u2014 which is exactly why the PR-D\ncoverage-map is real verification work.",
+    "test_plan": "Per slice; `make test` narrows to reachable suites, `make lint` green\nthroughout; run `make test-all` before phase exit.\n- Slice 1 (PR B): wait-status --exclude-types drops a targeted event type\n  and --quiet behaves per spec while default (non-filtered) output is\n  unchanged (regression guard); a slice completion emits exactly one\n  allowlisted slice.closed(success) and a slice failure emits exactly one\n  allowlisted slice.closed(failure), each distinguishable by outcome.\n- Slice 2 (PR C): throttling-streak classifies as transient rate-limit (NOT\n  abnormal, does not trip the fail-streak halt); paced-retry pacing/window\n  (reset-time-paced when present, else bounded backoff; threshold\n  OVERSEER_ALERT fires per cq-1); landed slices preserved across a paced\n  restart; loop-guard escalates on identical-fingerprint reproduction and\n  continues when the restart advances state; regression: EX_AUTH_FATAL\n  (incl. weekly cap) and ordinary abnormal halts fire unchanged.\n- Slice 3 (PR D): grep-clean for overseer_owns_host_detection and\n  run_migrated_detectors; orchestrator tests referencing the removed field\n  updated/removed; SKILL.md still renders and the preserved Long-Running\n  Implement Phase + Unresolved NACK AskUserQuestion flows remain\n  structurally intact.",
+    "manual_steps": "Pre-merge: none. The three PRs are independent and may merge in any order\n(B first is preferred for quick value). Post-merge: PR C changes live\nsupervision behavior \u2014 watch the first real cap-wall recovery to confirm the\nthreshold OVERSEER_ALERT fires and landed slices are preserved.",
+    "context_pr_number": 3524,
+    "deferred_actions": []
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

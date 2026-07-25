@@ -7,6 +7,7 @@ test-patched globals are reached via ``_pkg`` so
 
 from __future__ import annotations
 
+import driver_heartbeat
 import routes.pipelines as _pkg  # noqa: E402,F401
 
 
@@ -323,6 +324,7 @@ def _run_pipeline(
             )
 
         while True:
+            driver_heartbeat.record_tick(pipeline_id)  # #3540 liveness tick
             try:
                 pipeline = store.load_pipeline(pipeline_id)
             except Exception:
@@ -1067,6 +1069,21 @@ def _run_pipeline(
                 pipeline.run_epoch = _pkg.datetime.now(_pkg.UTC)
                 # ``updated_at`` is unconditionally set by ``StateStore.save_pipeline``.
                 store.save_pipeline(pipeline)
+
+            # #3521: advance contract.current_phase in lockstep with the
+            # pipeline record. Historically this mutation was owned by
+            # whichever agent called the gateway phase API after the
+            # transition; when none did, the contract silently stayed on
+            # the previous phase and the gateway commit gate (which keys
+            # off the CONTRACT phase) wedged the next phase's consensus.
+            # Best-effort + forward-only; never raises.
+            _pkg._sync_contract_phase_to_pipeline(
+                pipeline, worktree_repo_path, source="auto_advance"
+            )
+
+            # #3528: gateway sessions survive the transition; sync their
+            # phase in lockstep (best-effort; see the helper's docstring).
+            _pkg._sync_session_phases_best_effort(pipeline_id, next_phase.value)
 
             # Drop the previous phase's in-memory consensus tracker and
             # message-store entries (#2502).  The other phase-transition

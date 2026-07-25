@@ -51,7 +51,8 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 | Document | Description |
 |----------|-------------|
-| [Deployment](guides/deployment.md) | Production deployment options: Docker Compose, CLI, GitHub Action |
+| [Onboarding](guides/onboarding.md) | Guided setup from `git clone` to a running egg via `bin/egg-init` (Linux; macOS via Lima) |
+| [Deployment](guides/deployment.md) | Kubernetes (k3s) deployment: setup, images, secrets, health checks, GitHub Action, troubleshooting |
 | [Deploy Migration](guides/deploy-migration.md) | Migrating from legacy deployments |
 | [Agent-Mode Design](guides/agent-mode-design.md) | When to let egg operate freely vs. when constraints are appropriate |
 | [Agent Development](guides/agent-development.md) | Developing agent strategies |
@@ -89,6 +90,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Jira Wrapper](reference/jira-wrapper.md) | `/api/v1/jira/*` gateway endpoints — read verbs (ticket read, JQL search with static project-scope extraction, ticket comments, GET-only execute passthrough) plus the bounded write extension (`ticket/create`, `ticket/edit`, `ticket/comment/add`, `issue-link/create`); private-mode only; project allowlist via `config/context-filters.yaml`; per-verb body schema with size caps; ADF wrapping for plain-text `description` / `comment` bodies (`gateway/jira_adf.py`); caller-supplied idempotency key with 5-minute in-process cache (`gateway/jira_idempotency.py`); operator-configurable `jira.link_types` / `jira.epic_link_field` knobs; audit redaction never logs body content; `not_found` envelope on read 404s |
 | [Confluence Wrapper](reference/confluence-wrapper.md) | `/api/v1/confluence/*` read-only gateway endpoints (page read, descendants, footer/inline comments with v1 fallback, space list/pages, CQL search with static space-scope extraction, GET-only execute passthrough); private-mode only; space allowlist via `config/context-filters.yaml`; `not_found` envelope; response redaction (`accountId` / `emailAddress` / user-profile `_links.webui` / user-profile `_links.self`); future write-verb extension points |
 | [Conditional ACK](reference/conditional-ack.md) | Reviewer verdict variant: ACK + `--pre-merge-condition "..."` attaches a merge-time human obligation (e.g. `git mv`) that surfaces in `egg-orch consensus status` and in a "Pre-merge Obligations" section on the auto-created PR body |
+| [Review Quality](reference/review-quality.md) | Structured findings + server-side computed verdict, per-finding tool-call cap, risk-routed review graph, and the shared-evidence prompt prefix (`evidence_gatherer`) — five staged-rollout changes hardening the BRC review graph (issue #3523) |
 
 ### SDLC Pipeline Templates
 
@@ -141,6 +143,7 @@ Each major component has detailed documentation:
 | **Slice-DAG / stacked-PR / `Phase`→`Slice` rename** | [Slice-DAG Implement Phase](architecture/slice-dag.md) | [SDLC Pipeline Architecture](architecture/sdlc-pipeline.md), [Plan Template](templates/plan.md), `orchestrator/slice_scheduler.py`, `orchestrator/stacked_pr_reconciler.py`, `orchestrator/slice_green_gate.py`, `shared/egg_contracts/models.py` |
 | **Agent teams / Deliberative Consensus** | [Agent Teams Guide](guides/agent-teams.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md) |
 | **Reviewer verdict choices (ACK / NACK / conditional)** | [Conditional ACK Reference](reference/conditional-ack.md) | [Concurrent Execution: Reviewer verdict variants](guides/concurrent-execution.md#reviewer-verdict-variants), [Orchestrator CLI](reference/orchestrator-cli.md) |
+| **Review quality (structured findings, risk-routed review graph, shared-evidence prefix)** | [Review Quality Reference](reference/review-quality.md) | [Conditional ACK Reference](reference/conditional-ack.md), [Agent Roles Reference](reference/agent-roles.md) |
 | **Agent anchor / recovery changes** | [Anchor Recovery Guide](guides/anchor-recovery.md) | [egg_anchor README](../shared/egg_anchor/README.md), [Orchestrator CLI](reference/orchestrator-cli.md), [Concurrent Execution](guides/concurrent-execution.md) |
 | **Kubernetes / k3s migration** | [Kubernetes Migration](architecture/kubernetes-migration.md) | [Deployment Guide](guides/deployment.md), [Network Isolation](architecture/network-isolation.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Concurrent execution mode** | [Concurrent Execution Guide](guides/concurrent-execution.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Orchestrator Architecture](architecture/orchestrator.md) |

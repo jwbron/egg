@@ -294,6 +294,15 @@ class PipelineConfig(BaseModel):
         ge=10,
         description="Seconds before raising HITL propagation failure alert",
     )
+    overseer_phase_desync_alert_seconds: int = Field(
+        default=300,
+        ge=10,
+        description=(
+            "Seconds a pipeline-record vs contract current_phase mismatch may "
+            "persist while status=running before the deterministic desync "
+            "alert fires (#3521)"
+        ),
+    )
     post_proposal_grace_seconds: int = Field(
         default=300,
         ge=30,
@@ -383,17 +392,6 @@ class PipelineConfig(BaseModel):
             "flip to 'live' only after telemetry validates the detectors' "
             "precision. Full disable continues to be expressed via "
             "overseer_enabled=False (per decision-10)."
-        ),
-    )
-    overseer_owns_host_detection: bool = Field(
-        default=False,
-        description=(
-            "Calibration-window flag. While False (the default), /sdlc keeps "
-            "running its host-side stall / silent-agent / NACK / long-run / "
-            "rescue detectors so the overseer's new detectors can be "
-            "calibrated side-by-side with no behavior regression. The "
-            "follow-up cleanup PR flips the default to True and deletes the "
-            "now-dormant /sdlc detection blocks."
         ),
     )
     overseer_stuck_phase_transition_seconds: int = Field(

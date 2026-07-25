@@ -1,455 +1,135 @@
 ---
 name: egg-setup
-description: Walk the user through initial egg setup or update an existing configuration — checks dependencies, configures secrets, repositories, and validates the installation.
+description: Walk the user through initial egg setup or update an existing configuration — checks dependencies, configures secrets and repositories, deploys to k3s, and validates the installation.
 disable-model-invocation: true
-argument-hint: "[--check | --update secrets | --update repos | --update config]"
+argument-hint: "[--check | --update secrets | --update repos]"
 ---
 
-# Setup
+# egg Setup
 
-You are guiding the user through egg setup or configuration updates. Walk through the phases below, adapting based on whether this is a fresh install or an update.
+You are guiding the user through egg setup or a configuration update. `bin/egg-init` owns all of the setup logic; this skill is a conversational front-end that runs it, interprets the output, and helps the user fix anything it flags.
+
+> **Why delegate?** egg's deployment moved to k3s in #1762; every earlier version of this skill validated a Docker Compose architecture that no longer exists. Keeping the logic in `bin/egg-init` (a script, tested in CI) means this skill can never drift from the real setup flow again.
 
 ## Argument Parsing
 
 Parse arguments after `/egg-setup`:
 
-| Input | Interpretation |
-|-------|---------------|
-| `/egg-setup` | Full setup — run all phases in order |
-| `/egg-setup --check` | Health check only — verify dependencies and config, report status |
-| `/egg-setup --update secrets` | Update secrets only (Phase 3) |
-| `/egg-setup --update repos` | Update repository configuration only (Phase 4) |
-| `/egg-setup --update config` | Update general config only (Phase 5) |
+| Input | What to run |
+|-------|-------------|
+| `/egg-setup` | Full guided setup — all `bin/egg-init` stages |
+| `/egg-setup --check` | `bin/egg-init --check` — validate, change nothing |
+| `/egg-setup --update secrets` | `bin/egg-init --update secrets` |
+| `/egg-setup --update repos` | `bin/egg-init --update repos` |
 
-## Phase 1 — Dependency Check
+## Flow
 
-Verify all required dependencies are installed and meet minimum versions. Run these checks using Bash commands:
+### 1. Locate the checkout
 
-### Required Dependencies
+`bin/egg-init` lives at the root of the egg repo. If the user is running this skill from an MCP-connected host, the checkout is the one the `egg` MCP server is deployed from. If you can't find it, ask:
 
-| Dependency | Check command | Minimum version | Install guidance |
-|------------|--------------|-----------------|------------------|
-| **Python** | `python3 --version` | 3.14+ | python.org or system package manager |
-| **Docker** | `docker --version` | 20.10+ | docker.com/get-docker |
-| **Docker Compose** | `docker compose version` | 2.0+ | Included with Docker Desktop; Linux: install docker-compose-plugin |
-| **Git** | `git --version` | 2.30+ | git-scm.com |
-| **GitHub CLI** | `gh --version` | 2.0+ | cli.github.com |
-| **uv** (optional) | `uv --version` | any | For development; `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+> "Where is your egg checkout? (e.g. ~/khan/egg)"
 
-### Additional Checks
+All commands below run from that directory.
 
-- **Docker running**: `docker info >/dev/null 2>&1` — if this fails, Docker daemon is not running
-- **gh authenticated**: `gh auth status` — if not authenticated, guide user to run `gh auth login`
-- **egg CLI installed**: `egg --version 2>/dev/null || which egg` — if missing, advise `pip install -e ./sandbox`
+### 2. Preflight: dependencies
 
-### Reporting
+Run the dependency portion of the check first so failures surface early:
 
-Present results as a compact checklist:
-
-```
-## Dependency Check
-
-- [x] Python 3.14.0
-- [x] Docker 27.5.1
-- [x] Docker Compose v2.32.4
-- [x] Git 2.48.1
-- [x] GitHub CLI 2.67.0
-- [x] Docker daemon running
-- [x] gh authenticated as <username>
-- [ ] egg CLI not found — run: pip install -e ./sandbox
-- [ ] uv not found (optional) — install for development
+```bash
+bin/egg-init --check
 ```
 
-If any **required** dependency is missing or below minimum version, use `AskUserQuestion`:
-- **Question**: "Some required dependencies are missing or outdated. Would you like help installing them?"
+This verifies, without changing anything:
+
+- **Dependencies**: docker (daemon running), git, `gh` (authenticated), curl, kubectl, `envsubst` (GNU gettext), `claude` CLI
+- **Config files**: `config.yaml`, `repositories.yaml`, `secrets.env`, `launcher-secret`, `lifecycle-secret` under `~/.config/egg/`
+- **Credentials**: presence and prefix of the Anthropic and GitHub tokens (never prints values)
+- **Repositories**: each `local_repos.paths` entry is a real git repo
+- **Host integration**: the egg MCP server is registered and the operator skills are installed
+- **Cluster** (if reachable): Cilium is present, `egg-system` namespace exists
+
+Present the results as a compact checklist. For anything marked `✗`, offer per-OS install guidance:
+
+- **macOS**: `brew install <tool>` (or `brew install --cask docker` for Docker)
+- **Debian/Ubuntu**: `apt install <tool>`
+- **Fedora/RHEL**: `dnf install <tool>`
+- `gh auth login` for an unauthenticated GitHub CLI
+
+If any required dependency is missing, use `AskUserQuestion`:
+- **Question**: "Some required dependencies are missing. How would you like to proceed?"
 - **Header**: "Dependencies"
 - **Options**:
-  - **"Show install instructions"** — description: "Display install commands for each missing dependency"
-  - **"Skip and continue"** — description: "Proceed with setup anyway (may fail later)"
-  - **"Abort setup"** — description: "Exit setup to install dependencies manually"
+  - **"Show install instructions"** — display the per-OS commands above
+  - **"Skip and continue"** — proceed anyway (later stages may fail)
+  - **"Abort"** — stop here
 
-If "Show install instructions", detect the platform and show appropriate commands:
-- **macOS**: `brew install` commands
-- **Linux (Debian/Ubuntu)**: `apt` commands
-- **Linux (Fedora/RHEL)**: `dnf` commands
-- **Generic**: Direct download links
+If invoked as `/egg-setup --check`, stop after presenting results and offering fixes. Do not run the setup stages.
 
-After showing instructions, ask if the user has installed the dependencies and wants to re-check.
+### 3. Run the setup
 
-If running `/egg-setup --check`, skip to Phase 6 (Validation) after reporting dependency results. Do not run Phases 2–5.
-
-## Phase 2 — Existing Configuration Detection
-
-Check for existing configuration at `~/.config/egg/`:
+For a full run, or for an `--update` mode, invoke the matching `bin/egg-init` command. These stages are **interactive**: `bin/egg-init` prompts for the two credentials (a Claude OAuth token or API key, and a GitHub PAT) and for repository paths, reading secrets without echoing. Run it in a way the user can answer — do not pipe closed stdin to it.
 
 ```bash
-ls -la ~/.config/egg/ 2>/dev/null
+bin/egg-init                      # full: preflight → config → cluster → images → deploy → host → smoke
+bin/egg-init --update secrets     # credentials only
+bin/egg-init --update repos       # repository config only
 ```
 
-If the directory exists and contains configuration files, present a summary:
+What each stage does, so you can narrate:
+
+1. **preflight** — dependency checks (as in step 2), with per-OS install hints
+2. **config** — generates `config.yaml` (auto-detected `host_uid`/`host_gid`/`host_home`), `launcher-secret`, and `lifecycle-secret`; collects the Claude credential (validates `sk-ant-oat` / `sk-ant-api` prefix) and GitHub PAT (validates `github_pat_` / `ghp_` prefix) into `secrets.env` with `chmod 600`; fills gateway policy defaults (`GATEWAY_BOT_NAME=egg`, branch prefix `egg`, `GATEWAY_TRUSTED_USERS` from `gh api user`); derives `repositories.yaml` from repo paths the user provides (`owner/repo` parsed from each `origin` remote, `auth_mode: user`)
+3. **cluster** — `make k3s-setup` (k3s + Cilium CNI; refuses a flannel-only cluster) and `make registry-setup` (loopback image registry)
+4. **images** — `make build` + `make k3s-push` (layer-aware push to the local registry)
+5. **deploy** — `make k3s-secrets` + `make deploy`
+6. **host** — registers `http://localhost:9850/mcp` as the `egg` MCP server via `claude mcp add`, and symlinks the operator skills (`sdlc`, `agent-diagnose`, `deployment-diagnose`, `egg-setup`) into `~/.claude/skills/` (never overwrites a real file or a conflicting symlink)
+7. **smoke** — `egg-system` pods Ready, orchestrator `/api/v1/health` green on :9849, gateway healthy (checked in-cluster; its Service is ClusterIP-only), MCP endpoint reachable on :9850
+
+### 4. Interpret and fix
+
+`bin/egg-init` is idempotent: re-running skips work that's already done and only prompts for what's missing or what the user asks to replace. Common failures and what to do:
+
+| Symptom | Likely cause | Action |
+|---------|--------------|--------|
+| preflight: `gh not authenticated` | — | `gh auth login`, re-run |
+| `Cilium not detected` | plain k3s with flannel | `make k3s-teardown && make k3s-setup` (in-place CNI swap is unsupported) |
+| images stage very slow on first run | expected — the sandbox image is large | reassure; later builds are incremental via the local registry |
+| deploy aborts: images not in k3s | tag moved since last build | `make redeploy` |
+| smoke: gateway unhealthy | config or secrets issue | `kubectl logs -n egg-system deploy/gateway`; then `/deployment-diagnose` |
+| smoke: MCP unreachable | orchestrator down | `kubectl logs -n egg-system deploy/orchestrator`; then `/deployment-diagnose` |
+| `Permission denied` on repos | `host_uid`/`host_gid` mismatch | check `~/.config/egg/config.yaml` matches `id -u` / `id -g`, then `make k3s-secrets && make deploy` |
+
+For anything deeper, hand off to the `/deployment-diagnose` skill rather than improvising.
+
+### 5. Done — next steps
+
+On success, show:
 
 ```
-## Existing Configuration Found
+## egg is up
 
-| File | Status |
-|------|--------|
-| config.yaml | Present (last modified: <date>) |
-| repositories.yaml | Present |
-| secrets.env | Present |
-| github-app.pem | Not found |
-| launcher-secret | Present |
+Drive pipelines from any Claude Code session (the egg MCP server is registered):
+
+  submit_task(issue_number=123, repo="owner/name")
+  /sdlc                                   # prompt-driven pipeline
+  /sdlc -r <repo> -i <issue_number>       # issue-driven pipeline
+
+Useful later:
+  /egg-setup --check           # validate the setup
+  /egg-setup --update secrets  # rotate credentials
+  /egg-setup --update repos    # add a repository
+  make redeploy                # after pulling new egg commits
 ```
 
-Then use `AskUserQuestion`:
-- **Question**: "Existing egg configuration found. What would you like to do?"
-- **Header**: "Config"
-- **Options**:
-  - **"Update existing"** — description: "Keep current config and update specific sections"
-  - **"Fresh setup"** — description: "Start from scratch (backs up existing config first)"
-  - **"Validate only"** — description: "Check current config for errors without changing anything"
+## macOS
 
-If "Update existing" → ask which section to update (secrets, repos, or general config), then jump to the relevant phase.
-If "Fresh setup" → back up existing config to `~/.config/egg/backup-<timestamp>/`, then proceed through all phases.
-If "Validate only" → run Phase 6 (Validation) and report results.
-
-If no existing configuration is found, proceed directly to Phase 3.
-
-## Phase 3 — Secrets Configuration
-
-Create the configuration directory if it doesn't exist:
-
-```bash
-mkdir -p ~/.config/egg/
-```
-
-Configure credentials in `~/.config/egg/secrets.env`. For each secret category, check if already configured and only prompt for missing or explicitly updated values.
-
-### Step 1: Anthropic Authentication
-
-Use `AskUserQuestion`:
-- **Question**: "How do you authenticate with Claude?"
-- **Header**: "Auth"
-- **Options**:
-  - **"OAuth Token (Recommended)"** — description: "Uses your Claude.ai account. Run: claude auth status --json | jq -r '.oauthToken'"
-  - **"API Key"** — description: "Direct Anthropic API access. Get from console.anthropic.com/settings/keys"
-
-Based on selection:
-- **OAuth**: Guide user to run `claude auth status --json | jq -r '.oauthToken'` and paste the token. Validate it starts with `sk-ant-oat`. Write to `CLAUDE_CODE_OAUTH_TOKEN` in secrets.env (this is the preferred variable name — the gateway checks it first before the legacy `ANTHROPIC_OAUTH_TOKEN`).
-- **API Key**: Ask for the key. Validate it starts with `sk-ant-api`. Write to `ANTHROPIC_API_KEY` in secrets.env.
-
-### Step 2: GitHub Authentication
-
-Use `AskUserQuestion`:
-- **Question**: "How should egg authenticate with GitHub?"
-- **Header**: "GitHub"
-- **Options**:
-  - **"GitHub App (Recommended)"** — description: "Bot identity for PRs and pushes. Requires App ID, Installation ID, and .pem file"
-  - **"Personal Access Token"** — description: "Uses your personal GitHub identity. Simpler setup but PRs are attributed to you"
-  - **"Both"** — description: "GitHub App for bot repos + PAT for personal repos (auth_mode: user)"
-
-Based on selection:
-
-**GitHub App flow**:
-1. Ask for GitHub App ID (validate it's numeric). Write to `GITHUB_APP_ID` in secrets.env.
-2. Ask for Installation ID (validate it's numeric). Write to `GITHUB_APP_INSTALLATION_ID` in secrets.env.
-3. Ask for path to the `.pem` private key file. Validate the file exists and ends with `.pem`. Copy it to `~/.config/egg/github-app.pem` with `chmod 600`.
-4. Ask for the bot name (must match the GitHub App name exactly). Write to `GATEWAY_BOT_NAME` in secrets.env.
-5. Ask for the branch prefix (default: same as bot name, typically `egg`). Write to `GATEWAY_BOT_BRANCH_PREFIX` in secrets.env.
-6. Ask for the user's GitHub username for `GATEWAY_TRUSTED_USERS` in secrets.env (comma-separated list of GitHub usernames allowed to interact with the bot).
-
-**PAT flow**:
-1. Ask for the GitHub PAT. Validate it starts with `ghp_` or `github_pat_`.
-2. Set both `GITHUB_TOKEN` and `GITHUB_USER_TOKEN` to the provided PAT in secrets.env. (`GITHUB_TOKEN` is used by the gateway for all repos by default; `GITHUB_USER_TOKEN` is used for repos with `auth_mode: user`.)
-3. Set `GATEWAY_BOT_NAME=egg` and `GATEWAY_BOT_BRANCH_PREFIX=egg` as defaults in secrets.env.
-4. Ask for the user's GitHub username for `GATEWAY_TRUSTED_USERS` in secrets.env.
-
-**Both flow**:
-1. Run GitHub App flow steps 1–6.
-2. Ask for a GitHub PAT. Validate it starts with `ghp_` or `github_pat_`.
-3. Set `GITHUB_USER_TOKEN` to the provided PAT in secrets.env. Do **NOT** set `GITHUB_TOKEN` — the App's token refresher manages default authentication at runtime via `GITHUB_APP_ID` and the `.pem` key.
-4. Verify `GATEWAY_TRUSTED_USERS` was set in step 1 (App flow step 6). If not, ask for the user's GitHub username.
-
-### Step 3: Optional Integrations
-
-Use `AskUserQuestion` (multiSelect):
-- **Question**: "Which optional integrations do you want to configure?"
-- **Header**: "Integrations"
-- **multiSelect**: true
-- **Options**:
-  - **"Slack"** — description: "Bot notifications and task requests (requires Slack App)"
-  - **"Confluence"** — description: "Sync ADRs, runbooks, and best practices"
-  - **"JIRA"** — description: "Sync tickets, requirements, and sprint info"
-  - **"None"** — description: "Skip optional integrations"
-
-For each selected integration, collect the required credentials:
-
-- **Slack**: Collect `SLACK_TOKEN` (bot token, starts with `xoxb-`) and `SLACK_APP_TOKEN` (app-level token, starts with `xapp-`).
-- **Confluence**: Collect `CONFLUENCE_BASE_URL` (e.g., `https://yoursite.atlassian.net`), `CONFLUENCE_USERNAME` (email), `CONFLUENCE_API_TOKEN`, and `CONFLUENCE_SPACE_KEYS` (comma-separated space keys).
-- **JIRA**: Collect `JIRA_BASE_URL` (e.g., `https://yoursite.atlassian.net`), `JIRA_USERNAME` (email), `JIRA_API_TOKEN`, and `JIRA_JQL_QUERY` (default: `project = <KEY> AND status != Done`).
-
-See `config/secrets.template.env` for additional details on field formats.
-
-### Step 4: Generate Launcher Secret
-
-Automatically generate the launcher secret if it doesn't exist:
-
-```bash
-python3 -c "import secrets; print(secrets.token_urlsafe(32))" > ~/.config/egg/launcher-secret
-chmod 600 ~/.config/egg/launcher-secret
-```
-
-### Step 5: Write secrets.env
-
-Write all collected secrets to `~/.config/egg/secrets.env` with `chmod 600`. Group by category with comments. Never overwrite values the user chose to keep.
-
-Reference `config/secrets.template.env` for the complete list of supported variables and their formats. The required variable names are:
-
-| Category | Variable Name | Source |
-|----------|--------------|--------|
-| Anthropic OAuth | `CLAUDE_CODE_OAUTH_TOKEN` | Phase 3 Step 1 (preferred over legacy `ANTHROPIC_OAUTH_TOKEN`) |
-| Anthropic API key | `ANTHROPIC_API_KEY` | Phase 3 Step 1 |
-| GitHub App ID | `GITHUB_APP_ID` | Phase 3 Step 2 |
-| GitHub App Install ID | `GITHUB_APP_INSTALLATION_ID` | Phase 3 Step 2 |
-| GitHub default token | `GITHUB_TOKEN` | Phase 3 Step 2 (PAT flow) |
-| GitHub user PAT | `GITHUB_USER_TOKEN` | Phase 3 Step 2 (PAT or Both flow) |
-| GitHub read-only token | `GITHUB_READONLY_TOKEN` | Phase 3 Step 2 (optional — for separate read-only credentials) |
-| Gateway bot name | `GATEWAY_BOT_NAME` | Phase 3 Step 2 |
-| Gateway branch prefix | `GATEWAY_BOT_BRANCH_PREFIX` | Phase 3 Step 2 |
-| Gateway trusted users | `GATEWAY_TRUSTED_USERS` | Phase 3 Step 2 |
-| Slack bot token | `SLACK_TOKEN` | Phase 3 Step 3 |
-| Slack app token | `SLACK_APP_TOKEN` | Phase 3 Step 3 |
-| Confluence base URL | `CONFLUENCE_BASE_URL` | Phase 3 Step 3 |
-| Confluence username | `CONFLUENCE_USERNAME` | Phase 3 Step 3 |
-| Confluence API token | `CONFLUENCE_API_TOKEN` | Phase 3 Step 3 |
-| Confluence space keys | `CONFLUENCE_SPACE_KEYS` | Phase 3 Step 3 |
-| JIRA base URL | `JIRA_BASE_URL` | Phase 3 Step 3 |
-| JIRA username | `JIRA_USERNAME` | Phase 3 Step 3 |
-| JIRA API token | `JIRA_API_TOKEN` | Phase 3 Step 3 |
-| JIRA JQL query | `JIRA_JQL_QUERY` | Phase 3 Step 3 |
-
-## Phase 4 — Repository Configuration
-
-Ensure the configuration directory exists:
-
-```bash
-mkdir -p ~/.config/egg/
-```
-
-Configure `~/.config/egg/repositories.yaml`.
-
-### Step 1: GitHub Username
-
-Ask for the user's GitHub username. Try to auto-detect from `gh api user --jq .login` first.
-
-### Step 2: Local Repositories
-
-Collect paths to local git repositories to mount into the container. Use `AskUserQuestion` iteratively:
-
-1. Ask: "Enter a path to a local git repository to mount into the egg container."
-2. Validate the path exists and is a git repo (has `.git/` directory).
-3. Auto-detect the remote URL to determine `owner/repo` format.
-4. Ask: "Add another repository?" with options **"Yes"** / **"No, done adding repos"**. If "Yes", repeat from step 1.
-
-Present the detected repos:
-```
-## Detected Repositories
-
-| Local Path | Remote | Owner/Repo |
-|------------|--------|------------|
-| /home/user/projects/my-app | github.com | user/my-app |
-| /home/user/work/api-service | github.com | org/api-service |
-```
-
-### Step 3: Writable vs Read-only
-
-For each detected repo, use `AskUserQuestion`:
-- **Question**: "What access level should egg have for <owner/repo>?"
-- **Header**: "Access"
-- **Options**:
-  - **"Writable"** — description: "Can push code, create PRs, respond to comments"
-  - **"Read-only"** — description: "Can monitor and analyze, but not modify"
-
-### Step 4: Per-repo Settings
-
-For each writable repo, ask about optional settings:
-
-Use `AskUserQuestion` (multiSelect):
-- **Question**: "Configure optional settings for <owner/repo>?"
-- **Header**: "Settings"
-- **multiSelect**: true
-- **Options**:
-  - **"Custom check commands"** — description: "Specify lint/test commands for SDLC pipeline (default: auto-discover)"
-  - **"User auth mode"** — description: "Use personal PAT instead of bot identity for this repo"
-  - **"None"** — description: "Use defaults"
-
-If "Custom check commands": collect name/command pairs for each check.
-If "User auth mode": set `auth_mode: user` for this repo.
-
-### Step 5: Bot Username
-
-Set `bot_username` in repositories.yaml. Default to the `GATEWAY_BOT_NAME` value from Phase 3. This is used by the gateway for bot PR identification.
-
-### Step 6: Default Reviewer
-
-Set the default PR reviewer to the GitHub username collected in Step 1.
-
-### Step 7: Write repositories.yaml
-
-Write the configuration to `~/.config/egg/repositories.yaml`. Repos marked "Writable" go under `writable_repos`, repos marked "Read-only" go under `readable_repos`.
-
-## Phase 5 — General Configuration
-
-Ensure the configuration directory exists:
-
-```bash
-mkdir -p ~/.config/egg/
-```
-
-Create or update `~/.config/egg/config.yaml` with system-detected defaults.
-
-Auto-detect these values (do not prompt unless detection fails):
-- `host_home`: from `$HOME`
-- `host_uid`: from `id -u`
-- `host_gid`: from `id -g`
-- `anthropic_auth_method`: based on which credential was configured in Phase 3
-
-Set sensible defaults for:
-- `git_name`: "egg"
-- `git_email`: "egg@localhost"
-- `compose_project_name`: "egg"
-- `gateway_api_port`: 9848
-- `gateway_proxy_port`: 3129
-- `orchestrator_api_port`: 9849
-- `mcp_server_port`: 9850
-- `mcp_rate_limit`: 30
-
-Write to `~/.config/egg/config.yaml`.
-
-## Phase 6 — Validation
-
-Run a comprehensive validation of the setup. Check each component and report results.
-
-### Configuration Validation
-
-```bash
-# Check all required config files exist
-ls ~/.config/egg/config.yaml
-ls ~/.config/egg/repositories.yaml
-ls ~/.config/egg/secrets.env
-ls ~/.config/egg/launcher-secret
-```
-
-### Secrets Validation
-
-Parse `~/.config/egg/secrets.env` and verify each required variable is set to a non-empty value. **Never display raw secret values** — only check for presence and validate prefixes (e.g., `sk-ant-oat`, `ghp_`). Do not `cat` or print the file contents.
-
-Verify:
-- At least one Anthropic credential is set (`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`)
-- GitHub credentials are configured (`GITHUB_APP_ID` + `GITHUB_APP_INSTALLATION_ID` for App, or `GITHUB_TOKEN` for PAT)
-- `GATEWAY_BOT_NAME` is set
-- `GATEWAY_BOT_BRANCH_PREFIX` is set
-- File permissions are 600
-
-### Repository Validation
-
-Parse `~/.config/egg/repositories.yaml` and verify:
-- `github_username` is set
-- At least one entry in `writable_repos` or `local_repos.paths`
-- All local repo paths exist and are git repositories
-- For repos with `auth_mode: user`, verify `GITHUB_USER_TOKEN` is set in secrets.env
-
-### Docker Validation
-
-```bash
-# Check images can build (dry-run is not available, so just check Dockerfile exists)
-ls Dockerfile 2>/dev/null || ls sandbox/Dockerfile 2>/dev/null
-
-# Check for port conflicts (cross-platform Python):
-python3 -c "
-import socket, sys
-conflicts = []
-for port in [9848, 9849, 9850, 3129]:
-    s = socket.socket()
-    try:
-        s.bind(('', port))
-    except OSError:
-        conflicts.append(port)
-    finally:
-        s.close()
-if conflicts:
-    for p in conflicts:
-        print(f'Port {p} in use')
-    sys.exit(1)
-else:
-    print('All ports available')
-"
-```
-
-### Report
-
-Present a final validation report:
-
-```
-## Setup Validation
-
-### Configuration Files
-- [x] config.yaml — valid
-- [x] repositories.yaml — valid
-- [x] secrets.env — valid (permissions: 600)
-- [x] launcher-secret — valid
-
-### Credentials
-- [x] Anthropic: OAuth token configured
-- [x] GitHub: App configured (App ID: 12345)
-- [x] Gateway: bot_name=my-bot, branch_prefix=egg
-
-### Repositories
-- [x] user/my-app — writable, local path valid
-- [x] org/api-service — read-only
-
-### Infrastructure
-- [x] Docker daemon running
-- [x] Ports 9848, 9849, 9850, 3129 available
-```
-
-If any validation fails, highlight the issue and offer to fix it (jump back to the relevant phase).
-
-## Phase 7 — Next Steps
-
-After successful setup or validation, show:
-
-```
-## Setup Complete
-
-Your egg configuration is ready. Here's what to do next:
-
-### First Run
-  egg --compose    # Start gateway + orchestrator (builds images on first run)
-  egg              # Start an interactive Claude Code session
-
-### Quick Commands
-  egg --compose --down   # Stop gateway + orchestrator
-  egg --private          # Run in private mode (Anthropic API only)
-  egg --exec "cmd"       # Run a command in an ephemeral container
-
-### SDLC Pipeline
-  Inside the sandbox, run:
-  /sdlc                        # Prompt-driven pipeline
-  /sdlc -r <repo> -i <issue>   # Issue-driven pipeline
-
-### Update Configuration Later
-  /egg-setup --update secrets   # Update API keys and tokens
-  /egg-setup --update repos     # Add or modify repositories
-  /egg-setup --update config    # Update general settings
-  /egg-setup --check            # Verify your setup is healthy
-```
+`bin/egg-init` detects macOS and refuses the native cluster path: k3s and Cilium are Linux-native and egg's NetworkPolicy isolation is load-bearing, so a degraded local install is not offered. The supported path is a Lima VM running the same `bin/egg-init` inside it — see `docs/guides/onboarding.md#macos`. If the user is on macOS, walk them through that doc rather than attempting a native setup.
 
 ## Critical Rules
 
-- **Never expose secrets** — mask tokens when displaying (show first 8 and last 4 chars only)
-- **Always validate input** — check token formats, file existence, path validity before writing
-- **Back up before overwriting** — when updating existing config, create a timestamped backup first
-- **Respect existing values** — when updating, only change what the user explicitly asks to change
-- **Use chmod 600** for secrets.env, .pem files, and launcher-secret
-- **Auto-detect when possible** — minimize questions by detecting platform, username, repo info automatically
-- **Keep output concise** — use checklists and tables, not verbose paragraphs
+- **Delegate to `bin/egg-init`** — never hand-edit `~/.config/egg/` files or run individual `make` targets as a substitute; the script sequences them with preflights.
+- **Never expose secrets** — the script reads tokens with echo disabled and validates prefixes only. Do not `cat secrets.env`, and mask any token you must reference (first 8 / last 4 chars).
+- **Idempotency is the point** — when something fails mid-run, fix the cause and re-run `bin/egg-init`; don't try to reconstruct partial state by hand.
+- **Respect existing files** — the script backs up `repositories.yaml` before rewriting and never overwrites a conflicting skills symlink; don't defeat either protection.
+- **Keep output concise** — checklists and tables, not paragraphs.

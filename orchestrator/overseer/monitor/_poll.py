@@ -23,7 +23,8 @@ async def _poll_cycle(self) -> None:
         4-orch. Check orchestrator reachability
         4a. Query decisions for deterministic health checks
         4b. Run deterministic health checks (rerun anomaly, status
-            consistency, HITL resolution propagation)
+            consistency, HITL resolution propagation, contract-phase
+            desync)
         5. Check for escalation messages from orchestrator
         6. Route anomalies through classifier (with consensus context)
         7. Route classified results through decision maker / execute actions
@@ -63,6 +64,7 @@ async def _poll_cycle(self) -> None:
         await self._check_rerun_anomaly(decisions, current_phase)
         await self._check_status_consistency(pipeline_data)
         await self._check_hitl_resolution_propagation(decisions)
+        await self._check_contract_phase_desync(current_phase)
 
         # Filter alerts to only current-phase agents
         if current_phase and pipeline_data:

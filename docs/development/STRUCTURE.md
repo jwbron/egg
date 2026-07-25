@@ -55,9 +55,9 @@ The gateway sidecar holds credentials and enforces policies:
 
 ```
 gateway/
-├── gateway.py              # Main HTTP server
-├── _module_loader.py       # Sibling-module bootstrap loader (isolated to keep gateway.py out of the dynamic-import seed set; do not add gateway imports here)
-├── git_client.py           # Git operation handler
+├── gateway/                # Main HTTP server package (barrel `__init__.py` + `__main__.py` entry point + 13 `_<cluster>.py` submodules: `_helpers`, `_health`, `_git_ops`, `_git_execute`, `_gh_ops`, `_gh_execute`, `_jira`, `_jira_writes`, `_confluence`, `_worktree`, `_sessions`, `_proxy`, `_server`); run via `python3 -m gateway`; see gateway/CLAUDE.md for the full seam table
+├── _module_loader.py       # Sibling-module bootstrap loader (isolated to keep gateway/gateway/ out of the dynamic-import seed set; do not add gateway imports here)
+├── git_client/             # Git operation handler package (barrel `__init__.py` + `_<cluster>.py` submodules: `_attribution`, `_branch_ops`, `_credentials`, `_policy`, `_push_analysis`, `_remote`, `_validation`; #3312 slice-11)
 ├── github_client.py        # GitHub API handler (supports bot/user/reviewer modes)
 ├── policy.py               # Branch ownership, push policies, reviewer identity management
 ├── fork_policy.py          # Fork access policies
@@ -77,7 +77,7 @@ gateway/
 ├── jira_policy.py          # Project allowlist loader for config/context-filters.yaml (jira.projects)
 ├── jira_search.py          # Conservative static JQL project-scope extractor (deny-on-ambiguity)
 ├── mode_gate.py            # @require_private_mode decorator (fails closed in public mode)
-├── worktree_manager.py     # Git worktree lifecycle
+├── worktree_manager/       # Git worktree lifecycle package (barrel `__init__.py` + `_<cluster>.py` submodules: `_cleanup`, `_common`, `_create`, `_fsutil`, `_query`, `_remove`; #3312 slice-12)
 ├── session_manager.py      # Agent session management (branch lock, worktree cleanup)
 ├── post_agent_commit.py    # Post-agent exit handling (HITL recovery for uncommitted work)
 ├── repo_parser.py          # Repository config parsing
@@ -135,11 +135,15 @@ orchestrator/
 ├── agent_salvage.py        # Salvage unpushed local commits to egg/recovered/* refs before worktree deletion (#2429)
 ├── agent_salvage_cleanup.py # Periodic TTL-based pruning of stale egg/recovered/* refs (#2446); driven by RecoveryRefCleaner background thread
 ├── review_graph.py         # Asymmetric review graph topology for BRC consensus
+├── risk_router.py          # Deterministic changed-file → review lens/tier/stance router (pure; reads `.egg/review-risk.yaml`); not yet wired into review_graph.py/consensus_wrapper.py — lands in a later slice (#3523)
+├── evidence_gatherer.py    # Read-only shared-evidence gatherer for the review wave: assembles a byte-identical evidence pack (diff, changed files, caller/callee context, env facts) that same-model reviewers share as a cacheable prompt prefix; staged rollout via EGG_REVIEW_EVIDENCE_PREFIX (off/log/on) (#3523 §5, S7)
 ├── sandbox_template.py     # Sandbox container template
 ├── sse.py                  # Server-Sent Events streaming for pipeline visualization
 ├── startup_reconciliation.py # Startup reconciliation for orphaned containers
 ├── commit_authorship_store.py # Durable {sha → role} registry sharded by pipeline on the pipeline-state branch; backing store for the commit-authorship registry
+├── evidence_rescue.py      # Patch-id rescue for the slice-close evidence gate: re-identifies cited task commits a reconciled-push rebase rewrote by matching `git patch-id --stable` against the integration branch (#3572); kill switch EGG_EVIDENCE_PATCH_ID_RESCUE
 ├── session_state_store.py  # Redis-backed cross-pod session-state store for BRC warm-resume: persists (session_id + window_occupancy + transcript) keyed (pipeline, slice, role) with 6-hour TTL; 32 MiB transcript cap degrades to pointer-only on overflow (#3278)
+├── agent_log_store.py      # Redis-backed store for one-shot agent pod logs captured at Job removal: `remove_agent_job` snapshots the pod's log tail before deletion, `get_container_logs` falls back to it once the live pod is gone; 24h TTL (#3547)
 ├── state_store.py          # Git-backed pipeline state
 ├── state_store_probe.py    # Background state-store self-heal probe; decouples curative git ops from kubelet probe traffic (#2191)
 ├── status_reporter.py      # Real-time status reporter for collaborators
@@ -181,7 +185,7 @@ orchestrator/
 │   ├── messages.py         # Inter-agent message bus endpoints (concurrent mode)
 │   ├── metrics.py          # Metrics endpoints
 │   ├── phases.py           # Phase management endpoints
-│   ├── pipelines.py        # Pipeline CRUD and visualization endpoints
+│   ├── pipelines/          # Pipeline CRUD, visualization, and `_run_pipeline` phase state machine (sub-package: barrel + 46 submodules)
 │   ├── progress.py         # Structured progress event endpoints (emit, query)
 │   ├── session_state.py    # Cross-pod warm-resume session-state endpoints (push/pull per (pipeline,slice,role); #3278)
 │   └── signals.py          # Signal handling endpoints (incl. readiness for concurrent mode)

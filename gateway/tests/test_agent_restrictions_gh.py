@@ -129,6 +129,25 @@ class TestCheckAgentGHOperation:
         allowed, reason = check_agent_gh_operation("unknown_role", "issue comment 123")
         assert allowed is False
 
+    def test_evidence_gatherer_gh_fully_denied(self):
+        """evidence_gatherer (#3523 S7) has NO GitHub access — structural exclusion.
+
+        The read-only evidence gatherer is deliberately absent from
+        AGENT_GH_RESTRICTIONS so the gateway's deny-by-default posture rejects
+        EVERY gh operation for it (stronger than the per-op block producers get,
+        which still permits pr view). This proves posting/GitHub are excluded.
+        """
+        assert AgentRole.EVIDENCE_GATHERER not in AGENT_GH_RESTRICTIONS
+        for command in (
+            "issue comment 1",
+            "issue edit 1",
+            "pr create --title x",
+            "pr view 1",
+            "pr merge 1",
+        ):
+            allowed, _ = check_agent_gh_operation("evidence_gatherer", command)
+            assert allowed is False, f"evidence_gatherer must be denied 'gh {command}'"
+
     def test_denies_empty_role(self):
         """Empty role string is denied (deny-by-default)."""
         allowed, reason = check_agent_gh_operation("", "issue comment 123")

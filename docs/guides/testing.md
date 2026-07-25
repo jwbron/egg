@@ -234,7 +234,7 @@ suite, with the explicit trigger string written to stderr (e.g.
 | **`shared/tests/**` change** | `shared/tests/conftest.py` is a universally-consumed cross-package fixture; v1 widens on any path under `shared/tests/` to avoid an allowlist that has not yet been audited. May narrow in a follow-up. |
 | **Any non-`.py` change** | Schemas, fixture data, scripts, YAML, Markdown — none are reachable via the import graph. Conservative v1 default; an allowlist of known-safe paths can be added later. |
 | **Source file missing from grimp graph** | At graph-construction time, the selector enumerates every non-test `.py` under `gateway/`, `shared/`, `orchestrator/`, `sandbox/` (excluding `__pycache__`, `.venv`, test directories) and asserts each path resolves to a node in `graph.modules`. Any miss (PACKAGES drift, encoding quirk, grimp cache bug) widens to the full suite with trigger `source file missing from graph: <path>`. |
-| **Dynamic-import-touched module** | During graph construction, the selector regex-scans each module for `importlib.{import_module,util,machinery}`, `__import__`, `SourceFileLoader`, and entry-point plugin patterns. If any changed module is in (or reverse-reachable from) that set, narrow analysis is unsafe. |
+| **Dynamic-import-touched module** | During graph construction, the selector regex-scans each module for `importlib.{import_module,util,machinery}`, `__import__`, `SourceFileLoader`, and entry-point plugin patterns. If any changed **non-test** module is in (or reverse-reachable from) that set, narrow analysis is unsafe. Test-module seeds are excluded from this trigger — see the safety net below. |
 | **Unresolvable changed path** | A changed path that cannot be mapped to an in-repo module (e.g. brand-new file not yet in grimp's graph, a `scripts/*.py` with no wheel binding). |
 | **Unresolvable baseline** | LKG missing AND `origin/<base>` missing or `merge-base` failing. |
 | **LKG not ancestor of HEAD** | The recorded LKG sha is not reachable from `HEAD` (force-push, reset, history rewrite). |
@@ -430,7 +430,9 @@ Static reverse import graphs are powerful, but they cannot see:
   `SourceFileLoader`, etc., any gateway module that legitimately
   uses those primitives becomes a seed — and R6 widens for every
   module reachable through that seed's `find_upstream_modules`
-  closure. To keep `gateway/*.py` edits narrowable, the importlib
+  closure (the seed's own dependency subtree — the modules it
+  imports — the mirror of `reverse_closure`'s downstream/importers
+  direction). To keep `gateway/*.py` edits narrowable, the importlib
   bootstrap lives in `gateway/_module_loader.py`, a leaf module that
   imports only stdlib; its upstream closure is empty, so R6 only
   fires when the bootstrap itself is edited (which is the right
@@ -439,6 +441,20 @@ Static reverse import graphs are powerful, but they cannot see:
   a module that is upstream of much of the gateway package would
   silently re-disable narrowing for everything that flows through
   it.
+
+  **Test-seed carve-out.** `is_dynamic_import_touched` (R6) only
+  seeds from `bundle.dynamic_import_modules - bundle.all_test_modules`
+  — a *test* module that dynamically loads production code no longer
+  forces the full suite. Before this carve-out, a single
+  importlib-using test that imported a hub module
+  (`test_queryable_env_jit` → `routes.pipelines`) forced the full
+  suite for 110 of 538 production modules on any of their edits.
+  Dropping test seeds from R6 does not lose coverage: every test
+  module in `bundle.dynamic_import_modules` is instead added,
+  unconditionally, to the narrowed selection itself (a small,
+  fixed-size safety net — a handful of extra test files — so the
+  dynamically-loaded edges those tests exercise are always run,
+  narrow or not) in `_run_narrow_or_fallback`.
 
 These limits are the reason the fallback-trigger list in §4 is as
 broad as it is — narrowing trades coverage for speed, and any

@@ -263,6 +263,48 @@ class TestWaitRouteEventWake:
         assert envelope["changed"] is False
 
 
+class TestSliceClosedAllowlisted:
+    """``slice.closed`` is on the ``/status/wait`` allowlist so a long-haul
+    monitor threads on it (PR B, issue #3364, task-1-3)."""
+
+    def test_slice_closed_is_in_allowlist(self) -> None:
+        from routes.pipelines import _STATUS_WAIT_EVENT_TYPES
+
+        assert "slice.closed" in _STATUS_WAIT_EVENT_TYPES
+        assert EventType.SLICE_CLOSED.value == "slice.closed"
+
+    @patch("routes.pipelines.get_repo_path", return_value="/tmp/test")
+    @patch("routes.pipelines._resolve_pipeline")
+    def test_slice_closed_wakes_route(
+        self,
+        mock_resolve: MagicMock,
+        mock_repo: MagicMock,
+        client,
+        isolated_event_bus: EventBus,
+    ) -> None:
+        pipeline = _make_pipeline()
+        mock_resolve.return_value = (MagicMock(), pipeline)
+
+        def _fire() -> None:
+            time.sleep(0.1)
+            isolated_event_bus.publish(
+                Event(
+                    event_type=EventType.SLICE_CLOSED,
+                    pipeline_id="issue-1932-test",
+                    data={"slice_id": "slice-1", "outcome": "complete"},
+                )
+            )
+
+        threading.Thread(target=_fire, daemon=True).start()
+
+        resp = client.get("/api/v1/pipelines/issue-1932-test/status/wait?wait=5")
+        envelope = json.loads(resp.data)["data"]
+        assert resp.status_code == 200
+        assert envelope["changed"] is True
+        assert envelope["trigger"] == "event"
+        assert envelope["event_type"] == EventType.SLICE_CLOSED.value
+
+
 class TestWaitRouteMessageWake:
     """Message-bus wake path: ``changed=True, trigger='message'``."""
 

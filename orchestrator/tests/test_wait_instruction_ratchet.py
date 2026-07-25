@@ -114,8 +114,10 @@ _ALLOWLIST: tuple[tuple[str, str, int], ...] = (
     # owns the wait and spawns you one-shot per event (#3164)". The token
     # is present precisely to forbid the call. (#3312 slice-6 moved this
     # contract string from event_prompt.py:984 to the _compose.py
-    # submodule of the routes/event_prompt/ package.)
-    ("orchestrator/routes/event_prompt/_compose.py", "egg-orch message wait-loop", 160),
+    # submodule of the routes/event_prompt/ package; #3556 added the
+    # park-release context section ahead of it, shifting the line from
+    # 160 to 171.)
+    ("orchestrator/routes/event_prompt/_compose.py", "egg-orch message wait-loop", 171),
 )
 
 

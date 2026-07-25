@@ -274,6 +274,36 @@ def update_session(
         return False
 
 
+def update_session_phase(self, session_token: str, phase: str) -> bool:
+    """Update the SDLC pipeline phase recorded on a session (#3528).
+
+    Requires launcher secret authentication. Wraps the gateway's
+    ``PATCH /api/v1/sessions/<token>/phase`` route, which existed with no
+    orchestrator-side callers while the gateway's commit gate keyed off the
+    session's registration-time phase. Called on the session-reuse path and
+    at phase advance so a session that survives a phase transition stops
+    carrying the stale phase that deadlocked consensus in #3528.
+
+    Args:
+        session_token: Token of the session to update
+        phase: The pipeline's current phase value (e.g. ``"plan"``)
+
+    Returns:
+        True if the phase was updated
+    """
+    try:
+        result = self._make_request(
+            f"/api/v1/sessions/{quote(session_token, safe='')}/phase",
+            method="PATCH",
+            data={"phase": phase},
+            use_launcher_auth=True,
+        )
+        return result.get("success", False)
+    except GatewayError as e:
+        _pkg.logger.warning("Failed to update session phase", phase=phase, error=str(e))
+        return False
+
+
 def delete_session_by_container(self, container_id: str) -> bool:
     """Delete a session by container ID.
 

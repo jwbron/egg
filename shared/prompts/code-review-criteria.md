@@ -81,6 +81,79 @@
 
 **Beware of false analogies**: When comparing new code to existing patterns, verify the analogy holds at the execution-model level. Two features may look structurally similar in config but have completely different execution paths. If the existing pattern works via mechanism A but the new code relies on mechanism B that doesn't exist, the comparison is invalid — classify based on actual functionality, not superficial similarity.
 
+### Finder Method — four angles
+
+Run these four named angles over every diff before you form a verdict. They
+mirror the Claude Code `/review` skill's finder angles (A–E) and its finding
+shape; use that vocabulary rather than inventing your own.
+
+- **Angle A — line-by-line scan.** Read every changed line, then Read the
+  enclosing function (bugs in unchanged lines of a touched function are in
+  scope — the PR re-exposes or fails to fix them). For each line ask: what
+  input, state, timing, or platform makes this line wrong? Hunt for
+  inverted/wrong conditions, off-by-one, null/undefined deref, missing
+  `await`, falsy-zero checks (`if not count:` when `0` is valid),
+  wrong-variable copy-paste, errors swallowed in `catch`/`except`, unescaped
+  regex metacharacters.
+- **Angle B — removed-behavior audit.** For every line the diff DELETES or
+  replaces, name the invariant or behavior it enforced, then find where the
+  new code re-establishes it. If you cannot find it, that is a finding: a
+  removed guard, a dropped error path, a narrowed validation, a deleted test
+  that was covering a real case.
+- **Angle C — cross-file tracer.** For each function the diff changes, Grep
+  its callers and check whether the change breaks any call site (a new
+  precondition, a changed return shape, a new exception, a timing/ordering
+  dependency). Also check callees: does a parallel change in the same slice
+  make a call unsafe?
+- **Angle D — quote-the-rule discipline.** Flag a convention or CLAUDE.md
+  violation only when you can quote BOTH the exact written rule and the exact
+  violating line. No style preferences, no "spirit of the doc" inferences.
+  Name the rule's source (path) so the finding can cite it. If no written rule
+  governs the changed code, this angle returns nothing.
+
+### Verification Ladder — CONFIRMED / PLAUSIBLE / REFUTED
+
+Before a candidate becomes a finding, assign it exactly one verdict. The
+evidence duties are **symmetric**: keeping a candidate and dropping one both
+require you to quote the line that justifies the call.
+
+- **CONFIRMED** — you can name the concrete inputs/state that trigger the bug
+  and the resulting wrong output, crash, or data loss. Quote the triggering
+  line.
+- **PLAUSIBLE** — the mechanism is real but the trigger is uncertain (timing,
+  environment, config you cannot see). State what evidence would confirm it.
+  **PLAUSIBLE by default** — do not refute a candidate merely for being
+  speculative.
+- **REFUTED** — factually wrong (the code does not say that) or guarded
+  elsewhere. Quote the line that proves it.
+
+Two companion rules govern how verdicts map to severity:
+
+1. **Blocking must reproduce.** A finding may be `blocking` only if it is
+   CONFIRMED with a stated failure scenario — concrete inputs/state → the
+   wrong output/crash/loss. A candidate you cannot reproduce cannot block;
+   carry it as advisory or drop it.
+2. **Drop only the refuted; downgrade the unconfirmed.** Discard REFUTED
+   candidates. Do NOT discard PLAUSIBLE ones — downgrade them to advisory
+   (non-blocking) so the signal survives without burning a producer revision
+   round.
+
+**Amplified pre-existing defect.** A defect that predates the diff still
+CONFIRMS when the diff materially amplifies its consequence (widens its reach,
+raises its call frequency, removes a mitigation, or newly exposes it on the
+primary path). When you confirm on this basis, say so explicitly — name the
+pre-existing defect and how the diff amplifies it — so the producer
+understands why code they did not write is in scope. (This is the
+verification-ladder counterpart to the "do not dismiss issues as 'not a
+regression'" rule above.)
+
+**Scratch checks (read-only).** You may run read-only commands to confirm a
+candidate before you flag it — Grep/Read the surrounding code,
+`git log` / `git show` a line's history, run an existing test, or evaluate a
+pure expression in a throwaway REPL. Do **not** mutate the working tree, push,
+or run destructive commands. A scratch check that promotes a PLAUSIBLE to
+CONFIRMED (or REFUTES it) is worth more than another paragraph of prose.
+
 ### Conditional ACK vs NACK vs Plain ACK (BRC reviewers only)
 
 Concurrent BRC reviewers can attach `--pre-merge-condition "…"` to an ACK to record a merge-time obligation on the approval matrix. The obligation is rendered as a "Pre-merge Obligations" section high in the auto-created PR body so the merger cannot skim past it. Use this sparingly — if every ACK carries a condition, the section becomes noise and the merger learns to skim past it.

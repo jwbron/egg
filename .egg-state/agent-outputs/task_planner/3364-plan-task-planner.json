@@ -1,0 +1,231 @@
+{
+  "issue": 3364,
+  "phase": "plan",
+  "agent": "task_planner",
+  "title": "cq-2 re-plan of #3364 PRs B/C/D: PR B follow-ups + PR C exit-code chain + PR D unchanged",
+  "version": 2,
+  "summary": "v2 (re-scoped per binding HITL cq-2). cq-2 re-plan. PR B (slice-1) is COMPLETE (tasks 1-1..1-4 landed: commits 4fcf1ed7a, c2a77847a, 3593d497c) and is NOT re-derived; two post-consensus review follow-ups are carried as TASK-1-5 (wire the production slice_closed_emitter at _run_implement.py:86 \u2014 currently default-None so slice.closed never fires in prod) and TASK-1-6 (production-chain integration test, not a hand-published event). PR C (slice-2) is RE-PLANNED to the corrected exit-code mechanism per cq-2: only exit codes cross the pod boundary, so the transient rate-limit classification rides a distinct EX_RATE_LIMITED exit code mirroring the EX_AUTH_FATAL chain (#3373) instead of sniffing error text at the streak-exhaustion site, and the per-arm recording now lives in orchestrator/event_loop/ after the #3447 JobSupervisor relocation. Chain (7 impl tasks + 1 test): auth_errors.py (EX_RATE_LIMITED + is_transient_rate_limit_error) -> egg_agent/__main__.py -> kubernetes_spawner/_models.py + event_loop/__init__.py (JOB_OUTCOME_RATE_LIMITED + outcome_for) -> event_loop/_loop.py (_observe_jobs branch) -> event_loop/_supervisor.py (record_rate_limited, paced/NO streak increment => never trips fail-streak halt, AC-C1 core) -> supervision_policy.py (pacing + fingerprint constants) -> concurrent_executor.py (windowed retry / loop guard / threshold OVERSEER_ALERT / landed-slice preservation). PR D (slice-3) UNCHANGED (coverage-map gate -> deletions -> remove overseer_owns_host_detection); tasks 3-1..3-5 carried verbatim. cq-1 stands: no hard ceiling, OVERSEER_ALERT past a threshold. Three independent slices, disjoint file sets (verified no cross-slice overlap), one PR each. Grounded live @ eba3ca55. || cq-2 UPDATE: PR C (slice-2) re-scoped from the original 3 files to the faithful EX_RATE_LIMITED exit-code mirror (== cq-2 opt-1) after the coder found AC-C1 unreachable in 3 files and #3447 moved JobSupervisor into orchestrator/event_loop/_supervisor.py. New PR C spans auth_errors.py + egg_agent/__main__.py + kubernetes_spawner/_models.py + event_loop/__init__.py + event_loop/_loop.py + event_loop/_supervisor.py + supervision_policy.py + concurrent_executor.py; 8 tasks (TASK-2-1..2-8); explicit AC-C6 regression for the new exit-code risk surface. opt-2 (3-file partial AC-C1) was rejected by the human. B and D unchanged.",
+  "scope_notes": {
+    "cq2_replan": "PR C mechanism corrected from error-text-at-streak-site (impossible \u2014 only exit codes cross the pod boundary) to a distinct EX_RATE_LIMITED exit code mirroring EX_AUTH_FATAL. File set expanded from the contracted 3 (supervision_policy.py, concurrent_executor.py, auth_errors.py) to the full chain incl. egg_agent/__main__.py, kubernetes_spawner/_models.py, event_loop/__init__.py, event_loop/_loop.py, event_loop/_supervisor.py (JobSupervisor relocated by #3447).",
+    "pr_b_complete": "tasks 1-1..1-4 landed (commits 4fcf1ed7a [1-1/1-3], c2a77847a [1-2], 3593d497c [1-4]); NOT re-listed to avoid re-derivation. Only the two post-consensus review follow-ups (TASK-1-5, TASK-1-6) remain.",
+    "pr_d_unchanged": "slice-3 tasks 3-1..3-5 carried verbatim from the ratified plan.",
+    "independence": "slice-1 (routes/pipelines/_run_implement.py), slice-2 (agent+spawner+event_loop+executor chain), slice-3 (SKILL.md + models/_config.py + routes/pipelines/_routes_status.py) \u2014 disjoint files, distinct per-slice test paths, no #3046 overlap. slice-1/slice-3 share routes/pipelines/ in different files (merge-seam note)."
+  },
+  "grounding": {
+    "base": "main @ eba3ca55 (2026-07-06); PR C chain + PR B follow-up site re-verified this session.",
+    "pr_b_followup": [
+      "orchestrator/routes/pipelines/_run_implement.py:86 \u2014 scheduler = SliceScheduler(...); the slice_closed_emitter is default-None here so slice.closed never fires in production."
+    ],
+    "pr_c_chain": [
+      "shared/egg_agent/auth_errors.py: EX_AUTH_FATAL=77 (:40), is_auth_fatal_error (:83) \u2014 add EX_RATE_LIMITED (distinct) + is_transient_rate_limit_error; throttling stays out of _AUTH_FATAL_PATTERNS.",
+      "shared/egg_agent/__main__.py:142 \u2014 is_auth_fatal_error -> EX_AUTH_FATAL; add is_transient_rate_limit_error -> EX_RATE_LIMITED (import at :15).",
+      "orchestrator/event_loop/__init__.py:143-147 \u2014 JOB_OUTCOME_{RUNNING,SUCCESS,ABNORMAL,FATAL}; add JOB_OUTCOME_RATE_LIMITED='rate_limited'.",
+      "orchestrator/kubernetes_spawner/_models.py: outcome_for (:44), EX_AUTH_FATAL detection (:100), exit_detail_for (:102) \u2014 add EX_RATE_LIMITED -> JOB_OUTCOME_RATE_LIMITED.",
+      "orchestrator/event_loop/_loop.py:_observe_jobs (:54) branches SUCCESS(:86)/LEGITIMATE(:90)/FATAL(:94 record_fatal)/ABNORMAL(:116) \u2014 add RATE_LIMITED -> record_rate_limited.",
+      "orchestrator/event_loop/_supervisor.py: JobSupervisor (#3447 relocation), record_abort(:118 increments _streaks), record_fatal \u2014 add record_rate_limited (NO streak increment; never trips SUPERVISION_FAILURE_STREAK_ALERT=10).",
+      "orchestrator/supervision_policy.py: SUPERVISION_BACKOFF_CAP_SECONDS=30 (:19), streak thresholds (:23/:27) \u2014 add rate-limit pacing (window/reset-parse/threshold) + fingerprint constants.",
+      "orchestrator/concurrent_executor.py: _handle_arms_exhausted (:1076), streak-exhaustion broadcast (:988) \u2014 wire windowed paced retry / loop guard / threshold alert / landed-slice preservation."
+    ],
+    "pr_d": "Unchanged; overseer emitter grounding as in the ratified plan (no deterministic emitter for agent-stall/silent/nack-unresolved/phase-long-running \u2014 classifier action:{action} path only)."
+  },
+  "phases": [
+    {
+      "id": "phase-1",
+      "slice": "slice-1",
+      "name": "PR B follow-ups \u2014 wire production slice.closed emitter + production-chain integration test",
+      "risk": "additive / low",
+      "note": "PR B tasks 1-1..1-4 already landed; not re-derived.",
+      "tasks": [
+        {
+          "id": "TASK-1-5",
+          "description": "Wire slice_closed_emitter at the production SliceScheduler site (_run_implement.py:86); currently default-None so slice.closed never fires in prod.",
+          "acceptance_criteria": "Production SliceScheduler constructed with a non-None emitter publishing to the event bus; real record_complete/record_failure now emit slice.closed.",
+          "files_affected": [
+            "orchestrator/routes/pipelines/_run_implement.py"
+          ]
+        },
+        {
+          "id": "TASK-1-6",
+          "description": "Integration test driving the real production emission chain (record_complete/record_failure -> emitter -> event bus -> _STATUS_WAIT_EVENT_TYPES allowlist), not a hand-published event.",
+          "acceptance_criteria": "Test asserts one allowlisted slice.closed(success) and one slice.closed(failure) via production wiring; suite green.",
+          "files_affected": [
+            "orchestrator/tests/test_slice_closed_production_emission.py"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "slice": "slice-C",
+      "name": "PR C (RE-SCOPED per HITL cq-2) \u2014 EX_RATE_LIMITED exit-code mirror + windowed paced retry + deterministic-loop guard",
+      "risk": "behavioral / medium-high (highest; ~8 files post cq-2 re-scope)",
+      "dependency": null,
+      "pr": "one PR; live supervision behavior; re-scoped per cq-2 to the faithful exit-code mirror; heavy tests on the plumbing seam + AC-C6 invariance",
+      "files": [
+        "orchestrator/concurrent_executor.py",
+        "orchestrator/event_loop/__init__.py",
+        "orchestrator/event_loop/_loop.py",
+        "orchestrator/event_loop/_supervisor.py",
+        "orchestrator/kubernetes_spawner/_models.py",
+        "orchestrator/supervision_policy.py",
+        "orchestrator/tests/test_concurrent_executor_rate_limit.py",
+        "orchestrator/tests/test_event_loop_rate_limited.py",
+        "orchestrator/tests/test_kubernetes_spawner_rate_limited.py",
+        "orchestrator/tests/test_supervision_policy.py",
+        "shared/egg_agent/__main__.py",
+        "shared/egg_agent/auth_errors.py",
+        "shared/egg_agent/tests/test_auth_errors_rate_limit.py"
+      ],
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "auth_errors.py: add EX_RATE_LIMITED (distinct from 77/64/75/143) + is_transient_rate_limit_error (429/rate limit/overloaded, the signatures _AUTH_FATAL_PATTERNS excludes). Do NOT widen EX_AUTH_FATAL.",
+          "acceptance_criteria": "EX_RATE_LIMITED + classifier added; EX_AUTH_FATAL/_AUTH_FATAL_PATTERNS unchanged (AC-C6); classifiers disjoint.",
+          "role": "coder",
+          "files_affected": [
+            "shared/egg_agent/auth_errors.py"
+          ]
+        },
+        {
+          "id": "task-2-2",
+          "description": "egg_agent/__main__.py:142: emit EX_RATE_LIMITED for a throttle, as a distinct branch with auth-fatal precedence (weekly cap still EX_AUTH_FATAL).",
+          "acceptance_criteria": "throttle->EX_RATE_LIMITED; auth-fatal->EX_AUTH_FATAL preserved (AC-C1/AC-C6).",
+          "role": "coder",
+          "files_affected": [
+            "shared/egg_agent/__main__.py"
+          ]
+        },
+        {
+          "id": "task-2-3",
+          "description": "kubernetes_spawner/_models.py: JOB_OUTCOME_RATE_LIMITED mapping via _is_rate_limited_exit (exit_code==EX_RATE_LIMITED), mirroring _is_auth_fatal_exit->FATAL; stray code still -> abnormal.",
+          "acceptance_criteria": "outcome_for maps EX_RATE_LIMITED->RATE_LIMITED, EX_AUTH_FATAL->FATAL, else abnormal (AC-C1/AC-C6).",
+          "role": "coder",
+          "files_affected": [
+            "orchestrator/kubernetes_spawner/_models.py"
+          ]
+        },
+        {
+          "id": "task-2-4",
+          "description": "event_loop/__init__.py + _loop.py: JOB_OUTCOME_RATE_LIMITED constant + _observe_jobs branch routing to supervisor.record_rate_limited (NOT record_abort).",
+          "acceptance_criteria": "routed to record_rate_limited, not the streak (AC-C1); other observe branches unchanged (AC-C6).",
+          "role": "coder",
+          "files_affected": [
+            "orchestrator/event_loop/__init__.py",
+            "orchestrator/event_loop/_loop.py"
+          ]
+        },
+        {
+          "id": "task-2-5",
+          "description": "event_loop/_supervisor.py: record_rate_limited that leaves the abnormal streak untouched (mirror record_legitimate_outcome) + fingerprint capture for the loop-guard.",
+          "acceptance_criteria": "streak untouched by rate-limit outcome (AC-C1); fingerprint exposed (AC-C4 foundation); other record_* unchanged (AC-C6).",
+          "role": "coder",
+          "files_affected": [
+            "orchestrator/event_loop/_supervisor.py"
+          ]
+        },
+        {
+          "id": "task-2-6",
+          "description": "supervision_policy.py: hours-scale window + reset-time parse helper + loop-guard fingerprint model + cumulative-wait threshold constants; leave SUPERVISION_BACKOFF_CAP_SECONDS untouched.",
+          "acceptance_criteria": "pacing/window/fingerprint/threshold present (AC-C2/C4/C5); 30s abnormal cap unchanged (AC-C6).",
+          "role": "coder",
+          "files_affected": [
+            "orchestrator/supervision_policy.py"
+          ]
+        },
+        {
+          "id": "task-2-7",
+          "description": "concurrent_executor.py on_exhausted/hitl_probe seam: windowed paced retry (cq-1 no ceiling + threshold OVERSEER_ALERT), restart_phase-equivalent preserving landed slices, deterministic-loop guard on the fingerprint.",
+          "acceptance_criteria": "AC-C2/C3/C4/C5: paced retry, landed-slice preservation, loop-guard both directions, threshold alert.",
+          "role": "coder",
+          "files_affected": [
+            "orchestrator/concurrent_executor.py"
+          ]
+        },
+        {
+          "id": "task-2-8",
+          "description": "Tests weighted on the exit-code plumbing seam + AC-C6 regression (EX_AUTH_FATAL and abnormal paths unchanged by the new EX_RATE_LIMITED path).",
+          "acceptance_criteria": "AC-C7 full-seam coverage + AC-C6 regression, green.",
+          "role": "tester",
+          "files_affected": [
+            "shared/egg_agent/tests/test_auth_errors_rate_limit.py",
+            "orchestrator/tests/test_kubernetes_spawner_rate_limited.py",
+            "orchestrator/tests/test_event_loop_rate_limited.py",
+            "orchestrator/tests/test_supervision_policy.py",
+            "orchestrator/tests/test_concurrent_executor_rate_limit.py"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "slice": "slice-3",
+      "name": "PR D \u2014 Slim the skill (GATED) \u2014 UNCHANGED",
+      "risk": "deletion / medium (gated)",
+      "note": "Carried verbatim from the ratified plan (tasks 3-1..3-5).",
+      "tasks": [
+        {
+          "id": "TASK-3-1",
+          "description": "GATE: coverage-map each of five host detectors to a confirmed overseer emitter; HITL at point of discovery if none. AC-D6.",
+          "acceptance_criteria": "AC-D6.",
+          "files_affected": [
+            "skills/sdlc/SKILL.md"
+          ]
+        },
+        {
+          "id": "TASK-3-2",
+          "description": "GATED: delete host-detector blocks + migration section + Overseer-Absent Fallback + Stuck-Rescue host trigger + short-flow Stall; preserve the two AskUserQuestion render-on-alert flows + Rescue Steps 1-3. AC-D1/D3.",
+          "acceptance_criteria": "AC-D1, AC-D3.",
+          "files_affected": [
+            "skills/sdlc/SKILL.md"
+          ]
+        },
+        {
+          "id": "TASK-3-3",
+          "description": "GATED: remove overseer_owns_host_detection entirely (models/_config.py:388 + _routes_status.py:126-127); grep-clean. AC-D2.",
+          "acceptance_criteria": "AC-D2.",
+          "files_affected": [
+            "orchestrator/models/_config.py",
+            "orchestrator/routes/pipelines/_routes_status.py"
+          ]
+        },
+        {
+          "id": "TASK-3-4",
+          "description": "Kept-surface verification + short last-resort debugging section with two backstops. AC-D4/D5.",
+          "acceptance_criteria": "AC-D4, AC-D5.",
+          "files_affected": [
+            "skills/sdlc/SKILL.md"
+          ]
+        },
+        {
+          "id": "TASK-3-5",
+          "description": "Verification: grep-clean, update/remove tests referencing the removed field, SKILL.md renders. AC-D2.",
+          "acceptance_criteria": "AC-D2, suite green.",
+          "files_affected": [
+            "orchestrator/tests/test_config_overseer_flag_removed.py",
+            "orchestrator/tests/test_routes_status.py"
+          ]
+        }
+      ]
+    }
+  ],
+  "non_goals": [
+    "Re-deriving PR B tasks 1-1..1-4 (landed).",
+    "PR A (#3421), item 8 (#3249), the 13 visibility-gap follow-ups (#3369/#3499/#3508/#3509).",
+    "Widening EX_AUTH_FATAL (throttling stays non-fatal; it rides the new distinct EX_RATE_LIMITED).",
+    "Changing PR D scope."
+  ],
+  "risks_for_reviewers": [
+    "PR C AC-C1 now hinges on record_rate_limited NOT incrementing _streaks \u2014 reviewers confirm the new path bypasses the fail-streak halt while record_abort/record_fatal stay unchanged.",
+    "EX_RATE_LIMITED must be a genuinely distinct exit code (not 77 / not reserved 64/75/143) and the __main__ ordering must let auth-fatal win when both match.",
+    "cq-1 no-ceiling: the threshold OVERSEER_ALERT is the only operator signal on a multi-day cap \u2014 it must actually fire; keep it orthogonal to the loop-guard escalation.",
+    "PR C spans the pod boundary (agent exit code -> spawner outcome -> event_loop -> executor); reviewers trace the whole chain, not just the executor.",
+    "PR B follow-up: TASK-1-6 must exercise the REAL production wiring from TASK-1-5, not a hand-published event.",
+    "PR D task-3-1 remains a real gate (classifier-only emitter path for four of five anomaly types)."
+  ],
+  "ordering": {
+    "cross_slice": "None; slices 1/2/3 independent, one PR each.",
+    "intra_slice_1": "TASK-1-5 (wire) -> TASK-1-6 (integration test).",
+    "intra_slice_2": "TASK-2-1 -> 2-2 -> 2-3 -> 2-4 -> 2-5 -> 2-6 -> 2-7 along the exit-code chain.",
+    "intra_slice_3": "TASK-3-1 (GATE) -> 3-2 + 3-3 -> 3-4 -> 3-5."
+  }
+}

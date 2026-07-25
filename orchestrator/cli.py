@@ -334,6 +334,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
             from health_checks.tier1 import (
                 ConsensusStallCheck,
                 ContainerLivenessCheck,
+                DriverLivenessCheck,
                 IncompleteConsensusStallCheck,
                 PhaseOutputPresenceCheck,
                 StartupStateCheck,
@@ -348,6 +349,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
             runner.register(StateConsistencyCheck())  # State vs Docker vs contract?
             runner.register(ConsensusStallCheck())  # BRC consensus stuck?
             runner.register(IncompleteConsensusStallCheck())  # BRC consensus incomplete?
+            runner.register(
+                DriverLivenessCheck()
+            )  # _run_pipeline driver alive + progressing? (#3540)
 
             # Store runner on app for access by routes and other modules
             app.config["HEALTH_CHECK_RUNNER"] = runner

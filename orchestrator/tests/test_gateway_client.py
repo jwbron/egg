@@ -517,6 +517,27 @@ class TestSessionManagement:
         )
         assert result is True
 
+    def test_update_session_phase(self, gateway_client, mock_gateway_server):
+        """Test updating a session's pipeline phase (#3528)."""
+        result = gateway_client.update_session_phase("some-token", "plan")
+        assert result is True
+
+    def test_update_session_phase_request_shape(self, gateway_client):
+        """update_session_phase PATCHes the /phase subresource with launcher auth."""
+        with patch.object(gateway_client, "_make_request", return_value={"success": True}) as mr:
+            assert gateway_client.update_session_phase("some-token", "plan") is True
+        assert mr.call_args.args[0] == "/api/v1/sessions/some-token/phase"
+        assert mr.call_args.kwargs["method"] == "PATCH"
+        assert mr.call_args.kwargs["data"] == {"phase": "plan"}
+        assert mr.call_args.kwargs["use_launcher_auth"] is True
+
+    def test_update_session_phase_gateway_error_returns_false(self, gateway_client):
+        """A GatewayError is swallowed; callers get False, not an exception."""
+        from gateway_client import GatewayError
+
+        with patch.object(gateway_client, "_make_request", side_effect=GatewayError("down")):
+            assert gateway_client.update_session_phase("some-token", "plan") is False
+
     def test_delete_session(self, gateway_client, mock_gateway_server):
         """Test deleting a session."""
         result = gateway_client.delete_session("some-token")
