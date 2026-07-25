@@ -100,10 +100,14 @@ diff rather than the tester's own-files scope. (A missing prebuilt-deps
 snapshot is *not* in this list: the runner exits non-zero and the gate
 fails open — see the toolchain paragraph below — so it costs coverage,
 not slice throughput.) Recovery from a wrong red is bounded and
-self-documenting: the failure message names the branch to fix, the
-slice restarts, and ``EGG_SLICE_GREEN_GATE=off`` is quoted inline as
-the bypass. The slice's commits stay on the integration branch through
-all of it — a red gate withholds the PR, it does not discard work.
+operator-driven: the caller lands an unresolved HITL ``Decision`` on
+the contract (#3572 parity, see ``_escalate_green_gate_to_hitl``) whose
+options are continue / restart-slice / cancel, so the block is an
+explicit question in ``/sdlc`` rather than a failed phase an operator
+has to notice. The failure message names the branch to fix and quotes
+``EGG_SLICE_GREEN_GATE=off`` inline as the bypass. The slice's commits
+stay on the integration branch through all of it: a red gate withholds
+the PR, it does not discard work.
 
 The latency cost is identical under ``log`` and ``on`` — both spawn the
 runner and wait for the pod — so it is the price of *running* the gate,
@@ -655,8 +659,8 @@ def _infra_fail_open_enabled() -> bool:
     opposite directions. A mistyped ``EGG_SLICE_GREEN_GATE`` resolves to
     ``on``, the strictest mode, so it can only over-verify. A mistyped
     value here resolves to fail-open, so an operator reaching for ``off``
-    and typing ``offf`` gets the *lenient* posture — silently, without
-    the warning.
+    and typing ``offf`` gets the *lenient* posture, which without the
+    warning below would be silent.
     """
     raw = os.environ.get(GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, "on").strip().lower()
     if not raw or raw in _INFRA_FAIL_OPEN_ENABLED_VALUES:
@@ -1228,6 +1232,34 @@ def _commit_and_push_autofix(
     return None
 
 
+#: Separator between the failure string's blocks. The first block is the
+#: deterministic headline (slice id + integration branch + red check
+#: names); the blocks after it carry per-check output tails.
+_FAILURE_BLOCK_SEPARATOR = "\n\n"
+
+
+def failure_headline(failure: str) -> str:
+    """Return the *deterministic* leading block of a gate failure string.
+
+    ``run_slice_green_gate``'s failure string is deliberately two things
+    at once: a stable identification of the incident (which slice, which
+    integration branch, which checks are red) followed by the captured
+    output tails of those checks. Only the first part is reproducible
+    across runs; a tail carries timings, temp paths, and whatever else
+    the check printed, so two closes of the same broken slice produce
+    two different strings.
+
+    That distinction is load-bearing for the HITL escalation
+    (``_escalate_green_gate_to_hitl``): the #3427 dedupe/carry-forward
+    guard matches on question text, so a question built from the whole
+    failure string would mint a fresh ``cq-N`` on every close retry and
+    re-ask the operator a question they already answered. Escalation
+    callers embed *this* value; operators still get the tails through
+    the phase failure message and the runner logs.
+    """
+    return failure.split(_FAILURE_BLOCK_SEPARATOR, 1)[0]
+
+
 def run_slice_green_gate(
     pipeline_id: str,
     spawner: "KubernetesSpawner",  # noqa: UP037
@@ -1247,7 +1279,13 @@ def run_slice_green_gate(
     Otherwise returns a human-readable failure string naming the
     genuinely red checks; the caller records the slice failure with it,
     routing through the existing cascade + OVERSEER_ALERT machinery
-    instead of opening a red PR.
+    instead of opening a red PR, and lands an unresolved HITL
+    ``Decision`` on the contract so the block is an operator question
+    rather than a silently parked slice (``_slice_close_green_gate``).
+
+    The string's leading block is deterministic per incident and the
+    blocks after it are not; see :func:`failure_headline` for why the
+    escalation embeds only the former.
 
     The runner gets its own gateway worktree forked from
     ``origin/<integration_branch>`` (both ``base_branch`` and
@@ -1564,13 +1602,23 @@ def run_slice_green_gate(
             )
         if mode == "log":
             return None
-        return (
-            f"slice {slice_id}: green gate failed — configured checks are red "
-            f"at integration branch {integration_branch} tip: {failed_names}.\n\n"
-            f"{_format_failed_checks(genuine_failed)}"
-            f"{autofix_note}\n\n"
-            f"Fix the failures on {integration_branch} and restart the slice; "
-            f"set {GREEN_GATE_ENV_VAR}=off to bypass."
+        # The first block is the deterministic headline the HITL
+        # escalation embeds (see ``failure_headline``); the tails, the
+        # #3409 autofix note, and the remedy follow it and are free to
+        # vary between closes.
+        return _FAILURE_BLOCK_SEPARATOR.join(
+            (
+                (
+                    f"slice {slice_id}: green gate failed — configured checks are red "
+                    f"at integration branch {integration_branch} tip: {failed_names}."
+                ),
+                f"{_format_failed_checks(genuine_failed)}{autofix_note}",
+                (
+                    f"Fix the failures on {integration_branch}, then resolve the "
+                    f"green-gate decision this close raises on the contract; "
+                    f"set {GREEN_GATE_ENV_VAR}=off to bypass the gate entirely."
+                ),
+            )
         )
     finally:
         if job_submitted:

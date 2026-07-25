@@ -1004,6 +1004,62 @@ def _escalate_evidence_gate_to_hitl(
     )
 
 
+def _escalate_green_gate_to_hitl(
+    *,
+    pipeline_id: str,
+    slice_id: str,
+    failure_headline: str,
+    worktree_repo_path: _pkg.Path,
+    current_phase: _pkg.PipelinePhase | None,
+) -> None:
+    """Escalate a green-gate slice-close failure to HITL (#3398).
+
+    Exact parity with ``_escalate_evidence_gate_to_hitl`` above, one gate
+    later. The green gate (#3398) began blocking when its default flipped
+    to ``on``; before this, a red verdict on a consensus-complete slice
+    reproduced the pre-#3572 shape the evidence gate had already left
+    behind. ``record_failure`` arms the descendant cascade and the phase
+    goes FAILED, but nothing lands on ``contract.decisions``, so the
+    block is not resolvable through ``/sdlc`` / ``provide_input`` and
+    recovery meant an operator noticing a failed phase and re-running the
+    entire confirmed wave via ``restart_phase``. On a gate-wiring red
+    (which by construction recurs on every close) that re-run hits the
+    same red.
+
+    Question text is prefixed with ``[#3398 green-gate]`` so a future
+    dispatch handler in ``routes/decisions.py`` can route on the literal
+    substring, mirroring the Layer-C case-4/case-5 and evidence-gate
+    wrappers above.
+
+    ``failure_headline`` MUST be
+    ``slice_green_gate.failure_headline(failure)``, not the full failure
+    string: the headline is deterministic per incident (slice id +
+    integration branch + red check names) while the blocks after it
+    carry per-check output tails that vary between closes. The
+    ``_escalate_layer_c_hitl`` dedupe/carry-forward guard (#3427) matches
+    on question text, so embedding the tails would mint a fresh ``cq-N``
+    on every close retry and phase restart and re-ask the operator a
+    question they had already answered.
+    """
+    _pkg._escalate_layer_c_hitl(
+        pipeline_id=pipeline_id,
+        slice_id=slice_id,
+        worktree_repo_path=worktree_repo_path,
+        current_phase=current_phase,
+        question=(
+            f"[#3398 green-gate] Slice {slice_id} of pipeline "
+            f"{pipeline_id} reached full consensus, but its close is "
+            f"blocked by the per-slice green gate (#3398): {failure_headline} "
+            f"The slice's commits are on the integration branch; the gate "
+            f"withholds the slice PR rather than discarding work. Fix the "
+            f"named checks at the integration tip and restart the slice, or "
+            f"set EGG_SLICE_GREEN_GATE=off to bypass the gate. The per-check "
+            f"output tails are in the phase failure message and the runner "
+            f"logs. How should the orchestrator proceed?"
+        ),
+    )
+
+
 def _cross_repo_hold_marker(slice_id: str) -> str:
     """Return the stable per-gate discriminator embedded in the hold question."""
     return f"{_pkg._CROSS_REPO_HOLD_MARKER_PREFIX} slice={slice_id}]"

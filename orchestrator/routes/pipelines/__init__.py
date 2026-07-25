@@ -1405,6 +1405,7 @@ from ._run_implement_support import (  # noqa: E402,F401
     _parent_branch_probe_impl,
     _persist_slice_status_complete_impl,
     _slice_close_evidence_gate,
+    _slice_close_green_gate,
 )
 from ._run_phase import (  # noqa: E402,F401
     _run_phase_execution,
@@ -1454,6 +1455,7 @@ from ._slice_state import (  # noqa: E402,F401
     _escalate_blocked_slice_to_hitl,
     _escalate_corrupt_slice_to_hitl,
     _escalate_evidence_gate_to_hitl,
+    _escalate_green_gate_to_hitl,
     _escalate_layer_c_hitl,
     _is_slice_dag_mode,
     _latest_completed_chain_tip,

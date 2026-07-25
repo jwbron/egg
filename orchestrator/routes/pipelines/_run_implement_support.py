@@ -489,3 +489,64 @@ def _slice_close_evidence_gate(
             current_phase=getattr(pipeline, "current_phase", None),
         )
     return contract_post, evidence_failure
+
+
+def _slice_close_green_gate(
+    pipeline_id,
+    spawner,
+    worktree_repo_path,
+    slice_id,
+    integration_branch,
+    *,
+    gateway_mode,
+    pipeline,
+) -> str | None:
+    """Run the per-slice green gate (#3398) and escalate a red to HITL.
+
+    Runs after the #3125 evidence gate and before any close side effect:
+    execute the repo's configured checks (``repositories.yaml``, via
+    ``get_repo_checks``) against the integration-branch tip in a
+    sandboxed one-shot runner and, in ``on`` mode, refuse to open the
+    slice PR while any check is red. Closes the trust-vs-verify gap in
+    the propose-time ``checks_passed`` self-report. Only repo-backed
+    pipelines are gated; the failure is ``None`` otherwise.
+
+    Same posture as ``_slice_close_evidence_gate`` above, on every axis
+    that matters: fail-open on infra errors, fail-closed only on a
+    definitive red verdict, and on that definitive red this helper lands
+    an unresolved HITL ``Decision`` on the contract before returning.
+    The caller's ``record_failure`` only arms the descendant cascade;
+    nothing re-drives the close, so without the Decision a
+    consensus-complete slice parks until an operator notices the failed
+    phase. ``EGG_SLICE_GREEN_GATE`` is the operator switch (``off`` /
+    ``log`` / ``on``), defaulting to ``on``.
+
+    The escalation embeds only ``failure_headline(failure)``; see that
+    function and ``_escalate_green_gate_to_hitl`` for why the per-check
+    output tails must stay out of the question text.
+    """
+    if not pipeline.repo:
+        return None
+
+    try:
+        import slice_green_gate as _green_gate
+    except ImportError:
+        from ... import slice_green_gate as _green_gate  # type: ignore[no-redef]
+
+    green_gate_failure = _green_gate.run_slice_green_gate(
+        pipeline_id,
+        spawner,
+        slice_id,
+        integration_branch,
+        pipeline.repo,
+        gateway_mode=gateway_mode,
+    )
+    if green_gate_failure is not None:
+        _pkg._escalate_green_gate_to_hitl(
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            failure_headline=_green_gate.failure_headline(green_gate_failure),
+            worktree_repo_path=worktree_repo_path,
+            current_phase=getattr(pipeline, "current_phase", None),
+        )
+    return green_gate_failure

@@ -35,6 +35,13 @@ Covers:
   (all-infra reds fail open, mixed reds block on the genuine ones,
   ``EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=off`` restores strict
   blocking).
+* ``failure_headline``: the deterministic leading block of a failure
+  string, and the property that makes it load-bearing: it is stable
+  across closes that differ in their per-check output tails.
+* ``_escalate_green_gate_to_hitl`` / ``_slice_close_green_gate``: the
+  close-path wiring, and the #3572-parity HITL ``Decision`` a red
+  verdict lands so a consensus-complete slice raises an operator
+  question instead of parking behind a FAILED phase.
 """
 
 from __future__ import annotations
@@ -879,6 +886,22 @@ class TestBuildRunnerJobManifest:
         command = manifest["spec"]["template"]["spec"]["containers"][0]["command"]
         assert command[:2] == ["python3", "-c"]
 
+    def test_hardened_pod_security_posture(self) -> None:
+        """The runner executes repo-authored check commands unsupervised.
+
+        ``TestSubmitRunnerJob`` asserts these same three fields, but it
+        carries a ``skipif`` on the real kubernetes SDK, so on an
+        environment without the dev extra the posture had no assertion at
+        all. This is the SDK-independent floor: it pins what the manifest
+        *declares*; the submit-side class pins that the declaration
+        survives the dict -> V1 translation.
+        """
+        pod = _manifest()["spec"]["template"]["spec"]
+        assert pod["automountServiceAccountToken"] is False
+        container_security = pod["containers"][0]["securityContext"]
+        assert container_security["allowPrivilegeEscalation"] is False
+        assert container_security["capabilities"]["drop"] == ["ALL"]
+
     def test_runs_as_host_uid(self) -> None:
         manifest = _manifest(host_uid=1234, host_gid=5678)
         ctx = manifest["spec"]["template"]["spec"]["securityContext"]
@@ -961,6 +984,16 @@ class TestSubmitRunnerJob:
     values that matter (deadline arithmetic, the security posture) in
     terms a reader recognises; the reflection test is the one that goes
     red when a *new* key is added to the dict and not to the whitelist.
+
+    Scope limit worth knowing before relying on it: the reflection walk
+    is driven by the manifest, so it catches keys the submitter
+    **drops**. It cannot catch a key the submitter **restates** as a
+    constant that happens to agree with the manifest, because it only
+    ever asks "does the body carry what the manifest says here?" and a
+    hardcoded matching value answers yes. That is the gap
+    ``test_security_fields_follow_the_manifest_not_a_constant`` closes,
+    by perturbing the manifest and requiring the submitted pod to move
+    with it. Both directions are needed; neither subsumes the other.
     """
 
     @staticmethod
@@ -1044,6 +1077,13 @@ class TestSubmitRunnerJob:
         pod-level ``activeDeadlineSeconds`` in the manifest, no matching
         line in ``_submit_runner_job``. Without this the suite has no
         way to distinguish it from the complete fix.
+
+        Expected to fail when #3622 lands, in the same way its sibling
+        ``test_pod_level_deadline_is_not_set_today`` is: this test
+        asserts the *incomplete* fix is caught, so it only stays
+        meaningful while the submitter has no pod-deadline line. Once
+        #3622 adds one, the ``raises`` here no longer fires and the test
+        should be deleted rather than loosened.
         """
         manifest = _manifest(timeout_seconds=600)
         manifest["spec"]["template"]["spec"]["activeDeadlineSeconds"] = 660
@@ -1965,3 +2005,265 @@ class TestAutofixReady:
         ready, reason = sgg._autofix_ready(verdict, self.LINT_FAILED)
         assert ready is False
         assert "untracked" in reason
+
+
+# ----------------------------------------------------------------------
+# failure_headline
+# ----------------------------------------------------------------------
+
+
+def _red_failure(tail: str) -> str:
+    """Drive a real red verdict through the gate and return its failure."""
+    spawner = _spawner()
+    log = _verdict_line([{"name": "test", "ok": False, "exit_code": 2, "output_tail": tail}])
+    with (
+        patch.object(sgg, "_submit_runner_job"),
+        patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+        patch.object(sgg, "_read_runner_log", return_value=log),
+        patch.object(sgg, "_delete_runner_job"),
+    ):
+        failure = _run_gate(spawner)
+    assert failure is not None
+    return failure
+
+
+class TestFailureHeadline:
+    """The deterministic slice of the failure string.
+
+    The full failure string is two things at once: an identification of
+    the incident, then the captured output tails of the red checks. The
+    HITL escalation embeds only the first, because the #3427
+    dedupe/carry-forward guard matches on question text and the tails
+    are not reproducible between closes.
+    """
+
+    def test_headline_identifies_the_incident(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        headline = sgg.failure_headline(_red_failure("FAILED tests/test_x.py::test_y"))
+        assert SLICE_ID in headline
+        assert INTEGRATION_BRANCH in headline
+        assert "test" in headline
+
+    def test_headline_excludes_the_output_tails(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        failure = _red_failure("FAILED tests/test_x.py::test_y")
+        assert "FAILED tests/test_x.py::test_y" in failure
+        assert "FAILED tests/test_x.py::test_y" not in sgg.failure_headline(failure)
+
+    def test_headline_is_stable_while_the_full_string_is_not(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        """The property the escalation's dedupe rests on.
+
+        Two closes of the same broken slice differ in their tails
+        (timings, temp paths, whatever the check printed) and agree on
+        their headline. Embedding the full string in the HITL question
+        would mint a fresh ``cq-N`` per close.
+        """
+        first = _red_failure("FAILED tests/test_x.py::test_y in 3.21s (/tmp/pytest-of-egg-0)")
+        second = _red_failure("FAILED tests/test_x.py::test_y in 9.87s (/tmp/pytest-of-egg-1)")
+        assert first != second
+        assert sgg.failure_headline(first) == sgg.failure_headline(second)
+
+    def test_a_string_with_no_separator_is_its_own_headline(self) -> None:
+        assert sgg.failure_headline("one block only") == "one block only"
+
+
+# ----------------------------------------------------------------------
+# routes.pipelines._escalate_green_gate_to_hitl / _slice_close_green_gate
+# ----------------------------------------------------------------------
+
+
+ESCALATION_PIPELINE_ID = "issue-3398-green-gate-hitl"
+
+
+def _blank_contract(tmp_path: Path) -> None:
+    from egg_contracts.loader import save_contract
+    from egg_contracts.models import Contract, IssueInfo
+    from egg_contracts.models import PipelinePhase as ContractPhase
+
+    save_contract(
+        Contract(
+            schemaVersion="1.2",
+            issue=IssueInfo(number=3398, title="#3398", url=""),
+            pipeline_id=ESCALATION_PIPELINE_ID,
+            current_phase=ContractPhase.IMPLEMENT,
+            slices=[],
+        ),
+        tmp_path,
+    )
+
+
+class TestEscalateGreenGateToHITL:
+    """A consensus-complete slice the gate reds must land an operator
+    question, not a silently parked slice.
+
+    Same shape #3572 closed for the sibling evidence gate one statement
+    earlier in the close path: ``record_failure`` arms the descendant
+    cascade and the phase goes FAILED, but nothing lands on
+    ``contract.decisions``, so the block is not resolvable through
+    ``/sdlc`` / ``provide_input``. The green gate inherited that posture
+    at the moment its default flipped to ``on`` and its blocking branch
+    stopped being dead code (PR #3609 review).
+    """
+
+    def test_writes_decision_with_marker_and_headline(self, tmp_path: Path) -> None:
+        from egg_contracts.loader import load_contract
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_green_gate_to_hitl
+
+        _blank_contract(tmp_path)
+        headline = (
+            "slice slice-2: green gate failed — configured checks are red at "
+            "integration branch egg/issue-3398/work/slice-2 tip: test."
+        )
+        _escalate_green_gate_to_hitl(
+            pipeline_id=ESCALATION_PIPELINE_ID,
+            slice_id="slice-2",
+            failure_headline=headline,
+            worktree_repo_path=tmp_path,
+            current_phase=PipelineModelsPhase.IMPLEMENT,
+        )
+        reloaded = load_contract(ESCALATION_PIPELINE_ID, tmp_path)
+        assert len(reloaded.decisions) == 1
+        decision = reloaded.decisions[0]
+        assert "[#3398 green-gate]" in decision.question
+        assert "slice-2" in decision.question
+        assert headline in decision.question, (
+            "the gate's headline (branch + red check names) must be embedded "
+            "verbatim so the operator can act without log digging"
+        )
+        # The bypass is named in the question itself, matching the
+        # failure string: an operator answering the Decision must not
+        # have to go find the env var.
+        assert sgg.GREEN_GATE_ENV_VAR in decision.question
+        assert decision.resolution is None
+
+    def test_the_decision_offers_a_resolvable_choice(self, tmp_path: Path) -> None:
+        """What separates this from the FAILED phase + OVERSEER_ALERT.
+
+        The pre-existing signals told an operator something broke. An
+        unresolved HITL Decision is the thing ``/sdlc`` surfaces and
+        ``provide_input`` can answer, which is the whole point of the
+        #3572 precedent.
+        """
+        from egg_contracts.loader import load_contract
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_green_gate_to_hitl
+
+        _blank_contract(tmp_path)
+        _escalate_green_gate_to_hitl(
+            pipeline_id=ESCALATION_PIPELINE_ID,
+            slice_id="slice-2",
+            failure_headline="slice slice-2: green gate failed.",
+            worktree_repo_path=tmp_path,
+            current_phase=PipelineModelsPhase.IMPLEMENT,
+        )
+        decision = load_contract(ESCALATION_PIPELINE_ID, tmp_path).decisions[0]
+        assert decision.type == "hitl"
+        assert decision.resolution is None
+        assert len(decision.options) >= 2
+
+    def test_deterministic_headline_dedupes_on_retry(self, tmp_path: Path) -> None:
+        """A close retry or phase restart adopts the open Decision.
+
+        The #3427 guard matches on question text, so this only holds
+        because the caller passes the headline. It is the reason
+        ``failure_headline`` exists.
+        """
+        from egg_contracts.loader import load_contract
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_green_gate_to_hitl
+
+        _blank_contract(tmp_path)
+        for _ in range(3):
+            _escalate_green_gate_to_hitl(
+                pipeline_id=ESCALATION_PIPELINE_ID,
+                slice_id="slice-2",
+                failure_headline="slice slice-2: green gate failed: test.",
+                worktree_repo_path=tmp_path,
+                current_phase=PipelineModelsPhase.IMPLEMENT,
+            )
+        assert len(load_contract(ESCALATION_PIPELINE_ID, tmp_path).decisions) == 1
+
+    def test_varying_output_tails_would_defeat_the_dedupe(self, tmp_path: Path) -> None:
+        """Negative control for the headline decision.
+
+        Passing the *full* failure string instead is the tempting
+        simplification, and it re-asks the operator on every close. This
+        pins that the tails really do break the guard, so the headline
+        is load-bearing rather than decorative.
+        """
+        from egg_contracts.loader import load_contract
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_green_gate_to_hitl
+
+        _blank_contract(tmp_path)
+        for tail in ("in 3.21s (/tmp/pytest-of-egg-0)", "in 9.87s (/tmp/pytest-of-egg-1)"):
+            _escalate_green_gate_to_hitl(
+                pipeline_id=ESCALATION_PIPELINE_ID,
+                slice_id="slice-2",
+                failure_headline=f"slice slice-2: green gate failed: test.\n\nFAILED {tail}",
+                worktree_repo_path=tmp_path,
+                current_phase=PipelineModelsPhase.IMPLEMENT,
+            )
+        assert len(load_contract(ESCALATION_PIPELINE_ID, tmp_path).decisions) == 2
+
+
+class TestSliceCloseGreenGate:
+    """The close-path wiring: gate verdict -> escalation -> caller."""
+
+    @staticmethod
+    def _pipeline(repo: str | None = REPO) -> SimpleNamespace:
+        from models import PipelinePhase as PipelineModelsPhase
+
+        return SimpleNamespace(repo=repo, current_phase=PipelineModelsPhase.IMPLEMENT)
+
+    def _close(self, pipeline: SimpleNamespace) -> str | None:
+        from routes.pipelines import _slice_close_green_gate
+
+        return _slice_close_green_gate(
+            PIPELINE_ID,
+            MagicMock(),
+            Path("/tmp/worktree"),
+            SLICE_ID,
+            INTEGRATION_BRANCH,
+            gateway_mode="public",
+            pipeline=pipeline,
+        )
+
+    def test_red_verdict_escalates_and_returns_the_failure(self) -> None:
+        failure = "slice slice-2: green gate failed: test.\n\nFAILED tests/test_x.py\n\nbypass"
+        with (
+            patch("slice_green_gate.run_slice_green_gate", return_value=failure),
+            patch("routes.pipelines._escalate_green_gate_to_hitl") as escalate,
+        ):
+            assert self._close(self._pipeline()) == failure
+        escalate.assert_called_once()
+        kwargs = escalate.call_args.kwargs
+        assert kwargs["slice_id"] == SLICE_ID
+        assert kwargs["pipeline_id"] == PIPELINE_ID
+        # The headline, not the whole string: the tails must not reach
+        # the question text (see TestFailureHeadline).
+        assert kwargs["failure_headline"] == "slice slice-2: green gate failed: test."
+        assert "FAILED tests/test_x.py" not in kwargs["failure_headline"]
+
+    def test_green_verdict_does_not_escalate(self) -> None:
+        with (
+            patch("slice_green_gate.run_slice_green_gate", return_value=None),
+            patch("routes.pipelines._escalate_green_gate_to_hitl") as escalate,
+        ):
+            assert self._close(self._pipeline()) is None
+        escalate.assert_not_called()
+
+    def test_a_repoless_pipeline_skips_the_gate_entirely(self) -> None:
+        """No repo means no configured checks to run, so nothing to gate."""
+        with (
+            patch("slice_green_gate.run_slice_green_gate") as run_gate,
+            patch("routes.pipelines._escalate_green_gate_to_hitl") as escalate,
+        ):
+            assert self._close(self._pipeline(repo=None)) is None
+        run_gate.assert_not_called()
+        escalate.assert_not_called()
