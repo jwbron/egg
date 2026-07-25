@@ -469,7 +469,7 @@
           "id": "task-4-2",
           "description": "Test for get_status enrichment with forward-progress signals and alerts.",
           "status": "pending",
-          "commit": null,
+          "commit": "4a02ece9b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Test verifies /status response includes progress sub-object with commit_count, last_commit_at, last_heartbeat_age_s, last_progress_age_s, progress_event_count\n- Test verifies top-level alerts array present with alert_type, agent_id, message, severity, timestamp\n- Test verifies all progress fields are null when unmeasurable, never 0\n- Test verifies best-effort degradation on git subprocess failure",
@@ -1315,6 +1315,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-3-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T06:47:05.401199Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.commit",
+      "old_value": null,
+      "new_value": "4a02ece9b",
+      "reason": "Linked commit 4a02ece to task-4-2",
       "checkpoint_id": null
     }
   ],
