@@ -36,17 +36,28 @@ _MAX_WARNINGS = 1000
 _SEEN: set[tuple[str, str, tuple[str, ...]]] = set()
 
 
-def _log_warning(message: str, *args: object) -> None:
+def _log_warning(message: str, *args: object) -> bool:
     """Log via litellm's ``verbose_logger``, deferring the import.
 
     Kept out of module scope so this file stays importable where litellm is
     not installed — which is what makes it unit testable in the egg repo, the
     stated reason (``config/litellm/Dockerfile``) for keeping it a real file
     rather than a string literal in the patch script.
-    """
-    from litellm._logging import verbose_logger
 
-    verbose_logger.warning(message, *args)
+    Returns whether the call completed without raising — not whether a line
+    reached a handler, since a logger filtering the level away also returns
+    normally. That is enough for the warn-once bookkeeping below, whose failure
+    mode is an import or emit that *raised*: this module exists precisely so a
+    drop is not silent, and recording the dedup key ahead of a failed emit
+    would make that route silent for the life of the process.
+    """
+    try:
+        from litellm._logging import verbose_logger
+
+        verbose_logger.warning(message, *args)
+    except Exception:  # noqa: BLE001 - diagnostics must never break a request
+        return False
+    return True
 
 
 def warn_dropped_params(
@@ -67,9 +78,6 @@ def warn_dropped_params(
         key = (custom_llm_provider or "", model or "", dropped)
         if key in _SEEN:
             return
-        if len(_SEEN) >= _MAX_WARNINGS:
-            _SEEN.clear()
-        _SEEN.add(key)
         # Deliberately states what is known and stops short of prescribing. The
         # param most likely to be dropped on this deployment is
         # ``reasoning_effort``, and it is frequently NOT in any config file:
@@ -80,7 +88,7 @@ def warn_dropped_params(
         # the param through `allowed_openai_params` converts a correct drop
         # into a provider-side error. A confidently-worded wrong remedy is
         # worse than the silence this replaces.
-        _log_warning(
+        emitted = _log_warning(
             "litellm.drop_params: dropped %s for model=%s provider=%s — the "
             "provider does not advertise support for them, so they did not "
             "reach it and whatever behaviour they were meant to control is "
@@ -94,6 +102,18 @@ def warn_dropped_params(
             custom_llm_provider,
             list(dropped),
         )
+        # Recorded only once the emit did not raise. ``_log_warning`` swallows
+        # its own failure so a diagnostic cannot fail a request, and recording
+        # first would mean one failure on the *first* call — litellm's logger
+        # not yet in place, say — suppresses this route's warning forever,
+        # because every later call would find the key already there. The cost of
+        # the other ordering is one warning attempt per request until an emit
+        # succeeds, which is the right way round for a module whose whole job is
+        # to make a silent drop audible.
+        if emitted:
+            if len(_SEEN) >= _MAX_WARNINGS:
+                _SEEN.clear()
+            _SEEN.add(key)
     except Exception:  # noqa: BLE001 - diagnostics must never break a request
         pass
 

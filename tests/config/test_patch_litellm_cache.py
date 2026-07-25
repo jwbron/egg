@@ -188,6 +188,30 @@ def test_installed_module_payload_must_parse(tmp_path, monkeypatch):
     assert not (tmp_path / spec["dest"]).exists()
 
 
+def test_installed_module_parse_error_points_at_the_real_line(tmp_path, monkeypatch):
+    """The reported line must be the one the operator will open.
+
+    The provenance header is prepended before the file is written, so parsing
+    the *payload* shifts every line by one and sends whoever reads the build log
+    to the wrong place. This path also has no replacement in it — the staged
+    source itself is broken — so ``_apply``'s vocabulary would misdescribe it."""
+    spec = dict(plc.NEW_MODULES[0])
+    (tmp_path / spec["dest"]).parent.mkdir(parents=True, exist_ok=True)
+
+    broken = tmp_path / "staged"
+    broken.mkdir()
+    # Syntax error deliberately on line 5, well clear of the off-by-one.
+    (broken / spec["source"]).write_text('"""Doc."""\n\nimport os\n\ndef truncated(\n')
+    monkeypatch.setattr(plc, "_module_source", lambda name, label: str(broken / name))
+
+    with pytest.raises(SystemExit) as excinfo:
+        plc._install_module(str(tmp_path), spec)
+    message = str(excinfo.value)
+    assert f"{spec['source']}:5:" in message, f"expected the real line, got: {message}"
+    assert "replacement" not in message, "no replacement is involved on the install path"
+    assert "staged module source does not parse" in message
+
+
 def test_new_module_refuses_to_clobber_a_foreign_file(tmp_path):
     """Every other operation in this script is fail-loud on drift; so is this.
 

@@ -89,9 +89,14 @@ def _log(level: str, message: str, *args: object) -> bool:
     not installed. Never raises: a diagnostic must not be able to break a
     request, and must not stop the capability lookup either.
 
-    Returns whether the record was actually emitted, so the warn-once
-    bookkeeping below can key on "this was seen" rather than "this was
-    attempted" — swallowing the exception must not also swallow the signal.
+    Returns whether the call completed without raising — *not* whether a record
+    reached a handler, since ``verbose_logger.debug(...)`` on a logger set to
+    INFO also returns normally. The distinction does not matter to either
+    caller: what the warn-once bookkeeping below must not do is mark a line
+    "already warned" when the attempt *raised* (litellm's logger not yet in
+    place, say), because swallowing the exception would then also swallow the
+    signal. Level filtering is the operator's own choice and is not a lost
+    signal.
     """
     try:
         from litellm._logging import verbose_logger
@@ -112,7 +117,7 @@ def _warn_env_once(name: str, raw: str, message: str, *args: object) -> None:
     key = (name, raw)
     if key in _WARNED_ENV:
         return
-    # Recorded only once the line is out. ``_log`` deliberately never
+    # Recorded only once the emit did not raise. ``_log`` deliberately never
     # propagates, so recording first would mean a failure on the *first* call —
     # litellm's logger not yet in place, say — permanently suppresses the
     # warning: every later call would find the key already there.
@@ -259,7 +264,7 @@ def _log_fetch_failure(message: str, *args: object) -> None:
     global _WARNED_FETCH_FAILURE
 
     level = "debug" if _WARNED_FETCH_FAILURE else "warning"
-    # Latched only once the warning is out, for the reason in ``_warn_env_once``:
+    # Latched only once the emit did not raise, for the reason in ``_warn_env_once``:
     # ``_log`` swallows its own failures, and marking "already warned" for a
     # line that was never emitted would demote every later outage to debug
     # without anyone having seen the first one.

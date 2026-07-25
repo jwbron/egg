@@ -199,7 +199,7 @@ def _parses(source: str) -> bool:
     return True
 
 
-def _check_parses(source: str, path: str, label: str) -> None:
+def _check_parses(source: str, path: str, label: str, detail: str) -> None:
     """Fail the build if we are about to write source Python cannot import.
 
     A needle miss already exits non-zero, but a replacement with wrong
@@ -207,14 +207,18 @@ def _check_parses(source: str, path: str, label: str) -> None:
     the image, and surface as a pod CrashLoopBackOff at litellm import time,
     long after the only thing that could have caught it. Same fail-loud
     discipline as the needle check, one step later.
+
+    ``detail`` names what is actually broken, because the two callers arrive
+    here from different directions: ``_apply`` has substituted a replacement
+    into an upstream file, while ``_install_module`` has read a staged module of
+    ours with no replacement involved at all. ``source`` must be the text whose
+    line numbering matches ``path``, so the reported line sends the operator to
+    the right one.
     """
     try:
         ast.parse(source, filename=path)
     except SyntaxError as exc:
-        raise SystemExit(
-            f"{label}: patched source does not parse ({path}:{exc.lineno}: {exc.msg}) "
-            "— the replacement is malformed"
-        ) from exc
+        raise SystemExit(f"{label}: {detail} ({path}:{exc.lineno}: {exc.msg})") from exc
 
 
 def _apply(path: str, present: str, needle: str, replacement: str, label: str) -> None:
@@ -234,7 +238,12 @@ def _apply(path: str, present: str, needle: str, replacement: str, label: str) -
     # deliberately do not, and holding them to it would test the fixture rather
     # than the patch.
     if _parses(src):
-        _check_parses(patched, path, label)
+        _check_parses(
+            patched,
+            path,
+            label,
+            "patched source does not parse — the replacement is malformed",
+        )
     with open(path, "w") as fh:
         fh.write(patched)
     print(f"{label}: applied")
@@ -940,13 +949,17 @@ def _install_module(root: str, spec: dict[str, str]) -> None:
         )
     source = _module_source(spec["source"], label)
     with open(source) as fh:
-        # The header goes on disk, not in the repo copy: it is the provenance
-        # the guard below reads. A leading comment leaves the module docstring
-        # as the first statement, so nothing about the module changes.
-        payload = EGG_MODULE_HEADER + fh.read()
+        body = fh.read()
+    # The header goes on disk, not in the repo copy: it is the provenance the
+    # guard below reads. A leading comment leaves the module docstring as the
+    # first statement, so nothing about the module changes.
+    payload = EGG_MODULE_HEADER + body
     # Same reason as in ``_apply``: a truncated COPY or a half-written staged
     # file would install without complaint and only fail at litellm import.
-    _check_parses(payload, source, label)
+    # Checked against the un-headered text, whose line numbers match the file
+    # the operator will open — the header is a comment, so it cannot change
+    # whether the rest parses, but it does shift every reported line by one.
+    _check_parses(body, source, label, "staged module source does not parse")
     dest = os.path.join(root, spec["dest"])
     dest_dir = os.path.dirname(dest)
     if not os.path.isdir(dest_dir):

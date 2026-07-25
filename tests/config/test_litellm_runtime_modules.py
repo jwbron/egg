@@ -480,6 +480,33 @@ def test_seen_set_is_bounded_and_keeps_deduplicating(dropwarn, logger, monkeypat
     assert len(logger.messages("warning")) == before
 
 
+def test_drop_warning_is_not_lost_to_a_swallowed_emit_failure(dropwarn, monkeypatch):
+    """The third of this changeset's three warn-once latches, held to the same
+    rule as the other two.
+
+    ``warn_dropped_params`` swallows a logging failure by design, so recording
+    the dedup key before the emit would let one failure on the *first* call mute
+    that route for the life of the process — in the one module whose entire
+    purpose is to stop a drop being silent."""
+    recorder = _install_logger(monkeypatch, _FlakyLogger())
+
+    dropwarn.warn_dropped_params(
+        {"reasoning_effort": "high"}, "kimi-k3", custom_llm_provider="openrouter"
+    )
+    assert recorder.messages("warning") == [], "first emit raised, and was swallowed"
+    assert dropwarn._SEEN == set(), "nothing was emitted, so nothing is deduplicated"
+
+    dropwarn.warn_dropped_params(
+        {"reasoning_effort": "high"}, "kimi-k3", custom_llm_provider="openrouter"
+    )
+    assert len(recorder.messages("warning")) == 1, "the signal must survive the failure"
+
+    dropwarn.warn_dropped_params(
+        {"reasoning_effort": "high"}, "kimi-k3", custom_llm_provider="openrouter"
+    )
+    assert len(recorder.messages("warning")) == 1, "and dedup still holds once it is out"
+
+
 def test_diagnostic_never_raises(dropwarn, logger):
     """A logging failure must not be able to fail a request."""
 
