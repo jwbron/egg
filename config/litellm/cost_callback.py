@@ -87,6 +87,7 @@ traffic.
 import collections
 import datetime
 import json
+import math
 import threading
 
 from litellm.integrations.custom_logger import CustomLogger
@@ -352,12 +353,18 @@ _MAX_PARAM_JSON_CHARS = 512
 def _bounded_param(value):
     """Return ``value`` clamped to something safe to embed in the log line.
 
-    Two hazards, both of which would cost us the WHOLE line rather than just
-    this field (``_emit`` swallows a serialization failure):
-    non-JSON-serializable values, and unbounded ones. Scalars pass through;
-    everything else is round-tripped through JSON — with ``default=str`` so an
-    exotic value degrades to its repr instead of raising — and replaced by a
-    size marker when it exceeds the cap."""
+    Three hazards, all of which would cost us the WHOLE line rather than just
+    this field (``_emit`` swallows a serialization failure): non-finite floats,
+    non-JSON-serializable values, and unbounded ones. ``NaN``/``Inf`` are the
+    subtlest — ``json.dumps`` emits the non-standard ``NaN``/``Infinity`` tokens
+    (invalid JSON), so a downstream ``jq 'fromjson?'`` silently drops the line,
+    cost data and all; a misconfigured ``temperature``/``top_p`` is enough to
+    trigger it, so we map non-finite floats to a marker. Otherwise scalars pass
+    through; everything else is round-tripped through JSON — with ``default=str``
+    so an exotic value degrades to its repr instead of raising — and replaced by
+    a size marker when it exceeds the cap."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return f"<non-finite: {value}>"
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
@@ -433,7 +440,12 @@ def _extract_request_params(mcd):
                 else:
                     leftover[key] = value
             if leftover:
-                out["extra_body"] = _bounded_param(leftover)
+                # Bound each leftover value individually rather than the dict as
+                # a whole: the OpenRouter provider pin is small and load-bearing
+                # (it decides WHICH backend served the turn), so bulky sibling
+                # content in extra_body must not collapse the pin along with it
+                # under one shared size cap. Only the oversized value degrades.
+                out["extra_body"] = {k: _bounded_param(v) for k, v in leftover.items()}
         return out
     except Exception:
         return None

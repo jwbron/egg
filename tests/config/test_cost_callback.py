@@ -400,6 +400,24 @@ class TestExtractRequestParams:
             "provider": {"order": ["Alibaba"], "allow_fallbacks": False}
         }
 
+    def test_bulky_extra_body_sibling_does_not_collapse_the_provider_pin(self):
+        # extra_body values are bounded individually, so a large sibling knob
+        # degrades to a size marker on its own without taking the small,
+        # load-bearing provider pin down with it under one shared cap.
+        params = cc._extract_request_params(
+            _mcd(
+                "r",
+                optional_params={
+                    "extra_body": {
+                        "provider": {"order": ["Alibaba"]},
+                        "junk": "z" * 600,
+                    }
+                },
+            )
+        )
+        assert params["extra_body"]["provider"] == {"order": ["Alibaba"]}
+        assert "chars omitted" in params["extra_body"]["junk"]
+
     def test_top_level_wins_over_extra_body_duplicate(self):
         params = cc._extract_request_params(
             _mcd("r", optional_params={"top_k": 10, "extra_body": {"top_k": 40}})
@@ -444,6 +462,17 @@ class TestBoundedParam:
         # A pydantic/enum-ish value must not take the log line down with it.
         value = {"effort": types.SimpleNamespace(name="high")}
         assert json.dumps(cc._bounded_param(value))
+
+    def test_non_finite_floats_become_markers(self):
+        # json.dumps emits the non-standard NaN/Infinity tokens for these,
+        # which a downstream `jq 'fromjson?'` silently drops — taking the cost
+        # data with it. Map them to a marker so the line stays valid JSON.
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            bounded = cc._bounded_param(bad)
+            assert isinstance(bounded, str)
+            assert "non-finite" in bounded
+        # A whole line carrying such a param survives round-trip as strict JSON.
+        assert json.loads(json.dumps({"temperature": cc._bounded_param(float("nan"))}))
 
 
 class TestRequestParamsInPayload:
