@@ -26,6 +26,7 @@ COPY patch_litellm_cache.py /egg/patch_litellm_cache.py
 # file means it stays lintable and testable in the egg repo rather than living
 # as a string literal.
 COPY openrouter_capabilities.py /egg/openrouter_capabilities.py
+COPY drop_params_visibility.py /egg/drop_params_visibility.py
 RUN python3 /egg/patch_litellm_cache.py
 
 # Custom cost/cache logger, registered as `cost_callback.cost_logger` under

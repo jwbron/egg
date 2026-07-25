@@ -212,3 +212,43 @@ def test_patch7_gate_is_additive_not_substitutive(tmp_path):
     assert "return" not in replacement, "patch 7 must not short-circuit the stock model-map branch"
     # Failures in the lookup must never propagate into a request.
     assert "except Exception:" in replacement
+
+
+def test_patch8_needle_disambiguates_the_two_drop_sites(tmp_path):
+    """litellm 1.86.2 has TWO ``drop_params`` branches in utils.py.
+
+    They share the identical ``if litellm.drop_params is True or (...)``
+    condition; only what follows differs (a bare ``pass`` in the embeddings
+    path, the pop loop in ``get_optional_params``). Matching on the shared
+    condition would patch whichever came first — the same needle-uniqueness
+    trap as Patch 4. A fixture carrying the sibling ``pass`` form first must be
+    left untouched."""
+    patch8 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 8/"))
+
+    sibling = (
+        "SENTINEL_PASS_SITE_BEGIN\n"
+        "            if litellm.drop_params is True or (\n"
+        "                drop_params is not None and drop_params is True\n"
+        "            ):\n"
+        "                pass\n"
+        "SENTINEL_PASS_SITE_END\n"
+    )
+    fixture = sibling + "\n" + patch8["needle"]
+
+    target = tmp_path / patch8["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(fixture)
+
+    plc._apply(
+        str(target),
+        present=patch8["present"],
+        needle=patch8["needle"],
+        replacement=patch8["replacement"],
+        label=patch8["label"],
+    )
+    result = target.read_text()
+
+    assert result.count(patch8["present"]) == 1
+    start = result.index("SENTINEL_PASS_SITE_BEGIN")
+    end = result.index("SENTINEL_PASS_SITE_END") + len("SENTINEL_PASS_SITE_END\n")
+    assert result[start:end] == sibling, "patch 8 rewrote the embeddings-path drop site"

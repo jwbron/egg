@@ -5,9 +5,10 @@ LiteLLM's stock Anthropic->OpenAI translation (the path Claude Code's
 ``/v1/messages`` requests take when routed at a non-Claude OpenRouter
 backend) drops prompt-cache hits for Qwen/DeepSeek and mis-streams
 reasoning models, and its OpenRouter param gate reads a model-cost map
-that does not carry current OpenRouter slugs. Seven independent gaps
-cause it; this script closes all seven by editing the installed
-``litellm`` package in place (and installing one new module), then
+that does not carry current OpenRouter slugs, and it discards
+caller-specified params in total silence. Eight independent gaps cause
+it; this script closes all eight by editing the installed ``litellm``
+package in place (and installing two new modules), then
 ``config/litellm/Dockerfile`` bakes the result into the ``egg-litellm``
 image.
 
@@ -96,6 +97,21 @@ OpenRouter. The image pins that same version (see the Dockerfile
      a denial would drop a working param. Fails soft: any fetch error
      yields no opinion and the stock path runs unchanged. Mirrors
      jwbron/litellm#8 and jwbron/egg#3624.
+  8. ``get_optional_params`` drop site (utils.py) log what
+     ``drop_params`` discards. Stock 1.86.2 pops unsupported params in a
+     bare loop with no logging, so a param set in a proxy config that
+     never reaches the provider is a real behavioural difference with no
+     signal attached — the condition that made patch 7's bug take a full
+     investigation to find. Patch 7 removes the OpenRouter
+     false-negative; this covers the rest, including drops that are
+     CORRECT: laguna-s-2.1 genuinely does not accept ``reasoning_effort``,
+     so it is dropped on purpose and the operator otherwise has no way to
+     learn why their config line does nothing. Deduped per
+     (provider, model, param-set) and bounded. NOTE the needle: 1.86.2 has
+     two ``drop_params`` branches in utils.py and the shared condition
+     alone matches the wrong one, so the needle includes the pop loop.
+     Mirrors jwbron/litellm#7, merged into the fork the HOST proxy runs;
+     the cluster image pins stock 1.86.2, which predates it.
 
 Idempotent: each patch detects whether it is already applied. Fails
 loudly (non-zero exit) if a needle is missing, so a LiteLLM version bump
@@ -157,6 +173,7 @@ def _apply(path: str, present: str, needle: str, replacement: str, label: str) -
 F1 = "llms/openrouter/chat/transformation.py"
 F2 = "llms/anthropic/experimental_pass_through/adapters/transformation.py"
 F3 = "llms/anthropic/experimental_pass_through/adapters/streaming_iterator.py"
+F4 = "utils.py"
 
 # Every patch as a self-contained spec: (file, present marker, needle,
 # replacement, label). Module-level so tests can apply them to a checked-in
@@ -179,7 +196,7 @@ PATCHES: list[dict[str, str]] = [
             '    QWEN = "qwen"\n'
             '    DEEPSEEK = "deepseek"\n'
         ),
-        "label": "Patch 1/7 (CacheControlSupportedModels)",
+        "label": "Patch 1/8 (CacheControlSupportedModels)",
     },
     # Patch 2 — broaden ONLY the cache_control gate (not the shared
     # is_anthropic_claude_model predicate, which also gates thinking
@@ -209,7 +226,7 @@ PATCHES: list[dict[str, str]] = [
             "            )\n"
             "        ):\n"
         ),
-        "label": "Patch 2/7 (cache_control gate)",
+        "label": "Patch 2/8 (cache_control gate)",
     },
     # Patch 3 — drop x-anthropic-billing-header during Anthropic->OpenAI translation.
     {
@@ -243,7 +260,7 @@ PATCHES: list[dict[str, str]] = [
             '                        "text": text,\n'
             "                    }\n"
         ),
-        "label": "Patch 3/7 (x-anthropic-billing-header filter)",
+        "label": "Patch 3/8 (x-anthropic-billing-header filter)",
     },
     # Patch 4 — OpenRouter-style reasoning_content must open a thinking
     # content block, not fall through to a text block. The bare
@@ -281,7 +298,7 @@ PATCHES: list[dict[str, str]] = [
             '                choice.delta, "thinking_blocks"\n'
             "            ):\n"
         ),
-        "label": "Patch 4/7 (reasoning_content thinking block)",
+        "label": "Patch 4/8 (reasoning_content thinking block)",
     },
     # Patch 5a — sync __next__: don't drop the first delta on text or
     # thinking block transitions.
@@ -381,7 +398,7 @@ PATCHES: list[dict[str, str]] = [
             "                        ):\n"
             "                            self.chunk_queue.append(processed_chunk)\n"
         ),
-        "label": "Patch 5a/7 (sync first-delta requeue)",
+        "label": "Patch 5a/8 (sync first-delta requeue)",
     },
     # Patch 5b — async __anext__: same first-delta preservation.
     {
@@ -479,7 +496,7 @@ PATCHES: list[dict[str, str]] = [
             "                            ):\n"
             "                                self.chunk_queue.append(processed_chunk)\n"
         ),
-        "label": "Patch 5b/7 (async first-delta requeue)",
+        "label": "Patch 5b/8 (async first-delta requeue)",
     },
     # Patch 6 — streamed usage must report provider-automatic cache hits.
     # The needle spans the whole usage-merge region so both edit points
@@ -571,7 +588,7 @@ PATCHES: list[dict[str, str]] = [
             "                    elif cached_tokens > 0:\n"
             '                        usage_dict["cache_read_input_tokens"] = cached_tokens\n'
         ),
-        "label": "Patch 6/7 (streaming cache_read fallback)",
+        "label": "Patch 6/8 (streaming cache_read fallback)",
     },
     # Patch 7 — OpenrouterConfig.get_supported_openai_params: consult
     # OpenRouter's published capabilities instead of only the bundled
@@ -636,7 +653,56 @@ PATCHES: list[dict[str, str]] = [
             "            pass\n"
             "        try:\n"
         ),
-        "label": "Patch 7/7 (openrouter live capabilities)",
+        "label": "Patch 7/8 (openrouter live capabilities)",
+    },
+    # Patch 8 — get_optional_params: log what ``drop_params`` discards.
+    #
+    # Patch 7 removes the OpenRouter false-negative, but a drop can still be
+    # correct and still worth knowing about: laguna-s-2.1 genuinely does not
+    # accept ``reasoning_effort``, so the knob is dropped on purpose and the
+    # operator has no way to learn why their config line does nothing. Stock
+    # 1.86.2 pops unsupported params in a bare loop with no logging at all.
+    #
+    # NEEDLE DISAMBIGUATION: 1.86.2 has TWO ``if litellm.drop_params is True or
+    # (...)`` sites in utils.py. The other one (~line 3303, the embeddings
+    # path) is followed by a bare ``pass``; this one is followed by the pop
+    # loop. The needle therefore includes the loop line — the shared condition
+    # alone would match whichever comes first and patch the wrong function.
+    #
+    # Mirrors jwbron/litellm#7, merged into the fork the HOST proxy runs. The
+    # cluster image pins stock 1.86.2, which predates it.
+    {
+        "file": F4,
+        "present": "# egg drop_params visibility patch",
+        "needle": (
+            "            if litellm.drop_params is True or (\n"
+            "                drop_params is not None and drop_params is True\n"
+            "            ):\n"
+            "                for k in unsupported_params.keys():\n"
+            "                    non_default_params.pop(k, None)\n"
+        ),
+        "replacement": (
+            "            if litellm.drop_params is True or (\n"
+            "                drop_params is not None and drop_params is True\n"
+            "            ):\n"
+            "                # egg drop_params visibility patch. Dropping a param changes\n"
+            "                # generation behaviour; stock does it with no signal at all.\n"
+            "                try:\n"
+            "                    from litellm._egg_drop_params_visibility import (\n"
+            "                        warn_dropped_params as _egg_warn_dropped_params,\n"
+            "                    )\n"
+            "\n"
+            "                    _egg_warn_dropped_params(\n"
+            "                        unsupported_params=unsupported_params,\n"
+            "                        model=model,\n"
+            "                        custom_llm_provider=custom_llm_provider,\n"
+            "                    )\n"
+            "                except Exception:\n"
+            "                    pass\n"
+            "                for k in unsupported_params.keys():\n"
+            "                    non_default_params.pop(k, None)\n"
+        ),
+        "label": "Patch 8/8 (drop_params visibility)",
     },
 ]
 
@@ -648,7 +714,12 @@ NEW_MODULES: list[dict[str, str]] = [
     {
         "source": "openrouter_capabilities.py",
         "dest": "llms/openrouter/capabilities.py",
-        "label": "Module 1/1 (openrouter capabilities)",
+        "label": "Module 1/2 (openrouter capabilities)",
+    },
+    {
+        "source": "drop_params_visibility.py",
+        "dest": "_egg_drop_params_visibility.py",
+        "label": "Module 2/2 (drop_params visibility)",
     },
 ]
 
