@@ -20,16 +20,54 @@
         {
           "id": "opt-1",
           "label": "Yes \u2014 raise as HITL decision, require operator sign-off before implementing Change 1 without Change 2",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "No \u2014 document in proposal, let implementer handle",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-3",
           "label": "Defer to plan phase",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "cq-2",
+      "question": "Should the #2053 regression test (test_pipelines_api.py:1069, test_cancel_clears_runtime_state) be updated to reflect that cancel no longer clears runtime state (only delete and create do)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 update test to assert cancel does NOT clear, only delete+create do",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Keep test as-is, add new test for cancel-not-clearing",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer test changes to implement phase",
           "description": null
         },
         {
@@ -88,6 +126,49 @@
         "debounce_until": null
       },
       "reason": "Created HITL decision: Should the refiner raise a HITL decision on the cr...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T23:25:43.432358Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "Should the #2053 regression test (test_pipelines_api.py:1069, test_cancel_clears_runtime_state) be updated to reflect that cancel no longer clears runtime state (only delete and create do)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 update test to assert cancel does NOT clear, only delete+create do",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Keep test as-is, add new test for cancel-not-clearing",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer test changes to implement phase",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the #2053 regression test (test_pipelines_a...",
       "checkpoint_id": null
     }
   ],
