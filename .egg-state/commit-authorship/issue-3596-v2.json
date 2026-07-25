@@ -40,6 +40,14 @@
       "repo": null,
       "role": "architect"
     },
+    "5da24bbe053e175da3a9512bd7990290a4210401": {
+      "branch": "egg/issue-3596-v2/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3596-v2",
+      "registered_at": "2026-07-25T03:24:43.910234+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "6186cfa9202f2cfd47df71cddabada69c2c6608f": {
       "branch": "egg/issue-3596-v2/work",
       "patch_id": "77ad4fb560341e8316137673363accc5b9b485c7",
