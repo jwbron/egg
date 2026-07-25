@@ -349,6 +349,11 @@ _REQUEST_PARAM_KEYS = (
 # line for the rest of the session.
 _MAX_PARAM_JSON_CHARS = 512
 
+# Key-count cap for the extra_body remainder. Its values are bounded one by one
+# (so a bulky sibling can't collapse the small, load-bearing provider pin), which
+# leaves the number of keys as the remaining unbounded dimension.
+_MAX_EXTRA_BODY_KEYS = 32
+
 
 def _bounded_param(value):
     """Return ``value`` clamped to something safe to embed in the log line.
@@ -359,10 +364,13 @@ def _bounded_param(value):
     subtlest — ``json.dumps`` emits the non-standard ``NaN``/``Infinity`` tokens
     (invalid JSON), so a downstream ``jq 'fromjson?'`` silently drops the line,
     cost data and all; a misconfigured ``temperature``/``top_p`` is enough to
-    trigger it, so we map non-finite floats to a marker. Otherwise scalars pass
-    through; everything else is round-tripped through JSON — with ``default=str``
-    so an exotic value degrades to its repr instead of raising — and replaced by
-    a size marker when it exceeds the cap."""
+    trigger it, so we map a non-finite scalar to a marker. Nested ones are
+    caught too: the round-trip below passes ``allow_nan=False``, so a
+    ``logit_bias`` of ``{"5": -inf}`` (a real idiom for banning a token) raises
+    and degrades to a marker rather than emitting an invalid token. Otherwise
+    scalars pass through; everything else is round-tripped through JSON — with
+    ``default=str`` so an exotic value degrades to its repr instead of raising —
+    and replaced by a size marker when it exceeds the cap."""
     if isinstance(value, float) and not math.isfinite(value):
         return f"<non-finite: {value}>"
     if value is None or isinstance(value, (bool, int, float)):
@@ -370,7 +378,7 @@ def _bounded_param(value):
     if isinstance(value, str):
         return value if len(value) <= _MAX_PARAM_JSON_CHARS else f"<{len(value)} chars omitted>"
     try:
-        encoded = json.dumps(value, default=str)
+        encoded = json.dumps(value, default=str, allow_nan=False)
     except Exception:
         return "<unserializable>"
     if len(encoded) > _MAX_PARAM_JSON_CHARS:
@@ -445,7 +453,20 @@ def _extract_request_params(mcd):
                 # (it decides WHICH backend served the turn), so bulky sibling
                 # content in extra_body must not collapse the pin along with it
                 # under one shared size cap. Only the oversized value degrades.
-                out["extra_body"] = {k: _bounded_param(v) for k, v in leftover.items()}
+                #
+                # Per-value bounding alone would not be enough: extra_body is
+                # config-supplied and typically pinned in litellm_params, so an
+                # unbounded key COUNT (or a single unbounded key NAME — json.dumps'
+                # default= applies to values only, so a non-str key raises out in
+                # _emit and costs the whole line) would blow up every line for the
+                # life of the config. Bound the keys and cap how many we emit.
+                bounded = {}
+                for key, value in list(leftover.items())[:_MAX_EXTRA_BODY_KEYS]:
+                    bounded[_bounded_param(str(key))] = _bounded_param(value)
+                if len(leftover) > _MAX_EXTRA_BODY_KEYS:
+                    omitted = len(leftover) - _MAX_EXTRA_BODY_KEYS
+                    bounded["<truncated>"] = f"<{omitted} more keys omitted>"
+                out["extra_body"] = bounded
         return out
     except Exception:
         return None

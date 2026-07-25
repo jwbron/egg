@@ -418,6 +418,40 @@ class TestExtractRequestParams:
         assert params["extra_body"]["provider"] == {"order": ["Alibaba"]}
         assert "chars omitted" in params["extra_body"]["junk"]
 
+    def test_extra_body_stays_bounded_in_aggregate(self):
+        # Per-value bounding leaves the key COUNT and the key NAMES unbounded.
+        # extra_body is config-supplied and usually pinned in litellm_params, so
+        # an unbounded remainder is not one bad line — it is every line for the
+        # life of the config.
+        params = cc._extract_request_params(
+            _mcd(
+                "r",
+                optional_params={
+                    "extra_body": {
+                        "provider": {"order": ["Alibaba"]},
+                        **{f"knob{i}": "v" * 400 for i in range(200)},
+                        "k" * 100000: 1,
+                    }
+                },
+            )
+        )
+        emitted = params["extra_body"]
+        assert len(emitted) == cc._MAX_EXTRA_BODY_KEYS + 1  # + the truncation marker
+        assert "more keys omitted" in emitted["<truncated>"]
+        # The pin is first in insertion order, so the high-value part survives.
+        assert emitted["provider"] == {"order": ["Alibaba"]}
+        assert all(len(k) <= cc._MAX_PARAM_JSON_CHARS for k in emitted)
+        assert len(json.dumps(emitted)) < 32 * (cc._MAX_PARAM_JSON_CHARS * 2 + 32)
+
+    def test_non_str_extra_body_key_degrades_instead_of_costing_the_line(self):
+        # json.dumps' default= hook applies to values only, so an unserializable
+        # KEY raises out in _emit — where the failure is swallowed and the entire
+        # line, cost data included, is dropped. Stringify before emitting.
+        params = cc._extract_request_params(
+            _mcd("r", optional_params={"extra_body": {("a", "b"): 1}})
+        )
+        assert json.dumps(params)
+
     def test_top_level_wins_over_extra_body_duplicate(self):
         params = cc._extract_request_params(
             _mcd("r", optional_params={"top_k": 10, "extra_body": {"top_k": 40}})
@@ -471,8 +505,19 @@ class TestBoundedParam:
             bounded = cc._bounded_param(bad)
             assert isinstance(bounded, str)
             assert "non-finite" in bounded
-        # A whole line carrying such a param survives round-trip as strict JSON.
-        assert json.loads(json.dumps({"temperature": cc._bounded_param(float("nan"))}))
+        # A whole line carrying such a param survives as STRICT JSON. allow_nan
+        # is what makes this assertion mean anything: json.dumps/json.loads both
+        # accept the non-standard NaN token by default, so without it the check
+        # passes identically with the guard reverted.
+        assert json.dumps({"temperature": cc._bounded_param(float("nan"))}, allow_nan=False)
+
+    def test_nested_non_finite_floats_degrade_rather_than_emit_invalid_json(self):
+        # The top-level guard doesn't see these: a -inf logit bias (a real idiom
+        # for banning a token) or a NaN inside `stop` reaches the JSON round-trip,
+        # which without allow_nan=False would happily emit `-Infinity`/`NaN` and
+        # take the whole line out at the `jq 'fromjson?'` on the other end.
+        for bad in ({"5": float("-inf")}, [float("nan")], {"weird": {"x": float("inf")}}):
+            assert json.dumps(cc._bounded_param(bad), allow_nan=False)
 
 
 class TestRequestParamsInPayload:
