@@ -411,12 +411,11 @@ class TestConsistencyC_PromptDerivesFromSpec:
     (covered by Consistency-B above).
     """
 
-    # ``orchestrator/routes/pipelines`` was decomposed from a single
-    # ``pipelines.py`` module into a package (#3312). The prompt-builder
-    # code that once lived in that one file is now spread across the
-    # package's submodules (``_prompt_*.py``, ``_drafts.py``,
-    # ``_populate.py``, …), so the ratchet reads the concatenation of
-    # every ``.py`` file in the package rather than one file.
+    # ``pipelines.py`` was decomposed into the ``pipelines/`` package
+    # (the prompt-construction / ``resolve_artifact_path`` calls now live
+    # across ``_prompt_agent.py``, ``_populate.py``, ``_drafts.py``, …),
+    # so this invariant reads the concatenation of every module in the
+    # package rather than a single file.
     PIPELINES_PATH = Path(__file__).resolve().parents[3] / "orchestrator" / "routes" / "pipelines"
 
     # Ratchet against a regression: forbid raw
@@ -444,7 +443,7 @@ class TestConsistencyC_PromptDerivesFromSpec:
             f"missing: {self.PIPELINES_PATH} — has the package moved?"
         )
         assert any(self.PIPELINES_PATH.glob("*.py")), (
-            f"no Python sources under {self.PIPELINES_PATH} — has the package moved?"
+            f"no modules under {self.PIPELINES_PATH} — has the package moved?"
         )
 
     def test_no_raw_agent_output_literals_remain(self, pipelines_text: str) -> None:

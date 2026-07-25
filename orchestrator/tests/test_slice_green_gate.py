@@ -1418,6 +1418,143 @@ class TestGreenGateAutofixWiring:
         self._assert_blocks_without_autofix(_spawner(), log)
 
 
+def _infra_plus_fixable_verdict(*, final: dict[str, Any]) -> str:
+    """An infra-tagged red (#3417) co-occurring with a fixable red (#3409)."""
+    return _verdict_line(
+        [
+            {
+                "name": "test",
+                "ok": False,
+                "exit_code": 137,
+                "output_tail": "GATEWAY SIDECAR NOT AVAILABLE",
+                "infra": "GATEWAY SIDECAR NOT AVAILABLE",
+            },
+            {
+                "name": "lint",
+                "ok": False,
+                "exit_code": 1,
+                "output_tail": "would reformat a.py",
+                "infra": None,
+                "fix": _fixed(),
+            },
+        ],
+        final_verification=final,
+    )
+
+
+class TestInfraFailOpenAutofixComposition:
+    """#3417 infra fail-open composed with #3409 autofix.
+
+    The gate narrows ``failed`` to ``genuine_failed`` *before* the autofix
+    decision, so ``_autofix_ready`` and ``_commit_and_push_autofix`` both
+    see only the non-infra reds. Neither #3417 nor #3409 alone exercises
+    this: the infra tests build verdicts with no ``fix`` block and the
+    autofix tests build verdicts with no ``infra`` field.
+    """
+
+    def test_infra_red_alongside_fixable_red_pushes_only_the_genuine_fix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # The infra-tagged red is filtered out, the genuine red's fix went
+        # green, and the final full re-run — which covers *every* check,
+        # infra-tagged ones included — is green, so the tip is provably
+        # green and the autofix pushes.
+        log = _infra_plus_fixable_verdict(final=_final_verification())
+        spawner = _spawner()
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+            patch.object(sgg, "_commit_and_push_autofix", return_value=None) as autofix,
+        ):
+            assert _run_gate(spawner) is None
+        autofix.assert_called_once()
+        # Only the genuine red is reported as fixed — the infra red never
+        # reaches the commit path even though it was red at the tip.
+        assert [c["name"] for c in autofix.call_args.kwargs["fixed_checks"]] == ["lint"]
+
+    def test_infra_red_still_red_in_final_rerun_blocks_the_fixable_red(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # The infra red is filtered from the *presented* failures, but the
+        # final full re-run still covers it — so a persistent infra fault
+        # blocks the push rather than letting a tree only partly proven
+        # green reach the integration branch.
+        log = _infra_plus_fixable_verdict(final=_final_verification(all_ok=False, failed=["test"]))
+        spawner = _spawner()
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+            patch.object(sgg, "_commit_and_push_autofix") as autofix,
+        ):
+            failure = _run_gate(spawner)
+        autofix.assert_not_called()
+        assert failure is not None
+        # #3409: every red the operator is shown had a working fix, so the
+        # message must say why the gate refused to self-heal anyway —
+        # otherwise they re-run `make lint-fix`, watch it succeed, and see
+        # no reason for the block. The hidden check is named as the cause
+        # of the *autofix refusal*, not routed as a slice failure: its
+        # output tail stays out of the presented failure list (#3417).
+        assert "did not self-heal" in failure
+        assert "final full re-run of all checks was not green (red: test)" in failure
+        assert "GATEWAY SIDECAR NOT AVAILABLE" not in failure
+
+    def test_no_note_when_the_genuine_red_had_no_fix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # Contrast: the genuine red carries no fix at all, so the reds in
+        # the message are the operator's own to fix and the failure text
+        # is self-explanatory. No autofix explanation is appended.
+        log = _verdict_line(
+            [
+                {
+                    "name": "lint",
+                    "ok": False,
+                    "exit_code": 1,
+                    "output_tail": "infra",
+                    "infra": "ENOSPC",
+                },
+                {"name": "test", "ok": False, "exit_code": 2, "output_tail": "FAILED"},
+            ]
+        )
+        spawner = _spawner()
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+        ):
+            failure = _run_gate(spawner)
+        assert failure is not None
+        assert "did not self-heal" not in failure
+
+    def test_fail_open_switch_off_makes_the_infra_red_block_the_autofix(
+        self, enabled_gate: pytest.MonkeyPatch, configured_checks: None
+    ) -> None:
+        # With the #3417 switch off there is no narrowing, so the
+        # unfixable infra-tagged red stays in the set `_autofix_ready`
+        # judges and the verdict is only partially fixable — no push.
+        # This pins the narrowing itself as what enables the push above.
+        enabled_gate.setenv(sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, "off")
+        log = _infra_plus_fixable_verdict(final=_final_verification())
+        spawner = _spawner()
+        with (
+            patch.object(sgg, "_submit_runner_job"),
+            patch.object(sgg, "_wait_for_runner_pod", return_value=_terminal_pod()),
+            patch.object(sgg, "_read_runner_log", return_value=log),
+            patch.object(sgg, "_delete_runner_job"),
+            patch.object(sgg, "_commit_and_push_autofix") as autofix,
+        ):
+            failure = _run_gate(spawner)
+        autofix.assert_not_called()
+        assert failure is not None
+        assert "test" in failure
+
+
 class TestAutofixReady:
     """#3409 — ``_autofix_ready`` gating on the final full re-run."""
 

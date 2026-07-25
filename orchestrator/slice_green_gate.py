@@ -870,6 +870,21 @@ def _format_failed_checks(failed: list[dict[str, Any]]) -> str:
     return "\n\n".join(parts)
 
 
+def _all_failed_checks_fixed(failed: list[dict[str, Any]]) -> bool:
+    """True when every failed check carries a fix whose re-run went green (#3409).
+
+    This is the first gate inside :func:`_autofix_ready`, factored out so
+    the caller can distinguish "no fix was available" — where the reds in
+    the failure message are genuinely the operator's to fix and the
+    message is self-explanatory — from "every red *was* fixed and the
+    gate still refused", where the message needs to say why or it
+    contradicts what the operator sees when they re-run the fix.
+    """
+    return all(
+        isinstance(c.get("fix"), dict) and c["fix"].get("check_ok_after_fix") for c in failed
+    )
+
+
 def _autofix_ready(verdict: dict[str, Any], failed: list[dict[str, Any]]) -> tuple[bool, str]:
     """Decide whether the runner's fixed tree is safe to commit + push (#3409).
 
@@ -894,9 +909,7 @@ def _autofix_ready(verdict: dict[str, Any], failed: list[dict[str, Any]]) -> tup
       re-run never validated as committed. Unknown (``None``) counts —
       a best-effort git failure in the runner — are treated as unsafe.
     """
-    if not all(
-        isinstance(c.get("fix"), dict) and c["fix"].get("check_ok_after_fix") for c in failed
-    ):
+    if not _all_failed_checks_fixed(failed):
         return False, "a failed check has no fix or its re-run stayed red"
 
     final = verdict.get("final_verification")
@@ -1270,9 +1283,23 @@ def run_slice_green_gate(
         # execution, not a verdict on the slice. Fail open when every red
         # is infra-tagged; when genuine and infra reds mix, block on the
         # genuine reds only so the failure routed to the cascade doesn't
-        # send anyone chasing an infra ghost. This runs *before* the
-        # #3409 autofix decision so autofix is judged on the genuine
-        # reds: an infra red carries no fix that could clear it.
+        # send anyone chasing an infra ghost.
+        #
+        # This runs *before* the #3409 autofix decision, so autofix is
+        # judged on the genuine reds only. Note an infra-tagged red *can*
+        # carry a fix that cleared it: ``infra`` is tagged from the check's
+        # first run and never recomputed, while the runner applies a
+        # configured ``fix`` to any red, so a check that was SIGKILLed and
+        # then re-ran clean after its fix has both ``infra`` set and
+        # ``check_ok_after_fix: True``. Dropping it here deliberately
+        # discards that evidence: the fail-open path returns before any
+        # push, so the proven fix is thrown away with the worktree rather
+        # than committed on the strength of a run we already classified as
+        # untrustworthy. The narrowing is safe in the push direction —
+        # ``_autofix_ready`` gates on ``final_verification.all_ok``, which
+        # is computed over *every* configured check including infra-tagged
+        # ones, so removing reds from this list can only remove reasons to
+        # push, never add one.
         genuine_failed = failed
         if _infra_fail_open_enabled():
             infra_failed = [c for c in failed if c.get("infra")]
@@ -1349,6 +1376,18 @@ def run_slice_green_gate(
                 slice_id=slice_id,
                 gate_id=gate_id,
                 failed_checks=failed_names,
+            )
+        elif not autofix_ready and _all_failed_checks_fixed(genuine_failed):
+            # #3409: every listed red had a fix that worked, yet the gate
+            # still refuses to self-heal — the real blocker is something
+            # the failure message alone doesn't name (a fix that regressed
+            # a sibling check; an infra red filtered out above; a fix that
+            # emitted an untracked file). Without this line the operator
+            # re-runs the fix command, watches it succeed, and has no way
+            # to see why the gate said no.
+            autofix_note = (
+                f"\n\nThe configured fix commands cleared the checks above in "
+                f"the runner, but the gate did not self-heal: {autofix_block_reason}."
             )
         if mode == "log":
             return None
