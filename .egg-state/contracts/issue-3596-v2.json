@@ -234,7 +234,7 @@
         {
           "id": "task-1-11",
           "description": "Populate phase_state.expected_duration_s + raw.runtime in\nsnapshot_from_health_context. Populate phase_state.expected_duration_s\nfrom PipelineConfig phase budgets, and raw.runtime with:\nrun_pipeline_thread_alive (from driver_heartbeat),\nthread_last_tick_age_s (from driver_heartbeat),\nrestart_propagation (from event loop supervisor).",
-          "status": "pending",
+          "status": "complete",
           "commit": "840906f8f",
           "checkpoint_id": null,
           "notes": "",
@@ -1128,6 +1128,17 @@
       "old_value": null,
       "new_value": "840906f8f",
       "reason": "Linked commit 840906f to task-1-11",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T05:56:14.929683Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.10.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-11 as complete",
       "checkpoint_id": null
     }
   ],
