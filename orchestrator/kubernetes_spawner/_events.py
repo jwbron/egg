@@ -135,9 +135,15 @@ def _await_terminating_event_jobs(
 
     The wait runs on the event-loop poll thread, so it delays the roles
     handled later in the same ``poll_once`` pass by up to the budget. That
-    is the accepted tradeoff: the wait is bounded, only reachable right
-    after a restart (nothing else stamps a Job mid-poll), and the
-    alternative is the role vanishing outright.
+    is the accepted tradeoff: the wait is bounded, only reachable when a
+    matching Job is mid-deletion, and the alternative is the role
+    vanishing outright. Mid-deletion is usually a restart, but not only:
+    ``_job_is_terminating`` does not filter on status, so the TTL
+    controller reaping a finished prior Job with the same dedupe key
+    (one-shot Jobs carry ``ttl_seconds_after_finished``) also enters the
+    wait. That case is harmless and wanted — its pods are already gone so
+    the wait returns near-instantly, and the 409 protection still applies
+    to the recycled name.
     """
     terminating = [j for j in jobs if _job_is_terminating(j)]
     if not terminating:
