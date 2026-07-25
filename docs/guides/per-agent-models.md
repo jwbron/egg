@@ -631,6 +631,15 @@ data:
 >
 > Prompt-bearing fields (`messages`, `tools`, `tool_choice`) are excluded by
 > allowlist: the cost stream is not a transcript sink.
+>
+> - **A `<…>` value is a degradation marker, not a recorded value.** Every
+>   field is bounded so one pathological param cannot cost you the line —
+>   cost data included — when it fails to serialize. `<N chars omitted>` means
+>   the value (or `extra_body` key name) exceeded the size cap,
+>   `<non-finite: nan>` that something was set to `NaN`/`Inf`,
+>   `<unserializable>` that the value could not be encoded at all, and
+>   `<egg:truncated>` that `extra_body` carried more keys than the cap. The
+>   OpenRouter provider pin is ordered first, so it survives all of these.
 
 The `request_params` field on a stock (nothing pinned) OpenRouter route:
 

@@ -146,6 +146,26 @@ class TestExtractCost:
         usage = {"cost": 0, "cost_details": {"upstream_inference_cost": 0.05}}
         assert cc._extract_cost(usage) == 0.05
 
+    def test_non_finite_cost_reads_as_unknown_not_as_spend(self):
+        # `inf > 0` is True, so a bare positivity check would accept it — and
+        # then accumulate it into the session total, which stays Infinity for
+        # the pod's lifetime and emits a non-standard token that invalidates
+        # every subsequent line's JSON. (NaN is already excluded: nan > 0 is
+        # False.) Unknown, not spend.
+        assert cc._extract_cost({"cost": float("inf")}) is None
+        assert cc._extract_cost({"cost": float("nan")}) is None
+        assert (
+            cc._extract_cost({"cost": 0, "cost_details": {"upstream_inference_cost": float("inf")}})
+            is None
+        )
+        # The fallback still fires when only the top-level value is poisoned.
+        usage = {"cost": float("inf"), "cost_details": {"upstream_inference_cost": 0.05}}
+        assert cc._extract_cost(usage) == 0.05
+
+    def test_non_finite_estimated_cost_reads_as_unknown(self):
+        assert cc._extract_estimated_cost({"response_cost": float("inf")}) is None
+        assert cc._extract_estimated_cost({"response_cost": 0.004}) == 0.004
+
 
 class TestRecordCostReporting:
     def setup_method(self):
@@ -437,19 +457,99 @@ class TestExtractRequestParams:
         )
         emitted = params["extra_body"]
         assert len(emitted) == cc._MAX_EXTRA_BODY_KEYS + 1  # + the truncation marker
-        assert "more keys omitted" in emitted["<truncated>"]
-        # The pin is first in insertion order, so the high-value part survives.
+        assert "more keys omitted" in emitted[cc._EXTRA_BODY_TRUNCATED_KEY]
         assert emitted["provider"] == {"order": ["Alibaba"]}
-        assert all(len(k) <= cc._MAX_PARAM_JSON_CHARS for k in emitted)
-        assert len(json.dumps(emitted)) < 32 * (cc._MAX_PARAM_JSON_CHARS * 2 + 32)
+        assert all(len(k) <= cc._MAX_EXTRA_BODY_KEY_CHARS + 32 for k in emitted)
+        assert len(json.dumps(emitted)) < cc._MAX_EXTRA_BODY_KEYS * (
+            cc._MAX_PARAM_JSON_CHARS + cc._MAX_EXTRA_BODY_KEY_CHARS + 64
+        )
+
+    def test_oversized_extra_body_key_name_is_bounded(self):
+        # The key COUNT cap alone doesn't bound the key NAMES: a long key inside
+        # the count cap is emitted verbatim on every line for the life of the
+        # config. (The aggregate test above cannot catch this — its long key
+        # sits past index 32, so the count slice removes it before the name
+        # bound is ever reached.)
+        params = cc._extract_request_params(
+            _mcd("r", optional_params={"extra_body": {"K" * 600: 1}})
+        )
+        [key] = params["extra_body"]
+        assert len(key) <= cc._MAX_EXTRA_BODY_KEY_CHARS + 32
+        assert "600 chars omitted" in key
+        assert params["extra_body"][key] == 1
+
+    def test_two_oversized_keys_do_not_collapse_into_one_entry(self):
+        # A bare size marker would be IDENTICAL for both keys, so one value
+        # would silently overwrite the other — a size problem turned into a
+        # data-loss problem, and a lost knob reads as one that was never sent.
+        params = cc._extract_request_params(
+            _mcd("r", optional_params={"extra_body": {"A" * 600: 1, "B" * 600: 2}})
+        )
+        assert len(params["extra_body"]) == 2
+        assert sorted(params["extra_body"].values()) == [1, 2]
+
+    def test_colliding_normalized_keys_are_disambiguated(self):
+        # Distinct source keys can normalize to the same emitted name (here via
+        # str() on the int). Suffix rather than overwrite.
+        params = cc._extract_request_params(
+            _mcd("r", optional_params={"extra_body": {1: "int", "1": "str"}})
+        )
+        assert len(params["extra_body"]) == 2
+        assert sorted(params["extra_body"].values()) == ["int", "str"]
+
+    def test_truncation_marker_does_not_overwrite_a_real_key(self):
+        # An operator key literally named like the marker must not be clobbered
+        # by it, and must not consume the marker's slot either.
+        params = cc._extract_request_params(
+            _mcd(
+                "r",
+                optional_params={
+                    "extra_body": {
+                        "<truncated>": "real value",
+                        **{f"knob{i}": i for i in range(40)},
+                    }
+                },
+            )
+        )
+        emitted = params["extra_body"]
+        assert emitted["<truncated>"] == "real value"
+        assert "more keys omitted" in emitted[cc._EXTRA_BODY_TRUNCATED_KEY]
+        assert len(emitted) == cc._MAX_EXTRA_BODY_KEYS + 1
+
+    def test_provider_pin_survives_a_late_position_under_the_count_cap(self):
+        # The count cap is a slice, so without hoisting it is POSITIONAL: a
+        # config that happens to place the pin after 32 other knobs would lose
+        # exactly the entry that says which backend served the turn.
+        params = cc._extract_request_params(
+            _mcd(
+                "r",
+                optional_params={
+                    "extra_body": {
+                        **{f"pad{i}": i for i in range(40)},
+                        "provider": {"order": ["Alibaba"]},
+                    }
+                },
+            )
+        )
+        assert params["extra_body"]["provider"] == {"order": ["Alibaba"]}
 
     def test_non_str_extra_body_key_degrades_instead_of_costing_the_line(self):
         # json.dumps' default= hook applies to values only, so an unserializable
         # KEY raises out in _emit — where the failure is swallowed and the entire
         # line, cost data included, is dropped. Stringify before emitting.
+        #
+        # The equality is the load-bearing assertion: `json.dumps(params)` alone
+        # passes on `None` too (it returns the truthy string "null"), so it can't
+        # tell a graceful degrade from _extract_request_params' "we could not
+        # tell" sentinel — which would take temperature/top_p down with it.
         params = cc._extract_request_params(
-            _mcd("r", optional_params={"extra_body": {("a", "b"): 1}})
+            _mcd(
+                "r",
+                optional_params={"temperature": 0.3, "extra_body": {("a", "b"): 1}},
+            )
         )
+        assert params["temperature"] == 0.3
+        assert params["extra_body"] == {"('a', 'b')": 1}
         assert json.dumps(params)
 
     def test_top_level_wins_over_extra_body_duplicate(self):
@@ -518,6 +618,22 @@ class TestBoundedParam:
         # take the whole line out at the `jq 'fromjson?'` on the other end.
         for bad in ({"5": float("-inf")}, [float("nan")], {"weird": {"x": float("inf")}}):
             assert json.dumps(cc._bounded_param(bad), allow_nan=False)
+
+    def test_nested_non_finite_keeps_its_finite_siblings(self):
+        # Rejecting the whole value would throw away the other 99 entries of a
+        # logit_bias, and `<unserializable>` would conflate "an operator set an
+        # insane value" with "we couldn't encode this". Scrub in place instead:
+        # the marker keeps the diagnostic, the siblings keep the evidence.
+        bounded = cc._bounded_param({"5": float("-inf"), "6": 1.5, "7": -2})
+        assert bounded == {"5": "<non-finite: -inf>", "6": 1.5, "7": -2}
+        assert json.dumps(bounded, allow_nan=False)
+
+    def test_genuinely_unserializable_still_degrades_to_a_marker(self):
+        # The non-finite retry must not swallow the OTHER failure mode: a value
+        # that cannot be encoded at all (here a non-str dict key, which
+        # `default=` does not cover) still has to become a marker rather than
+        # raise out into _emit and cost the whole line.
+        assert cc._bounded_param({("a", "b"): float("nan")}) == "<unserializable>"
 
 
 class TestRequestParamsInPayload:
