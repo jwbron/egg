@@ -159,6 +159,14 @@
       "registered_at": "2026-07-25T00:47:29.866351+00:00",
       "repo": null,
       "role": "risk_analyst"
+    },
+    "f9401bcf7db7194ed4255076579c2cb4ba19d026": {
+      "branch": "egg/issue-3596-v2/slice-1",
+      "patch_id": "867eda6c9bfccff3e3d9ce8a8a5cf3772b740ed6",
+      "pipeline_id": "issue-3596-v2",
+      "registered_at": "2026-07-25T06:39:19.567559+00:00",
+      "repo": null,
+      "role": "tester"
     }
   },
   "version": 2
