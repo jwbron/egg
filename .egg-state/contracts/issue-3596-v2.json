@@ -108,7 +108,7 @@
         {
           "id": "task-1-5",
           "description": "Populate git_state in snapshot_from_health_context. Enrich to populate\ngit_state with: commit_count (git rev-list --count), last_commit_at\n(git log -1 --format=%aI), last_commit_sha, patch_id_matches, branch,\nis_ancestor_of_base, pr_head_sha, last_pushed_sha, pushed_age_s,\npr_externally_mutated, fsck_errors, index_lock_present, lock_age_s.\nBest-effort: git failures degrade to empty dict, never crash.",
-          "status": "pending",
+          "status": "complete",
           "commit": "840906f8f",
           "checkpoint_id": null,
           "notes": "",
@@ -996,6 +996,17 @@
       "old_value": null,
       "new_value": "840906f8f",
       "reason": "Linked commit 840906f to task-1-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T05:53:35.020842Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.4.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-5 as complete",
       "checkpoint_id": null
     }
   ],
