@@ -85,43 +85,57 @@ The plane is a registry + evaluator:
 
 ### Runtime wiring
 
-> **⚠️ Not yet wired into the runtime tick.** The detection plane machinery
-> exists — `HealthCheckRunner.run_detection_plane()` evaluates
-> `DetectionPlane.default()` over a snapshot, and
-> `routes/pipelines._overseer._run_overseer_detection_plane` provides the
-> escalation path (`_escalate_finding_to_adjudicator` spawns an on-demand
-> OVERSEER agent for `requires_adjudication` findings; `escalate_findings` is
-> the canonical gate; routine findings flow to `CorrectiveExecutor` — see
-> [overseer/README.md](../overseer/README.md)) — **but no call site invokes
-> `run_detection_plane()` from `_run_runtime_tick_checks` in
-> `kubernetes_monitor.py`.** All 27 registered detectors are therefore starved
-> in production: they only fire when driven directly by the calibration corpus
-> in tests. Task 1a of [#3596](https://github.com/jwbron/egg/issues/3596)
-> wires the plane into the runtime tick.
-
-The intended wiring path is:
+The detection plane **is wired into the runtime tick** as of task-1-1
+([#3596](https://github.com/jwbron/egg/issues/3596)). The wiring path is:
 
 1. `KubernetesMonitor._run_runtime_tick_checks` (called from both
    `_check_pod` on container transitions and `_reconciliation_sweep` on the
    periodic interval) builds a `PipelineHealthContext` and calls
    `HealthCheckRunner.run(ctx, HealthTrigger.RUNTIME_TICK)`.
-2. `HealthCheckRunner.run_detection_plane(snapshot, plane)` evaluates
-   `DetectionPlane.default()` over the snapshot and emits findings on the
-   EventBus as `DETECTION_FINDING` events.
-3. Findings with `requires_adjudication=True` are routed to
-   `_escalate_finding_to_adjudicator`; routine findings are executed by
-   `CorrectiveExecutor`.
+2. `KubernetesMonitor._run_detection_plane(ctx, pipeline, pid, runner)`
+   builds an `EventStreamSnapshot` via `snapshot_from_health_context(ctx)`,
+   evaluates `DetectionPlane.default()` through
+   `HealthCheckRunner.run_detection_plane(snapshot, plane)`, and emits each
+   finding as a `DETECTION_FINDING` event on the EventBus.
+3. Findings with `requires_adjudication=True` are escalated to the on-demand
+   OVERSEER adjudicator via `_escalate_finding_to_adjudicator` (in
+   `routes/pipelines/_overseer.py`); routine findings are handled by the
+   bounded corrective vocabulary via `CorrectiveExecutor` (see
+   [overseer/README.md](../overseer/README.md)). The
+   `routes/pipelines._overseer._run_overseer_detection_plane` function
+   provides the same escalation path for on-demand / calibration use.
+
+The wiring is **idempotent**: a single runtime tick evaluates the plane
+exactly once, regardless of which call site (`_check_pod` vs
+`_reconciliation_sweep`) triggered `_run_runtime_tick_checks`. Any failure
+in the detection plane degrades to a debug log — the plane must never crash
+the runtime tick loop.
 
 The snapshot is built by `snapshot_from_health_context(context)` in
-`detection_plane.py`. Currently this builder only populates `phase_state`
-and `running_agents` (with `role`, `state`, `lifecycle_owner`); the remaining
-fields (`container_transitions`, `git_state`, `decision_state`,
-`cost_counters`, `gateway_error_counters`, `midturn_messages`, `raw.*`,
-and the `RunningAgent` liveness fields `last_tool_call_age_s` /
-`last_heartbeat_age_s` / `exit_code` / `exit_reason`) are left at their
-empty defaults. This means most detectors cannot fire even after the plane
-is wired — they read fields that the snapshot builder does not yet populate.
-Task 1b-g of #3596 enriches the snapshot builder.
+`detection_plane.py`. The builder populates the following fields:
+
+- **`phase_state`** — status, lifecycle_owner, event_loop_owner,
+  started_age_s, awaiting_spawn, expected_duration_s
+- **`running_agents`** — each with `role` (mapped from container ID via the
+  pipeline's phase execution state, **not** the container UUID), `state`,
+  `lifecycle_owner`, `exit_code`, `exit_reason`, `last_tool_call_age_s`,
+  `last_heartbeat_age_s`
+- **`consensus`** — from `PeerConsensusTracker` (latest_proposal_age_s,
+  latest_progress_age_s, per-producer phase map)
+- **`decision_state`** — pending_hitl, open_decisions, approved_unapplied,
+  oldest_open_age_s, replay_pending, replay_count
+- **`container_transitions`** — currently empty (the kubernetes_monitor
+  tracks only current pod state, not a transition history)
+- **`git_state`** — commit count, diff stat, forward-progress tracking
+- **`midturn_messages`** — recent CONSENSUS_PROPOSE / CONSENSUS_CONFIRMED
+  messages for BRC-progress-absence detection
+- **`raw.runtime`** — driver-liveness signals
+
+The following fields remain at their empty defaults: **`cost_counters`**
+and **`gateway_error_counters`**. Detectors that read these fields
+(`cost_anomaly`, `gateway_error_spike`, `gateway_repeated_denial`,
+`gateway_token_expiry`) will not fire until the snapshot builder is
+enriched to populate them.
 
 ### Detector catalogue
 
@@ -142,6 +156,7 @@ Task 1b-g of #3596 enriches the snapshot builder.
 | decision queue | `approved_decision_orphaned` | — |
 | decision queue | `restarted_decision_replay` | — |
 | decision queue | `hitl_queue_backlog` | — |
+| forward progress | `forward_progress` | ✅ |
 | worktree / branch | `worktree_corruption` | — |
 | worktree / branch | `disk_inode_pressure` | — |
 | worktree / branch | `pr_external_mutation` | — |
@@ -159,11 +174,16 @@ Task 1b-g of #3596 enriches the snapshot builder.
 
 > **Two conditions must both hold for a detector to fire in a live run:**
 > (1) the detection plane must be invoked from the runtime tick (see
-> [Runtime wiring](#runtime-wiring) — not yet wired as of this writing), and
+> [Runtime wiring](#runtime-wiring) — now wired as of task-1-1), and
 > (2) `snapshot_from_health_context()` must populate the field the detector
 > reads. Until both are true, detectors stay silent in production. The
 > calibration corpus ([overseer-calibration-corpus.md](../../docs/architecture/overseer-calibration-corpus.md))
 > drives every detector with fully-populated fixtures regardless.
+>
+> The `forward_progress` detector (task-2-1) fires on all three of its
+> sub-conditions (reset, stall, no-commits-at-completion) and sets
+> `requires_adjudication=True` on every finding — "stuck vs. legitimately
+> slow is ambiguous" (contract task-2-1).
 
 ### Adding a new detector
 
@@ -398,6 +418,7 @@ Slice-8 (#2270 §5) adds the coverage-gap detector survey:
 | `container_k8s.py` | Container death, OOM eviction, restart loops, overseer self-injection |
 | `cost_budget.py` | LLM cost anomaly / hourly budget breach |
 | `decision_queue.py` | HITL queue backlog, auto-advance wedge, orphaned decisions, restarted-decision replay |
+| `forward_progress.py` | Agent forward-progress: commit-count reset, stall (livelocked / deadlocked / out-of-role), no-commits-at-completion |
 | `gateway_health.py` | Gateway error spike, repeated denial, token expiry |
 | `llm_substrate.py` | LiteLLM unreachable, effective model drift, sustained Anthropic 5xx |
 | `runtime_liveness.py` | Orchestrator thread liveness, duration drift, restart propagation |
