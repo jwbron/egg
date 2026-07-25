@@ -1,0 +1,75 @@
+# Slices for issue #3596 architect proposal
+# Tasks 1 and 4 are tightly coupled (snapshot enrichment feeds status enrichment).
+# Tasks 2, 3, and 5 are independent detectors that all depend on task 1's snapshot enrichment.
+# Task 6 is fully independent.
+
+slices:
+  - id: slice-1
+    task_ids: [task-1]
+    title: "Wire detection plane into runtime tick + enrich snapshot builder"
+    parallelizable: false
+    description: |
+      Call HealthCheckRunner.run_detection_plane() from kubernetes_monitor._run_runtime_tick_checks.
+      Enrich snapshot_from_health_context() to populate all fields the 25+ dormant detectors need:
+      container_transitions, git_state, decision_state, phase_state, and RunningAgent liveness fields.
+      Fix the role=str(cid) defect (container ID in role field).
+      This is the critical foundation — without it, no other detector can fire.
+
+  - id: slice-2
+    task_ids: [task-4]
+    title: "Enrich get_status with forward-progress signals and active alerts"
+    parallelizable: false
+    description: |
+      Add progress sub-object to concurrent.agents entries with commit_count,
+      last_commit_at, last_heartbeat_age_s, last_progress_age_s, progress_event_count.
+      Add alerts array to top-level status response.
+      Add phase timing fields.
+      Depends on task-1 for the data sources (HealthMonitor, ProgressStore, git).
+
+  - id: slice-3
+    task_ids: [task-2]
+    title: "Add forward-progress detector (commit count + worktree activity rate)"
+    parallelizable: false
+    description: |
+      New deterministic detector that fires when an agent has been running >N seconds
+      with zero new commits AND zero progress events AND zero file modifications.
+      Directly addresses the issue's key diagnostic: "a hand-rolled loop counting commits."
+      Depends on task-1 for snapshot enrichment (git_state.commit_count, progress_event_count).
+
+  - id: slice-4
+    task_ids: [task-3]
+    title: "Fix peer-progress gate to be dependency-aware"
+    parallelizable: false
+    description: |
+      Issue #3595 root cause 1: _has_recent_peer_progress defers on ANY peer's heartbeat,
+      including the overseer's own, suppressing alerts about the agent it watches.
+      Fix: scope to only defer on peers the agent actually depends on (from review_edges).
+      Depends on task-1 for snapshot enrichment (review_edges in consensus state).
+
+  - id: slice-5
+    task_ids: [task-5]
+    title: "Add consumption breaker (uncached tokens + call count)"
+    parallelizable: false
+    description: |
+      Issue #3595 root cause 4: no consumption breaker. 613 calls / 162M tokens with no
+      intervention. Add detector firing on call_count > threshold OR uncached_prompt_tokens > threshold.
+      Both metrics already in cost_callback logs.
+      Depends on task-1 for snapshot enrichment (cost_counters).
+
+  - id: slice-6
+    task_ids: [task-6]
+    title: "Record sampling params in cost_callback"
+    parallelizable: false
+    description: |
+      Issue #3595 root cause 5: sampling config is unset and unrecorded.
+      Extend cost_callback.py to log optional_params. Pin temperature/top_p per model.
+      Fully independent — can run in parallel with any slice.
+
+# Dependency graph:
+# slice-1 -> slice-2 (status enrichment needs snapshot data)
+# slice-1 -> slice-3 (forward-progress detector needs git_state/progress_event_count)
+# slice-1 -> slice-4 (peer-progress gate fix needs review_edges)
+# slice-1 -> slice-5 (consumption breaker needs cost_counters)
+# slice-6 is independent
+
+# Execution order: slice-1 first (foundation), then slices 2-5 in parallel, slice-6 anytime
