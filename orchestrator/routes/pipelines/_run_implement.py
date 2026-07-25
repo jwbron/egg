@@ -910,9 +910,9 @@ def _run_implement_phase_slices(
                 # #3398 — per-slice green gate: execute the repo's
                 # configured checks (repositories.yaml, via
                 # get_repo_checks) against the integration-branch tip
-                # in a sandboxed one-shot runner, and refuse to open
-                # the slice PR while any check is red. Closes the
-                # trust-vs-verify gap in the propose-time
+                # in a sandboxed one-shot runner and, in "on" mode,
+                # refuse to open the slice PR while any check is red.
+                # Closes the trust-vs-verify gap in the propose-time
                 # checks_passed self-report. Same posture as the
                 # evidence gate above: fail-open on infra errors,
                 # fail-closed only on a definitive red verdict;

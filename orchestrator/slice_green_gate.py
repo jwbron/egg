@@ -93,6 +93,20 @@ check suite: it is a runner pod that never schedules. ``_wait_for_runner_pod``
 waits ``timeout + _POD_SCHEDULING_GRACE_SECONDS`` (~32 min at the defaults)
 before failing open, so a capacity-starved cluster pays that in dead time on
 *every* slice close, in every deployment, from the moment this default lands.
+
+A *partially* delayed pod is the quieter half of the same problem, and on a
+busy cluster the more common one. The runner's deadline is the **Job's**
+``activeDeadlineSeconds``, counted from the Job's ``startTime`` — before any
+pod is bound — so time spent Pending or pulling comes out of the check budget
+rather than being added to it (``_POD_SCHEDULING_GRACE_SECONDS`` widens only
+the orchestrator's wait). A pod delayed N seconds gets N fewer seconds to run
+checks, and a deadline kill emits no verdict line, so the gate logs "no
+parseable verdict" and fails open. Capacity starvation therefore raises the
+rate of *spurious no-verdict fail-opens* as well as dead time — degrading the
+soak signal this default exists to collect, and indistinguishable in the logs
+from a runner-harness crash. Tracked in #3622; it should land before ``on``,
+where a missing verdict is a gate that silently does not gate.
+
 Someone should watch the first wave directly rather than discovering the cost
 from a slice-throughput drop later; ``off`` is the escape hatch.
 
@@ -162,6 +176,11 @@ _DEFAULT_SKIP_CHECKS = "security"
 # posture on both the resolution and the signal: the typo direction
 # here is strict -> lenient, so it must not be silent.
 GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR = "EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN"
+# Deliberately separate from _ENABLED_VALUES / _DISABLED_VALUES above,
+# not a missed dedup: this is an independent operator switch, and the
+# two are free to diverge (e.g. if the mode switch grows a fourth state).
+# The alias sets happening to be equal today is a coincidence to
+# preserve, not a duplication to collapse.
 _INFRA_FAIL_OPEN_ENABLED_VALUES = frozenset({"on", "1", "true", "yes"})
 _INFRA_FAIL_OPEN_DISABLED_VALUES = frozenset({"off", "0", "false", "no"})
 
@@ -220,13 +239,24 @@ _DEFAULT_TIMEOUT_SECONDS = 1800
 
 # Extra wall-clock the orchestrator's wait loop allows on top of the
 # in-pod check budget, to absorb pod scheduling + image-pull latency.
-# The wait clock starts at Job submit, before the pod is scheduled/pulled
-# — so on a cold node a long image pull would otherwise eat into the
-# check budget and trip a spurious fail-open timeout even when the checks
-# would have passed. The pod's own ``activeDeadlineSeconds`` (which the
-# kubelet counts from pod *start*, i.e. after scheduling) still caps the
-# actual check duration, so a genuinely hung check is killed by the pod
-# deadline rather than lingering for the full grace-padded wait.
+# The wait clock starts at Job submit, before the pod is scheduled or
+# pulled — so on a cold node that latency would otherwise be charged to
+# the orchestrator's own timeout and trip a spurious fail-open even when
+# the checks would have passed.
+#
+# The grace widens the *orchestrator's* wait only; it does not protect
+# the check budget. The deadline this module sets is the **Job's**
+# ``activeDeadlineSeconds`` (``spec.activeDeadlineSeconds``, see
+# ``_build_runner_job_manifest`` / ``_submit_runner_job``), which Kubernetes
+# counts from the Job's ``status.startTime`` — set by the controller
+# *before* any pod is bound. ``PodSpec.activeDeadlineSeconds``, the field
+# the kubelet would count from pod start on the node, is never set. So
+# scheduling and image-pull time count against the deadline: a pod that
+# waits N seconds for capacity gets N fewer seconds to run checks, and
+# with ``backoffLimit: 0`` / ``restartPolicy: Never`` a ``DeadlineExceeded``
+# kill prints no verdict line at all, which the gate reads as "no
+# parseable verdict" and fails open. Tracked in #3622; text here
+# describes what the code does today, not what it should do.
 _POD_SCHEDULING_GRACE_SECONDS = 120
 
 # Per-check output tail retained in the verdict (runner side) and the
@@ -431,6 +461,10 @@ def _infra_fail_open_enabled() -> bool:
         "falling back to the default (fail open on all-infra reds)",
         env_var=GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR,
         value=raw,
+        # Structured resolved value, mirroring green_gate_mode's
+        # ``mode=`` kwarg, so both typo warnings are greppable the
+        # same way rather than carrying the resolution in prose only.
+        fail_open=True,
     )
     return True
 
@@ -568,9 +602,12 @@ def _build_runner_job_manifest(
             # only extends lifetime when the orchestrator crashed before
             # reaching it (probe precedent).
             "ttlSecondsAfterFinished": 300,
-            # Give the in-pod checks the full budget; the orchestrator's
-            # wait loop enforces the same ceiling, and the deadline
-            # guarantees a hung check terminates rather than lingering.
+            # Job-level deadline: counted from the Job's ``startTime``,
+            # i.e. from before the pod is bound, so scheduling and pull
+            # latency come out of the check budget (#3622 — see
+            # ``_POD_SCHEDULING_GRACE_SECONDS``). It bounds a hung check
+            # rather than sizing it; the orchestrator's wait loop is the
+            # outer ceiling.
             "activeDeadlineSeconds": timeout_seconds + 60,
             "backoffLimit": 0,
             "template": {

@@ -67,10 +67,9 @@ EVIDENCE_PACK_SCHEMA_VERSION = 1
 # ``log`` and degrades unknown to ``log`` — this resolver deliberately does
 # not): an operator typo must degrade to "reviewer prompts unchanged", never
 # to "one gatherer silently anchors every lens". The resolver lives HERE, with
-# the feature's core, and is imported by
-# the S7 wiring (``_criteria.py`` assembly seam, ``consensus_wrapper.py`` log
-# recording) — mirroring how ``risk_router`` owns ``ReviewStance`` for the S6
-# wiring to consume.
+# the feature's core, and is imported by the S7 wiring (``_criteria.py``
+# assembly seam, ``consensus_wrapper.py`` log recording) — mirroring how
+# ``risk_router`` owns ``ReviewStance`` for the S6 wiring to consume.
 
 EVIDENCE_PREFIX_ENV_VAR = "EGG_REVIEW_EVIDENCE_PREFIX"
 _ENABLED_VALUES = frozenset({"on", "1", "true", "yes"})

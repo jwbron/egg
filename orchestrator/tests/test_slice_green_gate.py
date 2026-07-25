@@ -189,9 +189,23 @@ class TestInfraFailOpenEnabled:
         gate_env.setenv(sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR, value)
         assert sgg._infra_fail_open_enabled() is True
 
-    @pytest.mark.parametrize("value", ["banana", "offf", "disabled", "fals"])
+    @pytest.mark.parametrize(
+        ("value", "logged"),
+        [
+            ("banana", "banana"),
+            ("offf", "offf"),
+            ("disabled", "disabled"),
+            ("fals", "fals"),
+            # Padded/uppercase inputs pin what the resolver actually
+            # logs — it warns with the post-strip/lower value, not the
+            # raw env string. Without these the assertion below passes
+            # for either choice.
+            (" Offf ", "offf"),
+            ("BANANA", "banana"),
+        ],
+    )
     def test_unrecognised_values_degrade_to_default_with_a_warning(
-        self, gate_env: pytest.MonkeyPatch, value: str
+        self, gate_env: pytest.MonkeyPatch, value: str, logged: str
     ) -> None:
         """A typo resolves to the lenient default, but never silently.
 
@@ -204,8 +218,11 @@ class TestInfraFailOpenEnabled:
         with patch.object(sgg.logger, "warning") as warn:
             assert sgg._infra_fail_open_enabled() is True
         assert warn.call_count == 1
-        assert warn.call_args.kwargs["value"] == value
+        assert warn.call_args.kwargs["value"] == logged
         assert warn.call_args.kwargs["env_var"] == sgg.GREEN_GATE_INFRA_FAIL_OPEN_ENV_VAR
+        # Resolved value carried as a structured field, mirroring
+        # ``green_gate_mode``'s ``mode=`` kwarg.
+        assert warn.call_args.kwargs["fail_open"] is True
 
     @pytest.mark.parametrize("value", ["on", "off", ""])
     def test_recognised_values_do_not_warn(self, gate_env: pytest.MonkeyPatch, value: str) -> None:
