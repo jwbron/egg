@@ -24,7 +24,7 @@
           "id": "task-1-1",
           "description": "Wire the detection plane into the runtime tick. Call\nHealthCheckRunner.run_detection_plane() from\n_run_runtime_tick_checks in kubernetes_monitor.py. The detection plane\n(DetectionPlane.default()) has 27 registered detectors but is never\ninvoked in production. Guard against double-evaluation since\n_run_runtime_tick_checks fires from two call sites (_check_pod on\ncontainer transitions + _reconciliation_sweep on periodic interval).\nMake evaluation idempotent per tick.",
           "status": "pending",
-          "commit": null,
+          "commit": "840906f8f",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- run_detection_plane() is called from _run_runtime_tick_checks for running pipelines\n- Evaluation is idempotent per tick (no double-evaluation from two call sites)\n- Findings are emitted on the EventBus as DETECTION_FINDING events\n- Findings with requires_adjudication=True are routed to _escalate_finding_to_adjudicator\n- Routine findings (requires_adjudication=False) are executed by CorrectiveExecutor\n- Test: detection plane runs on RUNTIME_TICK and emits findings",
@@ -1073,6 +1073,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T05:54:06.601467Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "840906f8f",
+      "reason": "Linked commit 840906f to task-1-1",
       "checkpoint_id": null
     }
   ],
