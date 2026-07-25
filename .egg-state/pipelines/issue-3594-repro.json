@@ -176,10 +176,28 @@
       "resolution": "{\"action\": \"request_changes\", \"feedback\": \"REJECTED: the analysis targets work that has already shipped. It re-plans issue #3364's original four-PR programme (PRs B/C/D). Every one of those landed in PR #3524, merged 2026-07-10, which is an ancestor of current HEAD. Verify each of these against the tree before re-analysing:\\n\\n1. PR B, wait-status flags: `--exclude-types` and `--quiet` ALREADY EXIST at skills/sdlc/bin/wait-status:390-402, with helpers `_parse_exclude_types`, `_line_is_essential`, `_should_emit_line`, covered by orchestrator/tests/test_wait_status_flags.py.\\n2. PR B, slice-closed event: `EventType.SLICE_CLOSED = \\\"slice.closed\\\"` ALREADY EXISTS at orchestrator/events.py:56, emitted outside the scheduler lock from record_complete/record_failure via an injected slice_closed_emitter (orchestrator/slice_scheduler.py:378-428), wired at orchestrator/routes/pipelines/_run_implement.py:86, and present in _STATUS_WAIT_EVENT_TYPES.\\n3. PR C, rate-limit classification: ALREADY DONE, and done deliberately differently from what the analysis proposes. `EX_RATE_LIMITED = 69` at shared/egg_agent/auth_errors.py:53, returned by the CLI at shared/egg_agent/__main__.py:162, mapped to JOB_OUTCOME_RATE_LIMITED, consumed by JobSupervisor.record_rate_limited at orchestrator/event_loop/_supervisor.py:293 with windowed paced retry and a deterministic-loop guard. NOTE: 429 / rate limit / overloaded are EXCLUDED from EX_AUTH_FATAL on purpose. Do not 'fix' that; folding a self-healing throttle into the credential-fatal path is a regression.\\n4. PR D, skill slimming: ALREADY DONE. #3524 cut skills/sdlc/SKILL.md 1600 -> 1486 lines. `overseer_owns_host_detection` is grep-clean from source; the only remaining hits are regression tests ASSERTING its removal (orchestrator/tests/test_config_overseer_flag_removed.py, orchestrator/tests/test_routes_status.py). Two blocks remain by design: Long-Running Phase Detection (retained by an explicit operator decision, cq-4, documented inline at skills/sdlc/SKILL.md:621) and the user-initiated Stuck Pipeline Rescue workflow (PR D removed only its automatic trigger).\\n\\nTHE ACTUAL TASK is the CURRENT body of issue #3594, not #3364's original plan. The `[issue-3364]` title prefix denotes lineage, not scope. Fetch the live body with `gh issue view 3594` and analyse THAT. It tracks the operator-visibility backlog from #3364's two comments, organised as four groups:\\n\\n- Group 1 forward-progress surface: per-role {commits_ahead_of_base, last_commit_ts, last_commit_subject} in get_status; overseer progress-regression detection; NACKed-but-not-re-proposing watchdog.\\n- Group 2 event/alert feed: recent_events list in the status payload; OVERSEER_ALERT as a feed with severity and dedup keys rather than a counter; surface the stored pipeline.error string; agent-side worktree health.\\n- Group 3 clocks and accounting: consensus-window countdown {consensus_window_started_at, timeout_minutes, expires_at} per active slice; per-invocation outcome summaries.\\n- Group 4 post-mortem durability: per-arm termination causes queryable at any time; session-state TTL expiry as an event; invocation log/transcript retention past pod exit.\\n\\nOPERATOR DECISION, already made, treat as settled: implement ALL FOUR GROUPS (this answers cq-1).\\n\\nPROCESS REQUIREMENT for the re-analysis. The failure here was not reasoning, it was not verifying. Issue text can be stale; the tree is ground truth. For every gap you claim, cite the specific file and symbol you checked and state whether it is present or absent. If a claimed gap already exists in the tree, say so and drop it from scope rather than planning to build it again. This applies to #3595's proposed work items too, which the issue body was revised for today.\\n\\nAlso note #3595 was substantially rewritten after this pipeline started: its former root cause 1 (context-length 'fidelity knee') was FALSIFIED by direct experiment and demoted to an open question, and the 'expressible compaction threshold' work item was REMOVED. Any cq referencing that item is stale. Re-read #3595 live before proposing remediation ordering.\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Consensus timed out; consensus incomplete; agents never confirmed: unknown. 'Retry phase' re-runs the phase from the shared work branch tip (work pushed to the shared branch is preserved; unpushed per-role commits are salvaged best-effort to egg/recovered/*). How to proceed?",
+      "context": "consensus_timeout_incomplete",
+      "options": [
+        "Retry phase",
+        "Accept current state",
+        "Abort phase"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-07-25T00:42:57.706609Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-07-24T22:46:47.680321Z",
-  "updated_at": "2026-07-24T23:21:04.805259Z",
+  "updated_at": "2026-07-25T00:42:57.706960Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -192,7 +210,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 17,
+  "version": 18,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
