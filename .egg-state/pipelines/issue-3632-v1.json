@@ -145,9 +145,27 @@
       }
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.\n\nDecision ledger: 3 decision(s) registered this phase (cq-1, cq-2, cq-3), 0 resolved.",
+      "context": "# In plain terms — issue #3632\n\n**Pausing a pipeline should not destroy its brain.**\n\n## Background: how pipeline pause/resume works today\n\nWhen you call `cancel_task(cleanup=false)`, you're supposed to pause a pipeline so it can be\nresumed later via `restart_phase` or `restart_agent`. The `cleanup=false` flag is meant to\npreserve pipeline state.\n\nBut it doesn't work. The cancel call sets the pipeline status to `CANCELLED`, and the PATCH\nhandler in `_routes_crud.py` has a catch-all that runs `_clear_pipeline_runtime_state` for ANY\nterminal transition — including `CANCELLED`. That helper does two things:\n\n1. **Deletes the consensus tracker** — the in-memory record of which agents have reviewed and\n   approved which proposals.\n2. **Clears the Redis message stream** — the full history of all BRC messages (proposals, ACKs,\n   NACKs, CONFIRMED signals) exchanged between agents.\n\nBoth of these are exactly what a resume would need to pick up where it left off. The message-store\nclear is even explicitly there to prevent `reconstruct_tracker_from_messages` from rebuilding the\nold tracker — i.e., the system deliberately closes the one recovery path that could have made\nresume lossless.\n\n## The four candidate fixes\n\nThe issue proposes four changes. Here's what each one does in plain terms:\n\n### Change 1: Stop clearing runtime state on CANCELLED\n\nOnly clear on DELETE and on CREATE (fresh pipeline), not on CANCELLED. This is the minimal fix —\nit makes `cancel_task(cleanup=false)` actually preserve state.\n\n**Why it's not safe alone:** The clear exists to defend against #2053 — a fresh pipeline reusing\nan id from a prior terminal run inheriting the old CONFIRMED consensus. If we stop clearing on\nCANCELLED, we need another way to prevent that leak.\n\n### Change 2: Namespace the tracker and message stream by `run_epoch`\n\n`run_epoch` is a timestamp that gets bumped every time a pipeline is restarted (via\n`restart_agent`, `restart_phase`, or `advance_phase`). Right now it's only used for thread\nliveness detection — not for isolating state. This change would make the tracker key and message\nstream key include the `run_epoch`, so each run gets its own isolated namespace.\n\n**Why it's the correct fix:** With `run_epoch` namespacing, a fresh pipeline reusing an old id\ngets a new `run_epoch` and therefore a fresh tracker and message stream. #2053 is closed by\nconstruction.\n\n**Why it's large:** Every caller of `get_peer_consensus_tracker`, `remove_peer_consensus_tracker`,\n`reconstruct_tracker_from_messages`, and the message store functions (`store`, `get_messages`,\n`clear`) needs to pass `run_epoch` through.\n\n### Change 3: Persist BRC history to disk on cancel\n\nEven with namespacing, persisting the in-flight BRC transcript to the branch before clearing\nprovides a forensic record that survives Redis loss. This is belt-and-suspenders.\n\n### Change 4: Reconstruct per-slice trackers on resume\n\nCurrently, only pipeline-level trackers are reconstructed from messages (per-slice trackers are\nrecreated fresh each iteration, per #2535). This change would allow per-slice tracker\nreconstruction for resumed slices. Highest complexity, lowest urgency.\n\n## The critical safety finding\n\nThe only recovery paths for a CANCELLED pipeline are `restart_agent` and `restart_phase` —\n`start_pipeline` returns 409 for CANCELLED pipelines. Both `restart_agent` and `restart_phase`\nalready bump `run_epoch`. This means:\n\n- **Change 1 + Change 2 together are safe:** Stop clearing on CANCELLED, and namespace by\n  `run_epoch`. The old tracker/message stream is orphaned (isolated by the old epoch), and the\n  new `run_epoch` gets fresh state. #2053 is preserved.\n- **Change 1 alone is NOT safe:** Without namespacing, the old CONFIRMED tracker and old messages\n  would be reused by the restarted pipeline, reintroducing #2053.\n\n## Recommended scope\n\n- **Adopt Changes 1 + 2 together** — they're interdependent for safety.\n- **Adopt Change 3** — cheap insurance, best-effort.\n- **Defer Change 4** — not required for the core fix; per-slice tracker reconstruction is a\n  nice-to-have for full Redis-loss recovery.\n\n## Test impact\n\nThe #2053 regression test (`test_cancel_clears_runtime_state` in `test_pipelines_api.py`) currently\nasserts that `_clear_pipeline_runtime_state` IS called on cancel. This test must be updated to\nassert that cancel does NOT clear — only delete and create do.\n\n\n[View the full detailed analysis draft](https://github.com/jwbron/egg/blob/egg/issue-3632-v1/work/.egg-state/drafts/issue-3632-v1-analysis.md)",
+      "options": [
+        "approve",
+        "request changes"
+      ],
+      "decision_type": "phase_gate",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-07-25T23:31:36.218699Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
+    }
+  ],
   "created_at": "2026-07-25T22:57:36.434898Z",
-  "updated_at": "2026-07-25T23:31:36.164320Z",
+  "updated_at": "2026-07-25T23:31:36.238655Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -160,7 +178,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
