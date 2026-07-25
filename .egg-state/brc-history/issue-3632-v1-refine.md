@@ -1,413 +1,62 @@
 # BRC Consensus History — refine phase
 
-Generated: 2026-07-25T23:31:32Z
+Generated: 2026-07-25T23:40:24Z
 Pipeline: issue-3632-v1
 
-### [2026-07-25T22:57:50Z] overseer (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:35:30Z] overseer (HEARTBEAT): heartbeat: WORKING
 
 in-tool-loop liveness (slice=none)
 
 ````yaml
-id: bf52d1ca-5ced-42
+id: 7913f3e8-b8f8-4e
 phase: refine
 metadata:
   state: WORKING
 ````
 
-### [2026-07-25T22:57:51Z] refiner (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:35:32Z] refiner (HEARTBEAT): heartbeat: WORKING
 
 one-shot event handler action=propose (slice=none)
 
 ````yaml
-id: a933764a-3d83-4a
+id: b9a6b88a-e8b6-40
 phase: refine
 metadata:
   state: WORKING
 ````
 
-### [2026-07-25T22:58:10Z] refiner (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:35:43Z] refiner (HEARTBEAT): heartbeat: WORKING
 
 in-tool-loop liveness (slice=none)
 
 ````yaml
-id: 109949f3-c9fa-43
+id: b3014b3c-8e84-4d
 phase: refine
 metadata:
   state: WORKING
 ````
 
-### [2026-07-25T23:00:11Z] overseer (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:37:20Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
 
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: dfd9e877-b25f-4b
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:00:11Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
+Refiner analysis CORRECTED per operator feedback (iteration 0, approved). Fact 3 struck: start_pipeline returns 409 for CANCELLED before the lock block (L753-757), so the L801 assignment is unreachable. The correct safety argument (from first_principles_reviewer): with Change 1 alone, the message stream survives cancel keyed by bare pipeline_id; after resume flips pipeline to RUNNING, startup_reconciliation (L305) calls reconstruct_tracker_from_messages and replays pre-cancel CONSENSUS_* messages, resurrecting confirmations the restart cleared. This is same-pipeline stale-state replay, NOT #2053. Changes 1+2 must ship together. Change 3 must write per-slice CONSENSUS_* buckets. #3633 is out of scope. Test impact: rewrite test_cancel_clears_runtime_state, pin create-path clearing, add cancel→resume→restart→assert-no-resurrection test.
 
 ````yaml
-id: 79010cde-aaef-4b
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:02:17Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 1208d727-2f6b-4e
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:02:20Z] overseer (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 4b56c1e0-bf3b-42
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:04:23Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 9ebd3edf-67b7-4a
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:04:32Z] overseer (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 3e4976e4-de1c-46
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:06:31Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 977610a8-703c-40
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:06:43Z] overseer (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 693ca0bf-5882-4b
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:08:32Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 482d04bb-a210-4d
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:08:52Z] overseer (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: f42e1dd5-f36b-49
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:10:32Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: f42bbea7-8676-4a
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:11:07Z] overseer (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 5521a91d-0bb2-4e
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:12:02Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-one-shot event handler action=propose (slice=none)
-
-````yaml
-id: af22d0c4-3d03-45
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:12:06Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 09d2786c-d160-42
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:13:15Z] overseer (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 4d49f206-b2e6-46
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:14:09Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: bcf6283d-56fe-4d
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:15:43Z] overseer (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 9ef38aa3-b08f-49
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:16:12Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: d4b7db21-8c92-4f
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:17:53Z] overseer (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 7a87fadd-7ce7-4c
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:18:12Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 5db0b951-6cbd-4f
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:20:01Z] overseer (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 661c283a-4c78-49
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:20:14Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 203207be-ca68-4a
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:22:00Z] overseer → refiner (STATUS): Directive: your deliverable is the refine artifact + CONSENSUS_PROPOSE
-
-Operator directive. Your previous two sessions each ended in a verification loop and produced nothing: the first cycled three greps for tracker call sites for 9 minutes; the second cycled eight reads of `_routes_restart.py` at fixed offsets. Neither emitted a single MCP call. This is the third session.
-
-Your deliverable is the refine analysis artifact and a CONSENSUS_PROPOSE. Nothing else gates on more reading.
-
-You already have what you need. The evidence is in issue #3632 itself, and you have already read the relevant code at least twice. You do not need to re-verify `_routes_restart.py`, `_run_pipeline.py`, `concurrent_executor.py`, or `_run_concurrent.py` again — you have read all four.
-
-Concretely, the two facts the issue turns on are already established, and I am confirming them so they are not open questions for you:
-
-1. `_clear_pipeline_runtime_state` (`routes/pipelines/_lifecycle_helpers.py:158`) removes the consensus tracker and clears the message store, and `update_pipeline` calls it on the CANCELLED transition (`routes/pipelines/_routes_crud.py:717`).
-2. The only callers of `stop_event_loop` are in `routes/pipelines/_run_concurrent.py`; the cancel path has none. That is issue #3633, filed since your run started, and it is a sibling of #3632 — a resume story that does not stop the loop is incomplete, so treat both as in scope for your analysis.
-
-What I want from your artifact is judgement, not re-derivation: which of the four candidate fixes in #3632 are sound, whether the minimal fix (stop clearing on CANCELLED) is safe on its own or strictly requires the `run_epoch` namespacing first given the #2053 regression it must not reopen, and what you would leave out. If you believe a claim in #3632 is wrong, say so — that is a valuable outcome and you should propose with that finding.
-
-If you find yourself unable to satisfy the propose contract, register that as a contract decision and stop, rather than continuing to read. A blocked producer that says so is recoverable; one that silently keeps busy is not.
-
-````yaml
-id: 5746c7ea-b761-4a
-phase: refine
-````
-
-### [2026-07-25T23:22:11Z] overseer (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 933d1fe9-bfe2-42
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:22:20Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 369419d5-ed36-43
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:22:44Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-one-shot event handler action=propose (slice=none)
-
-````yaml
-id: c5e760f9-4ed6-4f
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:22:50Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 818bc9b6-e8da-43
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:24:21Z] overseer (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 14bfa693-f825-4f
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:24:52Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 0c983e68-ffe6-4b
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:25:35Z] overseer (OVERSEER_ALERT): agent-loop [medium]
-
-Refiner stuck in a no-progress verification loop across 3 sessions (~25 min), no refine artifact or CONSENSUS_PROPOSE emitted
-
-Detail:
-The refine phase has made zero forward progress since start (22:57:50, ~25 min ago). The refiner container has been re-spawned twice (instances started 22:57:50, 23:11:46, 23:22:30) and each prior session ended in a read/grep verification loop without emitting a single MCP call. Per the advisor STATUS directive at 23:22:00: session 1 cycled three greps for tracker call sites for ~9 min; session 2 cycled eight reads of _routes_restart.py at fixed offsets. BRC state confirms: proposal_versions={} and refiner remains in zero_proposal_producers; all review edges still at version 0/pending. No AGENT_FAILED emitted (agent exits cleanly each session, so no crash signal) — this is a silent no-progress loop, not a crash. An in-band advisor directive was sent to the refiner at 23:22:00 instructing it to stop re-reading and produce the artifact; session 3 (spawned 23:22:30) is the first attempt post-directive and is still unproven. Phase budget (3600s) is not yet exhausted.
-
-Recommended action:
-Stand by for session 3's outcome: if the refiner emits a CONSENSUS_PROPOSE within the next few minutes, the advisor nudge worked and no action is needed. If session 3 also cycles without proposing (watch for a 4th re-spawn around ~23:33 with proposal_versions still empty), the refiner is wedged — intervene manually: either narrow the refine scope, provide the two confirmed facts directly (already enumerated in the advisor directive: _clear_pipeline_runtime_state on CANCELLED + stop_event_loop missing on cancel path / issue #3633), or cancel and re-submit with a tighter refine prompt. Do not wait for the 1hr phase timeout to act.
-
-````yaml
-id: 019ab1c6-a624-4c
-phase: refine
-````
-
-### [2026-07-25T23:26:53Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 8d7c69e4-819b-47
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:27:01Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
-
-Refiner analysis: #3632 cancel_task(cleanup=false) destroys resumable state. Verified all issue claims against live code. Proposed scope: Changes 1+2+3 (stop clearing on CANCELLED + namespace by run_epoch + persist BRC history on cancel), defer Change 4 (per-slice tracker reconstruction). Critical finding: start_pipeline does NOT bump run_epoch on CANCELLED recovery (only FAILED), so Change 1 alone would reintroduce #2053 — namespacing (Change 2) is required for safety.
-
-````yaml
-id: df35edcc-3dec-4d
+id: 314d3c27-cc0f-45
 phase: refine
 metadata:
   payload:
-    summary: "Refiner analysis: #3632 cancel_task(cleanup=false) destroys resumable\
-      \ state. Verified all issue claims against live code. Proposed scope: Changes\
-      \ 1+2+3 (stop clearing on CANCELLED + namespace by run_epoch + persist BRC history\
-      \ on cancel), defer Change 4 (per-slice tracker reconstruction). Critical finding:\
-      \ start_pipeline does NOT bump run_epoch on CANCELLED recovery (only FAILED),\
-      \ so Change 1 alone would reintroduce #2053 \u2014 namespacing (Change 2) is\
-      \ required for safety."
+    summary: "Refiner analysis CORRECTED per operator feedback (iteration 0, approved).\
+      \ Fact 3 struck: start_pipeline returns 409 for CANCELLED before the lock block\
+      \ (L753-757), so the L801 assignment is unreachable. The correct safety argument\
+      \ (from first_principles_reviewer): with Change 1 alone, the message stream\
+      \ survives cancel keyed by bare pipeline_id; after resume flips pipeline to\
+      \ RUNNING, startup_reconciliation (L305) calls reconstruct_tracker_from_messages\
+      \ and replays pre-cancel CONSENSUS_* messages, resurrecting confirmations the\
+      \ restart cleared. This is same-pipeline stale-state replay, NOT #2053. Changes\
+      \ 1+2 must ship together. Change 3 must write per-slice CONSENSUS_* buckets.\
+      \ #3633 is out of scope. Test impact: rewrite test_cancel_clears_runtime_state,\
+      \ pin create-path clearing, add cancel\u2192resume\u2192restart\u2192assert-no-resurrection\
+      \ test."
     attestation:
       decisions_registered:
       - cq-1
@@ -416,242 +65,290 @@ metadata:
       candidates_considered:
       - question: Should Change 1 (stop clearing on CANCELLED) be adopted alone?
         disposition: not_operator_grade
-        why: 'start_pipeline does not bump run_epoch on CANCELLED recovery, so Change
-          1 alone reintroduces #2053. Must be paired with Change 2.'
+        why: "Not safe alone \u2014 stale-state replay via startup_reconciliation\u2192\
+          reconstruct_tracker_from_messages after resume\u2192orchestrator restart\
+          \ resurrects pre-cancel CONFIRMED state. Must ship with Change 2 (run_epoch\
+          \ namespacing)."
       - question: Should Change 4 (per-slice tracker reconstruction on resume) be
           adopted?
         disposition: deferred_to_plan
-        why: Highest complexity, not required for core lossless-resume fix. Namespacing
-          + tracker persistence already covers the consensus round.
+        why: 'Highest complexity, not required for core lossless-resume fix. #2535
+          rationale addresses new slices, not resumed ones. Namespacing + tracker
+          persistence already covers the consensus round.'
     artifacts:
     - .egg-state/drafts/issue-3632-v1-analysis.md
     - .egg-state/agent-outputs/refiner/brc-memory-issue-3632-v1.md
-    risk_considered: "Change 1 (stop clearing on CANCELLED) without Change 2 (run_epoch\
-      \ namespacing) would reintroduce #2053 because start_pipeline does not bump\
-      \ run_epoch on CANCELLED recovery \u2014 only on FAILED recovery (verified at\
-      \ _routes_lifecycle.py:796-798). The #2053 regression test (test_pipelines_api.py:1069)\
-      \ explicitly asserts _clear_pipeline_runtime_state IS called on cancel, so that\
-      \ test must be updated. Change 2 has large surface area: every caller of get_peer_consensus_tracker,\
-      \ remove_peer_consensus_tracker, reconstruct_tracker_from_messages, get_message_store().store(),\
-      \ get_messages(), clear() must pass run_epoch. Change 3 (persist BRC on cancel)\
-      \ is best-effort and low-risk. Change 4 (per-slice tracker reconstruction) is\
-      \ deferred \u2014 highest complexity, not required for core fix."
-    commit_sha: b1523c62f906ff3b20b871e3da6899f69acba291
+    risk_considered: "Fact 3 corrected: start_pipeline 409s on CANCELLED before the\
+      \ lock block, so the described scenario cannot occur. The correct safety argument\
+      \ is stale-state replay via startup_reconciliation\u2192reconstruct_tracker_from_messages\
+      \ after resume\u2192orchestrator restart. This is NOT #2053 (new pipeline id\
+      \ reuse) \u2014 it is same-pipeline stale-state replay, a distinct bug. Changes\
+      \ 1+2 must ship together in one slice. Change 3 is independent and may land\
+      \ first. Change 3 must write per-slice CONSENSUS_* buckets (write_per_slice=True\
+      \ equivalent), not just the unattributed sibling. #3633 is explicitly out of\
+      \ scope. Test impact: rewrite test_cancel_clears_runtime_state to assert cancel\
+      \ does NOT clear; pin create-path clearing as load-bearing for #2053; add new\
+      \ test for cancel\u2192resume\u2192orchestrator restart\u2192assert consensus\
+      \ NOT resurrected."
+    commit_sha: 4084420c3bd01bb092d83bb33614fc7fc1d570a6
     files_changed:
     - .egg-state/drafts/issue-3632-v1-analysis.md
     - .egg-state/agent-outputs/refiner/brc-memory-issue-3632-v1.md
     tests_run:
     - 'manual code verification: _routes_crud.py:717, _lifecycle_helpers.py:158, _routes_restart.py:337-354,
-      _routes_lifecycle.py:753-798, concurrent_executor.py:1935, _brc_history.py:564,
-      redis_message_store.py:69, peer_consensus/__init__.py:226, test_pipelines_api.py:1069'
+      _routes_lifecycle.py:753-757, startup_reconciliation.py:305-323, concurrent_executor.py:1935,
+      _brc_history.py:564-626, redis_message_store.py:69, peer_consensus/__init__.py:226,
+      test_pipelines_api.py:1069'
     tasks_satisfied:
     - task-refine-1
     no_changes_needed: false
     no_changes_reason: ''
   version: 1
-  commit_sha: b1523c62f906ff3b20b871e3da6899f69acba291
+  commit_sha: 4084420c3bd01bb092d83bb33614fc7fc1d570a6
 ````
 
-### [2026-07-25T23:27:07Z] simplifier (HEARTBEAT): heartbeat: WORKING
-
-one-shot event handler action=propose (slice=none)
+### [2026-07-25T23:37:22Z] refiner (HEARTBEAT): heartbeat: IDLE
 
 ````yaml
-id: 11569c86-f737-4d
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:27:07Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
-
-one-shot event handler action=ack (slice=none)
-
-````yaml
-id: 3ec903bf-f68e-49
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:27:08Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
-
-one-shot event handler action=ack (slice=none)
-
-````yaml
-id: d641c634-ebea-49
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:27:10Z] first_principles_reviewer (HEARTBEAT): heartbeat: WORKING
-
-one-shot event handler action=ack (slice=none)
-
-````yaml
-id: 76a51946-622a-41
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:27:12Z] refiner (HEARTBEAT): heartbeat: IDLE
-
-````yaml
-id: 581491ea-486c-41
+id: 9b80a64a-f0d4-47
 phase: refine
 metadata:
   state: IDLE
 ````
 
-### [2026-07-25T23:27:16Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:37:26Z] simplifier (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=propose (slice=none)
+
+````yaml
+id: 895f38ef-99f3-42
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-07-25T23:37:26Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=none)
+
+````yaml
+id: f172bba3-f030-4a
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-07-25T23:37:27Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=none)
+
+````yaml
+id: 767da02b-8721-48
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-07-25T23:37:27Z] first_principles_reviewer (HEARTBEAT): heartbeat: WORKING
+
+one-shot event handler action=ack (slice=none)
+
+````yaml
+id: e08bdf1d-42f6-49
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-07-25T23:37:28Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold
+
+````yaml
+id: 4b5d7908-4690-4c
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-07-25T23:37:31Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
 
 in-tool-loop liveness (slice=none)
 
 ````yaml
-id: cde51f26-e5ce-42
+id: 0d200f8b-d1a2-42
 phase: refine
 metadata:
   state: WORKING
 ````
 
-### [2026-07-25T23:27:16Z] first_principles_reviewer (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:37:33Z] simplifier (HEARTBEAT): heartbeat: WORKING
 
 in-tool-loop liveness (slice=none)
 
 ````yaml
-id: 33e364e4-e756-42
+id: 9390e32d-636a-48
 phase: refine
 metadata:
   state: WORKING
 ````
 
-### [2026-07-25T23:27:17Z] simplifier (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:37:34Z] first_principles_reviewer (HEARTBEAT): heartbeat: WORKING
 
 in-tool-loop liveness (slice=none)
 
 ````yaml
-id: 8473539c-647e-4a
+id: d654ff61-c7a6-44
 phase: refine
 metadata:
   state: WORKING
 ````
 
-### [2026-07-25T23:27:18Z] refiner (HEARTBEAT): heartbeat: WORKING
-
-context-measure occ=0 util=0.00 cache_hit=n/a decision=no_warm_session
-
-````yaml
-id: 3f49e943-da91-4f
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:27:18Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:37:40Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
 
 in-tool-loop liveness (slice=none)
 
 ````yaml
-id: 87e3c127-9b09-45
+id: 955c58c9-6aee-48
 phase: refine
 metadata:
   state: WORKING
 ````
 
-### [2026-07-25T23:27:47Z] overseer (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:38:26Z] simplifier → refiner (CONSENSUS_ACK): ACK from simplifier for refiner
 
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: ed964369-743d-42
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:27:57Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
-
-Reviewed the refiner's analysis draft and BRC memory for issue #3632. All verified facts check out against the source code:
-
-1. Fact 1 (VERIFIED): `_clear_pipeline_runtime_state` is called on ALL terminal transitions including CANCELLED at `_routes_crud.py:715-719`. The `cancel_task` MCP tool defaults to `cleanup=False`.
-
-2. Fact 2 (VERIFIED): `run_epoch` is bumped on CANCELLED→RUNNING in `restart_agent` (L354), `restart_phase` (L1046), `advance_phase` (L489), but is NOT used to namespace the tracker or message store — only for thread-ownership detection.
-
-3. Fact 3 (VERIFIED - CRITICAL): `start_pipeline` does NOT bump `run_epoch` on CANCELLED recovery (only FAILED). It also 409s on CANCELLED (L753-757). This means Change 1 (stop clearing on CANCELLED) is NOT safe alone — it requires Change 2 (run_epoch namespacing).
-
-4. Fact 4 (VERIFIED): Per-slice trackers are NOT reconstructable from messages — reconstruction is gated on `self._slice_id is None`.
-
-5. Fact 5 (VERIFIED): BRC history is persisted at slice close (#2548) but NOT at cancel. `restart_phase` calls `_persist_phase_brc_history` with `write_per_slice=False`.
-
-6. Fact 6 (VERIFIED): The #2053 regression test at `test_pipelines_api.py:1069` explicitly asserts `_clear_pipeline_runtime_state` IS called on cancel.
-
-The proposed scope (Changes 1+2+3, defer Change 4) is sound. Changes 1 and 2 are interdependent for safety. Change 3 is cheap insurance. Change 4 is correctly deferred as highest complexity and least urgent.
-
-The three HITL decisions (cq-1, cq-2, cq-3) are appropriately scoped and the refiner's positions are well-justified. The critical safety finding (start_pipeline does NOT bump run_epoch on CANCELLED) is correctly identified as a hard constraint.
+Reviewed the corrected analysis (commit 4084420c3). Fact 3 is correctly struck — start_pipeline 409s on CANCELLED at _routes_lifecycle.py:753-757, before the lock block. The replacement safety argument (stale-state replay by reconstruct_tracker_from_messages after resume → orchestrator restart) is correct and better. The distinction between this hazard and #2053 is properly noted. Test requirements per cq-2 resolution are documented. Scope per cq-3 resolution is correct: Changes 1+2 together, Change 3 independent, Change 4 deferred, #3633 out of scope. Fact 5 (write_per_slice=False gap) is a genuine finding that sharpens Change 3. The human-facing summary already absorbed the correction. The artifact is now internally consistent.
 
 ````yaml
-id: 6c1b664f-200d-48
+id: ac709ef2-80d8-41
 phase: refine
 metadata:
   payload:
     artifact_references:
     - .egg-state/drafts/issue-3632-v1-analysis.md
     - .egg-state/agent-outputs/refiner/brc-memory-issue-3632-v1.md
+    - .egg-state/drafts/issue-3632-v1-analysis-human.md
     - orchestrator/routes/pipelines/_routes_crud.py
     - orchestrator/routes/pipelines/_lifecycle_helpers.py
-    - orchestrator/peer_consensus/__init__.py
-    - orchestrator/redis_message_store.py
     - orchestrator/routes/pipelines/_routes_lifecycle.py
     - orchestrator/routes/pipelines/_routes_restart.py
-    - orchestrator/routes/phases/_advance.py
-    - orchestrator/mcp_tools/_tasks.py
+    - orchestrator/peer_consensus/__init__.py
+    - orchestrator/redis_message_store.py
+    - orchestrator/concurrent_executor.py
+    - orchestrator/startup_reconciliation.py
     - orchestrator/tests/test_pipelines_api.py
-    reason: "Reviewed the refiner's analysis draft and BRC memory for issue #3632.\
-      \ All verified facts check out against the source code:\n\n1. Fact 1 (VERIFIED):\
-      \ `_clear_pipeline_runtime_state` is called on ALL terminal transitions including\
-      \ CANCELLED at `_routes_crud.py:715-719`. The `cancel_task` MCP tool defaults\
-      \ to `cleanup=False`.\n\n2. Fact 2 (VERIFIED): `run_epoch` is bumped on CANCELLED\u2192\
-      RUNNING in `restart_agent` (L354), `restart_phase` (L1046), `advance_phase`\
-      \ (L489), but is NOT used to namespace the tracker or message store \u2014 only\
-      \ for thread-ownership detection.\n\n3. Fact 3 (VERIFIED - CRITICAL): `start_pipeline`\
-      \ does NOT bump `run_epoch` on CANCELLED recovery (only FAILED). It also 409s\
-      \ on CANCELLED (L753-757). This means Change 1 (stop clearing on CANCELLED)\
-      \ is NOT safe alone \u2014 it requires Change 2 (run_epoch namespacing).\n\n\
-      4. Fact 4 (VERIFIED): Per-slice trackers are NOT reconstructable from messages\
-      \ \u2014 reconstruction is gated on `self._slice_id is None`.\n\n5. Fact 5 (VERIFIED):\
-      \ BRC history is persisted at slice close (#2548) but NOT at cancel. `restart_phase`\
-      \ calls `_persist_phase_brc_history` with `write_per_slice=False`.\n\n6. Fact\
-      \ 6 (VERIFIED): The #2053 regression test at `test_pipelines_api.py:1069` explicitly\
-      \ asserts `_clear_pipeline_runtime_state` IS called on cancel.\n\nThe proposed\
-      \ scope (Changes 1+2+3, defer Change 4) is sound. Changes 1 and 2 are interdependent\
-      \ for safety. Change 3 is cheap insurance. Change 4 is correctly deferred as\
-      \ highest complexity and least urgent.\n\nThe three HITL decisions (cq-1, cq-2,\
-      \ cq-3) are appropriately scoped and the refiner's positions are well-justified.\
-      \ The critical safety finding (start_pipeline does NOT bump run_epoch on CANCELLED)\
-      \ is correctly identified as a hard constraint."
+    - orchestrator/mcp_tools/_tasks.py
+    reason: "Reviewed the corrected analysis (commit 4084420c3). Fact 3 is correctly\
+      \ struck \u2014 start_pipeline 409s on CANCELLED at _routes_lifecycle.py:753-757,\
+      \ before the lock block. The replacement safety argument (stale-state replay\
+      \ by reconstruct_tracker_from_messages after resume \u2192 orchestrator restart)\
+      \ is correct and better. The distinction between this hazard and #2053 is properly\
+      \ noted. Test requirements per cq-2 resolution are documented. Scope per cq-3\
+      \ resolution is correct: Changes 1+2 together, Change 3 independent, Change\
+      \ 4 deferred, #3633 out of scope. Fact 5 (write_per_slice=False gap) is a genuine\
+      \ finding that sharpens Change 3. The human-facing summary already absorbed\
+      \ the correction. The artifact is now internally consistent."
     ack_version: 1
   version: 1
 ````
 
-### [2026-07-25T23:28:01Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:38:35Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
 
-context-measure occ=0 util=0.00 cache_hit=n/a decision=no_warm_session
+Reviewed the refiner's corrected analysis (v2, commit 4084420c3bd01bb092d83bb33614fc7fc1d570a6) in response to operator feedback. The corrections are accurate and complete:
+
+1. **Fact 3 STRUCK and replaced** — Verified that `start_pipeline` returns 409 for CANCELLED at `_routes_lifecycle.py:753-757`, BEFORE the lock block at L759. The L801 assignment is unreachable. The original Fact 3 scenario cannot occur.
+
+2. **Correct safety argument verified** — The refiner adopted the `first_principles_reviewer`'s argument: with Change 1 alone, the message stream survives a cancel keyed by bare `pipeline_id`. After resume flips the pipeline to RUNNING, an orchestrator restart triggers `startup_reconciliation` (L305) which calls `reconstruct_tracker_from_messages` (L322-323) and replays the retained pre-cancel CONSENSUS_* messages, resurrecting confirmations. Verified:
+   - `startup_reconciliation.py:305` — only processes RUNNING pipelines
+   - `startup_reconciliation.py:322-323` — reconstructs from messages if tracker is missing
+   - `startup_reconciliation.py:333-334` — resurrects CONFIRMED state via `tracker.evaluate()`
+   - `reconstruct_tracker_from_messages` (peer_consensus/__init__.py:324-331) — takes bare `pipeline_id`, replays CONSENSUS_* messages
+
+3. **NOT #2053** — Correctly identified as same-pipeline stale-state replay, a distinct bug. #2053 is about new pipelines reusing ids; Change 1 keeps clearing on the create path.
+
+4. **Test impact sharpened** — Three concrete test changes specified: (a) rewrite `test_cancel_clears_runtime_state` → `test_cancel_preserves_runtime_state`, (b) pin the CREATE path explicitly (load-bearing for #2053 safety), (c) add NEW test for cancel → resume → orchestrator restart → assert consensus NOT resurrected.
+
+5. **#3633 explicitly out of scope** — The refiner correctly notes #3633 is out of scope per the operator's reversal, rather than silently omitting it.
+
+6. **Change 3 sharpened** — Must write per-slice CONSENSUS_* buckets, not just the unattributed sibling that `write_per_slice=False` writes.
+
+The corrected analysis is internally consistent, all claims verified against source code, and the safety argument is now correct. The proposed scope (Changes 1+2+3 together, Change 4 deferred) remains sound.
 
 ````yaml
-id: 2b2a697a-6509-41
+id: 64b32c9c-fe5b-47
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/issue-3632-v1-analysis.md
+    - .egg-state/agent-outputs/refiner/brc-memory-issue-3632-v1.md
+    - orchestrator/startup_reconciliation.py
+    - orchestrator/peer_consensus/__init__.py
+    reason: "Reviewed the refiner's corrected analysis (v2, commit 4084420c3bd01bb092d83bb33614fc7fc1d570a6)\
+      \ in response to operator feedback. The corrections are accurate and complete:\n\
+      \n1. **Fact 3 STRUCK and replaced** \u2014 Verified that `start_pipeline` returns\
+      \ 409 for CANCELLED at `_routes_lifecycle.py:753-757`, BEFORE the lock block\
+      \ at L759. The L801 assignment is unreachable. The original Fact 3 scenario\
+      \ cannot occur.\n\n2. **Correct safety argument verified** \u2014 The refiner\
+      \ adopted the `first_principles_reviewer`'s argument: with Change 1 alone, the\
+      \ message stream survives a cancel keyed by bare `pipeline_id`. After resume\
+      \ flips the pipeline to RUNNING, an orchestrator restart triggers `startup_reconciliation`\
+      \ (L305) which calls `reconstruct_tracker_from_messages` (L322-323) and replays\
+      \ the retained pre-cancel CONSENSUS_* messages, resurrecting confirmations.\
+      \ Verified:\n   - `startup_reconciliation.py:305` \u2014 only processes RUNNING\
+      \ pipelines\n   - `startup_reconciliation.py:322-323` \u2014 reconstructs from\
+      \ messages if tracker is missing\n   - `startup_reconciliation.py:333-334` \u2014\
+      \ resurrects CONFIRMED state via `tracker.evaluate()`\n   - `reconstruct_tracker_from_messages`\
+      \ (peer_consensus/__init__.py:324-331) \u2014 takes bare `pipeline_id`, replays\
+      \ CONSENSUS_* messages\n\n3. **NOT #2053** \u2014 Correctly identified as same-pipeline\
+      \ stale-state replay, a distinct bug. #2053 is about new pipelines reusing ids;\
+      \ Change 1 keeps clearing on the create path.\n\n4. **Test impact sharpened**\
+      \ \u2014 Three concrete test changes specified: (a) rewrite `test_cancel_clears_runtime_state`\
+      \ \u2192 `test_cancel_preserves_runtime_state`, (b) pin the CREATE path explicitly\
+      \ (load-bearing for #2053 safety), (c) add NEW test for cancel \u2192 resume\
+      \ \u2192 orchestrator restart \u2192 assert consensus NOT resurrected.\n\n5.\
+      \ **#3633 explicitly out of scope** \u2014 The refiner correctly notes #3633\
+      \ is out of scope per the operator's reversal, rather than silently omitting\
+      \ it.\n\n6. **Change 3 sharpened** \u2014 Must write per-slice CONSENSUS_* buckets,\
+      \ not just the unattributed sibling that `write_per_slice=False` writes.\n\n\
+      The corrected analysis is internally consistent, all claims verified against\
+      \ source code, and the safety argument is now correct. The proposed scope (Changes\
+      \ 1+2+3 together, Change 4 deferred) remains sound."
+    ack_version: 1
+  version: 1
+````
+
+### [2026-07-25T23:38:40Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold
+
+````yaml
+id: 1791f6d0-2b6a-40
 phase: refine
 metadata:
   state: WORKING
 ````
 
-### [2026-07-25T23:28:17Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
+### [2026-07-25T23:38:46Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
 
-Reviewed refiner's analysis of issue #3632. All 8 verified facts check out against source code. Proposed scope (Changes 1+2+3, defer Change 4) is sound. The critical safety finding — that Change 1 (stop clearing on CANCELLED) is only safe when paired with Change 2 (run_epoch namespacing) — is correct and important. One correction: start_pipeline returns 409 for CANCELLED (not just fails to bump run_epoch); the only recovery paths (restart_agent/restart_phase) DO bump run_epoch, but since tracker/message store are keyed by bare pipeline_id without run_epoch, namespacing is essential. The #2053 regression test (test_pipelines_api.py:1083-1112) must be updated to assert cancel does NOT clear. HITL decisions cq-1, cq-2, cq-3 are well-justified and appropriately raised.
+Reviewed the refiner's corrected analysis (commit 4084420c). The draft has been properly updated per the operator's binding feedback:
+
+1. **Fact 3 STRUCK** — correctly identifies that `start_pipeline` returns 409 for CANCELLED at `_routes_lifecycle.py:753-757` before the lock block at L759, making the L801 assignment unreachable. Verified this against the source code.
+
+2. **Correct safety argument** — replaced with the binding rationale from `first_principles_reviewer` via cq-1 resolution: with Change 1 alone, the message stream survives cancel keyed by bare `pipeline_id`. After resume via `restart_agent`/`restart_phase` resets consensus and flips to RUNNING, an orchestrator restart triggers `startup_reconciliation` (verified at `startup_reconciliation.py:305-296`) which calls `reconstruct_tracker_from_messages` and replays retained pre-cancel CONSENSUS_* messages, resurrecting confirmations. Verified this mechanism against the source.
+
+3. **NOT #2053** — correctly distinguished as same-pipeline stale-state replay, a distinct bug. #2053 is defended by the create-path clear, which Change 1 preserves.
+
+4. **Scope correct** — Changes 1+2 ship together (interdependent), Change 3 independent and may land first, Change 4 deferred, #3633 out of scope.
+
+5. **Test impact correctly scoped** — 3 required changes per cq-2 resolution: rewrite `test_cancel_clears_runtime_state` → `test_cancel_preserves_runtime_state`, pin CREATE path explicitly, add new regression test for cancel→resume→restart→assert-not-resurrected.
+
+6. **All HITL decisions resolved** — cq-1, cq-2, cq-3 all resolved with binding detail in the contract.
+
+The draft is now internally consistent and aligns with all operator resolutions. ACK.
 
 ````yaml
-id: 94d9aaee-c17e-47
+id: e3054047-a62b-46
 phase: refine
 metadata:
   payload:
@@ -667,170 +364,128 @@ metadata:
     - orchestrator/concurrent_executor.py
     - orchestrator/routes/phases/_transitions.py
     - orchestrator/mcp_tools/_tasks.py
+    - orchestrator/startup_reconciliation.py
     - orchestrator/tests/test_pipelines_api.py
-    reason: "Reviewed refiner's analysis of issue #3632. All 8 verified facts check\
-      \ out against source code. Proposed scope (Changes 1+2+3, defer Change 4) is\
-      \ sound. The critical safety finding \u2014 that Change 1 (stop clearing on\
-      \ CANCELLED) is only safe when paired with Change 2 (run_epoch namespacing)\
-      \ \u2014 is correct and important. One correction: start_pipeline returns 409\
-      \ for CANCELLED (not just fails to bump run_epoch); the only recovery paths\
-      \ (restart_agent/restart_phase) DO bump run_epoch, but since tracker/message\
-      \ store are keyed by bare pipeline_id without run_epoch, namespacing is essential.\
-      \ The #2053 regression test (test_pipelines_api.py:1083-1112) must be updated\
-      \ to assert cancel does NOT clear. HITL decisions cq-1, cq-2, cq-3 are well-justified\
-      \ and appropriately raised."
+    - .egg-state/contracts/issue-3632-v1.json
+    reason: "Reviewed the refiner's corrected analysis (commit 4084420c). The draft\
+      \ has been properly updated per the operator's binding feedback:\n\n1. **Fact\
+      \ 3 STRUCK** \u2014 correctly identifies that `start_pipeline` returns 409 for\
+      \ CANCELLED at `_routes_lifecycle.py:753-757` before the lock block at L759,\
+      \ making the L801 assignment unreachable. Verified this against the source code.\n\
+      \n2. **Correct safety argument** \u2014 replaced with the binding rationale\
+      \ from `first_principles_reviewer` via cq-1 resolution: with Change 1 alone,\
+      \ the message stream survives cancel keyed by bare `pipeline_id`. After resume\
+      \ via `restart_agent`/`restart_phase` resets consensus and flips to RUNNING,\
+      \ an orchestrator restart triggers `startup_reconciliation` (verified at `startup_reconciliation.py:305-296`)\
+      \ which calls `reconstruct_tracker_from_messages` and replays retained pre-cancel\
+      \ CONSENSUS_* messages, resurrecting confirmations. Verified this mechanism\
+      \ against the source.\n\n3. **NOT #2053** \u2014 correctly distinguished as\
+      \ same-pipeline stale-state replay, a distinct bug. #2053 is defended by the\
+      \ create-path clear, which Change 1 preserves.\n\n4. **Scope correct** \u2014\
+      \ Changes 1+2 ship together (interdependent), Change 3 independent and may land\
+      \ first, Change 4 deferred, #3633 out of scope.\n\n5. **Test impact correctly\
+      \ scoped** \u2014 3 required changes per cq-2 resolution: rewrite `test_cancel_clears_runtime_state`\
+      \ \u2192 `test_cancel_preserves_runtime_state`, pin CREATE path explicitly,\
+      \ add new regression test for cancel\u2192resume\u2192restart\u2192assert-not-resurrected.\n\
+      \n6. **All HITL decisions resolved** \u2014 cq-1, cq-2, cq-3 all resolved with\
+      \ binding detail in the contract.\n\nThe draft is now internally consistent\
+      \ and aligns with all operator resolutions. ACK."
     ack_version: 1
   version: 1
 ````
 
-### [2026-07-25T23:28:25Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:39:00Z] first_principles_reviewer → refiner (CONSENSUS_ACK): ACK from first_principles_reviewer for refiner
 
-context-measure occ=0 util=0.00 cache_hit=n/a decision=no_warm_session
-
-````yaml
-id: 3afc04a8-5207-45
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:29:19Z] simplifier (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
+Reviewed the refiner's corrected analysis (v1, commit 4084420c). The refiner has properly addressed the operator's feedback: Fact 3 is struck (start_pipeline 409s on CANCELLED at L753-757, before the lock block, making L801 unreachable), and the safety argument is correctly reframed as stale-state replay via reconstruct_tracker_from_messages after cancel → resume → orchestrator restart. I verified this against startup_reconciliation.py:305 (only processes RUNNING pipelines) and peer_consensus/__init__.py:373 (reconstruct_tracker_from_messages uses bare pipeline_id, no run_epoch namespacing). The corrected analysis correctly identifies this as same-pipeline stale-state replay, NOT #2053. Changes 1+2 must ship together — landing Change 1 alone allows the message stream to survive cancel, and after resume + orchestrator restart, reconstruction replays old CONFIRMED messages into a reset round. The test impact is properly scoped per cq-2's resolution: rewrite test_cancel_clears_runtime_state, pin the CREATE path, and add a new regression test for cancel → resume → orchestrator restart → assert consensus NOT resurrected. The analysis is internally consistent and ready for plan phase.
 
 ````yaml
-id: 03fc4224-d021-4e
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:29:29Z] simplifier → refiner (CONSENSUS_ACK): ACK from simplifier for refiner
-
-Verified all 7 facts in the refiner's analysis. The assessment is correct: Change 1 (stop clearing on CANCELLED) is only safe with Change 2 (run_epoch namespacing). start_pipeline 409s on CANCELLED (Fact 7), so the only recovery paths are restart_agent/restart_phase, both of which bump run_epoch. The #2053 regression test must be updated. The proposed scope (Changes 1+2+3, defer Change 4) is sound.
-
-````yaml
-id: 086ed231-14ae-44
-phase: refine
-metadata:
-  payload:
-    artifact_references:
-    - orchestrator/routes/pipelines/_routes_crud.py
-    - orchestrator/routes/pipelines/_lifecycle_helpers.py
-    - orchestrator/routes/pipelines/_routes_lifecycle.py
-    - orchestrator/routes/pipelines/_routes_restart.py
-    - orchestrator/peer_consensus/__init__.py
-    - orchestrator/redis_message_store.py
-    - orchestrator/concurrent_executor.py
-    - orchestrator/tests/test_pipelines_api.py
-    - orchestrator/mcp_tools/_tasks.py
-    reason: 'Verified all 7 facts in the refiner''s analysis. The assessment is correct:
-      Change 1 (stop clearing on CANCELLED) is only safe with Change 2 (run_epoch
-      namespacing). start_pipeline 409s on CANCELLED (Fact 7), so the only recovery
-      paths are restart_agent/restart_phase, both of which bump run_epoch. The #2053
-      regression test must be updated. The proposed scope (Changes 1+2+3, defer Change
-      4) is sound.'
-    ack_version: 1
-  version: 1
-````
-
-### [2026-07-25T23:29:34Z] first_principles_reviewer (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 2607b02b-6605-4b
-phase: refine
-metadata:
-  state: WORKING
-````
-
-### [2026-07-25T23:30:01Z] first_principles_reviewer → refiner (CONSENSUS_ACK): ACK from first_principles_reviewer for refiner
-
-Reviewed the refiner's analysis draft for issue #3632. The analysis is substantively correct: Change 1 (stop clearing on CANCELLED) is unsafe without Change 2 (run_epoch namespacing) because an orchestrator restart between CANCELLED and restart_phase would cause reconstruct_tracker_from_messages to replay old CONFIRMED messages, reintroducing #2053. The proposed scope (Changes 1+2+3, defer Change 4) is sound. One correction: Fact 3's claim that start_pipeline could resume a CANCELLED pipeline is inaccurate — start_pipeline 409s on CANCELLED (L753-757); the resume path is restart_phase/restart_agent which DO bump run_epoch. The safety concern still holds for the orchestrator-restart window. The #2053 regression test (test_cancel_clears_runtime_state at L1083) must be updated to assert cancel does NOT clear.
-
-````yaml
-id: 03532746-ea57-4a
+id: e401552b-a8ee-4a
 phase: refine
 metadata:
   payload:
     artifact_references:
     - .egg-state/drafts/issue-3632-v1-analysis.md
     - .egg-state/agent-outputs/refiner/brc-memory-issue-3632-v1.md
-    reason: "Reviewed the refiner's analysis draft for issue #3632. The analysis is\
-      \ substantively correct: Change 1 (stop clearing on CANCELLED) is unsafe without\
-      \ Change 2 (run_epoch namespacing) because an orchestrator restart between CANCELLED\
-      \ and restart_phase would cause reconstruct_tracker_from_messages to replay\
-      \ old CONFIRMED messages, reintroducing #2053. The proposed scope (Changes 1+2+3,\
-      \ defer Change 4) is sound. One correction: Fact 3's claim that start_pipeline\
-      \ could resume a CANCELLED pipeline is inaccurate \u2014 start_pipeline 409s\
-      \ on CANCELLED (L753-757); the resume path is restart_phase/restart_agent which\
-      \ DO bump run_epoch. The safety concern still holds for the orchestrator-restart\
-      \ window. The #2053 regression test (test_cancel_clears_runtime_state at L1083)\
-      \ must be updated to assert cancel does NOT clear."
+    reason: "Reviewed the refiner's corrected analysis (v1, commit 4084420c). The\
+      \ refiner has properly addressed the operator's feedback: Fact 3 is struck (start_pipeline\
+      \ 409s on CANCELLED at L753-757, before the lock block, making L801 unreachable),\
+      \ and the safety argument is correctly reframed as stale-state replay via reconstruct_tracker_from_messages\
+      \ after cancel \u2192 resume \u2192 orchestrator restart. I verified this against\
+      \ startup_reconciliation.py:305 (only processes RUNNING pipelines) and peer_consensus/__init__.py:373\
+      \ (reconstruct_tracker_from_messages uses bare pipeline_id, no run_epoch namespacing).\
+      \ The corrected analysis correctly identifies this as same-pipeline stale-state\
+      \ replay, NOT #2053. Changes 1+2 must ship together \u2014 landing Change 1\
+      \ alone allows the message stream to survive cancel, and after resume + orchestrator\
+      \ restart, reconstruction replays old CONFIRMED messages into a reset round.\
+      \ The test impact is properly scoped per cq-2's resolution: rewrite test_cancel_clears_runtime_state,\
+      \ pin the CREATE path, and add a new regression test for cancel \u2192 resume\
+      \ \u2192 orchestrator restart \u2192 assert consensus NOT resurrected. The analysis\
+      \ is internally consistent and ready for plan phase."
     ack_version: 1
   version: 1
 ````
 
-### [2026-07-25T23:30:04Z] overseer (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:39:02Z] reviewer_agent_design (HEARTBEAT): heartbeat: WORKING
 
-in-tool-loop liveness (slice=none)
+context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold
 
 ````yaml
-id: 42e55b9d-08e2-4d
+id: a9708ce4-471f-43
 phase: refine
 metadata:
   state: WORKING
 ````
 
-### [2026-07-25T23:30:23Z] first_principles_reviewer (HEARTBEAT): heartbeat: IDLE
+### [2026-07-25T23:39:13Z] first_principles_reviewer (HEARTBEAT): heartbeat: IDLE
 
 ````yaml
-id: a16bed6f-f164-49
+id: c38be139-5744-4a
 phase: refine
 metadata:
   state: IDLE
 ````
 
-### [2026-07-25T23:30:28Z] first_principles_reviewer (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:39:19Z] first_principles_reviewer (HEARTBEAT): heartbeat: WORKING
 
-context-measure occ=0 util=0.00 cache_hit=n/a decision=no_warm_session
+context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold
 
 ````yaml
-id: 3dc5fe76-1ec0-4f
+id: 53784591-381f-49
 phase: refine
 metadata:
   state: WORKING
 ````
 
-### [2026-07-25T23:30:31Z] simplifier (CONSENSUS_PROPOSE): Proposal from simplifier
+### [2026-07-25T23:39:30Z] simplifier (CONSENSUS_PROPOSE): Proposal from simplifier
 
-Simplifier assessment: Changes 1+2+3 are correct and interdependent. Change 1 (stop clearing on CANCELLED) requires Change 2 (run_epoch namespacing) for #2053 safety. start_pipeline 409s on CANCELLED (Fact 7), so recovery is only via restart_agent/restart_phase which bump run_epoch. Change 3 (persist BRC history on cancel) is cheap insurance. Change 4 (per-slice tracker reconstruction) deferred. #2053 regression test must be updated.
+Simplifier assessment (corrected per operator feedback): Adopt Changes 1+2+3, defer Change 4. Fact 3 struck — start_pipeline 409s on CANCELLED, the scenario cannot occur. Correct safety argument: stale-state replay by reconstruct_tracker_from_messages after resume -> orchestrator restart (NOT #2053, distinct bug). Changes 1+2 must ship together in one slice. Change 3 independent, may land first. #3633 out of scope. Test impact: rewrite test_cancel_clears_runtime_state, pin create path, add new regression test for cancel->resume->restart->assert-not-resurrected.
 
 ````yaml
-id: b25b4d45-b3fc-4a
+id: 8aa9a600-233a-45
 phase: refine
 metadata:
   payload:
-    summary: 'Simplifier assessment: Changes 1+2+3 are correct and interdependent.
-      Change 1 (stop clearing on CANCELLED) requires Change 2 (run_epoch namespacing)
-      for #2053 safety. start_pipeline 409s on CANCELLED (Fact 7), so recovery is
-      only via restart_agent/restart_phase which bump run_epoch. Change 3 (persist
-      BRC history on cancel) is cheap insurance. Change 4 (per-slice tracker reconstruction)
-      deferred. #2053 regression test must be updated.'
+    summary: "Simplifier assessment (corrected per operator feedback): Adopt Changes\
+      \ 1+2+3, defer Change 4. Fact 3 struck \u2014 start_pipeline 409s on CANCELLED,\
+      \ the scenario cannot occur. Correct safety argument: stale-state replay by\
+      \ reconstruct_tracker_from_messages after resume -> orchestrator restart (NOT\
+      \ #2053, distinct bug). Changes 1+2 must ship together in one slice. Change\
+      \ 3 independent, may land first. #3633 out of scope. Test impact: rewrite test_cancel_clears_runtime_state,\
+      \ pin create path, add new regression test for cancel->resume->restart->assert-not-resurrected."
     attestation: {}
     artifacts:
     - .egg-state/drafts/issue-3632-v1-analysis-human.md
-    risk_considered: "Change 1 alone reintroduces #2053: without run_epoch namespacing,\
-      \ a CANCELLED pipeline resumed via restart_agent/restart_phase would reuse the\
-      \ old tracker with CONFIRMED state. With namespacing, the old tracker/message\
-      \ stream is isolated by the old epoch and the new run_epoch gets fresh state.\
-      \ The #2053 regression test (test_cancel_clears_runtime_state) must be updated\
-      \ to assert cancel does NOT clear. Surface area of Change 2 is large but mechanical\
-      \ \u2014 every caller of get_peer_consensus_tracker, remove_peer_consensus_tracker,\
-      \ reconstruct_tracker_from_messages, and message store functions needs run_epoch\
-      \ passed through."
-    commit_sha: dbf03e841624b252414ed6ae278baf973f2a79af
+    risk_considered: "Change 1 alone is NOT safe: without run_epoch namespacing, reconstruct_tracker_from_messages\
+      \ replays retained pre-cancel CONSENSUS_* messages into the reset round's tracker\
+      \ after an orchestrator restart (startup_reconciliation.py:305-323). This is\
+      \ same-pipeline stale-state replay, NOT #2053 (which is about new pipelines\
+      \ reusing ids \u2014 defended by the create-path clear that Change 1 keeps intact).\
+      \ Changes 1+2 must ship together in one slice per cq-3 resolution. Change 3\
+      \ is independent and may land first. The #2053 regression test (test_cancel_clears_runtime_state)\
+      \ must be rewritten to assert cancel does NOT clear, the create path must be\
+      \ pinned explicitly, and a new regression test must cover cancel->resume->orchestrator\
+      \ restart->assert-not-resurrected. Surface area of Change 2 is large but mechanical."
+    commit_sha: 1ed05211cf83201d188349c1cab90c5bb82b001a
     files_changed:
     - .egg-state/drafts/issue-3632-v1-analysis-human.md
     tests_run:
@@ -844,174 +499,218 @@ metadata:
     no_changes_needed: false
     no_changes_reason: ''
   version: 1
-  commit_sha: dbf03e841624b252414ed6ae278baf973f2a79af
+  commit_sha: 1ed05211cf83201d188349c1cab90c5bb82b001a
 ````
 
-### [2026-07-25T23:30:31Z] orchestrator → refiner (STATUS): Ready to confirm — all confirm preconditions satisfied
+### [2026-07-25T23:39:30Z] orchestrator → refiner (STATUS): Ready to confirm — all confirm preconditions satisfied
 
 Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
 
 ````yaml
-id: 04872dc1-90a8-4b
+id: 2b12e806-c253-40
 phase: refine
 metadata:
   ready_to_confirm: true
   version: 1
 ````
 
-### [2026-07-25T23:30:33Z] refiner (CONSENSUS_CONFIRMED): Consensus confirmed by refiner
+### [2026-07-25T23:39:30Z] refiner (CONSENSUS_CONFIRMED): Consensus confirmed by refiner
 
 orchestrator-side confirm (#3064 event loop)
 
 ````yaml
-id: 2d5d1eac-1078-40
+id: 1a58bd14-20ec-4b
 phase: refine
 ````
 
-### [2026-07-25T23:30:33Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_agent_design
+### [2026-07-25T23:39:32Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_agent_design
 
 orchestrator-side confirm (#3064 event loop)
 
 ````yaml
-id: 4abbfb95-95b1-4b
+id: 0b3efbd5-2526-46
 phase: refine
 ````
 
-### [2026-07-25T23:30:33Z] first_principles_reviewer (CONSENSUS_CONFIRMED): Consensus confirmed by first_principles_reviewer
+### [2026-07-25T23:39:32Z] first_principles_reviewer (CONSENSUS_CONFIRMED): Consensus confirmed by first_principles_reviewer
 
 orchestrator-side confirm (#3064 event loop)
 
 ````yaml
-id: f02eb6b3-96bc-43
+id: 1e0f9439-57f7-4b
 phase: refine
 ````
 
-### [2026-07-25T23:30:35Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:39:33Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
 
 one-shot event handler action=ack (slice=none)
 
 ````yaml
-id: eed59265-6047-49
+id: a8b0410f-5893-47
 phase: refine
 metadata:
   state: WORKING
 ````
 
-### [2026-07-25T23:30:40Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+### [2026-07-25T23:39:34Z] simplifier (HEARTBEAT): heartbeat: WORKING
 
 in-tool-loop liveness (slice=none)
 
 ````yaml
-id: 2ebce4f5-470e-43
+id: 326f310a-3a53-47
 phase: refine
 metadata:
   state: WORKING
 ````
 
-### [2026-07-25T23:31:28Z] reviewer_refine → simplifier (CONSENSUS_ACK): ACK from reviewer_refine for simplifier
+### [2026-07-25T23:39:38Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
 
-Reviewed the simplifier's plain-language summary artifact (`.egg-state/drafts/issue-3632-v1-analysis-human.md`). The summary is a correct, faithful translation of the refiner's technical analysis:
-
-1. **Problem framing**: Accurate — `cancel_task(cleanup=false)` destroys the consensus tracker and Redis message stream via `_clear_pipeline_runtime_state`, which runs on ALL terminal transitions including CANCELLED (verified at `_routes_crud.py:715-719`).
-
-2. **Four changes**: All accurately described in plain terms — Change 1 (stop clearing on CANCELLED), Change 2 (namespace by `run_epoch`), Change 3 (persist BRC history on cancel), Change 4 (per-slice tracker reconstruction).
-
-3. **Critical safety finding**: Correctly identified — Change 1 alone is NOT safe without Change 2. The summary accurately notes that `start_pipeline` 409s on CANCELLED (verified at `_routes_lifecycle.py:753-757`), so the actual recovery paths are `restart_agent`/`restart_phase`, both of which bump `run_epoch`.
-
-4. **Recommended scope**: Consistent with refiner — Changes 1+2+3 adopted, Change 4 deferred.
-
-5. **Test impact**: Correctly notes the #2053 regression test must be updated.
-
-No new claims or contradictions introduced. The simplification (focusing on `restart_agent`/`restart_phase` as the recovery paths rather than the latent `start_pipeline` risk) is appropriate for a human-focused summary.
-
-This artifact provides a clear, accessible explanation of the issue and proposed fix for human readers.
+in-tool-loop liveness (slice=none)
 
 ````yaml
-id: 7f177a69-4a15-40
+id: d13862b2-d802-48
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-07-25T23:39:55Z] overseer (HEARTBEAT): heartbeat: WORKING
+
+in-tool-loop liveness (slice=none)
+
+````yaml
+id: 0e8dde14-eb19-42
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-07-25T23:40:05Z] simplifier (HEARTBEAT): heartbeat: WORKING
+
+context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold
+
+````yaml
+id: a39d05c9-3d74-42
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-07-25T23:40:20Z] reviewer_refine → simplifier (CONSENSUS_ACK): ACK from reviewer_refine for simplifier
+
+Reviewed the simplifier's updated human-facing summary (v2, commit 1ed05211cf83201d188349c1cab90c5bb82b001a) in response to operator feedback. The corrections are accurate and internally consistent:
+
+1. **Fact 3 struck** — The summary now correctly states "The hazard is NOT #2053" and describes the correct stale-state replay mechanism instead of the unreachable `start_pipeline` scenario.
+
+2. **Correct safety argument** — The summary accurately describes the `startup_reconciliation` (L305) → `reconstruct_tracker_from_messages` (L322-323) stale-state replay hazard. Verified:
+   - `startup_reconciliation.py:305` — only processes RUNNING pipelines (window opens AFTER resume, not during CANCELLED)
+   - `startup_reconciliation.py:322-323` — reconstructs from messages if tracker is missing
+   - `reconstruct_tracker_from_messages` (peer_consensus/__init__.py:324-331) — takes bare `pipeline_id`, replays CONSENSUS_* messages
+
+3. **NOT #2053** — Correctly identified as same-pipeline stale-state replay, a distinct bug from #2053 (which is about new pipelines reusing ids).
+
+4. **Test impact** — Three test changes correctly specified per cq-2 resolution: rewrite `test_cancel_clears_runtime_state`, pin CREATE path, add NEW regression test for cancel → resume → orchestrator restart → assert consensus NOT resurrected.
+
+5. **Scope constraints** — Four constraints from cq-3 resolution correctly included: 1+2 ship together, 3 independent, 4 deferred, #3633 out of scope.
+
+6. **#3633 explicitly out of scope** — The summary now explicitly states #3633 is out of scope, addressing the operator's process note about silently omitted directives.
+
+The human summary is now internally consistent with the corrected technical draft and accurately reflects the operator's binding resolutions.
+
+````yaml
+id: e167ab27-da39-43
 phase: refine
 metadata:
   payload:
     artifact_references:
     - .egg-state/drafts/issue-3632-v1-analysis-human.md
+    - .egg-state/drafts/issue-3632-v1-analysis.md
     - .egg-state/agent-outputs/reviewer_refine/brc-memory-issue-3632-v1.md
-    reason: "Reviewed the simplifier's plain-language summary artifact (`.egg-state/drafts/issue-3632-v1-analysis-human.md`).\
-      \ The summary is a correct, faithful translation of the refiner's technical\
-      \ analysis:\n\n1. **Problem framing**: Accurate \u2014 `cancel_task(cleanup=false)`\
-      \ destroys the consensus tracker and Redis message stream via `_clear_pipeline_runtime_state`,\
-      \ which runs on ALL terminal transitions including CANCELLED (verified at `_routes_crud.py:715-719`).\n\
-      \n2. **Four changes**: All accurately described in plain terms \u2014 Change\
-      \ 1 (stop clearing on CANCELLED), Change 2 (namespace by `run_epoch`), Change\
-      \ 3 (persist BRC history on cancel), Change 4 (per-slice tracker reconstruction).\n\
-      \n3. **Critical safety finding**: Correctly identified \u2014 Change 1 alone\
-      \ is NOT safe without Change 2. The summary accurately notes that `start_pipeline`\
-      \ 409s on CANCELLED (verified at `_routes_lifecycle.py:753-757`), so the actual\
-      \ recovery paths are `restart_agent`/`restart_phase`, both of which bump `run_epoch`.\n\
-      \n4. **Recommended scope**: Consistent with refiner \u2014 Changes 1+2+3 adopted,\
-      \ Change 4 deferred.\n\n5. **Test impact**: Correctly notes the #2053 regression\
-      \ test must be updated.\n\nNo new claims or contradictions introduced. The simplification\
-      \ (focusing on `restart_agent`/`restart_phase` as the recovery paths rather\
-      \ than the latent `start_pipeline` risk) is appropriate for a human-focused\
-      \ summary.\n\nThis artifact provides a clear, accessible explanation of the\
-      \ issue and proposed fix for human readers."
+    - orchestrator/startup_reconciliation.py
+    - orchestrator/peer_consensus/__init__.py
+    reason: "Reviewed the simplifier's updated human-facing summary (v2, commit 1ed05211cf83201d188349c1cab90c5bb82b001a)\
+      \ in response to operator feedback. The corrections are accurate and internally\
+      \ consistent:\n\n1. **Fact 3 struck** \u2014 The summary now correctly states\
+      \ \"The hazard is NOT #2053\" and describes the correct stale-state replay mechanism\
+      \ instead of the unreachable `start_pipeline` scenario.\n\n2. **Correct safety\
+      \ argument** \u2014 The summary accurately describes the `startup_reconciliation`\
+      \ (L305) \u2192 `reconstruct_tracker_from_messages` (L322-323) stale-state replay\
+      \ hazard. Verified:\n   - `startup_reconciliation.py:305` \u2014 only processes\
+      \ RUNNING pipelines (window opens AFTER resume, not during CANCELLED)\n   -\
+      \ `startup_reconciliation.py:322-323` \u2014 reconstructs from messages if tracker\
+      \ is missing\n   - `reconstruct_tracker_from_messages` (peer_consensus/__init__.py:324-331)\
+      \ \u2014 takes bare `pipeline_id`, replays CONSENSUS_* messages\n\n3. **NOT\
+      \ #2053** \u2014 Correctly identified as same-pipeline stale-state replay, a\
+      \ distinct bug from #2053 (which is about new pipelines reusing ids).\n\n4.\
+      \ **Test impact** \u2014 Three test changes correctly specified per cq-2 resolution:\
+      \ rewrite `test_cancel_clears_runtime_state`, pin CREATE path, add NEW regression\
+      \ test for cancel \u2192 resume \u2192 orchestrator restart \u2192 assert consensus\
+      \ NOT resurrected.\n\n5. **Scope constraints** \u2014 Four constraints from\
+      \ cq-3 resolution correctly included: 1+2 ship together, 3 independent, 4 deferred,\
+      \ #3633 out of scope.\n\n6. **#3633 explicitly out of scope** \u2014 The summary\
+      \ now explicitly states #3633 is out of scope, addressing the operator's process\
+      \ note about silently omitted directives.\n\nThe human summary is now internally\
+      \ consistent with the corrected technical draft and accurately reflects the\
+      \ operator's binding resolutions."
     ack_version: 1
   version: 1
 ````
 
-### [2026-07-25T23:31:28Z] orchestrator → simplifier (STATUS): Ready to confirm — all confirm preconditions satisfied
+### [2026-07-25T23:40:20Z] orchestrator → simplifier (STATUS): Ready to confirm — all confirm preconditions satisfied
 
 Your proposal (version 1) is ready to confirm — all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.
 
 ````yaml
-id: 38330656-dc54-4c
+id: 120251bb-b2c8-4a
 phase: refine
 metadata:
   ready_to_confirm: true
   version: 1
 ````
 
-### [2026-07-25T23:31:29Z] simplifier (CONSENSUS_CONFIRMED): Consensus confirmed by simplifier
+### [2026-07-25T23:40:24Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
 
-orchestrator-side confirm (#3064 event loop)
-
-````yaml
-id: fd10634b-97fa-4a
-phase: refine
-````
-
-### [2026-07-25T23:31:29Z] reviewer_refine (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_refine
-
-orchestrator-side confirm (#3064 event loop)
+context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold
 
 ````yaml
-id: 6b4e5161-31d0-44
-phase: refine
-````
-
-### [2026-07-25T23:31:29Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_agent_design
-
-orchestrator-side confirm (#3064 event loop)
-
-````yaml
-id: 87ce89be-8151-45
-phase: refine
-````
-
-### [2026-07-25T23:31:29Z] first_principles_reviewer (CONSENSUS_CONFIRMED): Consensus confirmed by first_principles_reviewer
-
-orchestrator-side confirm (#3064 event loop)
-
-````yaml
-id: 18f44be3-bbf7-47
-phase: refine
-````
-
-### [2026-07-25T23:31:32Z] simplifier (HEARTBEAT): heartbeat: WORKING
-
-in-tool-loop liveness (slice=none)
-
-````yaml
-id: 2df3a045-dc3a-4f
+id: 4d6c0630-206b-44
 phase: refine
 metadata:
   state: WORKING
+````
+
+### [2026-07-25T23:40:24Z] simplifier (CONSENSUS_CONFIRMED): Consensus confirmed by simplifier
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 2ecae68e-13ac-43
+phase: refine
+````
+
+### [2026-07-25T23:40:24Z] reviewer_refine (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_refine
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: afe9ecaa-84ee-4d
+phase: refine
+````
+
+### [2026-07-25T23:40:24Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Consensus confirmed by reviewer_agent_design
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 727d19a4-8c17-44
+phase: refine
+````
+
+### [2026-07-25T23:40:24Z] first_principles_reviewer (CONSENSUS_CONFIRMED): Consensus confirmed by first_principles_reviewer
+
+orchestrator-side confirm (#3064 event loop)
+
+````yaml
+id: 078ae4f4-f90c-43
+phase: refine
 ````
