@@ -87,6 +87,7 @@ traffic.
 import collections
 import datetime
 import json
+import math
 import threading
 
 from litellm.integrations.custom_logger import CustomLogger
@@ -161,6 +162,19 @@ def _usage_from_response_obj(response_obj):
     return _coerce_usage(usage)
 
 
+def _finite_number(value):
+    """True for a real, finite number. ``bool`` is excluded because
+    ``isinstance(True, int)`` is True and a boolean is not a measurement —
+    ``float(True)`` would silently record a 1 (one dollar, one token) that was
+    never billed or sent."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _positive(value):
+    """True for a real, finite, positive number."""
+    return _finite_number(value) and value > 0
+
+
 def _extract_cost(usage):
     """Prefer OpenRouter's top-level ``cost`` (what they bill you); under
     BYOK that field is zero because billing routes directly to the upstream
@@ -169,14 +183,20 @@ def _extract_cost(usage):
     number we record matches real spend on that turn. Returns None when no
     positive cost is present — notably on the streaming path, where LiteLLM's
     chunk reassembly drops the upstream cost (see ``_usage_from_response_obj``).
-    Callers must treat None as "unknown", not "$0"."""
+    Callers must treat None as "unknown", not "$0".
+
+    ``_positive`` rejects non-finite values as well as non-positive ones: a
+    ``+inf`` cost passes a bare ``> 0`` and would then be accumulated into the
+    session total, poisoning it as ``Infinity`` for the pod's lifetime AND
+    emitting the non-standard token that makes the line invalid JSON. (``NaN``
+    is already excluded — ``nan > 0`` is False.)"""
     u = usage or {}
     cost = u.get("cost")
-    if isinstance(cost, (int, float)) and cost > 0:
+    if _positive(cost):
         return float(cost)
     details = u.get("cost_details") or {}
     upstream = details.get("upstream_inference_cost")
-    if isinstance(upstream, (int, float)) and upstream > 0:
+    if _positive(upstream):
         return float(upstream)
     return None
 
@@ -185,8 +205,18 @@ def _extract_cache_stats(usage):
     """Extract input + cache + reasoning counts in a provider-agnostic way.
 
     Returns (prompt_tokens, cached_input_tokens, cache_write_tokens,
-    reasoning_tokens). Each defaults to 0; non-numeric values are treated
-    as 0.
+    reasoning_tokens). Each defaults to 0; anything that is not a real,
+    finite, non-negative number is treated as 0.
+
+    That guard is ``_extract_cost``'s, and it matters MORE here than it does
+    for cost, because ``_record`` emits these counts through ``int(...)``: an
+    ``inf`` raises ``OverflowError`` there, ``_record``'s outer handler
+    swallows it, and the whole line — cost data included — is dropped. Worse,
+    the value has already landed in ``agg[...]`` by then, so the session total
+    stays ``inf`` and EVERY subsequent call in that session emits nothing for
+    the pod's lifetime (the LRU only evicts under 4096-session pressure). A
+    ``bool`` is milder but wrong in the same direction as a boolean cost: one
+    token that was never sent.
 
     Providers expose cache numbers under several competing schemas — we read
     all and merge:
@@ -206,7 +236,7 @@ def _extract_cache_stats(usage):
     u = usage or {}
 
     def _num(x):
-        return float(x) if isinstance(x, (int, float)) else 0.0
+        return float(x) if _finite_number(x) and x >= 0 else 0.0
 
     prompt = _num(u.get("prompt_tokens"))
     pdet = u.get("prompt_tokens_details") or {}
@@ -286,14 +316,26 @@ def _extract_estimated_cost(mcd):
     ``standard_logging_object.response_cost`` — the latter is LiteLLM's
     aggregated/finalized metrics object, preferred for streaming, so the
     fallback hardens against a LiteLLM version where the top-level key is
-    absent on the streaming path."""
+    absent on the streaming path.
+
+    The fallback is gated on ``_positive``, not on mere presence, so it also
+    fires when the top-level key is present but unusable. ``response_cost:
+    0.0`` is the realistic case — LiteLLM writes it when it cannot price the
+    model, which is exactly the situation this fallback exists for, and a
+    presence check would let that zero suppress a perfectly good estimate in
+    the metrics object. This keeps the gate symmetric with ``_extract_cost``,
+    whose ``cost: 0`` (BYOK) falls through to its own second source.
+
+    Non-finite values are rejected for the same reason as in ``_extract_cost``:
+    ``+inf`` clears a bare ``> 0`` and would poison the session total and the
+    line's JSON validity together."""
     try:
         mcd = mcd or {}
         rc = mcd.get("response_cost")
-        if not isinstance(rc, (int, float)):
+        if not _positive(rc):
             slo = mcd.get("standard_logging_object")
             rc = slo.get("response_cost") if isinstance(slo, dict) else None
-        if isinstance(rc, (int, float)) and rc > 0:
+        if _positive(rc):
             return float(rc)
         return None
     except Exception:
@@ -348,30 +390,234 @@ _REQUEST_PARAM_KEYS = (
 # line for the rest of the session.
 _MAX_PARAM_JSON_CHARS = 512
 
+# Value cap for the priority keys below. Larger than the general cap because
+# "this entry is load-bearing enough to reorder the dict for" and "this entry
+# gets the same size budget as a junk sibling" are in tension: a provider pin
+# carrying an `ignore` list of a few dozen backends clears 512 chars easily,
+# and collapsing it to a size marker loses precisely the backend identity the
+# field exists to record. Still a cap — one entry cannot run away either.
+_MAX_PRIORITY_PARAM_JSON_CHARS = 2048
 
-def _bounded_param(value):
+# Key-count cap for the extra_body remainder. Its values are bounded one by one
+# (so a bulky sibling can't collapse the small, load-bearing provider pin), which
+# leaves the number of keys as the remaining unbounded dimension. Sized against
+# the whole-block budget below rather than picked as a round number: 16 keys at
+# their name and value caps (one of them a priority key at its larger cap) emit
+# 11,289 chars, measured, which leaves the aggregate guard nothing to undo in
+# the case this cap already covers. A real extra_body is one or two entries.
+_MAX_EXTRA_BODY_KEYS = 16
+
+# Key-NAME cap for the extra_body remainder. Deliberately far tighter than the
+# value cap: a key name contributes to the emitted line exactly as a value does,
+# so reusing _MAX_PARAM_JSON_CHARS here would double the aggregate bound — and
+# no real extra_body key is anywhere near 64 characters, so the extra headroom
+# would buy no diagnostic value for that cost.
+_MAX_EXTRA_BODY_KEY_CHARS = 64
+
+# extra_body keys hoisted ahead of the key-count cap, and given the larger
+# value cap above. The OpenRouter provider pin decides WHICH backend (and so
+# which quantization) served the turn, which makes it the single most
+# load-bearing entry in the remainder; ordering it first keeps the count cap
+# from being positional, so the pin survives no matter where an operator's
+# config happens to place it, and the wider size budget keeps it legible when
+# it is a real pin rather than the two-line example.
+_EXTRA_BODY_PRIORITY_KEYS = ("provider",)
+
+# Sentinel for the truncation marker. Namespaced so it cannot collide with (and
+# silently overwrite) a real operator-supplied ``extra_body`` key.
+_EXTRA_BODY_TRUNCATED_KEY = "<egg:truncated>"
+
+# Whole-block budget for the emitted request_params. The caps above bound each
+# dimension separately but compose multiplicatively — 19 allowlisted keys at the
+# 512-char value cap alongside a maximal extra_body clears 20KB with every
+# individual cap intact — so the aggregate needs its own ceiling.
+#
+# 16KiB is the number that matters: Docker's json-file driver and containerd's
+# CRI logger both split a stdout line at that size into `P`-marked partials, and
+# neither fragment is valid JSON. The documented ``jq -Rc 'fromjson?'`` query
+# then drops the line, cost data and all — the same outcome ``allow_nan=False``
+# exists to prevent, reached by size instead of by token. 12KiB leaves headroom
+# for the cost/attribution/session fields that share the line (~800 bytes on a
+# stock line, and themselves bounded only by the model and header names).
+_MAX_REQUEST_PARAMS_CHARS = 12288
+
+
+def _scrub_non_finite(value, _depth=0):
+    """Replace non-finite floats *inside* a container with their marker.
+
+    Only ever called on the recovery path in ``_bounded_param``, after a strict
+    encode has already told us there is a ``NaN``/``Inf`` in there somewhere.
+    Scrubbing rather than rejecting keeps the finite siblings: a 100-entry
+    ``logit_bias`` with one ``-inf`` is still 99 entries of usable evidence, and
+    the marker preserves the "an operator set an insane value" reading that a
+    flat ``<unserializable>`` would conflate with "we couldn't encode this".
+    Depth-capped so a self-referential structure can't run away here (the caller
+    still degrades it — the retry encode raises on whatever we left behind)."""
+    if _depth > 8:
+        return value
+    if isinstance(value, float) and not math.isfinite(value):
+        return f"<non-finite: {value}>"
+    if isinstance(value, dict):
+        return {k: _scrub_non_finite(v, _depth + 1) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_scrub_non_finite(v, _depth + 1) for v in value]
+    return value
+
+
+def _bounded_param(value, max_chars=_MAX_PARAM_JSON_CHARS):
     """Return ``value`` clamped to something safe to embed in the log line.
 
-    Two hazards, both of which would cost us the WHOLE line rather than just
-    this field (``_emit`` swallows a serialization failure):
-    non-JSON-serializable values, and unbounded ones. Scalars pass through;
-    everything else is round-tripped through JSON — with ``default=str`` so an
-    exotic value degrades to its repr instead of raising — and replaced by a
-    size marker when it exceeds the cap."""
+    Three hazards, all of which would cost us the WHOLE line rather than just
+    this field (``_emit`` swallows a serialization failure): non-finite floats,
+    non-JSON-serializable values, and unbounded ones. ``NaN``/``Inf`` are the
+    subtlest — ``json.dumps`` emits the non-standard ``NaN``/``Infinity`` tokens
+    (invalid JSON), so a downstream ``jq 'fromjson?'`` silently drops the line,
+    cost data and all; a misconfigured ``temperature``/``top_p`` is enough to
+    trigger it, so we map a non-finite scalar to a marker. Nested ones need
+    their own handling, and are the MORE reachable half: ``{"5": -inf}`` as a
+    ``logit_bias`` is a real idiom for banning a token. ``allow_nan=False``
+    makes the round-trip below raise on them rather than emit an invalid token,
+    and the retry scrubs them to the same marker in place — so one bad entry
+    costs that entry, not the field and not the line. Otherwise scalars pass
+    through; everything else is round-tripped through JSON — with
+    ``default=str`` so an exotic value degrades to its repr instead of raising —
+    and replaced by a size marker when it exceeds ``max_chars``, which callers
+    raise for the entries they consider load-bearing."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return f"<non-finite: {value}>"
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
-        return value if len(value) <= _MAX_PARAM_JSON_CHARS else f"<{len(value)} chars omitted>"
+        return value if len(value) <= max_chars else f"<{len(value)} chars omitted>"
     try:
-        encoded = json.dumps(value, default=str)
+        encoded = json.dumps(value, default=str, allow_nan=False)
+    except ValueError:
+        # Strictly a non-finite float somewhere below the top level — the only
+        # ValueError allow_nan=False adds. Scrub those in place and retry;
+        # anything still unencodable falls through to the marker.
+        try:
+            encoded = json.dumps(_scrub_non_finite(value), default=str, allow_nan=False)
+        except Exception:
+            return "<unserializable>"
     except Exception:
         return "<unserializable>"
-    if len(encoded) > _MAX_PARAM_JSON_CHARS:
+    if len(encoded) > max_chars:
         return f"<{len(encoded)} chars omitted>"
     try:
         return json.loads(encoded)
     except Exception:
         return "<unserializable>"
+
+
+def _bounded_extra_body_key(key):
+    """Bound one ``extra_body`` key name for emission.
+
+    Oversized names keep a prefix rather than collapsing to a bare size marker:
+    two 600-char keys would otherwise produce the identical marker and one
+    would silently overwrite the other, turning a size problem into a data-loss
+    problem. The prefix also keeps the name diagnostic, which is the whole
+    point of recording the key at all."""
+    key = str(key)
+    if len(key) <= _MAX_EXTRA_BODY_KEY_CHARS:
+        return key
+    return f"{key[:_MAX_EXTRA_BODY_KEY_CHARS]}…<{len(key)} chars omitted>"
+
+
+def _uncollided_key(bounded, emitted_key):
+    """Return ``emitted_key``, suffixed if it is already taken.
+
+    Distinct source keys can still normalize to one name (``1`` and ``"1"``, or
+    two long keys sharing a prefix AND a length), and the truncation marker can
+    land on a key an operator really named that. Suffix rather than overwrite —
+    a lost value reads as a key that was never sent, which is exactly the
+    inference this field invites."""
+    if emitted_key not in bounded:
+        return emitted_key
+    suffix = 2
+    while f"{emitted_key}<{suffix}>" in bounded:
+        suffix += 1
+    return f"{emitted_key}<{suffix}>"
+
+
+def _bounded_extra_body(leftover):
+    """Bound the ``extra_body`` remainder along every dimension that can grow.
+
+    ``extra_body`` is config-supplied and typically pinned in ``litellm_params``,
+    so an unbounded remainder is not one bad line — it is EVERY line for the
+    life of the config. Three dimensions, each capped:
+
+    - **Value size** — bounded per value rather than over the dict as a whole,
+      so a bulky sibling knob degrades on its own instead of collapsing the
+      small, load-bearing provider pin along with it. Priority keys get the
+      wider ``_MAX_PRIORITY_PARAM_JSON_CHARS`` budget, so a real provider pin
+      (an ``ignore`` list of a few dozen backends clears 512 chars) stays
+      legible rather than degrading to the size marker.
+    - **Key count** — capped, with the priority keys hoisted first so the cap
+      is not positional (a config with the pin at index 40 still records it).
+    - **Key name** — capped, and stringified: ``json.dumps``' ``default=`` hook
+      applies to values only, so a non-``str`` key would raise out in ``_emit``,
+      where the failure is swallowed and the whole line, cost data included, is
+      dropped.
+
+    Every emitted key — the truncation marker included — goes through
+    ``_uncollided_key``, so the ``len(...) == _MAX_EXTRA_BODY_KEYS + 1``
+    invariant on a truncated remainder holds for any input rather than only for
+    inputs that happen not to collide with the sentinel."""
+    ordered = [(k, v) for k, v in leftover.items() if k in _EXTRA_BODY_PRIORITY_KEYS]
+    ordered += [(k, v) for k, v in leftover.items() if k not in _EXTRA_BODY_PRIORITY_KEYS]
+    bounded = {}
+    for key, value in ordered[:_MAX_EXTRA_BODY_KEYS]:
+        cap = (
+            _MAX_PRIORITY_PARAM_JSON_CHARS
+            if key in _EXTRA_BODY_PRIORITY_KEYS
+            else _MAX_PARAM_JSON_CHARS
+        )
+        emitted_key = _uncollided_key(bounded, _bounded_extra_body_key(key))
+        bounded[emitted_key] = _bounded_param(value, cap)
+    if len(ordered) > _MAX_EXTRA_BODY_KEYS:
+        omitted = len(ordered) - _MAX_EXTRA_BODY_KEYS
+        marker_key = _uncollided_key(bounded, _EXTRA_BODY_TRUNCATED_KEY)
+        bounded[marker_key] = f"<{omitted} more keys omitted>"
+    return bounded
+
+
+def _fit_request_params(out):
+    """Clamp the assembled block to ``_MAX_REQUEST_PARAMS_CHARS``, returning it.
+
+    The per-dimension caps each hold on their own and still compose into a line
+    big enough to be split by the container runtime (see the constant), so the
+    aggregate gets a ceiling of its own. Every value here has already been
+    through ``_bounded_param``, so re-encoding one cannot raise.
+
+    Two ordering choices, both about what a truncated line should still be able
+    to answer:
+
+    - **Largest entry first.** The sampling scalars this field exists to record
+      are a handful of bytes each; whatever pushed the block over is not one of
+      them. They are the last to go, not the first.
+    - **``extra_body`` collapses to its priority keys before it collapses
+      entirely.** The provider pin is both the most load-bearing entry in the
+      remainder and one of the smallest, so there is no reason for it to share
+      the fate of the bulk it was sitting next to."""
+    if len(json.dumps(out)) <= _MAX_REQUEST_PARAMS_CHARS:
+        return out
+    for key in sorted(out, key=lambda k: len(json.dumps(out[k])), reverse=True):
+        value = out[key]
+        if key == "extra_body" and isinstance(value, dict):
+            pinned = {k: v for k, v in value.items() if k in _EXTRA_BODY_PRIORITY_KEYS}
+            if pinned and len(json.dumps(pinned)) < len(json.dumps(value)):
+                omitted = len(value) - len(pinned)
+                pinned[_uncollided_key(pinned, _EXTRA_BODY_TRUNCATED_KEY)] = (
+                    f"<{omitted} more keys omitted>"
+                )
+                out[key] = pinned
+                if len(json.dumps(out)) <= _MAX_REQUEST_PARAMS_CHARS:
+                    break
+                value = pinned
+        out[key] = f"<{len(json.dumps(value))} chars omitted>"
+        if len(json.dumps(out)) <= _MAX_REQUEST_PARAMS_CHARS:
+            break
+    return out
 
 
 def _extract_request_params(mcd):
@@ -433,8 +679,10 @@ def _extract_request_params(mcd):
                 else:
                     leftover[key] = value
             if leftover:
-                out["extra_body"] = _bounded_param(leftover)
-        return out
+                # Size, key count and key names are all bounded there — see
+                # _bounded_extra_body for why each dimension needs its own cap.
+                out["extra_body"] = _bounded_extra_body(leftover)
+        return _fit_request_params(out)
     except Exception:
         return None
 

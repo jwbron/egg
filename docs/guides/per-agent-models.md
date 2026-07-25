@@ -617,7 +617,7 @@ data:
 > degeneration are decoding-sensitive failure modes: without it, "was that
 > livelock inherent to the model or an unlucky sampling config?" is
 > unanswerable once the pod is gone (issue #3599; it blocked the #3598
-> post-mortem). Two things to know when reading it:
+> post-mortem). Three things to know when reading it:
 >
 > - **An absent key was never sent**, so the provider's server-side default
 >   applied. egg pins no sampling parameters today, so on a stock setup you
@@ -629,6 +629,22 @@ data:
 >   `litellm_params` that does not appear here was silently discarded or
 >   relocated into `extra_body` by LiteLLM's parameter mapper — which is the
 >   fastest way to catch a tuning change that never took effect.
+> - **A `<…>` value is a degradation marker, not a recorded value.** Every
+>   field is bounded so one pathological param cannot cost you the line —
+>   cost data included — when it fails to serialize. `<N chars omitted>` means
+>   the value (or `extra_body` key name) exceeded the size cap,
+>   `<non-finite: nan>` that something was set to `NaN`/`Inf`,
+>   `<unserializable>` that the value could not be encoded at all, and
+>   `<egg:truncated>` that `extra_body` carried more keys than the cap. The
+>   OpenRouter provider pin degrades last, not never: it is ordered ahead of
+>   the key-count cap and gets a 2048-char value budget instead of the usual
+>   512, but a pin larger than that still becomes a `<N chars omitted>`
+>   marker. The block as a whole is capped too, at 12KiB — a line above
+>   ~16KiB is split into unparseable fragments by the container log driver, so
+>   an oversized line is dropped by the `fromjson?` query below exactly like a
+>   malformed one. If that cap binds, the largest entries are marked down
+>   first, so a `<N chars omitted>` on a *small* field means the block was
+>   over budget rather than that field being oversized on its own.
 >
 > Prompt-bearing fields (`messages`, `tools`, `tool_choice`) are excluded by
 > allowlist: the cost stream is not a transcript sink.
