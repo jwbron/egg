@@ -214,7 +214,7 @@
           "id": "task-1-10",
           "description": "Test for RunningAgent liveness fields + role=str(cid) fix in snapshot builder.",
           "status": "pending",
-          "commit": null,
+          "commit": "4a02ece9b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Test verifies RunningAgent.role is populated with agent role name, not container UUID\n- Test verifies last_heartbeat_age_s and last_tool_call_age_s are populated\n- Test verifies detect_heartbeat_stall can fire when both age fields are stale\n- Test verifies detect_container_death reads correct role names",
@@ -1227,6 +1227,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-8 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-25T06:46:41.306647Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.9.commit",
+      "old_value": null,
+      "new_value": "4a02ece9b",
+      "reason": "Linked commit 4a02ece to task-1-10",
       "checkpoint_id": null
     }
   ],
