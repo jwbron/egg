@@ -11,7 +11,7 @@
     }
   ],
   "prompt": "Pausing a pipeline is lossy: `cancel_task(cleanup=false)` documents that state is preserved and resumable, but the same call destroys the BRC consensus tracker and the pipeline's message history — exactly the state a resume needs. See issue #3632 for the mechanism, the evidence from a live run, and four candidate fixes.\n\n## Ground rules\n\n**Verify before you build.** #3632 was written from a live incident plus a read of the tree, but treat the repository as the source of truth. Check every claim in it — including the file/line citations — and say what you checked. If a claim is wrong, say so; that is a more valuable outcome than implementing something that was never broken.\n\n**Scope is yours to propose.** The issue lists four candidate changes (don't clear on CANCELLED; namespace tracker + message stream by `run_epoch`; persist BRC history on pause as well as slice close; reconstruct per-slice trackers on resume) plus three ergonomics observations. Decide which are worth doing, in what order, and what to leave out. They are not equally sound and they are not all independent — in particular, ask whether the minimal fix (stop clearing on CANCELLED) is safe on its own given #2053, or whether it strictly requires the `run_epoch` namespacing to land first.\n\n**The regression you must not cause is #2053**: a fresh pipeline reusing a terminal pipeline's id must never inherit the prior run's CONFIRMED consensus or message history. Whatever you change, that has to stay closed, and the tests must show it.\n\n**Distinguish null from zero, and absent from empty.** A cleared message stream and a pipeline that never emitted messages must not look alike to a caller.\n\nIf a judgement call would materially change the shape of the work, raise it as a decision rather than guessing.",
-  "status": "pending",
+  "status": "running",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -93,7 +93,7 @@
   "phases": {},
   "decisions": [],
   "created_at": "2026-07-25T22:57:36.434898Z",
-  "updated_at": "2026-07-25T22:57:36.435192Z",
+  "updated_at": "2026-07-25T22:57:36.574061Z",
   "contract_synced": false,
   "network_mode": null,
   "mode": "issue",
@@ -106,7 +106,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 2,
+  "version": 3,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
