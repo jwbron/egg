@@ -267,10 +267,12 @@ the four method angles are specific to the code-review and holistic lenses.
 
 ## 4. The deterministic risk router
 
-The review graph was static — every slice got all critical lenses at full depth.
-A deterministic router (plain code, never a model) now sits in front of it and, per
-slice, gates lenses, sets a risk tier that scales reasoning effort, and optionally
-scales stance.
+The review graph is static — every slice gets all critical lenses at full depth.
+A deterministic router (plain code, never a model) is designed to sit in front of it
+and, per slice, gate lenses, set a risk tier that scales reasoning effort, and
+optionally scale stance. The router core and its three wiring seams have shipped, but
+nothing threads a changed-file set into them yet, so none of it is live — see **Not
+yet wired** below. This section describes the semantics the wiring slice will honor.
 
 ### The router
 
@@ -284,16 +286,39 @@ is pure: the same changed-file set and config always yield the same
 [`.egg/review-risk.yaml`](../../.egg/review-risk.yaml) is the policy input; the
 router reads it via `load_risk_config()`. `default_config_path()` resolves the
 location: the `EGG_REVIEW_RISK_CONFIG` env var wins if set to a *non-empty* value (an
-absolute or cwd-relative path to the YAML file itself, not a directory; setting it to
-the empty string falls through to the default rather than erroring). Otherwise the
-path is `.egg/review-risk.yaml` relative to the `repo_root` the caller threads
-through — or, when the caller passes none, relative to the **process CWD**. Callers
-differ on this: `_criteria.py`'s effort seam passes a repo path explicitly, while the
-graph-gating callers of `get_review_graph_for_phase()` (e.g. `concurrent_executor.py`)
-do not, so they resolve against the orchestrator's CWD. Mirrors the
-`.egg/phase-permissions.json` convention. The override is a plain path, not a staged
-mode flag; a config that fails to load — including one the CWD fallback failed to
-find — fails open (see below). Format:
+absolute or cwd-relative path to the YAML file itself, not a directory). The check is
+a bare truthiness test, so the empty string falls through to the default rather than
+erroring — but a whitespace-only value does *not*: it becomes `Path(" ")`, fails to
+load, and lands on the fail-open path below with only the generic warning. Otherwise
+the path is `.egg/review-risk.yaml` relative to the `repo_root` the caller threads
+through — or, when the caller passes none, relative to the **process CWD**. All three
+router seams default `repo_root` to `None`, so which applies is the caller's choice.
+Mirrors the `.egg/phase-permissions.json` convention. The override is a plain path,
+not a staged mode flag; a config that fails to load — including one the CWD fallback
+failed to find — fails open (see below).
+
+**Not yet wired.** No production caller threads a slice's changed-file set into any of
+the router's three seams, so `resolve_risk_decision()` has no production call path and
+`default_config_path()` is never reached outside tests:
+
+- **Lens gating** — `get_review_graph_for_phase()` only gates when a caller passes
+  `changed_files` and the phase is `implement`
+  ([`orchestrator/review_graph.py`](../../orchestrator/review_graph.py)); none of its
+  production call sites (`concurrent_executor.py`, `kubernetes_monitor.py`,
+  `routes/consensus.py`, `kubernetes_spawner/_env.py`, and the rest) pass it.
+- **Effort** — `resolve_agent_model()` is called from `concurrent_executor.py` without
+  `changed_files`, so `resolve_review_effort()` returns the base effort verbatim before
+  the router is consulted
+  ([`orchestrator/agent_model_resolution.py`](../../orchestrator/agent_model_resolution.py)).
+- **Stance** — `_get_reviewer_scope_preamble()` is called from `_prompt_review.py` with
+  neither `changed_files` nor `repo_path`, so `_review_stance_framing()` short-circuits
+  to `""` ([`orchestrator/routes/pipelines/_criteria.py`](../../orchestrator/routes/pipelines/_criteria.py)).
+
+With `EGG_RISK_ROUTER=on` the graph, effort, and stance are therefore all unchanged
+today, and **nothing logs to say so** — not even the fail-open warning, because the
+config load is never attempted.
+
+Format:
 
 ```yaml
 schema_version: 1          # currently 1; evolve additively
