@@ -184,7 +184,7 @@
           "id": "task-1-8",
           "description": "Green the boundary \u2014 make lint + make test-all.",
           "status": "pending",
-          "commit": null,
+          "commit": "8a563897b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "All tests pass, no behavior change in the diff.",
@@ -695,6 +695,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-7 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-26T05:02:53.201574Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.7.commit",
+      "old_value": null,
+      "new_value": "8a563897b",
+      "reason": "Linked commit 8a56389 to task-1-8",
       "checkpoint_id": null
     }
   ],
