@@ -240,7 +240,7 @@ class TestNoOpDurableAcrossReconstruction:
         def __init__(self, messages):
             self._messages = messages
 
-        def get_messages(self, pipeline_id, *, limit=100):
+        def get_messages(self, pipeline_id, *, limit=100, run_epoch=None, **kwargs):
             return list(self._messages)
 
     def setup_method(self):

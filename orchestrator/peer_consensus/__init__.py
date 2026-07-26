@@ -228,11 +228,11 @@ def _resolve_run_epoch(pipeline_id: str, run_epoch: str | None = None) -> str:
 
     When ``run_epoch`` is explicitly supplied (e.g. from a Pipeline object's
     ``run_epoch`` field), use it directly. When ``None``, fall back to
-    ``pipeline_id`` itself as the epoch marker — this preserves backward
-    compatibility for callers that have not yet been migrated to pass
-    ``run_epoch`` explicitly, and for fresh pipelines where ``run_epoch``
-    has not been set yet (the create-path clear will wipe all epochs
-    anyway).
+    the base ``pipeline_id`` (stripped of any ``/slice_id`` suffix) as
+    the epoch marker — this preserves backward compatibility for callers
+    that have not yet been migrated to pass ``run_epoch`` explicitly, and
+    for fresh pipelines where ``run_epoch`` has not been set yet (the
+    create-path clear will wipe all epochs anyway).
 
     The returned string is used as a namespace component in tracker keys
     and message-stream keys, so a resumed pipeline (which gets a fresh
@@ -241,12 +241,13 @@ def _resolve_run_epoch(pipeline_id: str, run_epoch: str | None = None) -> str:
     """
     if run_epoch is not None:
         return run_epoch
-    # Fallback: use pipeline_id as the epoch marker for backward compat.
-    # This is safe because:
-    # 1. The create-path clear wipes ALL epochs for a pipeline_id.
-    # 2. A fresh pipeline with run_epoch=None has no prior messages to replay.
-    # 3. Callers that pass run_epoch=None are operating on a pipeline that
-    #    hasn't been resumed yet (no stale-state replay hazard).
+    # Fallback: use the base pipeline_id (without slice_id) as the epoch
+    # marker for backward compat. If pipeline_id already contains a "/"
+    # (e.g. "issue-N/slice-M"), strip the slice portion so the epoch
+    # is just "issue-N" — otherwise the epoch would contain the slice_id
+    # and keys would look like "issue-N/slice-M:issue-N/slice-M".
+    if "/" in pipeline_id:
+        return pipeline_id.split("/")[0]
     return pipeline_id
 
 
@@ -275,10 +276,15 @@ def _tracker_key(
     have constructed ``"issue-N/slice-M"`` themselves don't get a
     double prefix).
     """
+    # Idempotency: if pipeline_id already ends with /{slice_id}, the
+    # caller has already nested it. Extract the base pipeline_id for
+    # the epoch so the key is {base_id}:{base_id}/{slice_id}.
+    if "/" in pipeline_id and pipeline_id.endswith(f"/{slice_id}"):
+        base_id = pipeline_id[: -(len(slice_id) + 1)]  # strip /{slice_id}
+        epoch = _resolve_run_epoch(base_id, run_epoch)
+        return f"{base_id}:{epoch}/{slice_id}"
     epoch = _resolve_run_epoch(pipeline_id, run_epoch)
     if slice_id is None:
-        return f"{pipeline_id}:{epoch}"
-    if "/" in pipeline_id and pipeline_id.endswith(f"/{slice_id}"):
         return f"{pipeline_id}:{epoch}"
     return f"{pipeline_id}:{epoch}/{slice_id}"
 
@@ -370,16 +376,33 @@ def remove_peer_consensus_tracker(
 
     When ``run_epoch`` is supplied, removes only that specific epoch
     namespace — used by phase transitions and FAILED clears.
+
+    When ``slice_id`` is supplied with ``run_epoch=None``, removes only
+    the slice-scoped trackers across all epochs, leaving the pipeline-
+    level tracker intact. This is used by ``restart_agent`` to reset a
+    single agent's consensus state without wiping the pipeline-level
+    tracker.
     """
     if run_epoch is None:
-        # Remove all epoch namespaces for this pipeline_id (and optional slice).
+        # Remove all epoch namespaces for this pipeline_id.
         prefix = f"{pipeline_id}:"
         with _trackers_lock:
-            keys_to_remove = [
-                k for k in _trackers
-                if k.startswith(prefix)
-                and (slice_id is None or k.endswith(f"/{slice_id}") or "/" not in k[len(prefix):])
-            ]
+            keys_to_remove = []
+            for k in _trackers:
+                if not k.startswith(prefix):
+                    continue
+                remainder = k[len(prefix):]
+                if slice_id is None:
+                    # Remove everything under this pipeline_id
+                    keys_to_remove.append(k)
+                elif "/" in remainder:
+                    # Slice-scoped tracker: check if it matches slice_id
+                    slice_part = remainder.split("/", 1)[1]
+                    if slice_part == slice_id:
+                        keys_to_remove.append(k)
+                # Pipeline-level trackers (no "/" in remainder) are
+                # NOT removed when slice_id is specified — they are
+                # separate from any slice's tracker.
             for key in keys_to_remove:
                 tracker = _trackers.pop(key, None)
                 if tracker:

@@ -1897,7 +1897,7 @@ class _FakeMessageStore:
     def __init__(self, messages=None):
         self._messages = messages or []
 
-    def get_messages(self, pipeline_id, *, limit=100):
+    def get_messages(self, pipeline_id, *, limit=100, run_epoch=None, **kwargs):
         return [m for m in self._messages if True]  # return all
 
 
@@ -1907,10 +1907,20 @@ class TestReconstructTrackerFromMessages:
     def setup_method(self):
         """Clean up global tracker state between tests."""
         with _trackers_lock:
+            # Clean up all epoch namespaces for this pipeline_id (#3632)
+            prefix = "test-reconstruct:"
+            keys_to_remove = [k for k in _trackers if k.startswith(prefix)]
+            for k in keys_to_remove:
+                del _trackers[k]
             _trackers.pop("test-reconstruct", None)
 
     def teardown_method(self):
         with _trackers_lock:
+            # Clean up all epoch namespaces for this pipeline_id (#3632)
+            prefix = "test-reconstruct:"
+            keys_to_remove = [k for k in _trackers if k.startswith(prefix)]
+            for k in keys_to_remove:
+                del _trackers[k]
             _trackers.pop("test-reconstruct", None)
 
     def test_returns_none_when_no_messages(self, simple_graph):
@@ -2123,7 +2133,14 @@ class TestReconstructTrackerSliceAware:
     state. Reconstruction now scopes the replay to a single slice.
     """
 
-    _KEYS = ("recon-slice", "recon-slice/slice-1", "recon-slice/slice-7")
+    # With run_epoch=None, _resolve_run_epoch falls back to pipeline_id,
+    # so keys are {pipeline_id}:{pipeline_id}[/{slice_id}] (#3632)
+    _KEYS = (
+        "recon-slice",
+        "recon-slice:recon-slice",
+        "recon-slice:recon-slice/slice-1",
+        "recon-slice:recon-slice/slice-7",
+    )
 
     def setup_method(self):
         with _trackers_lock:
@@ -2177,9 +2194,11 @@ class TestReconstructTrackerSliceAware:
         # Only slice-7's coder proposed; slice-1's tester must not leak in.
         assert state["agents"]["coder"]["producer_phase"] == "PROPOSED"
         assert state["agents"]["tester"]["producer_phase"] == "WORKING"
-        # Registered under the nested {pipeline}/{slice} key, never the bare id.
+        # Registered under the nested {pipeline}:{epoch}/{slice} key, never
+        # the bare id. With run_epoch=None, _resolve_run_epoch falls back to
+        # pipeline_id, so the key is {pipeline_id}:{pipeline_id}/{slice_id}.
         with _trackers_lock:
-            assert "recon-slice/slice-7" in _trackers
+            assert "recon-slice:recon-slice/slice-7" in _trackers
             assert "recon-slice" not in _trackers
 
     def test_none_slice_skips_slice_tagged_messages(self, simple_graph):
@@ -2306,12 +2325,13 @@ class TestReconstructTrackerSliceAware:
         assert state["agents"]["coder"]["confirmed"] is True
         assert state["agents"]["tester"]["producer_phase"] == "CONFIRMED"
         assert state["agents"]["tester"]["confirmed"] is True
-        # Registered under the nested {pipeline}/{slice-7} key only —
+        # Registered under the nested {pipeline}:{epoch}/{slice-7} key only —
         # slice-1's propose did NOT create a sibling tracker, and the
-        # bare pipeline key is untouched.
+        # bare pipeline key is untouched. With run_epoch=None, the key
+        # is {pipeline_id}:{pipeline_id}/{slice_id} (#3632).
         with _trackers_lock:
-            assert "recon-slice/slice-7" in _trackers
-            assert "recon-slice/slice-1" not in _trackers
+            assert "recon-slice:recon-slice/slice-7" in _trackers
+            assert "recon-slice:recon-slice/slice-1" not in _trackers
             assert "recon-slice" not in _trackers
 
 

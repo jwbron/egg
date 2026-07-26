@@ -165,16 +165,28 @@ class TestSliceIntegrationBranch:
 
 class TestTrackerKey:
     def test_no_slice_id_returns_pipeline_id(self) -> None:
-        assert _tracker_key("issue-2137") == "issue-2137"
+        # With run_epoch=None, _resolve_run_epoch falls back to pipeline_id,
+        # so the key is {pipeline_id}:{pipeline_id} (#3632).
+        assert _tracker_key("issue-2137") == "issue-2137:issue-2137"
 
     def test_slice_id_nests(self) -> None:
-        assert _tracker_key("issue-2137", "slice-3") == "issue-2137/slice-3"
+        # With run_epoch=None, the key is {pipeline_id}:{pipeline_id}/{slice_id}
+        assert _tracker_key("issue-2137", "slice-3") == "issue-2137:issue-2137/slice-3"
 
     def test_idempotent_on_already_nested_id(self) -> None:
         # If a caller already constructed ``"issue-2137/slice-3"`` and
         # passes it back with ``slice_id="slice-3"``, the function must
-        # NOT double-prefix.
-        assert _tracker_key("issue-2137/slice-3", "slice-3") == "issue-2137/slice-3"
+        # NOT double-prefix. With run_epoch=None, the key includes the
+        # epoch component: {pipeline_id}:{pipeline_id}/{slice_id}.
+        assert _tracker_key("issue-2137/slice-3", "slice-3") == "issue-2137:issue-2137/slice-3"
+
+    def test_run_epoch_namespaces_key(self) -> None:
+        # With run_epoch set, the key is {pipeline_id}:{epoch}
+        assert _tracker_key("issue-2137", run_epoch="2026-01-01T00:00:00+00:00") == "issue-2137:2026-01-01T00:00:00+00:00"
+
+    def test_run_epoch_with_slice(self) -> None:
+        # With run_epoch set and slice_id, the key is {pipeline_id}:{epoch}/{slice_id}
+        assert _tracker_key("issue-2137", "slice-3", run_epoch="2026-01-01T00:00:00+00:00") == "issue-2137:2026-01-01T00:00:00+00:00/slice-3"
 
 
 class TestTrackerLifecycle:

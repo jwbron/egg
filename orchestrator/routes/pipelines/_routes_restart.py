@@ -338,6 +338,10 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
         _pkg.PipelineStatus.FAILED,
         _pkg.PipelineStatus.CANCELLED,
     )
+    # Capture the pre-restart run_epoch so the tracker reset below targets
+    # the OLD epoch's namespace (#3632). If the pipeline is inactive and
+    # gets a new run_epoch below, we need the old one for the tracker lookup.
+    _pre_restart_run_epoch = pipeline.run_epoch
     if pipeline_was_inactive:
         early_lock = _pkg.get_pipeline_state_lock(pipeline_id)
         with early_lock:
@@ -351,6 +355,11 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
                 # fresh epoch namespace and any stale thread that observes the
                 # transition detects itself as superseded (mirrors
                 # ``restart_phase`` / ``advance_phase``).
+                # Capture the pre-bump run_epoch so the tracker reset below
+                # targets the OLD epoch's namespace (#3632). After the bump,
+                # get_peer_consensus_tracker would look under the new epoch
+                # and miss the tracker that needs resetting.
+                _pre_restart_run_epoch = pipeline.run_epoch
                 pipeline.run_epoch = _pkg.datetime.now(_pkg.UTC)
                 pipeline.updated_at = _pkg.datetime.now(_pkg.UTC)
                 store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
@@ -590,7 +599,9 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
                 get_peer_consensus_tracker,  # type: ignore[import-not-found]
             )
 
-        _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
+        # Use the PRE-restart run_epoch to find the tracker that needs
+        # resetting — the post-bump epoch is for the NEW round (#3632).
+        _run_epoch_str = _pre_restart_run_epoch.isoformat() if _pre_restart_run_epoch else None
         tracker = get_peer_consensus_tracker(pipeline_id, slice_id, run_epoch=_run_epoch_str)
         if tracker:
             tracker.remove_agent(agent_role)
@@ -1044,6 +1055,11 @@ def _restart_phase_body(pipeline_id: str, phase: str) -> tuple[_pkg.Response, in
         phase_exec.cycle_timings = []
         pipeline.status = _pkg.PipelineStatus.RUNNING
         pipeline.error = None
+        # Capture the pre-bump run_epoch so the tracker clear below
+        # targets the OLD epoch's namespace (#3632). After the bump,
+        # get_peer_consensus_tracker would look under the new epoch and
+        # miss the tracker that needs clearing.
+        _pre_restart_run_epoch = pipeline.run_epoch
         pipeline.run_epoch = _pkg.datetime.now(_pkg.UTC)
         # ``updated_at`` is unconditionally set by ``StateStore.save_pipeline``
         # (which ``update_pipeline`` routes through).
@@ -1216,7 +1232,9 @@ def _restart_phase_body(pipeline_id: str, phase: str) -> tuple[_pkg.Response, in
                 get_peer_consensus_tracker,  # type: ignore[import-not-found]
             )
 
-        _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
+        # Use the PRE-restart run_epoch to find the tracker that needs
+        # clearing — the post-bump epoch is for the NEW round (#3632).
+        _run_epoch_str = _pre_restart_run_epoch.isoformat() if _pre_restart_run_epoch else None
         tracker = get_peer_consensus_tracker(pipeline_id, run_epoch=_run_epoch_str)
         if tracker:
             tracker.clear()

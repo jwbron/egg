@@ -199,7 +199,7 @@ class _FakeMessageStore:
     def __init__(self, messages: list[_FakeMessage]) -> None:
         self._messages = list(messages)
 
-    def get_messages(self, pipeline_id: str, *, limit: int = 100) -> list[_FakeMessage]:
+    def get_messages(self, pipeline_id: str, *, limit: int = 100, run_epoch: str | None = None, **kwargs) -> list[_FakeMessage]:
         return list(self._messages)
 
 
