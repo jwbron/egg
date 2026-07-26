@@ -1027,6 +1027,47 @@ before the operator resolves the decision, the event loop auto-withdraws it
 (`_withdraw_arms_parked_decisions` in `routes/pipelines/_decisions.py`), with
 the same multi-slice guard as the arms-exhausted withdrawal.
 
+### Close-Path Gate Escalation: Evidence Gate (#3572) & Green Gate (#3398)
+
+A slice can reach full consensus and still fail to close: the #3125 evidence-reachability
+gate (`EGG_EVIDENCE_REACHABILITY_GATE`) blocks on a task whose completion cites no
+reachable evidence, and the per-slice green gate (#3398, `EGG_SLICE_GREEN_GATE`) blocks
+on a red verdict from the repo's configured checks at the integration-branch tip. Both
+gates land an unresolved HITL `Decision` on the contract before the phase fails
+(`_escalate_evidence_gate_to_hitl`, `_escalate_green_gate_to_hitl`, both wrapping
+`_escalate_layer_c_hitl` with `carry_forward=False`), so the block surfaces in `/sdlc`
+instead of only as a `FAILED` phase an operator has to notice. This does not change the
+outcome — `record_failure` still arms the descendant cascade and the phase still goes
+`FAILED` — it only makes the block visible and gives the operator a place to answer.
+
+Question text is prefixed `[#3572 evidence-gate]` or `[#3398 green-gate]` so a future
+dispatch handler in `routes/decisions.py` can route on the marker ([#3634](https://github.com/jwbron/egg/issues/3634)); no
+handler exists yet, so resolving the decision is a record for the operator, not an
+action the orchestrator takes.
+
+**Options** (shared with the Layer-C BLOCKED/corrupt-state cases above):
+
+| Option | Effect |
+|--------|--------|
+| Mark slice complete and continue | Recorded only — not dispatched. Take the equivalent manual action (e.g. `complete_task_as_operator`, see [Executable Task-Completion Resolution](#executable-task-completion-resolution-3124)). |
+| Restart slice from scratch | Recorded only — not dispatched. Call `restart_phase` manually. |
+| Cancel pipeline for manual investigation | Recorded only — not dispatched. Call `cancel_task` manually. |
+
+Because resolving has no mechanical effect, a red that recurs *after* the operator
+answered raises a fresh decision rather than reusing the resolved one — the escalation
+opts out of the resolved-question half of the #3427 dedupe guard. A retry of the same
+*unanswered* incident still dedupes to one decision.
+
+**Recovery steps for operators:**
+
+1. Open `/sdlc` and find the pending decision — the question names the slice and, for
+   the green gate, the red check names (the per-check output tails are in the phase
+   failure message and the runner logs, not the decision text).
+2. Fix the underlying cause (add reachable evidence for the cited task, or fix the named
+   checks at the integration branch tip) and restart the slice/phase — or bypass the gate
+   via its env var (`EGG_SLICE_GREEN_GATE=off` for the green gate) if appropriate.
+3. Resolve the decision to record the outcome; it does not itself take any action.
+
 ## Related Files
 
 - `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches all pending decisions with `draft_content`; enriches `phase_gate` decisions additionally with `completed_agents_summary` and `reviewer_feedback`
