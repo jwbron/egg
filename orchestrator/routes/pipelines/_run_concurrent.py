@@ -306,6 +306,26 @@ def _run_concurrent_phase(
         event_status_view=event_status_view,
     )
 
+    # Last chance to notice a cancel before minting a cohort (#3633 review).
+    # The slice loop's guard runs at the top of its tick; everything between
+    # there and here — contract load, per-role prompt building (draft reads,
+    # BRC history, git diffs), gateway session + worktree setup, integration
+    # branch creation — takes tens of seconds. A cancel landing in that window
+    # runs the route's teardown BEFORE these Jobs exist, so nothing would reap
+    # them: no reconciler acts on CANCELLED, and ``cleanup_pipeline`` only
+    # re-runs on an operator DELETE. Re-read the status here so the cohort is
+    # never minted rather than minted-and-orphaned. FAILED is excluded for the
+    # same #1273 reason as every other layer.
+    if _pkg._pipeline_cancelled(store, pipeline_id):
+        _pkg.logger.info(
+            "Pipeline cancelled before agent spawn — no cohort minted",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            slice_id=slice_id,
+        )
+        executor.stop_event_loop()
+        return 1, "Phase monitor thread exited: pipeline_cancelled."
+
     # Spawn all agents with their prompts.
     executions = executor.spawn_all(agent_prompts=agent_prompts)
 
@@ -480,6 +500,17 @@ def _run_concurrent_phase(
                 reason=_bail_reason,
             )
             executor.stop_event_loop()
+            # On a cancel, this thread is the last owner of the cohort it
+            # spawned — reap it like every consensus exit path in this
+            # function does (#3633 review). A cohort minted after the route's
+            # ``cleanup_pipeline`` ran has nothing else to stop it: no
+            # reconciler acts on CANCELLED, and cleanup only re-runs on an
+            # operator DELETE. Deliberately NOT done on the
+            # ``superseded_by_restart`` branch — there the new
+            # ``_run_pipeline`` thread legitimately owns those containers and
+            # stopping them would kill the restarted run's agents (#3315).
+            if _bail_reason == "pipeline_cancelled":
+                _stop_running_containers()
             return 1, f"Phase monitor thread exited: {_bail_reason}."
 
         # 1. Check consensus

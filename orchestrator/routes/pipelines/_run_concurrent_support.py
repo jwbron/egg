@@ -17,9 +17,16 @@ def _phase_bail_reason_impl(*, store, pipeline_id, run_epoch) -> str | None:
 
     ``superseded_by_restart``
         A newer ``run_epoch`` means another ``_run_pipeline`` thread owns
-        this pipeline (#3315). Mirrors the post-return epoch check (#1638)
-        but runs *inside* the poll loop so a superseded thread stops
-        polling before it can fire stale escalations.
+        this pipeline (#3315 facet a). Mirrors the post-return epoch check
+        (#1638) but runs *inside* the poll loop so a superseded thread stops
+        polling before it can fire stale escalations. Dormant when
+        ``run_epoch`` is ``None`` (direct-call paths that thread no epoch).
+        This is the sole home of the epoch comparison: it replaced the
+        standalone ``_pipeline_superseded_by_restart`` predicate, which this
+        helper's callers — the ``_run_concurrent_phase`` poll loop and the
+        slice-path impasse-retry wrapper — both now reach through here, so
+        the "no escalation when superseded" property holds on both routes
+        from one implementation and one load.
 
     ``pipeline_cancelled``
         The operator cancelled the run (#3633). The cancel route stops this

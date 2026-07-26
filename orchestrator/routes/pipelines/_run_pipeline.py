@@ -1408,11 +1408,26 @@ def _run_pipeline(
                         old_epoch=run_epoch.isoformat(),
                         new_epoch=_cleanup_epoch.isoformat(),
                     )
-                elif current.status == _pkg.PipelineStatus.FAILED:
+                elif current.status in (
+                    _pkg.PipelineStatus.FAILED,
+                    _pkg.PipelineStatus.CANCELLED,
+                ):
+                    # CANCELLED joins FAILED here (#3633 review): ``restart_phase``
+                    # allowlists CANCELLED precisely so a ``cancel_task`` run can be
+                    # resumed without a full resubmission (#1725,
+                    # ``_routes_restart.py``), and the PATCH route already passes
+                    # ``preserve_worktrees=(status == "cancelled")`` to
+                    # ``cleanup_pipeline`` (``_routes_crud.py``). Before this, the
+                    # driver's own ``finally`` contradicted both by deleting the
+                    # worktrees the operator was told they could resume from. The
+                    # #3633 layers make that land seconds after the cancel rather
+                    # than at the next consensus timeout, so the two policies have
+                    # to agree.
                     skip_cleanup = True
                     _pkg.logger.info(
-                        "Pipeline failed, preserving worktrees for retry",
+                        "Pipeline failed or was cancelled, preserving worktrees for retry",
                         pipeline_id=pipeline_id,
+                        status=current.status.value,
                     )
             except Exception:
                 # Pipeline was deleted and not recreated — safe to clean up
