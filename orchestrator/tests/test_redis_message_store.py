@@ -1406,7 +1406,7 @@ class TestRedisRestartSemanticsVsPhaseBoundaryWipe:
         try:
             import peer_consensus
 
-            monkeypatch.setattr(peer_consensus, "remove_peer_consensus_tracker", lambda _pid: None)
+            monkeypatch.setattr(peer_consensus, "remove_peer_consensus_tracker", lambda _pid, **kwargs: None)
         except ImportError:  # pragma: no cover - module always present in repo
             pass
 

@@ -366,8 +366,8 @@ class TestAutoAdvanceRespawnsThread:
         path.
         """
         block = self._auto_advance_block()
-        assert "_clear_concurrent_state(pipeline_id)" in block, (
-            "Auto-advance must call _clear_concurrent_state(pipeline_id) so "
+        assert "_clear_concurrent_state(" in block, (
+            "Auto-advance must call _clear_concurrent_state so "
             "the next phase's get_pipeline_snapshot / get_consensus_status "
             "calls don't surface the previous phase's tracker (#2502)."
         )
@@ -426,9 +426,9 @@ class TestRecoverPipelineClearsConcurrentState:
         True`` indefinitely — the same shape as the auto-advance bug.
         """
         block = self._recover_advance_block()
-        assert "_clear_concurrent_state(pipeline_id)" in block, (
+        assert "_clear_concurrent_state(" in block, (
             "recover_pipeline's advance branch must call "
-            "_clear_concurrent_state(pipeline_id) so the next phase's "
+            "_clear_concurrent_state so the next phase's "
             "snapshot doesn't surface the previous phase's tracker (#2502)."
         )
 
@@ -438,7 +438,7 @@ class TestRecoverPipelineClearsConcurrentState:
         inside the lock for #1296)."""
         block = self._recover_advance_block()
         assert re.search(
-            r"if is_approved:\s*\n(?:\s*(?:from|#).*\n)*\s*_clear_concurrent_state\(pipeline_id\)",
+            r"if is_approved:\s*\n(?:\s*(?:from|#).*\n)*\s*_clear_concurrent_state\(",
             block,
         ), (
             "The recover_pipeline clear must be guarded by `if is_approved:` "

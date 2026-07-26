@@ -736,6 +736,10 @@ class RedisMessageStore:
         clears ALL epoch namespaces for the given ``pipeline_id``
         (used by DELETE and CREATE paths to defend #2053). When
         supplied, clears only that specific epoch.
+
+        Returns the total stream length cleared across all epochs
+        (matching the pre-#3632 return semantics for the single-epoch
+        case).
         """
         if run_epoch is None:
             # Clear all epoch namespaces for this pipeline_id.
@@ -751,14 +755,26 @@ class RedisMessageStore:
                     while True:
                         cursor, keys = self._redis.scan(cursor=cursor, match=pattern, count=100)
                         if keys:
-                            total_cleared += self._redis.delete(*keys)
+                            # Sum the stream lengths before deleting
+                            for k in keys:
+                                k_str = k.decode("utf-8") if isinstance(k, bytes) else k
+                                if k_str.endswith(":messages"):
+                                    try:
+                                        total_cleared += self._redis.xlen(k)
+                                    except redis.ResponseError:
+                                        pass
+                            self._redis.delete(*keys)
                         if cursor == 0:
                             break
                 # Also clear the legacy bare-key format (pre-#3632) for
                 # pipelines that may have been created before the migration.
                 legacy_stream = _stream_key(pipeline_id)
                 legacy_counts = _counts_key(pipeline_id)
-                total_cleared += self._redis.delete(legacy_stream, legacy_counts)
+                try:
+                    total_cleared += self._redis.xlen(legacy_stream)
+                except redis.ResponseError:
+                    pass
+                self._redis.delete(legacy_stream, legacy_counts)
                 with self._lock:
                     # Clear all cache entries for this pipeline_id
                     keys_to_remove = [

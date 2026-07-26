@@ -99,7 +99,7 @@ class TestCompletePhasePersistsBrcHistory:
 
         assert response.status_code == 200
         mock_persist.assert_called_once_with(pipeline, mock_store, "plan")
-        mock_clear.assert_called_once_with("issue-300")
+        mock_clear.assert_called_once_with("issue-300", run_epoch=None)
 
         # Persist must run before the clear — otherwise the message store
         # is empty by the time history is written.
@@ -154,7 +154,12 @@ class TestAdvancePhasePersistsBrcHistory:
         # new current phase — otherwise we save history for a phase that
         # has no consensus transcript yet.
         mock_persist.assert_called_once_with(pipeline, mock_store, "plan")
-        mock_clear.assert_called_once_with("issue-300")
+        # run_epoch is bumped during advance_phase (line ~489), so it's
+        # not None — just assert it was called with the right pipeline_id
+        # and a non-None run_epoch.
+        assert mock_clear.call_count == 1
+        assert mock_clear.call_args.args[0] == "issue-300"
+        assert mock_clear.call_args.kwargs.get("run_epoch") is not None
 
         call_names = [c[0] for c in parent.mock_calls]
         assert call_names.index("persist") < call_names.index("clear")
@@ -208,7 +213,12 @@ class TestAdvancePhasePersistsBrcHistory:
 
         assert response.status_code == 200
         mock_persist.assert_called_once_with(pipeline, mock_store, "plan")
-        mock_clear.assert_called_once_with("issue-300")
+        # run_epoch is bumped during advance_phase (line ~489), so it's
+        # not None — just assert it was called with the right pipeline_id
+        # and a non-None run_epoch.
+        assert mock_clear.call_count == 1
+        assert mock_clear.call_args.args[0] == "issue-300"
+        assert mock_clear.call_args.kwargs.get("run_epoch") is not None
 
         call_names = [c[0] for c in parent.mock_calls]
         assert call_names.index("persist") < call_names.index("clear")

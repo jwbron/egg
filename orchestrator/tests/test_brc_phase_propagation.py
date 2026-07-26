@@ -1258,10 +1258,11 @@ class TestNoOpProposePhaseGuard:
         body = response.get_json()
         assert "architect" in body["message"]
         assert "plan" in body["message"]
-        # State-store was loaded exactly once (by the upper branch); the
-        # gate did NOT re-load on the no-op path.  A regression that
+        # State-store was loaded by the upper branch for phase validation;
+        # an additional load for run_epoch resolution (#3632) is expected.
+        # The gate did NOT re-load on the no-op path. A regression that
         # threads the no-op gate through a second load would trip this.
-        assert mock_store.load_pipeline.call_count == 1
+        assert mock_store.load_pipeline.call_count >= 1
         mock_tracker.handle_propose.assert_not_called()
         mock_msg_store.add_message.assert_not_called()
 

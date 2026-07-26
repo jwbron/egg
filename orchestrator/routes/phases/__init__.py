@@ -113,6 +113,11 @@ from ._transitions import (  # noqa: E402,F401
     validate_phase_transition,
 )
 
+# _resolve_pipeline_run_epoch is defined in routes.pipelines._lifecycle_helpers
+# but is used by phase-transition submodules. Import it here so
+# ``patch("routes.phases._resolve_pipeline_run_epoch")`` seams work.
+from routes.pipelines import _resolve_pipeline_run_epoch  # noqa: E402,F401
+
 # ---- Route registrations -------------------------------------------------
 # Decision-8: decorators stay in __init__.py on thin wrappers; the bodies live
 # in the private submodules above.

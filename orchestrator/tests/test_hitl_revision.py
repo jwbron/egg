@@ -1760,4 +1760,4 @@ class TestInlineRequestChangesClearsConcurrentState:
         from routes import pipelines
 
         source = inspect.getsource(pipelines._run_pipeline)
-        assert "_clear_concurrent_state(pipeline_id)" in source
+        assert "_clear_concurrent_state(" in source

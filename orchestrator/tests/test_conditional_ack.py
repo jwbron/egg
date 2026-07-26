@@ -503,10 +503,18 @@ class TestSignalPathIntegration:
         self._register_tracker_with_proposal()
         live_store = RedisMessageStore(fakeredis.FakeRedis())
 
+        # Mock the state store to return a pipeline with run_epoch=None
+        # so _resolve_pipeline_run_epoch returns None (#3632)
+        mock_pipeline = MagicMock()
+        mock_pipeline.run_epoch = None
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = mock_pipeline
+
         with (
             self._flask_app_context(),
             patch("message_store.get_message_store", return_value=live_store),
             patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            patch("routes.signals.get_state_store", return_value=mock_store),
         ):
             response, status_code = handle_consensus_ack_signal(
                 _SIGNAL_PIPELINE_ID,
@@ -599,7 +607,7 @@ class _FakeMessageStore:
     def __init__(self, messages):
         self._messages = list(messages)
 
-    def get_messages(self, pipeline_id, *, limit=100):
+    def get_messages(self, pipeline_id, *, limit=100, run_epoch=None, **kwargs):
         return list(self._messages)
 
 
@@ -612,10 +620,20 @@ class TestReconstructionSurvivesCondition:
 
     def setup_method(self):
         with _trackers_lock:
+            # Clean up all epoch namespaces for this pipeline_id (#3632)
+            prefix = f"{_RECONSTRUCT_PIPELINE_ID}:"
+            keys_to_remove = [k for k in _trackers if k.startswith(prefix)]
+            for k in keys_to_remove:
+                del _trackers[k]
             _trackers.pop(_RECONSTRUCT_PIPELINE_ID, None)
 
     def teardown_method(self):
         with _trackers_lock:
+            # Clean up all epoch namespaces for this pipeline_id (#3632)
+            prefix = f"{_RECONSTRUCT_PIPELINE_ID}:"
+            keys_to_remove = [k for k in _trackers if k.startswith(prefix)]
+            for k in keys_to_remove:
+                del _trackers[k]
             _trackers.pop(_RECONSTRUCT_PIPELINE_ID, None)
 
     def test_condition_survives_message_store_replay(self):
@@ -1185,12 +1203,16 @@ class TestResolveObligationSignalHandler:
                 "pre_merge_condition": "tester must commit X",
             },
         )
+        # Store under the run_epoch-namespaced key (#3632). When run_epoch
+        # is None, _resolve_run_epoch falls back to pipeline_id, so the
+        # key is {pipeline_id}:{pipeline_id}.
         with _trackers_lock:
-            _trackers["test-pid-signal"] = tracker
+            _trackers["test-pid-signal:test-pid-signal"] = tracker
         return tracker
 
     def _clear_tracker(self):
         with _trackers_lock:
+            _trackers.pop("test-pid-signal:test-pid-signal", None)
             _trackers.pop("test-pid-signal", None)
 
     def test_resolves_active_obligation(self, app, matrix_graph):
@@ -1202,10 +1224,18 @@ class TestResolveObligationSignalHandler:
         try:
             from routes.signals import handle_consensus_resolve_obligation_signal
 
+            # Mock the state store to return a pipeline with run_epoch=None
+            # so _resolve_pipeline_run_epoch returns None (#3632)
+            mock_pipeline = MagicMock()
+            mock_pipeline.run_epoch = None
+            mock_store = MagicMock()
+            mock_store.load_pipeline.return_value = mock_pipeline
+
             with (
                 app.app_context(),
                 patch("message_store.get_message_store", return_value=live_store),
                 patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+                patch("routes.signals.get_state_store", return_value=mock_store),
             ):
                 response, status = handle_consensus_resolve_obligation_signal(
                     "test-pid-signal",
@@ -1261,10 +1291,18 @@ class TestResolveObligationSignalHandler:
         try:
             from routes.signals import handle_consensus_resolve_obligation_signal
 
+            # Mock the state store to return a pipeline with run_epoch=None
+            # so _resolve_pipeline_run_epoch returns None (#3632)
+            mock_pipeline = MagicMock()
+            mock_pipeline.run_epoch = None
+            mock_store = MagicMock()
+            mock_store.load_pipeline.return_value = mock_pipeline
+
             with (
                 app.app_context(),
                 patch("message_store.get_message_store", return_value=live_store),
                 patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+                patch("routes.signals.get_state_store", return_value=mock_store),
             ):
                 response, status = handle_consensus_resolve_obligation_signal(
                     "test-pid-signal",
@@ -1343,27 +1381,37 @@ class TestResolveObligationSignalHandler:
             "coder",
             {"artifact_references": ["src/a.py"]},
         )
+        # Store under the run_epoch-namespaced key (#3632). When run_epoch
+        # is None, _resolve_run_epoch falls back to pipeline_id.
         with _trackers_lock:
-            _trackers["test-pid-signal-empty"] = tracker
+            _trackers["test-pid-signal-empty:test-pid-signal-empty"] = tracker
         try:
             from routes.signals import handle_consensus_resolve_obligation_signal
 
+            # Mock the state store to return a pipeline with run_epoch=None
+            mock_pipeline = MagicMock()
+            mock_pipeline.run_epoch = None
+            mock_store = MagicMock()
+            mock_store.load_pipeline.return_value = mock_pipeline
+
             with app.app_context():
-                response, status = handle_consensus_resolve_obligation_signal(
-                    "test-pid-signal-empty",
-                    {
-                        "agent_role": "tester",
-                        "reviewer_role": "reviewer_contract",
-                        "producer_role": "coder",
-                    },
-                    Path("/tmp/repo"),
-                )
-                assert status == 400
-                body = response.get_json()
-                assert body["success"] is False
-                assert "No active obligation" in body.get("message", "")
+                with patch("routes.signals.get_state_store", return_value=mock_store):
+                    response, status = handle_consensus_resolve_obligation_signal(
+                        "test-pid-signal-empty",
+                        {
+                            "agent_role": "tester",
+                            "reviewer_role": "reviewer_contract",
+                            "producer_role": "coder",
+                        },
+                        Path("/tmp/repo"),
+                    )
+                    assert status == 400
+                    body = response.get_json()
+                    assert body["success"] is False
+                    assert "No active obligation" in body.get("message", "")
         finally:
             with _trackers_lock:
+                _trackers.pop("test-pid-signal-empty:test-pid-signal-empty", None)
                 _trackers.pop("test-pid-signal-empty", None)
 
     def test_missing_tracker_returns_404(self, app):

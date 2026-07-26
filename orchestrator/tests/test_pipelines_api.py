@@ -1080,10 +1080,17 @@ class TestRuntimeStateLeakageOnBranchReuse:
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_cancel_clears_runtime_state(
+    def test_cancel_preserves_runtime_state(
         self, mock_repo, mock_resolve, mock_spawner_fn, mock_dq_fn, client
     ):
-        """PATCH to cancelled status evicts consensus + message-store state."""
+        """PATCH to cancelled status does NOT evict consensus + message-store state.
+
+        cancel_task(cleanup=false) must preserve the consensus tracker and
+        message store so resume is lossless (#3632 Change 1). The clear on
+        cancel was removed because #2053 (new pipeline reusing a terminal
+        pipeline's id) is defended by the create-path clear, NOT the cancel-
+        path clear.
+        """
         mock_repo.return_value = "/repo"
         pipeline = _make_cancellable_pipeline("issue-1965")
 
@@ -1107,9 +1114,47 @@ class TestRuntimeStateLeakageOnBranchReuse:
                 json={"status": "cancelled"},
             )
             assert response.status_code == 200
+            # Cancel must NOT call _clear_pipeline_runtime_state
+            mock_clear.assert_not_called()
+
+    @patch("routes.pipelines.get_decision_queue")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_failed_still_clears_runtime_state(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_dq_fn, client
+    ):
+        """PATCH to failed status still evicts consensus + message-store state.
+
+        FAILED is a terminal status that should clear runtime state, unlike
+        CANCELLED which preserves it for resume (#3632).
+        """
+        mock_repo.return_value = "/repo"
+        pipeline = _make_cancellable_pipeline("issue-1965")
+
+        mock_store = MagicMock()
+        mock_store.update_pipeline.return_value = pipeline
+        mock_store.load_pipeline.return_value = pipeline
+        pipeline.status = PipelineStatus.FAILED
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.cleanup_pipeline.return_value = 0
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_dq = MagicMock()
+        mock_dq.get_pending_decisions.return_value = []
+        mock_dq_fn.return_value = mock_dq
+
+        with patch("routes.pipelines._clear_pipeline_runtime_state") as mock_clear:
+            response = client.patch(
+                "/api/v1/pipelines/issue-1965",
+                json={"status": "failed"},
+            )
+            assert response.status_code == 200
             mock_clear.assert_called_once()
             assert mock_clear.call_args.args[0] == "issue-1965"
-            assert "cancelled" in mock_clear.call_args.kwargs["reason"]
+            assert "failed" in mock_clear.call_args.kwargs["reason"]
 
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_container_spawner")
@@ -1146,6 +1191,12 @@ class TestRuntimeStateLeakageOnBranchReuse:
         Defends against paths that bypass PATCH/DELETE — auto-FAILED
         pipelines, and Redis-backed message-store entries that survived
         an orchestrator restart between cancel and resubmit.
+
+        This assertion is now LOAD-BEARING for #2053: with Change 1
+        (#3632), cancel no longer clears runtime state, so the create-
+        path clear is the ONLY defense against a new pipeline reusing a
+        terminal pipeline's id inheriting the prior run's CONFIRMED
+        consensus. If this test ever fails, #2053 is reopened.
         """
         mock_repo_path.return_value = Path("/home/egg/repos/webapp")
         mock_store = MagicMock()
@@ -1340,6 +1391,241 @@ class TestRuntimeStateLeakageOnBranchReuse:
         Body intentionally left blank so the test is a no-op pass; the
         docstring is the audit trail.
         """
+
+    def test_cancel_resume_restart_no_stale_state_replay(self):
+        """Regression test for #3632: cancel → resume → orchestrator restart
+        must NOT resurrect pre-cancel CONFIRMED consensus state.
+
+        The hazard: with Change 1 (cancel preserves the message store),
+        the pre-cancel CONSENSUS_* messages survive in Redis keyed by
+        bare ``pipeline_id``. If the message store is NOT namespaced by
+        ``run_epoch``, then after resume flips the pipeline to RUNNING
+        and an orchestrator restart triggers
+        ``startup_reconciliation.reconstruct_tracker_from_messages``,
+        the replay reads the retained pre-cancel messages and
+        resurrects confirmations the restart just cleared.
+
+        Change 2 (run_epoch namespacing) prevents this: the resumed
+        pipeline gets a fresh ``run_epoch``, so
+        ``reconstruct_tracker_from_messages`` reads only the new
+        epoch's (empty) message stream.
+
+        This test exercises the full window:
+        1. Seed a pipeline with pre-cancel CONSENSUS_* messages under
+           epoch E1.
+        2. Cancel (preserves state — Change 1).
+        3. Resume via restart_agent (bumps run_epoch to E2).
+        4. Simulate orchestrator restart by clearing the in-memory
+           tracker and calling reconstruct_tracker_from_messages.
+        5. Assert the reconstructed tracker for E2 is empty (no
+           resurrected confirmations).
+        """
+        from datetime import datetime, timezone
+
+        from message_store import Message, MessageType, get_message_store
+        from peer_consensus import (
+            create_peer_consensus_tracker,
+            get_peer_consensus_tracker,
+            reconstruct_tracker_from_messages,
+        )
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        pipeline_id = "issue-3632-regression-test"
+
+        # Clean slate
+        store = get_message_store()
+        store.clear(pipeline_id)  # clears all epochs
+
+        # Epoch E1: simulate pre-cancel consensus state
+        epoch_e1 = "2026-01-01T00:00:00+00:00"
+        graph = ReviewGraph(
+            edges=[
+                ReviewEdge(
+                    reviewer_role="reviewer_code",
+                    producer_role="coder",
+                    criticality=ReviewCriticality.CRITICAL,
+                )
+            ]
+        )
+
+        # Create tracker under E1 and seed it with a CONFIRMED message
+        tracker_e1 = create_peer_consensus_tracker(
+            pipeline_id, graph, run_epoch=epoch_e1
+        )
+        tracker_e1.register_agent("coder")
+        tracker_e1.register_agent("reviewer_code")
+        tracker_e1.handle_propose("coder", {"summary": "test proposal", "commit_sha": "abcdef1234567890", "artifacts": ["src/foo.py"]})
+        tracker_e1.handle_ack("reviewer_code", "coder", {"reason": "looks good", "artifact_references": ["src/foo.py"]})
+        tracker_e1.handle_confirmed("reviewer_code")
+        tracker_e1.handle_confirmed("coder")
+
+        # Seed the message store under E1 with the CONSENSUS_* messages
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Proposal from coder",
+                body="test proposal",
+                phase="implement",
+                metadata={"version": 1},
+            ),
+            run_epoch=epoch_e1,
+        )
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="reviewer_code",
+                to_role="coder",
+                message_type=MessageType.CONSENSUS_ACK,
+                subject="ACK from reviewer_code",
+                body="looks good",
+                phase="implement",
+                metadata={"version": 1},
+            ),
+            run_epoch=epoch_e1,
+        )
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="Confirmed by coder",
+                body="",
+                phase="implement",
+                metadata={"consensus_reached": True},
+            ),
+            run_epoch=epoch_e1,
+        )
+
+        # Sanity: E1 tracker exists and has consensus
+        assert get_peer_consensus_tracker(pipeline_id, run_epoch=epoch_e1) is not None
+        e1_eval = get_peer_consensus_tracker(pipeline_id, run_epoch=epoch_e1).evaluate()
+        assert e1_eval.get("is_complete") is True
+
+        # Step 2: Cancel (preserves state — Change 1)
+        # In the real code, cancel_task(cleanup=false) does NOT call
+        # _clear_pipeline_runtime_state for CANCELLED. We simulate the
+        # state after cancel: the message store and tracker under E1
+        # are still present.
+        assert store.get_status(pipeline_id, run_epoch=epoch_e1)["total"] == 3
+        assert get_peer_consensus_tracker(pipeline_id, run_epoch=epoch_e1) is not None
+
+        # Step 3: Resume via restart_agent (bumps run_epoch to E2)
+        epoch_e2 = "2026-01-02T00:00:00+00:00"
+
+        # The resumed pipeline gets a fresh tracker under E2
+        tracker_e2 = create_peer_consensus_tracker(
+            pipeline_id, graph, run_epoch=epoch_e2
+        )
+        tracker_e2.register_agent("coder")
+        tracker_e2.register_agent("reviewer_code")
+
+        # E2 tracker should be empty (no proposals yet)
+        e2_eval = tracker_e2.evaluate()
+        assert e2_eval.get("is_complete") is False
+
+        # Step 4: Simulate orchestrator restart — clear in-memory tracker
+        # and call reconstruct_tracker_from_messages for E2
+        from peer_consensus import _trackers, _trackers_lock
+
+        with _trackers_lock:
+            keys_to_remove = [k for k in _trackers if k.startswith(f"{pipeline_id}:")]
+            for k in keys_to_remove:
+                del _trackers[k]
+
+        # No in-memory tracker for E2
+        assert get_peer_consensus_tracker(pipeline_id, run_epoch=epoch_e2) is None
+
+        # Step 5: reconstruct_tracker_from_messages for E2 should NOT
+        # resurrect E1's CONFIRMED state
+        reconstructed = reconstruct_tracker_from_messages(
+            pipeline_id, graph, run_epoch=epoch_e2
+        )
+
+        # The reconstructed tracker for E2 should be None (no messages
+        # under E2's stream) or empty (not CONFIRMED).
+        if reconstructed is not None:
+            recon_eval = reconstructed.evaluate()
+            assert recon_eval.get("is_complete") is False, (
+                "STALE-STATE REPLAY: reconstruct_tracker_from_messages "
+                "resurrected pre-cancel CONFIRMED state from E1 into E2. "
+                "This means run_epoch namespacing is not working correctly."
+            )
+
+        # Sanity: E1's messages are still in the store (not cleared by cancel)
+        assert store.get_status(pipeline_id, run_epoch=epoch_e1)["total"] == 3
+
+        # Cleanup
+        store.clear(pipeline_id)  # clears all epochs
+
+    def test_cancel_persists_brc_history(self):
+        """Test that cancel persists per-slice BRC history to disk.
+
+        On cancel, the in-flight slice's BRC history (including per-slice
+        CONSENSUS_* buckets) should be written to .egg-state/brc-history/
+        on the integration branch (#3632 Change 3).
+        """
+        from unittest.mock import MagicMock, patch
+
+        from message_store import Message, MessageType, get_message_store
+        from peer_consensus import (
+            create_peer_consensus_tracker,
+            remove_peer_consensus_tracker,
+        )
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+        from routes.pipelines import _persist_cancel_brc_history
+
+        pipeline_id = "issue-3632-cancel-brc-test"
+
+        # Clean slate
+        store = get_message_store()
+        store.clear(pipeline_id)
+        remove_peer_consensus_tracker(pipeline_id)
+
+        # Seed a CONSENSUS_PROPOSE message
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject="Proposal from coder",
+                body="test proposal",
+                phase="implement",
+                metadata={"slice_id": "slice-1", "version": 1},
+            )
+        )
+
+        # Create a mock pipeline and store
+        pipeline = MagicMock()
+        pipeline.id = pipeline_id
+        pipeline.run_epoch = None
+        pipeline.current_phase.value = "implement"
+        pipeline.issue_number = 3632
+        pipeline.repo = None
+
+        mock_store = MagicMock()
+        mock_store.repo_path = "/repo"
+
+        # Mock the worktree path resolution and commit
+        with patch("routes.pipelines._resolve_pipeline_worktree_path") as mock_wt, \
+             patch("routes.pipelines._brc_history_identifier", return_value=3632), \
+             patch("routes.pipelines._pipeline_identifier", return_value="issue-3632-v1"), \
+             patch("routes.pipelines._commit_statefiles_to_worktree") as mock_commit:
+            from pathlib import Path as _Path
+            mock_wt.return_value = _Path("/tmp/test-worktree")
+
+            # Should not raise
+            _persist_cancel_brc_history(pipeline, mock_store)
+
+            # The commit should have been called (best-effort)
+            mock_commit.assert_called_once()
+
+        # Cleanup
+        store.clear(pipeline_id)
 
 
 class TestNonObjectJsonBodyReturns400:
