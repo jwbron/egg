@@ -151,6 +151,14 @@
       "registered_at": "2026-07-25T23:58:39.872791+00:00",
       "repo": null,
       "role": "task_planner"
+    },
+    "fb4cc07633c9808d194bd58e066610bcb2496e92": {
+      "branch": "egg/issue-3632-v1/work",
+      "patch_id": "2f11779555fa0b0e5232cb34d49432bed2e1b22d",
+      "pipeline_id": "issue-3632-v1",
+      "registered_at": "2026-07-26T01:12:11.954527+00:00",
+      "repo": null,
+      "role": "architect"
     }
   },
   "version": 2
