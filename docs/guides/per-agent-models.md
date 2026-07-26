@@ -671,11 +671,16 @@ data:
 >   `litellm_params` that does not appear here was discarded or relocated
 >   into `extra_body` by LiteLLM's parameter mapper. Patch 8
 >   (`drop_params_visibility.py`) also logs a `litellm.drop_params: dropped
->   ...` warning the first time a given (provider, model, param-set) combo is
->   discarded, naming the params and — when they came from this model's
->   `litellm_params` — the `allowed_openai_params` remedy, so a tuning change
->   that never took effect no longer waits on reading `request_params` to be
->   noticed.
+>   ...` warning the first time *each proxy process* discards a given
+>   (provider, model, param-set) combo, naming the params and — when they came
+>   from this model's `litellm_params` — the `allowed_openai_params` remedy, so
+>   a drop is visible in the log stream rather than only inferable from
+>   `request_params`. Note the asymmetry when you go looking: that warning is a
+>   one-shot per process, so on a pod that has been serving traffic it has
+>   likely already scrolled past (it re-fires after a proxy restart, and in
+>   cycles on a proxy dropping params across more than 1000 distinct combos,
+>   whose bookkeeping set clears on overflow). `request_params`, by contrast,
+>   is on every `cost_callback` line and stays the queryable signal.
 > - **A `<…>` value is a degradation marker, not a recorded value.** Every
 >   field is bounded so one pathological param cannot cost you the line —
 >   cost data included — when it fails to serialize. `<N chars omitted>` means
