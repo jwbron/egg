@@ -1,0 +1,89 @@
+{
+  "pipeline_id": "issue-3632-v1",
+  "role": "risk_analyst",
+  "phase": "plan",
+  "proposal_version": 1,
+  "summary": "Risk analysis for #3632: cancel_task(cleanup=false) destroys consensus + message state. Four candidate fixes evaluated; fixes #1 and #2 are coupled and must ship together.",
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Fix #1 alone (don't clear on CANCELLED) re-introduces #2053",
+      "severity": "HIGH",
+      "likelihood": "CERTAIN",
+      "description": "If _clear_pipeline_runtime_state is skipped for CANCELLED but the tracker/message-store keys remain keyed by bare pipeline_id, a fresh pipeline reusing a CANCELLED id inherits the prior run's CONFIRMED consensus. The #2053 regression is guaranteed.",
+      "mitigation": "Fix #2 (namespace by run_epoch) must ship in the same change set. run_epoch already exists on the Pipeline model and is bumped on all restart/recovery paths."
+    },
+    {
+      "id": "R2",
+      "title": "run_epoch namespacing touches every tracker/message-store call site",
+      "severity": "HIGH",
+      "likelihood": "LIKELY",
+      "description": "The tracker key (_tracker_key) and message store key (_stream_key) are called from dozens of sites across peer_consensus/__init__.py, redis_message_store.py, concurrent_executor.py, _run_concurrent.py, _run_concurrent_support.py, _routes_restart.py, _routes_lifecycle.py, _first_principles.py, _hitl_rerun.py, _alerts.py, _context_pr.py, _slice_state.py, and routes/signals.py. Every call site that currently passes bare pipeline_id must now pass run_epoch.",
+      "mitigation": "Introduce a helper that derives the namespaced key from (pipeline_id, run_epoch) and thread run_epoch through the call chain. The _run_pipeline driver thread already carries run_epoch; concurrent_executor already has access to pipeline.run_epoch."
+    },
+    {
+      "id": "R3",
+      "title": "Per-slice tracker reconstruction on resume risks false consensus for fresh slices",
+      "severity": "HIGH",
+      "likelihood": "POSSIBLE",
+      "description": "Fix #4 (reconstruct per-slice trackers on resume) must distinguish a resumed slice from a fresh slice. The #2535 concern is valid for new slices: a fresh slice-2 must not inherit slice-1's confirmed roles. A resume with a known run_epoch can be distinguished, but the gating logic must be precise.",
+      "mitigation": "Only reconstruct per-slice trackers when the pipeline's run_epoch matches the epoch at which the slice's BRC messages were emitted. A fresh pipeline has a new run_epoch, so reconstruction naturally yields an empty tracker."
+    },
+    {
+      "id": "R4",
+      "title": "BRC history persistence on cancel must not block the cancel response",
+      "severity": "MEDIUM",
+      "likelihood": "POSSIBLE",
+      "description": "Fix #3 (persist BRC history on pause) adds a git commit to the cancel path. If this fails or is slow, it must not block or fail the cancel operation. The existing _persist_phase_brc_history already has best-effort semantics, but the cancel path's background-thread model differs from the phase-transition path.",
+      "mitigation": "Run the BRC history persist in the same background cleanup thread that already handles container teardown, with best-effort semantics matching _persist_phase_brc_history."
+    },
+    {
+      "id": "R5",
+      "title": "restart_agent on CANCELLED bumps run_epoch but does not clear message store",
+      "severity": "LOW",
+      "likelihood": "CERTAIN",
+      "description": "After fix #2, restart_agent's run_epoch bump creates a new namespace. The old run_epoch's messages remain in Redis under the old key. This is correct behavior (the old messages are preserved for forensic purposes), but the message store's clear() must also be namespaced to avoid clearing the wrong epoch's messages.",
+      "mitigation": "clear() must accept run_epoch and only clear the matching namespace. The old namespace's messages can be left to expire or cleaned up separately."
+    },
+    {
+      "id": "R6",
+      "title": "Phase-transition clear (_clear_concurrent_state) must also be namespaced",
+      "severity": "MEDIUM",
+      "likelihood": "LIKELY",
+      "description": "_clear_concurrent_state at routes/phases/_transitions.py:56 clears the message store and tracker at phase transitions. If the keys become (pipeline_id, run_epoch)-namespaced, this path must also pass the current run_epoch to clear the correct namespace.",
+      "mitigation": "Thread run_epoch through _clear_concurrent_state, or have it read pipeline.run_epoch from the store."
+    }
+  ],
+  "dependency_analysis": {
+    "fix_1_safe_alone": false,
+    "fix_1_requires": ["fix_2"],
+    "fix_2_requires": [],
+    "fix_3_requires": ["fix_2"],
+    "fix_4_requires": ["fix_2"]
+  },
+  "recommended_order": [
+    "fix_2: Namespace tracker + message store by run_epoch (foundational, fixes #2053 by construction)",
+    "fix_1: Stop clearing runtime state on CANCELLED (safe once #2 is in place)",
+    "fix_3: Persist BRC history on cancel (defense-in-depth for forensic recovery)",
+    "fix_4: Reconstruct per-slice trackers on resume (gated by run_epoch match)"
+  ],
+  "regression_guard": {
+    "issue_2053": "A fresh pipeline reusing a terminal pipeline's id must never inherit the prior run's CONFIRMED consensus or message history. Fix #2 closes this by construction: the new pipeline has a new run_epoch, so the tracker and message store keys are distinct.",
+    "test_coverage": "test_restart_brc_record_survival.py already locks the invariant that restart_agent/restart_phase do not clear the message store. New tests must verify: (a) a CANCELLED pipeline's message store survives, (b) a fresh pipeline reusing a CANCELLED id gets an empty tracker, (c) restart_agent on a CANCELLED pipeline creates a new run_epoch namespace."
+  },
+  "verification": {
+    "issue_claims_verified": [
+      "_clear_pipeline_runtime_state called on CANCELLED (confirmed at _routes_crud.py:717, gated by CANCELLED|FAILED at line 615)",
+      "_clear_pipeline_runtime_state clears both tracker and message store (confirmed at _lifecycle_helpers.py:183,202)",
+      "Message store keyed by bare pipeline_id (confirmed at redis_message_store.py:69-71)",
+      "Tracker key is {pipeline_id} or {pipeline_id}/{slice_id} (confirmed at peer_consensus/__init__.py:226-247)",
+      "restart_agent on CANCELLED bumps run_epoch (confirmed at _routes_restart.py:350-354)",
+      "restart_agent does NOT clear message store (confirmed at _routes_restart.py:572-611)",
+      "restart_phase also does NOT clear message store (confirmed at _routes_restart.py:1191-1209)",
+      "BRC history persisted only at phase transitions, not at cancel (confirmed: _persist_phase_brc_history called at _run_pipeline.py:1106)",
+      "reconstruct_tracker_from_messages is pipeline-scoped only (confirmed at peer_consensus/__init__.py:324-349, concurrent_executor.py:1923-1934)",
+      "run_epoch field exists on Pipeline model (confirmed at models/_pipeline.py:163-168)"
+    ]
+  },
+  "verdict": "PROCEED_WITH_MITIGATIONS"
+}
