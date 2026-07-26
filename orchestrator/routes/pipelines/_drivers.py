@@ -164,6 +164,7 @@ def _broadcast_orphaned_driver_alert(pipeline_id: str, pipeline: _pkg.Pipeline) 
             return
         msg_store = store_fn()
         phase = pipeline.current_phase.value if pipeline.current_phase else None
+        _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
         msg_store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -180,7 +181,8 @@ def _broadcast_orphaned_driver_alert(pipeline_id: str, pipeline: _pkg.Pipeline) 
                 ),
                 metadata={"reason": "restart_orphaned_awaiting_human"},
                 phase=phase,
-            )
+            ),
+            run_epoch=_run_epoch_str,
         )
     except Exception as alert_err:  # noqa: BLE001
         _pkg.logger.warning(
