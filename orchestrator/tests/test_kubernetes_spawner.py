@@ -4054,7 +4054,9 @@ class TestDirtyTreePreservedBeforeReset:
     tip.
     """
 
-    def _seed_dirty(self, tmp_path, *, files=2):
+    _MEMORY_FILE = ".egg-state/agent-outputs/coder/brc-memory-pipe-1.md"
+
+    def _seed_dirty(self, tmp_path, *, files=2, machine_state_only=False):
         """Worktree with dirt only; no commits ahead of the origin tip.
 
         ``commit.gpgsign`` is turned on in the repo's own config so the
@@ -4062,10 +4064,19 @@ class TestDirtyTreePreservedBeforeReset:
         without it every snapshot below fails to commit (there is no signing
         key in the orchestrator image), which is exactly the regression that
         would silently un-fix #3639.
+
+        ``machine_state_only`` seeds the one shape the message is allowed to
+        soften for: an untracked ``brc-memory-<pipeline-id>.md`` and nothing
+        else.
         """
         repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
         _git(repo, "config", "commit.gpgsign", "true")
         origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+        if machine_state_only:
+            memory = repo / self._MEMORY_FILE
+            memory.parent.mkdir(parents=True)
+            memory.write_text("# BRC memory\n\nRound 1: ACKed coder.\n")
+            return repo, origin_head
         (repo / "seed.txt").write_text("hours of uncommitted edits\n")  # tracked
         if files > 1:
             (repo / "new_module.py").write_text("def added():\n    return 1\n")  # untracked
@@ -4110,17 +4121,17 @@ class TestDirtyTreePreservedBeforeReset:
         assert "inspect it before starting work" in msg.body
         assert "build on it (cherry-pick or reset)" in msg.body
 
-    def test_single_file_snapshot_softens_the_ask(self, spawner, mock_gateway, tmp_path):
-        """A one-file snapshot reads as "read it if you need it", not data loss.
+    def test_machine_state_only_snapshot_softens_the_ask(self, spawner, mock_gateway, tmp_path):
+        """A pure state-file snapshot reads as "read it if you need it".
 
         ``brc-memory-<pipeline-id>.md`` is rewritten into the worktree on
         every ``brc_ack``/``brc_nack``, so a respawn that trips this path over
-        one uncommitted state file is routine. Keeping the imperative there is
-        how #3509's message gets trained into background noise — but the
-        softening keys off the *file count*, never off a size heuristic
+        that file alone is routine. Keeping the imperative there is how
+        #3509's message gets trained into background noise — but the
+        softening keys off *which* files were captured, never off a heuristic
         applied to whether the snapshot is taken at all.
         """
-        repo, _origin_head = self._seed_dirty(tmp_path, files=1)
+        repo, _origin_head = self._seed_dirty(tmp_path, machine_state_only=True)
         mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
 
         with (
@@ -4131,13 +4142,33 @@ class TestDirtyTreePreservedBeforeReset:
 
         msg = get_store.return_value.add_message.call_args.args[0]
         assert msg.metadata["discarded_commit_count"] == 1
-        # The count is stated outright: a memory-less agent cannot evaluate
-        # "is anything missing?", so the message must not ask it to.
-        assert "1 file(s) of uncommitted work" in msg.body
-        assert "leftover state file" in msg.body
+        assert msg.metadata["wip_files"] == 1
+        # The file is named outright: a memory-less agent cannot evaluate "is
+        # anything missing?", so the message must not ask it to.
+        assert f"only `{self._MEMORY_FILE}`" in msg.body
+        assert "read it if you need it" in msg.body
+        # The softening must survive the whole body, not just its first half.
         assert "inspect it before starting work" not in msg.body
+        assert "Treat it as a WIP checkpoint" not in msg.body
         # The record is still emitted and the ref still pushed — wording only.
         mock_gateway.push_worktree_branch.assert_called_once()
+        assert repo.exists()
+
+    def test_one_substantial_file_keeps_the_imperative(self, spawner, mock_gateway, tmp_path):
+        """A single rewritten source file is #3639 one file wide, not noise."""
+        repo, _origin_head = self._seed_dirty(tmp_path, files=1)
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            assert spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX) is True
+
+        msg = get_store.return_value.add_message.call_args.args[0]
+        assert msg.metadata["wip_files"] == 1
+        assert "1 file(s) of uncommitted work" in msg.body
+        assert "inspect it before starting work" in msg.body
         assert repo.exists()
 
     def test_snapshot_only_salvage_failure_escalates(self, spawner, mock_gateway, tmp_path):
@@ -4287,6 +4318,13 @@ class TestDirtyTreePreservedBeforeReset:
         ``git-add(1)`` aborts on the first unindexable entry and exits
         non-zero with a partially populated index; returning early there
         would throw away the other N-1 files this helper exists to save.
+
+        The genuinely partial index (N-1 of N files present) is asserted only
+        at this unit level, by a git closure that reports a smaller staged set
+        than the entry count: producing a real unindexable entry needs a fifo
+        or an unreadable file, which is too environment-dependent for CI. What
+        the real-git counterpart pins is the surrounding behaviour, not the
+        partial staging itself.
         """
         from kubernetes_spawner._worktree import _preserve_dirty_tree
 
@@ -4306,10 +4344,37 @@ class TestDirtyTreePreservedBeforeReset:
         )
         assert snapshot is not None
         assert snapshot.sha == "deadbeefcafe"
-        # The file count is what the bus message is worded off, so it must
+        # The file set is what the bus message is worded off, so it must
         # reflect what actually reached the index, not the pre-add entry count.
         assert snapshot.n_files == 2
+        assert snapshot.paths == ("a.py", "b.py")
+        # 3 entries were dirty, 2 reached the index: the snapshot is truncated
+        # and must say so, or an agent that cherry-picks it believes it
+        # recovered everything.
+        assert snapshot.partial is True
+        commit_args = next(a for a in seen if a[0] == "commit" or "commit" in a)
+        assert any("INCOMPLETE" in a for a in commit_args if isinstance(a, str))
         assert any("commit" in a for a in seen)
+
+    def test_complete_snapshot_is_not_marked_partial(self, tmp_path):
+        """The clean path must not carry the truncation warning."""
+        from kubernetes_spawner._worktree import _preserve_dirty_tree
+
+        seen = []
+
+        def _fake_git(_repo_dir, *args, **_kwargs):
+            seen.append(args)
+            if args[0] == "diff":
+                return SimpleNamespace(stdout="a.py\nb.py\n", returncode=0)
+            return SimpleNamespace(stdout="deadbeefcafe\n", returncode=0)
+
+        snapshot = _preserve_dirty_tree(
+            _fake_git, tmp_path, agent_worktree_id=_WT_ID, repo="repo", n_entries=2
+        )
+        assert snapshot is not None
+        assert snapshot.partial is False
+        commit_args = next(a for a in seen if "commit" in a)
+        assert not any("INCOMPLETE" in a for a in commit_args if isinstance(a, str))
 
     def test_ignored_only_dirt_is_discarded_without_a_commit(self, spawner, mock_gateway, tmp_path):
         """Build output is not agent work: no snapshot, nothing salvaged.
@@ -4398,11 +4463,13 @@ class TestDiscardedTipMessageWording:
 
     ``_record_discarded_tip`` composes off two independent axes — did the
     salvage push succeed (``recovery_ref``), and is the discard nothing but
-    the machine-made snapshot (``n_commits``/``wip_files``). The end-to-end
+    the machine-made snapshot (``n_commits``/``wip_paths``). The end-to-end
     tests above drive real git through three of the cells; these pin all
-    four plus the file-count threshold directly, so a wording regression is
-    caught without a worktree.
+    four plus the machine-state discriminator directly, so a wording
+    regression is caught without a worktree.
     """
+
+    _MEMORY_FILE = ".egg-state/agent-outputs/coder/brc-memory-pipe-1.md"
 
     _BASE = {
         "pipeline_id": "pipe-1",
@@ -4416,17 +4483,24 @@ class TestDiscardedTipMessageWording:
         "was_dirty": True,
     }
 
-    def _body(self, **overrides):
+    def _message(self, **overrides):
         from kubernetes_spawner._worktree import _record_discarded_tip
 
         kwargs = {**self._BASE, "salvage_error": None, **overrides}
         with patch("message_store.get_message_store") as get_store:
             _record_discarded_tip(**kwargs)
-        return get_store.return_value.add_message.call_args.args[0].body
+        return get_store.return_value.add_message.call_args.args[0]
+
+    def _body(self, **overrides):
+        return self._message(**overrides).body
 
     def test_multi_file_snapshot_keeps_the_imperative(self):
         body = self._body(
-            n_commits=1, recovery_ref="egg/recovered/x", wip_commit="aaaa1111", wip_files=33
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=33,
+            wip_paths=tuple(f"src/mod_{i}.py" for i in range(33)),
         )
         # The #3639 incident itself is snapshot-only; being snapshot-only must
         # not be what softens the ask.
@@ -4434,25 +4508,82 @@ class TestDiscardedTipMessageWording:
         assert "inspect it before starting work" in body
         assert "build on it (cherry-pick or reset)" in body
 
-    def test_single_file_snapshot_is_softened(self):
+    def test_machine_state_only_snapshot_is_softened(self):
+        """A capture that is nothing but orchestrator-written state relaxes.
+
+        The softening has to hold across the *whole* body: a trailing "treat
+        it as a WIP checkpoint to review" would put an imperative in the last
+        sentence the agent reads and undo the branch entirely.
+        """
         body = self._body(
-            n_commits=1, recovery_ref="egg/recovered/x", wip_commit="aaaa1111", wip_files=1
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=1,
+            wip_paths=(self._MEMORY_FILE,),
+        )
+        assert f"only `{self._MEMORY_FILE}`" in body
+        assert "read it if you need it" in body
+        assert "inspect it before starting work" not in body
+        assert "Treat it as a WIP checkpoint" not in body
+        # And the opening clause does not restate it a third time.
+        assert "an automatic snapshot of uncommitted work" not in body
+
+    def test_one_substantial_file_keeps_the_imperative(self):
+        """A single rewritten module is #3639 one file wide, not noise.
+
+        This is why the discriminator matches the noise source by name
+        instead of counting files: on a count threshold this case scores
+        identically to the memory file above and gets talked out of fetching
+        real work.
+        """
+        body = self._body(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=1,
+            wip_paths=("orchestrator/kubernetes_spawner/_worktree.py",),
         )
         assert "1 file(s) of uncommitted work" in body
-        assert "leftover state file" in body
-        assert "inspect it before starting work" not in body
+        assert "inspect it before starting work" in body
+        assert "Treat it as a WIP checkpoint" in body
 
-    def test_unknown_file_count_is_treated_as_substantial(self):
-        """No count ⇒ the imperative. Soft wording is opt-in, never a default."""
+    def test_mixed_snapshot_keeps_the_imperative(self):
+        """One real file alongside the memory file is not a trivial capture."""
         body = self._body(
-            n_commits=1, recovery_ref="egg/recovered/x", wip_commit="aaaa1111", wip_files=None
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=2,
+            wip_paths=(self._MEMORY_FILE, "orchestrator/agent_salvage.py"),
         )
         assert "inspect it before starting work" in body
-        assert "leftover state file" not in body
+
+    def test_unknown_paths_are_treated_as_substantial(self):
+        """No path set ⇒ the imperative. Soft wording is opt-in, never a default.
+
+        Defensive only: ``wip_paths`` and ``wip_commit`` are assigned together
+        off ``_DirtySnapshot``, so production never reaches this. It pins that
+        a future caller that knows the sha but not the contents degrades to
+        the loud branch rather than the quiet one.
+        """
+        body = self._body(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=None,
+            wip_paths=None,
+        )
+        assert "inspect it before starting work" in body
+        assert "read it if you need it" not in body
 
     def test_multi_commit_discard_describes_the_stack(self):
         body = self._body(
-            n_commits=3, recovery_ref="egg/recovered/x", wip_commit="aaaa1111", wip_files=2
+            n_commits=3,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=2,
+            wip_paths=("a.py", "b.py"),
         )
         assert "The full commit stack is preserved" in body
         assert "one of which is an automatic snapshot" in body
@@ -4466,6 +4597,7 @@ class TestDiscardedTipMessageWording:
             salvage_error="gateway down",
             wip_commit="aaaa1111",
             wip_files=33,
+            wip_paths=tuple(f"src/mod_{i}.py" for i in range(33)),
         )
         assert "nothing was lost" not in body.lower()
         assert "egg/recovered/" not in body
@@ -4473,6 +4605,37 @@ class TestDiscardedTipMessageWording:
         assert "was NOT" in body and "local object store" in body
         assert "Escalate" in body
         assert "salvage_agent_commits cannot recover them" in body
+
+    def test_partial_snapshot_is_flagged_to_the_reader(self):
+        """A truncated capture must not look identical to a complete one.
+
+        The WARNING that records the failed ``add`` goes to orchestrator
+        logs, which the resuming agent never reads — so an agent that
+        cherry-picks a silently-truncated snapshot believes it recovered
+        everything.
+        """
+        msg = self._message(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=5,
+            wip_paths=tuple(f"src/mod_{i}.py" for i in range(5)),
+            wip_partial=True,
+        )
+        assert "INCOMPLETE" in msg.body
+        assert msg.metadata["wip_partial"] is True
+
+    def test_metadata_carries_the_size_and_completeness_claims(self):
+        """The body makes both claims; a consumer must not have to regex prose."""
+        msg = self._message(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=33,
+            wip_paths=tuple(f"src/mod_{i}.py" for i in range(33)),
+        )
+        assert msg.metadata["wip_files"] == 33
+        assert msg.metadata["wip_partial"] is False
 
     def test_no_snapshot_body_is_unchanged(self):
         """A pure commit discard says nothing about snapshots."""

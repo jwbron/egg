@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -600,6 +601,12 @@ class TestSalvageUncommitted:
         still exits non-zero after skipping it. Bailing there would throw away
         the other N-1 files — the same defect fixed on the #3639 re-attach
         path, on this #2807 sibling.
+
+        What this pins is the behaviour change (a non-zero add does not abort
+        the commit), not a genuinely partial index: the closure lets the real
+        ``add`` run and stage everything, then forces the exit code. Producing
+        a truly unindexable entry needs a fifo or an unreadable file, which is
+        too environment-dependent for CI.
         """
         import agent_salvage
 
@@ -626,6 +633,39 @@ class TestSalvageUncommitted:
             _git("show", "HEAD:new_feature.py", cwd=wt.repo_path).stdout
             == "def added():\n    return 42\n"
         )
+
+    def test_total_add_failure_is_reported_as_an_add_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty index must not surface as "the commit failed".
+
+        When the add stages nothing, ``git commit`` fails with "nothing added
+        to commit" — so without an explicit guard the operator reads
+        ``commit of uncommitted working tree failed`` and goes looking at the
+        commit, when the cause was the add. Mirrors the re-attach path's
+        empty-index guard (#3639 re-review).
+        """
+        import agent_salvage
+
+        wt = self._clean_worktree(tmp_path)
+        self._dirty(wt.repo_path)
+        real_run_git = agent_salvage._run_git
+        attempted = []
+
+        def _failing_add(*args: str, **kwargs: object):
+            attempted.append(args)
+            if args and args[0] == "add":
+                # Nothing reaches the index at all.
+                return SimpleNamespace(returncode=1, stdout="", stderr="fatal: unable to index")
+            return real_run_git(*args, **kwargs)
+
+        monkeypatch.setattr(agent_salvage, "_run_git", _failing_add)
+        assert commit_working_tree(wt) is None
+        # Bailed before the commit, so the misleading commit-failure log is
+        # never emitted.
+        assert not any(a and a[0] == "commit" for a in attempted)
+        # ...and the tree is left dirty for the caller's own handling.
+        assert _git("status", "--porcelain", cwd=wt.repo_path).stdout.strip() != ""
 
     def test_salvage_pushes_uncommitted_edits_when_flag_set(self, tmp_path: Path) -> None:
         """salvage_uncommitted=True: dirty edits land in the pushed HEAD."""

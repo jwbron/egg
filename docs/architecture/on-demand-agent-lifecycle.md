@@ -200,7 +200,18 @@ Under orchestrator ownership the worktree becomes a hot path.
    successor's HEAD — un-vetted residue promoted to committed state, which
    is what R6 exists to prevent. When the salvage push fails the bus
    record says the snapshot was *not* pushed and asks for escalation
-   rather than reassuring the successor that nothing was lost.
+   rather than reassuring the successor that nothing was lost. The ask
+   also scales with *what* the snapshot captured: when every captured path
+   is an orchestrator-written state file (today only
+   `.egg-state/agent-outputs/*/brc-memory*.md`, rewritten on every
+   `brc_ack`/`brc_nack`), the record softens to "read it if you need it"
+   so a routine respawn does not train the #3509 message into background
+   noise; anything else — including an unrecognised or unknown file set —
+   keeps the imperative "inspect it before starting work". The threshold
+   selects wording only; the snapshot itself is always taken. A snapshot
+   whose `git add -A` reported errors is marked incomplete in both its
+   commit message and the bus record, since a truncated snapshot is
+   otherwise indistinguishable downstream from a complete one.
 3. **Before handing off to spawn:** translate the validated paths from
    orchestrator-local (under `WORKTREE_BASE_DIR`) to host paths, matching
    what the create path already gets from the gateway. An untranslated

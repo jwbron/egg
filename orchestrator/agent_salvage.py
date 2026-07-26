@@ -635,6 +635,21 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
                 worktree_id=worktree.worktree_id,
                 stderr=(add.stderr or "").strip(),
             )
+        # Distinguish "the add put nothing in the index" from "the commit
+        # itself failed" before attempting it. Without this the operator sees
+        # `commit ... failed` with a "nothing added to commit" stderr and goes
+        # looking at the commit, when the cause was the add above — the same
+        # misattribution the re-attach path's empty-index guard exists to
+        # prevent (#3639 re-review).
+        staged = _run_git("diff", "--cached", "--name-only", cwd=worktree.repo_path, check=False)
+        if staged.returncode == 0 and not (staged.stdout or "").strip():
+            logger.warning(
+                "Salvage: nothing staged to commit (ignored files, submodule-only "
+                "dirt, or a failed add); skipping the working-tree snapshot",
+                worktree_id=worktree.worktree_id,
+                add_failed=add.returncode != 0,
+            )
+            return None
         commit = _run_git(
             "-c",
             f"user.name={_SALVAGE_COMMIT_NAME}",
