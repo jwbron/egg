@@ -75,15 +75,53 @@ readable_repos:
 #     "bot" (default): Use GitHub App bot identity
 #     "user": Use personal access token with user identity
 #   - checks: List of check commands for the SDLC pipeline implement phase
-#     Each entry has "name" (display label) and "command" (shell command)
-#     These run sequentially during the checker step
-#     An entry may also set "fix" (shell command): when the per-slice green
-#     gate finds that check red at the slice tip, it runs the fix command,
-#     re-runs the check, and — if the fix turned it green — commits and
-#     pushes the result to the slice integration branch as the orchestrator
-#     (#3409). Only configure deterministic auto-remediations here, e.g.
-#     "make lint-fix" for a format/lint check. Checks without "fix" route
-#     red verdicts back to the slice team unchanged.
+#     Each entry has "name" (display label), "command" (shell command) and
+#     an optional "fix" (single shell command string — a YAML list is
+#     silently coerced to its Python repr and will never run, so chain
+#     steps with "&&" or point at a make target; an empty or omitted
+#     value — a bare "fix:", "", false, 0 — is dropped entirely,
+#     leaving the check with no fix and a block message that never
+#     mentions "fix")
+#     These run sequentially during the tester step
+#     "fix" auto-remediates that check at the per-slice green gate: when the
+#     gate finds the check red at the slice tip it runs the fix command and
+#     re-runs the check. It commits and pushes the result to the slice
+#     integration branch as the orchestrator only when ALL of the following
+#     hold (#3409): every *genuine* red check's fix turned it green (reds
+#     tagged with an infra signature are excluded first under the default
+#     EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=on, #3417 — set it "off" and
+#     every red must carry a fix that re-ran green); a final full re-run of
+#     every check the gate runs against the all-fixes-applied tree is also
+#     green; the runner's tree gained no new non-ignored untracked files,
+#     from the fix or from the checks themselves (the baseline is taken
+#     before the first check runs; the gate stages with "git add -u", which
+#     would silently drop them); at least one tracked file in that tree is
+#     modified, so there is something to commit; the runner reported a
+#     final-verification verdict at all and could determine that untracked
+#     count (a best-effort git failure in the runner is treated as unsafe);
+#     and the gate is running in "on" mode. Every refusal is logged as
+#     autofix_block_reason on the orchestrator's "Green gate red" line —
+#     a "log"-mode refusal is not one of them (that line reads "autofix
+#     available but not applied" and carries no such field) — and the
+#     reason reaches the slice failure message only when every genuine
+#     red's own re-run went green; otherwise it stays in the structured
+#     log. When EVERY red is infra-tagged the gate fails
+#     open and returns BEFORE this decision, so even a fix that re-ran
+#     green is discarded with the worktree rather than committed.
+#     NOTE: "on" is the DEFAULT mode — no opt-in is required. Nothing in
+#     the shipped configuration sets EGG_SLICE_GREEN_GATE, and both an
+#     unset and an unrecognised value resolve to "on", so autofix commits
+#     and pushes to your slice integration branch unless you turn it down.
+#     Set EGG_SLICE_GREEN_GATE=log to keep the fix running as a soak signal
+#     while committing and pushing nothing, or "off" to stop the gate
+#     before it spawns the runner at all — under "off" the fix never runs.
+#     Only configure deterministic auto-remediations here, e.g.
+#     "make lint-fix" for a format/lint check. Checks without "fix", or
+#     whose re-run stays red, route red verdicts back to the slice team
+#     unchanged. "fix" is green-gate-only (slice-DAG implement pipelines):
+#     the tester step ignores it, and it never runs on a check excluded by
+#     EGG_SLICE_GREEN_GATE_SKIP_CHECKS (default: "security").
+#     See docs/architecture/slice-dag.md for the rollout switch.
 #   - build_commands: Commands to run during Docker image build to install
 #     project-specific dependencies. Results are baked into the image so
 #     containers start with dependencies pre-installed (critical for private
