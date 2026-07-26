@@ -35,6 +35,7 @@ def _existing_confirmed_for_role(
     agent_role: str,
     phase: str | None,
     slice_id: str | None = None,
+    run_epoch: str | None = None,
 ) -> tuple[bool, bool]:
     """Return (has_final, has_pending_acks) for prior CONFIRMED messages.
 
@@ -47,8 +48,8 @@ def _existing_confirmed_for_role(
     - ``has_pending_acks``: a pending_acks CONFIRMED message exists.
 
     ``slice_id`` scopes the check to a single slice. The message store
-    keys messages by bare ``pipeline_id``, so without scoping a fresh
-    slice-N coder would falsely appear "already confirmed" because
+    keys messages by ``(pipeline_id, run_epoch)``, so without scoping a
+    fresh slice-N coder would falsely appear "already confirmed" because
     slice-(N-1)'s coder wrote a CONFIRMED message under the same
     pipeline_id (#2535). Filtering on ``metadata["slice_id"]`` (written
     by the per-slice tracker path below) confines the lookup to the
@@ -56,6 +57,10 @@ def _existing_confirmed_for_role(
     to see only messages with no ``slice_id`` in metadata, preserving
     the legacy non-slice behaviour. Tracked under #2409 as part of
     end-to-end slice-scoped message routing.
+
+    ``run_epoch`` namespaces the message stream so a resumed pipeline
+    (fresh ``run_epoch``) does not see pre-cancel CONFIRMED messages
+    (#3632).
     """
     try:
         from message_store import get_message_store
@@ -72,7 +77,7 @@ def _existing_confirmed_for_role(
         # pipeline could be missed — but that's the safe failure direction
         # (a duplicate write, not a lost write).  Don't lower this limit
         # without understanding that tradeoff.
-        messages = store.get_messages(pipeline_id, limit=10000)
+        messages = store.get_messages(pipeline_id, limit=10000, run_epoch=run_epoch)
     except Exception:
         return (False, False)
 
@@ -155,12 +160,20 @@ def handle_consensus_confirmed_signal(
     except ValueError as exc:
         return make_error_response(str(exc), 400)
 
+    # Load pipeline to resolve run_epoch for tracker namespacing (#3632)
+    _run_epoch_str = None
+    try:
+        _pip = _pkg.get_state_store(repo_path).load_pipeline(pipeline_id)
+        _run_epoch_str = _pip.run_epoch.isoformat() if _pip.run_epoch else None
+    except Exception:
+        pass
+
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id, run_epoch=_run_epoch_str)
     if not tracker:
         # Defaults must be outside the try block so the message-bus fallback
         # (second try block) can reference them even if reconstruction fails.
@@ -192,11 +205,15 @@ def handle_consensus_confirmed_signal(
                 _pip = _pkg.get_state_store(repo_path).load_pipeline(pipeline_id)
                 _phase = _pip.current_phase.value
                 _repo = _pip.repo
+                if _run_epoch_str is None:
+                    _run_epoch_str = _pip.run_epoch.isoformat() if _pip.run_epoch else None
             except StateStoreError:
                 pass
 
             graph = get_review_graph_for_phase(_phase, repo=_repo)
-            tracker = reconstruct_tracker_from_messages(pipeline_id, graph, slice_id=slice_id)
+            tracker = reconstruct_tracker_from_messages(
+                pipeline_id, graph, slice_id=slice_id, run_epoch=_run_epoch_str
+            )
         except Exception as recon_err:
             _pkg.logger.warning(
                 "Tracker reconstruction failed in confirmed handler",
@@ -235,7 +252,7 @@ def handle_consensus_confirmed_signal(
                 from review_graph import get_review_graph_for_phase
 
                 store = get_message_store()
-                messages = store.get_messages(pipeline_id, limit=10000)
+                messages = store.get_messages(pipeline_id, limit=10000, run_epoch=_run_epoch_str)
                 # Count ANY CONSENSUS_CONFIRMED message — when the
                 # tracker is lost we can't cross-reference _confirmed,
                 # so be lenient.  Matches the consensus_stall health
@@ -258,7 +275,8 @@ def handle_consensus_confirmed_signal(
                     # Idempotency: only write the CONFIRMED message if this
                     # role hasn't already emitted a final one in this phase.
                     has_final, _ = _pkg._existing_confirmed_for_role(
-                        pipeline_id, agent_role, _phase
+                        pipeline_id, agent_role, _phase,
+                        slice_id=slice_id, run_epoch=_run_epoch_str,
                     )
                     if not has_final:
                         store.add_message(
@@ -274,7 +292,8 @@ def handle_consensus_confirmed_signal(
                                     "consensus_reached": True,
                                     "fallback": "message_bus",
                                 },
-                            )
+                            ),
+                            run_epoch=_run_epoch_str,
                         )
                         _pkg._write_consensus_confirmed_marker(pipeline_id, agent_role, repo_path)
                     return make_success_response(
@@ -324,7 +343,8 @@ def handle_consensus_confirmed_signal(
         # Pass slice_id so the idempotency probe doesn't see sibling-slice
         # CONFIRMs as "already confirmed for this role" (#2535).
         has_final, has_pending = _pkg._existing_confirmed_for_role(
-            pipeline_id, agent_role, current_phase, slice_id=slice_id
+            pipeline_id, agent_role, current_phase, slice_id=slice_id,
+            run_epoch=_run_epoch_str,
         )
 
         # Common metadata tag so future _existing_confirmed_for_role probes
@@ -350,7 +370,8 @@ def handle_consensus_confirmed_signal(
                         body=result.get("message", ""),
                         phase=current_phase,
                         metadata={"pending_acks": True, **_slice_meta},
-                    )
+                    ),
+                    run_epoch=_run_epoch_str,
                 )
             return make_success_response(result["message"], data=result, status_code=202)
 
@@ -374,7 +395,8 @@ def handle_consensus_confirmed_signal(
                         "consensus_reached": result.get("consensus_reached", False),
                         **_slice_meta,
                     },
-                )
+                ),
+                run_epoch=_run_epoch_str,
             )
 
             # Write consensus-confirmed marker so auto-commit can detect that
@@ -422,6 +444,14 @@ def handle_consensus_excuse_producer_signal(
         return make_error_response("Missing producer_role")
 
     reason = data.get("reason", "")
+
+    # Load pipeline to resolve run_epoch for tracker namespacing (#3632)
+    _run_epoch_str = None
+    try:
+        _pip = _pkg.get_state_store(repo_path).load_pipeline(pipeline_id)
+        _run_epoch_str = _pip.run_epoch.isoformat() if _pip.run_epoch else None
+    except Exception:
+        pass
 
     # --- HITL gate: require a resolved decision ---
     decision_id = data.get("decision_id")
@@ -485,7 +515,7 @@ def handle_consensus_excuse_producer_signal(
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id, run_epoch=_run_epoch_str)
     if not tracker:
         scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
         return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
@@ -524,7 +554,8 @@ def handle_consensus_excuse_producer_signal(
                     "affected_reviewers": result.get("affected_reviewers", []),
                     **_slice_meta,
                 },
-            )
+            ),
+            run_epoch=_run_epoch_str,
         )
 
         return make_success_response(
@@ -580,6 +611,14 @@ def handle_consensus_resolve_obligation_signal(
     commit_sha = (data.get("commit_sha") or "").strip()
     note = (data.get("note") or "").strip()
 
+    # Load pipeline to resolve run_epoch for tracker namespacing (#3632)
+    _run_epoch_str = None
+    try:
+        _pip = _pkg.get_state_store(repo_path).load_pipeline(pipeline_id)
+        _run_epoch_str = _pip.run_epoch.isoformat() if _pip.run_epoch else None
+    except Exception:
+        pass
+
     # Validate the optional resolution note for parity with summary / reason
     # validation on other BRC verbs. Notes are short-form imperatives, not
     # rationale, so they share the relaxed minimum-length bucket with
@@ -599,7 +638,7 @@ def handle_consensus_resolve_obligation_signal(
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id, run_epoch=_run_epoch_str)
     if not tracker:
         scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
         return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
@@ -648,7 +687,8 @@ def handle_consensus_resolve_obligation_signal(
                     "condition": result.get("condition", ""),
                     **_slice_meta,
                 },
-            )
+            ),
+            run_epoch=_run_epoch_str,
         )
 
         return make_success_response(
@@ -696,6 +736,14 @@ def handle_consensus_producer_push_signal(
 
     changed_files = data.get("changed_files")
 
+    # Load pipeline to resolve run_epoch for tracker namespacing (#3632)
+    _run_epoch_str = None
+    try:
+        _pip = _pkg.get_state_store(repo_path).load_pipeline(pipeline_id)
+        _run_epoch_str = _pip.run_epoch.isoformat() if _pip.run_epoch else None
+    except Exception:
+        pass
+
     try:
         slice_id = _extract_slice_id(data)
     except ValueError as exc:
@@ -706,7 +754,7 @@ def handle_consensus_producer_push_signal(
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id, run_epoch=_run_epoch_str)
     if not tracker:
         scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
         return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
@@ -753,7 +801,8 @@ def handle_consensus_producer_push_signal(
                         "changed_files": changed_files,
                         **_slice_meta,
                     },
-                )
+                ),
+                run_epoch=_run_epoch_str,
             )
 
             # Notify invalidated reviewers (deduplicate in case a reviewer
@@ -792,7 +841,8 @@ def handle_consensus_producer_push_signal(
                             "commit_sha": commit_sha,
                             **_slice_meta,
                         },
-                    )
+                    ),
+                    run_epoch=_run_epoch_str,
                 )
 
             # Auto re-propose runs the same propose path that surfaces

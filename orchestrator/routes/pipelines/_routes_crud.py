@@ -710,13 +710,30 @@ def _update_pipeline_body(pipeline_id: str) -> tuple[_pkg.Response, int]:
             )
             cleanup_thread.start()
 
+            # Persist BRC history on cancel before any clearing, so the
+            # in-flight slice's consensus transcript survives to disk
+            # (Change 3 from #3632). Best-effort: never block cancel.
+            if pipeline.status == _pkg.PipelineStatus.CANCELLED:
+                try:
+                    _pkg._persist_cancel_brc_history(pipeline, store)
+                except Exception as brc_err:
+                    _pkg.logger.warning(
+                        "Failed to persist BRC history on cancel (continuing)",
+                        pipeline_id=pipeline_id,
+                        error=str(brc_err),
+                    )
+
             # Evict per-pipeline runtime state (consensus tracker, legacy
-            # consensus evaluator, message store) so a future pipeline
-            # that reuses this id (same branch) does not inherit this
-            # run's CONFIRMED consensus or message history (#2053).
-            _pkg._clear_pipeline_runtime_state(
-                pipeline_id, reason=f"pipeline_{pipeline.status.value}"
-            )
+            # consensus evaluator, message store) ONLY for FAILED, not
+            # CANCELLED. A cancel with cleanup=false must preserve the
+            # consensus tracker and message store so resume is lossless
+            # (#3632 Change 1). #2053 (new pipeline reusing a terminal
+            # pipeline's id) is defended by the create-path clear at
+            # line ~514, NOT by clearing on cancel.
+            if pipeline.status == _pkg.PipelineStatus.FAILED:
+                _pkg._clear_pipeline_runtime_state(
+                    pipeline_id, reason=f"pipeline_{pipeline.status.value}"
+                )
 
         _pkg.logger.info("Pipeline updated", pipeline_id=pipeline_id)
 

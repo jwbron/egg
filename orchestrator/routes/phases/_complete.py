@@ -206,7 +206,10 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
         _persist_phase_brc_history(pipeline, store, pipeline.current_phase.value)
 
         # Clear ephemeral inter-agent messaging and consensus state
-        _pkg._clear_concurrent_state(pipeline_id)
+        _pkg._clear_concurrent_state(
+            pipeline_id,
+            run_epoch=_pkg._resolve_pipeline_run_epoch(pipeline),
+        )
 
         logger.info(
             "Phase completed",

@@ -542,7 +542,10 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         # Intentionally called after lock release but before thread spawn:
         # the new phase starts with fresh concurrent state, and any racing
         # advance_phase call would be blocked by the optimistic lock above.
-        _pkg._clear_concurrent_state(pipeline_id)
+        _pkg._clear_concurrent_state(
+            pipeline_id,
+            run_epoch=_pkg._resolve_pipeline_run_epoch(pipeline),
+        )
 
         # #2777 (slice-1a) — the plan-exit work (validator, populate,
         # commit, context-PR opener) is now performed BEFORE the

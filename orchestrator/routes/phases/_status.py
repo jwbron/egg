@@ -198,7 +198,10 @@ def fail_phase(pipeline_id: str) -> tuple[Response, int]:
         store.save_pipeline(pipeline, expected_version=original_version)
 
         # Clear ephemeral inter-agent messaging and consensus state
-        _pkg._clear_concurrent_state(pipeline_id)
+        _pkg._clear_concurrent_state(
+            pipeline_id,
+            run_epoch=_pkg._resolve_pipeline_run_epoch(pipeline),
+        )
 
         logger.error(
             "Phase failed",

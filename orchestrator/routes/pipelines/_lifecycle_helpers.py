@@ -155,23 +155,54 @@ def _assert_repo_set_uniform(repos: list[str]) -> str | None:
     return None
 
 
+def _resolve_pipeline_run_epoch(pipeline: _pkg.Any) -> str | None:
+    """Resolve a Pipeline's run_epoch to a string for key composition.
+
+    ``run_epoch`` is a ``datetime | None`` on the Pipeline model. When
+    set, returns its ISO-format string. When ``None`` (fresh pipeline
+    that has never been resumed), returns ``None`` — callers that
+    receive ``None`` fall back to using ``pipeline_id`` as the epoch
+    marker, which is safe because the create-path clear wipes all
+    epochs anyway.
+
+    This is the canonical resolution point for #3632's ``run_epoch``
+    namespacing: all call sites that need to namespace a tracker or
+    message-store key by epoch should route through this helper so the
+    resolution logic is consistent.
+    """
+    epoch = getattr(pipeline, "run_epoch", None)
+    if epoch is not None:
+        return epoch.isoformat()
+    return None
+
+
 def _clear_pipeline_runtime_state(pipeline_id: str, *, reason: str) -> None:
-    """Evict per-pipeline runtime state that is keyed by pipeline_id alone.
+    """Evict per-pipeline runtime state that is keyed by (pipeline_id, run_epoch).
 
-    The peer-consensus tracker, the legacy consensus evaluator, and the
-    inter-agent message store are all keyed by pipeline_id. Without a
-    matching ``run_epoch`` namespace, a fresh pipeline that reuses an id
-    from a prior terminal run (same branch, e.g. ``issue-1965``) will
-    inherit the prior run's CONFIRMED consensus and message history. The
-    leak surfaces in the ``/status/wait`` route's Path-B envelope, which
-    would report ``concurrent.consensus.is_complete: true`` for a
-    pipeline that has not spawned any agents yet (#2053).
+    The peer-consensus tracker and the inter-agent message store are
+    namespaced by ``(pipeline_id, run_epoch)`` so that a resumed pipeline
+    (which gets a fresh ``run_epoch`` on CANCELLED→RUNNING via
+    ``restart_agent`` / ``restart_phase``) starts with a clean consensus
+    namespace and cannot replay pre-cancel CONSENSUS_* messages
+    (stale-state replay hazard, #3632).
 
-    Called when a pipeline transitions to a terminal status, when its
-    state file is deleted, and immediately after a fresh pipeline is
-    created (covers paths that bypass PATCH/DELETE — auto-FAILED, and
-    Redis-backed message-store entries that survived an orchestrator
-    restart between cancel and resubmit).
+    This clear is called on the DELETE path (pipeline removed) and on the
+    CREATE path (fresh pipeline with a reused id), where clearing ALL
+    ``run_epoch`` namespaces for the pipeline_id is required to defend
+    #2053: a new pipeline reusing a terminal pipeline's id must not
+    inherit the prior run's CONFIRMED consensus or message history.
+
+    This clear is NOT called on CANCELLED — ``cancel_task(cleanup=false)``
+    preserves the tracker and message store so resume is lossless (#3632
+    Change 1). The stale-state replay hazard that would arise from
+    retaining the message stream is closed by ``run_epoch`` namespacing
+    (Change 2): ``reconstruct_tracker_from_messages`` on a resumed
+    pipeline reads only the new epoch's messages.
+
+    Called when:
+    - A pipeline is deleted (DELETE /pipelines/{id}).
+    - A fresh pipeline is created with a reused id (POST /pipelines).
+    - A pipeline transitions to FAILED (PATCH with status=failed).
     """
     try:
         try:

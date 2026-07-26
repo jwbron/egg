@@ -595,7 +595,8 @@ def _start_pipeline_body(pipeline_id: str) -> tuple[_pkg.Response, int]:
                             get_peer_consensus_tracker as _gpct_recovery,
                         )
 
-                        _recovery_tracker = _gpct_recovery(pipeline_id)
+                        _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
+                        _recovery_tracker = _gpct_recovery(pipeline_id, run_epoch=_run_epoch_str)
                     except Exception as tracker_err:  # noqa: BLE001
                         _pkg.logger.debug(
                             "Tracker lookup failed during recovery snapshot",
@@ -635,7 +636,10 @@ def _start_pipeline_body(pipeline_id: str) -> tuple[_pkg.Response, int]:
                     # short-circuit (issue #1296).
                     from routes.phases import _clear_concurrent_state
 
-                    _clear_concurrent_state(pipeline_id)
+                    _clear_concurrent_state(
+                        pipeline_id,
+                        run_epoch=_pkg._resolve_pipeline_run_epoch(pipeline),
+                    )
 
                     # #2795: append the operator directive + iteration
                     # summary so iteration N+1 prompts can render them
@@ -669,7 +673,10 @@ def _start_pipeline_body(pipeline_id: str) -> tuple[_pkg.Response, int]:
             if is_approved:
                 from routes.phases import _clear_concurrent_state
 
-                _clear_concurrent_state(pipeline_id)
+                _clear_concurrent_state(
+                    pipeline_id,
+                    run_epoch=_pkg._resolve_pipeline_run_epoch(pipeline),
+                )
 
                 # #3521: advance contract.current_phase in lockstep with
                 # the pipeline record on the HITL-recovery advance (this

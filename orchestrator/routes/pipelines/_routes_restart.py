@@ -590,7 +590,8 @@ def _restart_agent_body(pipeline_id: str, agent_role: str) -> tuple[_pkg.Respons
                 get_peer_consensus_tracker,  # type: ignore[import-not-found]
             )
 
-        tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+        _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
+        tracker = get_peer_consensus_tracker(pipeline_id, slice_id, run_epoch=_run_epoch_str)
         if tracker:
             tracker.remove_agent(agent_role)
             _pkg.logger.info(
@@ -1215,7 +1216,8 @@ def _restart_phase_body(pipeline_id: str, phase: str) -> tuple[_pkg.Response, in
                 get_peer_consensus_tracker,  # type: ignore[import-not-found]
             )
 
-        tracker = get_peer_consensus_tracker(pipeline_id)
+        _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
+        tracker = get_peer_consensus_tracker(pipeline_id, run_epoch=_run_epoch_str)
         if tracker:
             tracker.clear()
             _pkg.logger.info("Cleared peer consensus tracker", pipeline_id=pipeline_id)
@@ -1268,7 +1270,9 @@ def _restart_phase_body(pipeline_id: str, phase: str) -> tuple[_pkg.Response, in
                 _contract = None
             if _contract is not None and getattr(_contract, "slices", None):
                 for _s in _contract.slices:
-                    _slice_tracker = get_peer_consensus_tracker(pipeline_id, slice_id=_s.id)
+                    _slice_tracker = get_peer_consensus_tracker(
+                        pipeline_id, slice_id=_s.id, run_epoch=_run_epoch_str
+                    )
                     if _slice_tracker:
                         _slice_tracker.clear()
                         _pkg.logger.info(

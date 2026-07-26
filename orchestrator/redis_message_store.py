@@ -66,14 +66,45 @@ _MAX_BLOCK_MS = (_SOCKET_TIMEOUT_SEC - 1) * 1000
 _MAX_STREAM_SEQ = (1 << 64) - 1
 
 
-def _stream_key(pipeline_id: str) -> str:
-    """Get the Redis Stream key for a pipeline."""
-    return f"pipeline:{pipeline_id}:messages"
+def _resolve_epoch(pipeline_id: str, run_epoch: str | None = None) -> str:
+    """Resolve a run_epoch string for key composition.
+
+    When ``run_epoch`` is explicitly supplied (e.g. from a Pipeline object's
+    ``run_epoch`` field), use it directly. When ``None``, fall back to
+    ``pipeline_id`` itself as the epoch marker — this preserves backward
+    compatibility for callers that have not yet been migrated to pass
+    ``run_epoch`` explicitly, and for fresh pipelines where ``run_epoch``
+    has not been set yet (the create-path clear will wipe all epochs
+    anyway).
+
+    The returned string is used as a namespace component in stream keys
+    so that a resumed pipeline (fresh ``run_epoch``) gets a clean message
+    stream and cannot replay pre-cancel CONSENSUS_* messages (#3632).
+    """
+    if run_epoch is not None:
+        return run_epoch
+    return pipeline_id
 
 
-def _counts_key(pipeline_id: str) -> str:
-    """Get the Redis hash key for message type counters."""
-    return f"pipeline:{pipeline_id}:msg_counts"
+def _stream_key(pipeline_id: str, run_epoch: str | None = None) -> str:
+    """Get the Redis Stream key for a pipeline.
+
+    Namespaced by ``(pipeline_id, run_epoch)`` so a resumed pipeline
+    (fresh ``run_epoch``) gets a clean message stream and cannot
+    replay pre-cancel CONSENSUS_* messages (#3632).
+    """
+    epoch = _resolve_epoch(pipeline_id, run_epoch)
+    return f"pipeline:{pipeline_id}:{epoch}:messages"
+
+
+def _counts_key(pipeline_id: str, run_epoch: str | None = None) -> str:
+    """Get the Redis hash key for message type counters.
+
+    Namespaced by ``(pipeline_id, run_epoch)`` for consistency with
+    :func:`_stream_key` (#3632).
+    """
+    epoch = _resolve_epoch(pipeline_id, run_epoch)
+    return f"pipeline:{pipeline_id}:{epoch}:msg_counts"
 
 
 def _message_to_redis(msg: Message) -> dict[str, str]:
@@ -139,9 +170,13 @@ def _message_from_redis(stream_id: str, fields: dict[bytes | str, bytes | str]) 
 class RedisMessageStore:
     """Thread-safe Redis Streams-backed message storage.
 
-    Each pipeline has its own stream: pipeline:{id}:messages. Messages
-    survive orchestrator restarts; phase transitions wipe them by design
-    via :meth:`clear`.
+    Each pipeline has its own stream per run_epoch:
+    pipeline:{id}:{epoch}:messages. Messages survive orchestrator
+    restarts; phase transitions wipe them by design via :meth:`clear`.
+
+    The ``run_epoch`` namespace (#3632) ensures a resumed pipeline
+    (fresh ``run_epoch``) gets a clean message stream and cannot
+    replay pre-cancel CONSENSUS_* messages.
     """
 
     def __init__(self, redis_client: redis.Redis) -> None:
@@ -150,10 +185,14 @@ class RedisMessageStore:
         self._id_to_stream_id: dict[str, dict[str, str]] = {}
         self._lock = threading.RLock()
 
-    def add_message(self, message: Message) -> Message:
-        """Add a message to the Redis Stream."""
-        key = _stream_key(message.pipeline_id)
-        counts_key_val = _counts_key(message.pipeline_id)
+    def add_message(self, message: Message, run_epoch: str | None = None) -> Message:
+        """Add a message to the Redis Stream.
+
+        ``run_epoch`` namespaces the stream key so a resumed pipeline
+        (fresh ``run_epoch``) gets a clean stream (#3632).
+        """
+        key = _stream_key(message.pipeline_id, run_epoch)
+        counts_key_val = _counts_key(message.pipeline_id, run_epoch)
         fields = _message_to_redis(message)
 
         try:
@@ -167,11 +206,15 @@ class RedisMessageStore:
             if isinstance(stream_id, bytes):
                 stream_id = stream_id.decode("utf-8")
 
-            # Cache the mapping from message UUID to stream ID
+            # Cache the mapping from message UUID to stream ID.
+            # Keyed by (pipeline_id, run_epoch) so a resumed pipeline's
+            # cache entries don't collide with the prior epoch's (#3632).
+            epoch_key = _resolve_epoch(message.pipeline_id, run_epoch)
+            cache_key = f"{message.pipeline_id}:{epoch_key}"
             with self._lock:
-                if message.pipeline_id not in self._id_to_stream_id:
-                    self._id_to_stream_id[message.pipeline_id] = {}
-                self._id_to_stream_id[message.pipeline_id][message.id] = stream_id
+                if cache_key not in self._id_to_stream_id:
+                    self._id_to_stream_id[cache_key] = {}
+                self._id_to_stream_id[cache_key][message.id] = stream_id
 
         except redis.RedisError as e:
             logger.error(
@@ -202,6 +245,7 @@ class RedisMessageStore:
         from_roles: Sequence[str] | None = None,
         slice_id: str | None = None,
         from_tip: bool = False,
+        run_epoch: str | None = None,
     ) -> list[Message]:
         """Get messages from the Redis Stream.
 
@@ -238,6 +282,11 @@ class RedisMessageStore:
                 Required by the ``/messages/wait`` endpoint's event-driven
                 contract (issue #1925) — without it, a repeated wait-loop
                 call returns the same already-seen event on every invocation.
+            run_epoch: When set, namespace the stream key by this epoch
+                so a resumed pipeline (fresh ``run_epoch``) reads only
+                the new epoch's messages (#3632). When ``None``, falls
+                back to ``pipeline_id`` as the epoch marker (backward
+                compat).
         """
         messages, _meta = self.get_messages_with_meta(
             pipeline_id,
@@ -251,6 +300,7 @@ class RedisMessageStore:
             from_roles=from_roles,
             slice_id=slice_id,
             from_tip=from_tip,
+            run_epoch=run_epoch,
         )
         return messages
 
@@ -269,6 +319,7 @@ class RedisMessageStore:
         slice_id: str | None = None,
         from_tip: bool = False,
         _suppress_stale_warning: bool = False,
+        run_epoch: str | None = None,
     ) -> tuple[list[Message], GetMessagesMeta]:
         """Same as :meth:`get_messages` but also returns staleness metadata.
 
@@ -301,8 +352,13 @@ class RedisMessageStore:
         backend's kwarg for API symmetry. The Redis path does not log on
         stale resolution, so the flag is a no-op; it is still accepted
         so existing callers' kwargs keep working.
+
+        ``run_epoch``: When set, namespace the stream key by this epoch
+        so a resumed pipeline (fresh ``run_epoch``) reads only the new
+        epoch's messages (#3632). When ``None``, falls back to
+        ``pipeline_id`` as the epoch marker (backward compat).
         """
-        key = _stream_key(pipeline_id)
+        key = _stream_key(pipeline_id, run_epoch)
 
         # Resolve since_id (message UUID) to Redis stream ID
         start_id = "0-0"
@@ -488,9 +544,11 @@ class RedisMessageStore:
                             sid = sid.decode("utf-8")
                         msg = _message_from_redis(sid, fields)
                         with self._lock:
-                            if pipeline_id not in self._id_to_stream_id:
-                                self._id_to_stream_id[pipeline_id] = {}
-                            self._id_to_stream_id[pipeline_id][msg.id] = sid
+                            epoch_key = _resolve_epoch(pipeline_id, run_epoch)
+                            cache_key = f"{pipeline_id}:{epoch_key}"
+                            if cache_key not in self._id_to_stream_id:
+                                self._id_to_stream_id[cache_key] = {}
+                            self._id_to_stream_id[cache_key][msg.id] = sid
                         out.append(msg)
                         last_sid = sid
             return out, last_sid
@@ -614,14 +672,16 @@ class RedisMessageStore:
             return stream_id
         return "0-0"
 
-    def get_latest_id(self, pipeline_id: str) -> str | None:
+    def get_latest_id(self, pipeline_id: str, run_epoch: str | None = None) -> str | None:
         """Return the ID of the most recent message for *pipeline_id*, or ``None``.
 
         Uses ``XREVRANGE … COUNT 1`` for an O(1) tail read.  Extracts the
         ``id`` field directly from the Redis hash to avoid deserializing the
         full :class:`Message` (JSON metadata, ISO timestamps, etc.).
+
+        ``run_epoch`` namespaces the stream key (#3632).
         """
-        key = _stream_key(pipeline_id)
+        key = _stream_key(pipeline_id, run_epoch)
         try:
             entries = self._redis.xrevrange(key, count=1)
             if entries:
@@ -634,19 +694,21 @@ class RedisMessageStore:
             return None
         return None
 
-    def get_status(self, pipeline_id: str) -> dict[str, Any]:
+    def get_status(self, pipeline_id: str, run_epoch: str | None = None) -> dict[str, Any]:
         """Get message statistics for a pipeline.
 
-        Uses a Redis hash counter (pipeline:{id}:msg_counts) for O(1) type
-        aggregation instead of scanning the entire stream.
+        Uses a Redis hash counter (pipeline:{id}:{epoch}:msg_counts) for O(1)
+        type aggregation instead of scanning the entire stream.
 
         Note: The counter is increment-only (no decrement on message deletion
         or stream trimming). ``total`` comes from XINFO STREAM (authoritative)
         while ``by_type`` comes from the counter hash, so the two may diverge
         if the stream is externally trimmed. ``clear()`` resets both.
+
+        ``run_epoch`` namespaces the keys (#3632).
         """
-        key = _stream_key(pipeline_id)
-        counts_key = _counts_key(pipeline_id)
+        key = _stream_key(pipeline_id, run_epoch)
+        counts_key = _counts_key(pipeline_id, run_epoch)
         try:
             info = self._redis.xinfo_stream(key)
             length = info.get("length", 0) if isinstance(info, dict) else 0
@@ -667,26 +729,74 @@ class RedisMessageStore:
             logger.error("Failed to get stream status", pipeline_id=pipeline_id, error=str(e))
             return {"total": 0, "by_type": {}}
 
-    def clear(self, pipeline_id: str) -> int:
-        """Delete the Redis Stream and counters for a pipeline."""
-        key = _stream_key(pipeline_id)
-        counts_key_val = _counts_key(pipeline_id)
-        try:
-            length_before = self._redis.xlen(key)
-            self._redis.delete(key, counts_key_val)
-            with self._lock:
-                self._id_to_stream_id.pop(pipeline_id, None)
-            return length_before
-        except redis.RedisError as e:
-            logger.error("Failed to clear stream", pipeline_id=pipeline_id, error=str(e))
-            return 0
+    def clear(self, pipeline_id: str, run_epoch: str | None = None) -> int:
+        """Delete the Redis Stream and counters for a pipeline.
 
-    def _resolve_stream_id(self, pipeline_id: str, message_id: str) -> str | None:
-        """Resolve a message UUID to a Redis Stream ID from cache."""
+        ``run_epoch`` namespaces the keys (#3632). When ``None``,
+        clears ALL epoch namespaces for the given ``pipeline_id``
+        (used by DELETE and CREATE paths to defend #2053). When
+        supplied, clears only that specific epoch.
+        """
+        if run_epoch is None:
+            # Clear all epoch namespaces for this pipeline_id.
+            # Use SCAN to find all matching keys, then delete them.
+            total_cleared = 0
+            try:
+                # Pattern: pipeline:{pipeline_id}:*:messages and
+                # pipeline:{pipeline_id}:*:msg_counts
+                stream_pattern = f"pipeline:{pipeline_id}:*:messages"
+                counts_pattern = f"pipeline:{pipeline_id}:*:msg_counts"
+                for pattern in [stream_pattern, counts_pattern]:
+                    cursor = 0
+                    while True:
+                        cursor, keys = self._redis.scan(cursor=cursor, match=pattern, count=100)
+                        if keys:
+                            total_cleared += self._redis.delete(*keys)
+                        if cursor == 0:
+                            break
+                # Also clear the legacy bare-key format (pre-#3632) for
+                # pipelines that may have been created before the migration.
+                legacy_stream = _stream_key(pipeline_id)
+                legacy_counts = _counts_key(pipeline_id)
+                total_cleared += self._redis.delete(legacy_stream, legacy_counts)
+                with self._lock:
+                    # Clear all cache entries for this pipeline_id
+                    keys_to_remove = [
+                        k for k in self._id_to_stream_id if k.startswith(f"{pipeline_id}:")
+                    ]
+                    for k in keys_to_remove:
+                        self._id_to_stream_id.pop(k, None)
+                    # Also clear legacy bare-key cache entry
+                    self._id_to_stream_id.pop(pipeline_id, None)
+            except redis.RedisError as e:
+                logger.error("Failed to clear all streams", pipeline_id=pipeline_id, error=str(e))
+            return total_cleared
+        else:
+            key = _stream_key(pipeline_id, run_epoch)
+            counts_key_val = _counts_key(pipeline_id, run_epoch)
+            try:
+                length_before = self._redis.xlen(key)
+                self._redis.delete(key, counts_key_val)
+                with self._lock:
+                    epoch_key = _resolve_epoch(pipeline_id, run_epoch)
+                    cache_key = f"{pipeline_id}:{epoch_key}"
+                    self._id_to_stream_id.pop(cache_key, None)
+                return length_before
+            except redis.RedisError as e:
+                logger.error("Failed to clear stream", pipeline_id=pipeline_id, error=str(e))
+                return 0
+
+    def _resolve_stream_id(self, pipeline_id: str, message_id: str, run_epoch: str | None = None) -> str | None:
+        """Resolve a message UUID to a Redis Stream ID from cache.
+
+        ``run_epoch`` namespaces the cache lookup (#3632).
+        """
+        epoch_key = _resolve_epoch(pipeline_id, run_epoch)
+        cache_key = f"{pipeline_id}:{epoch_key}"
         with self._lock:
-            return self._id_to_stream_id.get(pipeline_id, {}).get(message_id)
+            return self._id_to_stream_id.get(cache_key, {}).get(message_id)
 
-    def _find_stream_id_by_message_id(self, pipeline_id: str, message_id: str) -> str | None:
+    def _find_stream_id_by_message_id(self, pipeline_id: str, message_id: str, run_epoch: str | None = None) -> str | None:
         """Scan the stream to find a message by its UUID. Fallback for cache miss.
 
         Uses paginated XRANGE with count=500 to avoid unbounded scans on large streams.
@@ -698,8 +808,10 @@ class RedisMessageStore:
         signal in :meth:`get_messages_with_meta` is suppressed on the
         transient path so a momentary blip does not tell the consumer
         to drop a still-live cursor — issue #2464 reviewer note #3).
+
+        ``run_epoch`` namespaces the stream key (#3632).
         """
-        key = _stream_key(pipeline_id)
+        key = _stream_key(pipeline_id, run_epoch)
         batch_size = 500
         cursor = "-"
         while True:
@@ -714,10 +826,12 @@ class RedisMessageStore:
                     msg_id = msg_id.decode("utf-8")
                 if msg_id == message_id:
                     # Cache it for next time
+                    epoch_key = _resolve_epoch(pipeline_id, run_epoch)
+                    cache_key = f"{pipeline_id}:{epoch_key}"
                     with self._lock:
-                        if pipeline_id not in self._id_to_stream_id:
-                            self._id_to_stream_id[pipeline_id] = {}
-                        self._id_to_stream_id[pipeline_id][message_id] = stream_id
+                        if cache_key not in self._id_to_stream_id:
+                            self._id_to_stream_id[cache_key] = {}
+                        self._id_to_stream_id[cache_key][message_id] = stream_id
                     return stream_id
             # Advance cursor past the last entry in this batch
             last_id = entries[-1][0]

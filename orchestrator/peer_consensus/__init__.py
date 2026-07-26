@@ -223,42 +223,85 @@ _trackers: dict[str, PeerConsensusTracker] = {}
 _trackers_lock = threading.Lock()
 
 
-def _tracker_key(pipeline_id: str, slice_id: str | None = None) -> str:
+def _resolve_run_epoch(pipeline_id: str, run_epoch: str | None = None) -> str:
+    """Resolve a run_epoch string for key composition.
+
+    When ``run_epoch`` is explicitly supplied (e.g. from a Pipeline object's
+    ``run_epoch`` field), use it directly. When ``None``, fall back to
+    ``pipeline_id`` itself as the epoch marker — this preserves backward
+    compatibility for callers that have not yet been migrated to pass
+    ``run_epoch`` explicitly, and for fresh pipelines where ``run_epoch``
+    has not been set yet (the create-path clear will wipe all epochs
+    anyway).
+
+    The returned string is used as a namespace component in tracker keys
+    and message-stream keys, so a resumed pipeline (which gets a fresh
+    ``run_epoch`` on CANCELLED→RUNNING) starts with a clean namespace and
+    cannot replay pre-cancel CONSENSUS_* messages (#3632).
+    """
+    if run_epoch is not None:
+        return run_epoch
+    # Fallback: use pipeline_id as the epoch marker for backward compat.
+    # This is safe because:
+    # 1. The create-path clear wipes ALL epochs for a pipeline_id.
+    # 2. A fresh pipeline with run_epoch=None has no prior messages to replay.
+    # 3. Callers that pass run_epoch=None are operating on a pipeline that
+    #    hasn't been resumed yet (no stale-state replay hazard).
+    return pipeline_id
+
+
+def _tracker_key(
+    pipeline_id: str,
+    slice_id: str | None = None,
+    run_epoch: str | None = None,
+) -> str:
     """Compose the tracker registry key.
+
+    Namespaced by ``(pipeline_id, run_epoch, slice_id)`` so that a resumed
+    pipeline (fresh ``run_epoch``) gets a clean consensus namespace and
+    cannot replay pre-cancel CONSENSUS_* messages (#3632).
 
     Slice-aware (#2137 TASK-4-3, refine-phase decision-14 hybrid):
 
     * When ``slice_id`` is supplied, the key is the nested form
-      ``{pipeline_id}/{slice_id}``. Each slice's BRC consensus has
+      ``{pipeline_id}:{epoch}/{slice_id}``. Each slice's BRC consensus has
       its own tracker, completely isolated from siblings.
-    * When ``slice_id`` is ``None``, the key is the bare pipeline_id
-      — preserving the pre-slicing single-tracker semantics so
-      cross-slice telemetry (HEARTBEAT, OVERSEER_ALERT) keeps
-      flowing through the pipeline-scoped tracker.
+    * When ``slice_id`` is ``None``, the key is
+      ``{pipeline_id}:{epoch}`` — preserving the pre-slicing
+      single-tracker semantics so cross-slice telemetry (HEARTBEAT,
+      OVERSEER_ALERT) keeps flowing through the pipeline-scoped tracker.
 
     The function is idempotent on already-nested ids (callers that
     have constructed ``"issue-N/slice-M"`` themselves don't get a
     double prefix).
     """
+    epoch = _resolve_run_epoch(pipeline_id, run_epoch)
     if slice_id is None:
-        return pipeline_id
+        return f"{pipeline_id}:{epoch}"
     if "/" in pipeline_id and pipeline_id.endswith(f"/{slice_id}"):
-        return pipeline_id
-    return f"{pipeline_id}/{slice_id}"
+        return f"{pipeline_id}:{epoch}"
+    return f"{pipeline_id}:{epoch}/{slice_id}"
 
 
 def get_peer_consensus_tracker(
-    pipeline_id: str, slice_id: str | None = None
+    pipeline_id: str,
+    slice_id: str | None = None,
+    run_epoch: str | None = None,
 ) -> PeerConsensusTracker | None:
-    """Get the tracker for a pipeline (or per-slice tracker), if one exists."""
-    return _trackers.get(_tracker_key(pipeline_id, slice_id))
+    """Get the tracker for a pipeline (or per-slice tracker), if one exists.
+
+    ``run_epoch`` namespaces the tracker so a resumed pipeline (fresh
+    ``run_epoch``) gets a clean tracker that cannot be polluted by
+    pre-cancel CONSENSUS_* messages (#3632).
+    """
+    return _trackers.get(_tracker_key(pipeline_id, slice_id, run_epoch))
 
 
 def get_slice_trackers(pipeline_id: str) -> dict[str, PeerConsensusTracker]:
     """Return the live slice-scoped trackers for a pipeline, keyed by slice_id.
 
     Observability accessor (#3481): during a slice-DAG implement phase
-    the registry holds per-slice trackers under ``{pipeline_id}/{slice_id}``
+    the registry holds per-slice trackers under ``{pipeline_id}:{epoch}/{slice_id}``
     and nothing under the bare pipeline id, so a slice-id-less status
     query cannot see any consensus state. This enumerates the registry
     so callers (``_get_concurrent_status``) can serve each active
@@ -268,13 +311,21 @@ def get_slice_trackers(pipeline_id: str) -> dict[str, PeerConsensusTracker]:
     an orchestrator restart slices reappear here as their trackers are
     reconstructed on first slice-scoped access.
     """
-    prefix = f"{pipeline_id}/"
+    # Keys are now ``{pipeline_id}:{epoch}/{slice_id}`` or
+    # ``{pipeline_id}:{epoch}``. Match any key starting with
+    # ``{pipeline_id}:`` so we catch all epochs and slices.
+    prefix = f"{pipeline_id}:"
     with _trackers_lock:
-        return {
-            key[len(prefix) :]: tracker
-            for key, tracker in _trackers.items()
-            if key.startswith(prefix)
-        }
+        result: dict[str, PeerConsensusTracker] = {}
+        for key, tracker in _trackers.items():
+            if not key.startswith(prefix):
+                continue
+            # Strip the pipeline_id:epoch prefix to get the slice_id
+            remainder = key[len(prefix) :]
+            if "/" in remainder:
+                slice_id_part = remainder.split("/", 1)[1]
+                result[slice_id_part] = tracker
+        return result
 
 
 def create_peer_consensus_tracker(
@@ -282,30 +333,63 @@ def create_peer_consensus_tracker(
     graph: ReviewGraph,
     *,
     slice_id: str | None = None,
+    run_epoch: str | None = None,
     **kwargs: Any,
 ) -> PeerConsensusTracker:
     """Create and register a tracker for a pipeline (or per-slice scope).
 
     When ``slice_id`` is supplied the tracker's logical pipeline_id
-    is the nested ``{pipeline_id}/{slice_id}`` so CONSENSUS_* messages
-    naturally route to the per-slice tracker. The bare pipeline-level
-    tracker (without slice_id) keeps existing single-tracker pipelines
-    working unchanged.
+    is the nested ``{pipeline_id}:{epoch}/{slice_id}`` so CONSENSUS_*
+    messages naturally route to the per-slice tracker. The bare
+    pipeline-level tracker (without slice_id) keeps existing
+    single-tracker pipelines working unchanged.
+
+    ``run_epoch`` namespaces the tracker so a resumed pipeline (fresh
+    ``run_epoch``) gets a clean tracker that cannot be polluted by
+    pre-cancel CONSENSUS_* messages (#3632).
     """
-    key = _tracker_key(pipeline_id, slice_id)
+    key = _tracker_key(pipeline_id, slice_id, run_epoch)
     with _trackers_lock:
         tracker = PeerConsensusTracker(key, graph, **kwargs)
         _trackers[key] = tracker
     return tracker
 
 
-def remove_peer_consensus_tracker(pipeline_id: str, slice_id: str | None = None) -> None:
-    """Remove a tracker for a pipeline (or per-slice scope)."""
-    key = _tracker_key(pipeline_id, slice_id)
-    with _trackers_lock:
-        tracker = _trackers.pop(key, None)
-        if tracker:
-            tracker.clear()
+def remove_peer_consensus_tracker(
+    pipeline_id: str,
+    slice_id: str | None = None,
+    run_epoch: str | None = None,
+) -> None:
+    """Remove a tracker for a pipeline (or per-slice scope).
+
+    When ``run_epoch`` is ``None``, removes ALL epoch namespaces for the
+    given ``pipeline_id`` (and optional ``slice_id``). This is used by
+    the DELETE and CREATE paths to defend #2053: a new pipeline reusing
+    a terminal pipeline's id must not inherit any prior run's
+    CONFIRMED consensus.
+
+    When ``run_epoch`` is supplied, removes only that specific epoch
+    namespace — used by phase transitions and FAILED clears.
+    """
+    if run_epoch is None:
+        # Remove all epoch namespaces for this pipeline_id (and optional slice).
+        prefix = f"{pipeline_id}:"
+        with _trackers_lock:
+            keys_to_remove = [
+                k for k in _trackers
+                if k.startswith(prefix)
+                and (slice_id is None or k.endswith(f"/{slice_id}") or "/" not in k[len(prefix):])
+            ]
+            for key in keys_to_remove:
+                tracker = _trackers.pop(key, None)
+                if tracker:
+                    tracker.clear()
+    else:
+        key = _tracker_key(pipeline_id, slice_id, run_epoch)
+        with _trackers_lock:
+            tracker = _trackers.pop(key, None)
+            if tracker:
+                tracker.clear()
 
 
 def _message_slice_id(message: Any) -> str | None:
@@ -328,6 +412,7 @@ def reconstruct_tracker_from_messages(
     message_store: Any = None,
     slice_id: str | None = None,
     phase: str | None = None,
+    run_epoch: str | None = None,
 ) -> PeerConsensusTracker | None:
     """Reconstruct a consensus tracker by replaying messages from the message store.
 
@@ -337,16 +422,16 @@ def reconstruct_tracker_from_messages(
 
     Args:
         pipeline_id: Pipeline ID to reconstruct. Always the *bare* id — the
-            message store keys messages by bare pipeline_id regardless of
-            slice scope.
+            message store keys messages by ``(pipeline_id, run_epoch)``
+            regardless of slice scope.
         graph: ReviewGraph for the pipeline's current phase.
         message_store: Optional message store override (for testing).
         slice_id: When set, replay only messages tagged with this slice
             (``metadata['slice_id']``) and register the tracker under the
-            nested ``{pipeline_id}/{slice_id}`` key. When ``None``, replay
-            only pipeline-level messages (those with no ``slice_id`` tag) —
-            so a slice-DAG pipeline queried without a slice scope does not
-            silently reconstruct a cross-slice tracker (#2761).
+            nested ``{pipeline_id}:{epoch}/{slice_id}`` key. When ``None``,
+            replay only pipeline-level messages (those with no ``slice_id``
+            tag) — so a slice-DAG pipeline queried without a slice scope
+            does not silently reconstruct a cross-slice tracker (#2761).
         phase: When set, replay only messages from this pipeline phase.
             Guards against replaying an earlier phase's consensus (e.g.
             refine/plan) into the current phase's review graph. A
@@ -355,6 +440,15 @@ def reconstruct_tracker_from_messages(
             probe in ``routes/signals.py`` (a null phase is the
             conservative match: every emitter sets it, but if one
             doesn't, include rather than drop).
+        run_epoch: When set, namespace the reconstruction to this epoch's
+            message stream and register the tracker under
+            ``{pipeline_id}:{epoch}``. This is the key safety mechanism
+            for #3632: a resumed pipeline gets a fresh ``run_epoch``, so
+            ``reconstruct_tracker_from_messages`` reads only the new
+            epoch's messages and cannot replay pre-cancel CONSENSUS_*
+            messages into the reset round. When ``None``, falls back to
+            the pipeline_id as the epoch marker (backward compat for
+            callers that haven't been migrated).
 
     Returns:
         Reconstructed tracker registered in the global tracker dict,
@@ -370,7 +464,7 @@ def reconstruct_tracker_from_messages(
             return None
 
     # Fetch all messages for this pipeline (generous limit for reconstruction)
-    messages = message_store.get_messages(pipeline_id, limit=10000)
+    messages = message_store.get_messages(pipeline_id, limit=10000, run_epoch=run_epoch)
 
     # Filter to consensus-related message types
     consensus_types = {
@@ -425,7 +519,7 @@ def reconstruct_tracker_from_messages(
     if not consensus_msgs:
         return None
 
-    tracker_key = _tracker_key(pipeline_id, slice_id)
+    tracker_key = _tracker_key(pipeline_id, slice_id, run_epoch)
 
     # Create tracker with relaxed attestation and no cooldown for replaying
     # historical messages. RELAXED mode is kept for the tracker's remaining

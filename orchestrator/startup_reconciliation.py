@@ -319,8 +319,11 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
             # missing even when the pipeline-level tracker is present.
             # Reviewer feedback on PR #2895: hardening against silent
             # data gaps if this function is ever re-invoked.
-            if get_peer_consensus_tracker(pipeline_id) is None:
-                tracker = reconstruct_tracker_from_messages(pipeline_id, graph)
+            _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
+            if get_peer_consensus_tracker(pipeline_id, run_epoch=_run_epoch_str) is None:
+                tracker = reconstruct_tracker_from_messages(
+                    pipeline_id, graph, run_epoch=_run_epoch_str
+                )
                 if tracker:
                     logger.info(
                         "Startup reconciliation: reconstructed consensus tracker",
@@ -414,10 +417,10 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
             _slice_ids = _enumerate_contract_slices(pipeline, store)
             for _slice_id in _slice_ids:
                 try:
-                    if get_peer_consensus_tracker(pipeline.id, slice_id=_slice_id) is not None:
+                    if get_peer_consensus_tracker(pipeline.id, slice_id=_slice_id, run_epoch=_run_epoch_str) is not None:
                         continue
                     _slice_tracker = reconstruct_tracker_from_messages(
-                        pipeline.id, graph, slice_id=_slice_id
+                        pipeline.id, graph, slice_id=_slice_id, run_epoch=_run_epoch_str
                     )
                     if _slice_tracker is not None:
                         logger.info(

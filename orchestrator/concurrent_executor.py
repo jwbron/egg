@@ -348,6 +348,7 @@ class ConcurrentPhaseExecutor:
         self._review_graph = review_graph
         self._roles_override = roles
         self._slice_id = slice_id
+        self._run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
         self._event_status_view = event_status_view
         self._failure_times: list[datetime] = []
         self._lock = threading.Lock()
@@ -545,6 +546,7 @@ class ConcurrentPhaseExecutor:
             self.pipeline.id,
             graph,
             slice_id=self._slice_id,
+            run_epoch=self._run_epoch_str,
             auto_repropose_debounce_seconds=config.auto_repropose_debounce_seconds,
             max_auto_repropose=config.max_auto_repropose,
         )
@@ -799,7 +801,8 @@ class ConcurrentPhaseExecutor:
                     body="orchestrator-side confirm (#3064 event loop)",
                     phase=self.pipeline.current_phase.value,
                     metadata=slice_meta,
-                )
+                ),
+                run_epoch=self._run_epoch_str,
             )
         except Exception as exc:  # noqa: BLE001 — message emission is best-effort
             logger.warning(
@@ -1007,11 +1010,12 @@ class ConcurrentPhaseExecutor:
                 subject=f"Agent {role} failed",
                 body=error,
                 phase=self.pipeline.current_phase.value,
-            )
+            ),
+            run_epoch=self._run_epoch_str,
         )
 
         # Remove from consensus
-        tracker = get_peer_consensus_tracker(self.pipeline.id)
+        tracker = get_peer_consensus_tracker(self.pipeline.id, run_epoch=self._run_epoch_str)
         crash_result = None
         if tracker:
             crash_result = tracker.handle_agent_crash(role)
@@ -1086,7 +1090,8 @@ class ConcurrentPhaseExecutor:
                         "priority": priority,
                         "summary": summary,
                     },
-                )
+                ),
+                run_epoch=self._run_epoch_str,
             )
         except Exception as exc:  # noqa: BLE001 — alert emission is best-effort
             logger.warning(
@@ -1234,7 +1239,8 @@ class ConcurrentPhaseExecutor:
         """
         try:
             messages = get_message_store().get_messages(
-                self.pipeline.id, limit=10000, slice_id=self._slice_id
+                self.pipeline.id, limit=10000, slice_id=self._slice_id,
+                run_epoch=self._run_epoch_str,
             )
             phase = self.pipeline.current_phase.value
             latest = None
@@ -1287,7 +1293,8 @@ class ConcurrentPhaseExecutor:
             # current WAITING_ON_ROLE self-report arbitrarily old, so it must
             # be found outside any liveness window.
             recent = get_message_store().get_messages(
-                self.pipeline.id, since=cutoff, limit=10000, slice_id=self._slice_id
+                self.pipeline.id, since=cutoff, limit=10000, slice_id=self._slice_id,
+                run_epoch=self._run_epoch_str,
             )
 
             def _at_or_after_cutoff(msg: Message) -> bool:
@@ -1913,7 +1920,9 @@ class ConcurrentPhaseExecutor:
 
     def check_consensus(self) -> dict[str, Any]:
         """Check if consensus has been reached for phase completion."""
-        tracker = get_peer_consensus_tracker(self.pipeline.id, self._slice_id)
+        tracker = get_peer_consensus_tracker(
+            self.pipeline.id, self._slice_id, run_epoch=self._run_epoch_str
+        )
         if not tracker:
             logger.warning(
                 "Consensus tracker not found, attempting reconstruction",
@@ -1937,7 +1946,9 @@ class ConcurrentPhaseExecutor:
                     from peer_consensus import reconstruct_tracker_from_messages
 
                     graph = self._get_review_graph()
-                    tracker = reconstruct_tracker_from_messages(self.pipeline.id, graph)
+                    tracker = reconstruct_tracker_from_messages(
+                        self.pipeline.id, graph, run_epoch=self._run_epoch_str
+                    )
                 except ImportError:
                     pass
                 except Exception as e:
@@ -2019,7 +2030,9 @@ class ConcurrentPhaseExecutor:
                         from message_store import get_message_store
 
                         store = get_message_store()
-                        messages = store.get_messages(self.pipeline.id, limit=10000)
+                        messages = store.get_messages(
+                            self.pipeline.id, limit=10000, run_epoch=self._run_epoch_str
+                        )
                         # Count a role as confirmed if it has a clean
                         # CONFIRMED message, or a pending_acks CONFIRMED
                         # message where the tracker later accepted the

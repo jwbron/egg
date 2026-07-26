@@ -53,14 +53,21 @@ def validate_phase_transition(
     return True, ""
 
 
-def _clear_concurrent_state(pipeline_id: str) -> None:
-    """Clear ephemeral message store and consensus state on phase transition."""
+def _clear_concurrent_state(pipeline_id: str, run_epoch: str | None = None) -> None:
+    """Clear ephemeral message store and consensus state on phase transition.
+
+    ``run_epoch`` namespaces the clear so that a phase transition on a
+    resumed pipeline (fresh ``run_epoch``) clears only the current
+    epoch's state, not the prior epoch's (#3632). When ``None``,
+    clears ALL epoch namespaces for the pipeline_id (backward compat
+    for callers that haven't been migrated).
+    """
     try:
         from message_store import get_message_store
     except ImportError:
         from ..message_store import get_message_store  # type: ignore[no-redef]
 
-    cleared = get_message_store().clear(pipeline_id)
+    cleared = get_message_store().clear(pipeline_id, run_epoch=run_epoch)
 
     # Clear BRC tracker if it exists. The legacy ConsensusEvaluator was
     # removed in cq-5 of #2777; the BRC tracker is the only consensus
@@ -68,7 +75,7 @@ def _clear_concurrent_state(pipeline_id: str) -> None:
     try:
         from peer_consensus import remove_peer_consensus_tracker
 
-        remove_peer_consensus_tracker(pipeline_id)
+        remove_peer_consensus_tracker(pipeline_id, run_epoch=run_epoch)
     except ImportError:
         pass
 

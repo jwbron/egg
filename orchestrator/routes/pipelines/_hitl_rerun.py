@@ -313,7 +313,10 @@ def _perform_hitl_phase_rerun(
 
     from routes.phases import _clear_concurrent_state
 
-    _clear_concurrent_state(pipeline_id)
+    _clear_concurrent_state(
+        pipeline_id,
+        run_epoch=_pkg._resolve_pipeline_run_epoch(pipeline),
+    )
 
     store.save_pipeline(pipeline)
 
