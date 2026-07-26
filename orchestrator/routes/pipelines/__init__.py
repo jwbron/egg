@@ -1150,6 +1150,7 @@ from ._brc_history import (  # noqa: E402,F401
     CONSENSUS_BRC_TYPES,
     _commit_slice_brc_history_to_integration_branch,
     _get_message_store,
+    _persist_cancel_brc_history,
     _persist_phase_brc_history,
     _render_brc_history_markdown,
     _rewrite_brc_history_for_pr,
@@ -1258,6 +1259,7 @@ from ._lifecycle_helpers import (  # noqa: E402,F401
     _compute_gateway_mode,
     _mark_pipeline_records_terminated,
     _normalize_submission_repos,
+    _resolve_pipeline_run_epoch,
     _sync_contract_phase_to_pipeline,
 )
 from ._overseer import (  # noqa: E402,F401

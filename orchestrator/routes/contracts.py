@@ -483,8 +483,11 @@ def _persist_durable_mutation(field_path: str, worktree: Path) -> None:
             _alert_persist_failure(pipeline_id, field_path)
 
 
-def _alert_persist_failure(pipeline_id: str, field_path: str) -> None:
-    """Broadcast an OVERSEER_ALERT for a failed durability-critical persist (#3470)."""
+def _alert_persist_failure(pipeline_id: str, field_path: str, run_epoch: str | None = None) -> None:
+    """Broadcast an OVERSEER_ALERT for a failed durability-critical persist (#3470).
+
+    ``run_epoch`` namespaces the message stream (#3632).
+    """
     try:
         from message_store import Message, MessageType, get_message_store
 
@@ -504,7 +507,8 @@ def _alert_persist_failure(pipeline_id: str, field_path: str) -> None:
                     f"and re-mark the task complete if needed. See #3470."
                 ),
                 metadata={"reason": "contract_persist_failed", "field_path": field_path},
-            )
+            ),
+            run_epoch=run_epoch,
         )
     except Exception:  # noqa: BLE001 — alert is best-effort; mutation already succeeded
         logger.warning(

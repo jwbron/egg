@@ -235,6 +235,7 @@ def _write_brc_history(
     identifier: int | str,
     *,
     write_per_slice: bool = True,
+    run_epoch: str | None = None,
 ) -> None:
     """Write BRC consensus message history for a phase to .egg-state.
 
@@ -306,7 +307,7 @@ def _write_brc_history(
 
     try:
         store = store_fn()
-        messages = store.get_messages(pipeline_id, limit=10000)
+        messages = store.get_messages(pipeline_id, limit=10000, run_epoch=run_epoch)
     except Exception as e:
         _pkg.logger.warning(
             "_write_brc_history: early return — failed to retrieve messages",
@@ -581,6 +582,7 @@ def _persist_phase_brc_history(
     trigger a subsequent advance or push.
     """
     worktree_path = _pkg._resolve_pipeline_worktree_path(pipeline, store.repo_path)
+    _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
     try:
         _pkg._write_brc_history(
             worktree_path,
@@ -594,6 +596,7 @@ def _persist_phase_brc_history(
             # slice PRs targeting ``work`` hit add/add merge conflicts
             # (#2755). The parameter is a no-op for non-implement phases.
             write_per_slice=False,
+            run_epoch=_run_epoch_str,
         )
     except Exception as brc_err:
         _pkg.logger.warning(
@@ -619,6 +622,81 @@ def _persist_phase_brc_history(
             "Failed to commit BRC history before phase transition (continuing)",
             pipeline_id=pipeline.id,
             phase=phase,
+            error=str(git_err),
+        )
+
+
+def _persist_cancel_brc_history(
+    pipeline: Pipeline,
+    store: StateStore,
+) -> None:
+    """Persist BRC history for the in-flight phase on cancel, best-effort.
+
+    Called from the cancel path in ``_routes_crud.py`` before
+    ``_clear_pipeline_runtime_state`` runs for FAILED (cancel does not
+    clear runtime state — #3632 Change 1). Unlike
+    :func:`_persist_phase_brc_history` (which writes with
+    ``write_per_slice=False`` to avoid add/add conflicts on slice PRs
+    targeting ``work``), this function writes with
+    ``write_per_slice=True`` so the in-flight slice's per-slice
+    CONSENSUS_* buckets are persisted to disk. The cancel path writes
+    to the pipeline's worktree (not a slice PR), so there is no
+    add/add conflict risk.
+
+    This is the #3632 Change 3 fix: without it, the in-flight slice's
+    BRC evidence is lost when the message store is eventually cleared
+    (on a future phase transition or pipeline delete), making the
+    forensic record for the slice that was most likely being paused
+    for investigation simply gone.
+
+    Never raises — cancel must not fail because BRC history persistence
+    failed. Logs a warning on failure.
+    """
+    _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
+    current_phase = pipeline.current_phase.value if pipeline.current_phase else None
+    if current_phase is None:
+        _pkg.logger.info(
+            "_persist_cancel_brc_history: no current phase, skipping",
+            pipeline_id=pipeline.id,
+        )
+        return
+
+    worktree_path = _pkg._resolve_pipeline_worktree_path(pipeline, store.repo_path)
+    try:
+        _pkg._write_brc_history(
+            worktree_path,
+            pipeline.id,
+            current_phase,
+            _pkg._brc_history_identifier(pipeline),
+            # write_per_slice=True so per-slice CONSENSUS_* buckets are
+            # written — this is the gap that made the previous incident's
+            # in-flight slice unrecoverable (restart_phase used
+            # write_per_slice=False). The cancel path writes to the
+            # pipeline's worktree, not a slice PR, so no add/add conflict.
+            write_per_slice=True,
+            run_epoch=_run_epoch_str,
+        )
+    except Exception as brc_err:
+        _pkg.logger.warning(
+            "Failed to persist BRC history on cancel (continuing)",
+            pipeline_id=pipeline.id,
+            phase=current_phase,
+            error=str(brc_err),
+        )
+        return
+
+    try:
+        _pkg._commit_statefiles_to_worktree(
+            worktree_path,
+            f"Persist BRC history on cancel ({current_phase} phase)",
+            pipeline_identifier=_pkg._pipeline_identifier(pipeline.issue_number, pipeline.id),
+            pipeline_id=pipeline.id,
+        )
+    except subprocess.CalledProcessError as git_err:
+        _pkg.logger.warning(
+            "Failed to commit BRC history on cancel (continuing)",
+            pipeline_id=pipeline.id,
+            phase=current_phase,
             error=str(git_err),
         )
 

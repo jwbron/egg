@@ -119,7 +119,18 @@ def _resolve_tracker(pipeline_id: str, slice_id: str | None) -> PeerConsensusTra
     requested slice + current phase so a slice-DAG pipeline doesn't
     spuriously mingle slices (#2761).
     """
-    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+    # Load pipeline to resolve run_epoch for tracker namespacing (#3632)
+    _run_epoch_str = None
+    try:
+        from routes import get_state_store_for_pipeline
+
+        _store, pipeline = get_state_store_for_pipeline(pipeline_id)
+        if pipeline is not None:
+            _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
+    except Exception:
+        pass
+
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id, run_epoch=_run_epoch_str)
     if tracker is not None:
         return tracker
 
@@ -130,11 +141,13 @@ def _resolve_tracker(pipeline_id: str, slice_id: str | None) -> PeerConsensusTra
     # than 500-ing the wrapper.
     try:
         from review_graph import get_review_graph_for_phase
-        from routes import get_state_store_for_pipeline
 
-        _store, pipeline = get_state_store_for_pipeline(pipeline_id)
         if pipeline is None:
-            return None
+            from routes import get_state_store_for_pipeline
+
+            _store, pipeline = get_state_store_for_pipeline(pipeline_id)
+            if pipeline is None:
+                return None
         phase = pipeline.current_phase.value
         graph = get_review_graph_for_phase(phase, repo=pipeline.repo)
         if graph is None:
@@ -144,6 +157,7 @@ def _resolve_tracker(pipeline_id: str, slice_id: str | None) -> PeerConsensusTra
             graph,
             slice_id=slice_id,
             phase=phase,
+            run_epoch=_run_epoch_str,
         )
     except Exception:  # pragma: no cover - best-effort fallback
         logger.warning(
@@ -584,6 +598,7 @@ def _maybe_reopen_confirmed_producer(
     pipeline_id: str,
     slice_id: str | None,
     role: str,
+    run_epoch: str | None = None,
 ) -> list[dict[str, Any]] | None:
     """Reopen ``role``'s consensus participation when a contract task was
     (re)assigned to it after it confirmed (#3124).
@@ -728,7 +743,8 @@ def _maybe_reopen_confirmed_producer(
                     "incomplete_tasks": rows,
                     **({"slice_id": slice_id} if slice_id is not None else {}),
                 },
-            )
+            ),
+            run_epoch=run_epoch,
         )
     except Exception as exc:
         logger.warning(
@@ -950,7 +966,20 @@ def handle_next_action(pipeline_id: str) -> tuple[Response, int]:
     # Confirmed-producer reopen (#3124): a task reassigned to this role
     # after it confirmed flips it back to WORKING so the derivation
     # below returns ``propose`` instead of locking it on ``wait``.
-    reopened_rows = _maybe_reopen_confirmed_producer(tracker, pipeline_id, slice_id, role)
+    # Resolve run_epoch for namespacing (#3632)
+    _run_epoch_str = None
+    try:
+        from routes import get_state_store_for_pipeline
+
+        _store, _pipeline = get_state_store_for_pipeline(pipeline_id)
+        if _pipeline is not None:
+            _run_epoch_str = _pipeline.run_epoch.isoformat() if _pipeline.run_epoch else None
+    except Exception:
+        pass
+
+    reopened_rows = _maybe_reopen_confirmed_producer(
+        tracker, pipeline_id, slice_id, role, run_epoch=_run_epoch_str
+    )
 
     action, event_payload, reason = _derive_next_action(tracker, role)
     if reopened_rows and action == "propose":
