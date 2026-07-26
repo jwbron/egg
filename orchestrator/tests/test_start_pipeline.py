@@ -629,8 +629,8 @@ class TestStartAwaitingHumanPipeline:
             resp = client.post("/api/v1/pipelines/issue-42/start")
 
         assert resp.status_code == 200
-        mock_msg_store.clear.assert_called_once_with("issue-42")
-        mock_remove_tracker.assert_called_once_with("issue-42")
+        mock_msg_store.clear.assert_called_once_with("issue-42", run_epoch=None)
+        mock_remove_tracker.assert_called_once_with("issue-42", run_epoch=None)
 
     @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")
