@@ -380,6 +380,8 @@ git switch <target-branch>
 git cherry-pick <recovered-base>..recovered/<scope>
 ```
 
+**Review before replaying: a recovery ref may hold un-reviewed working-tree residue.** Both working-tree snapshot paths ([#2807](https://github.com/jwbron/egg/issues/2807) restart, [#3639](https://github.com/jwbron/egg/issues/3639) re-attach) stage with `git add -A`, so a snapshot commit contains everything the agent left in the worktree that is not `.gitignore`d — scratch dumps, logs, stray state files — with no agent or human intent behind any of it. Recovery refs are a preservation mechanism, not an endorsement: read the diff before cherry-picking, and expect a snapshot-only ref to sometimes hold nothing you want. (A snapshot containing a secret is rejected by GitHub push protection rather than leaked; the push then fails and the discard is recorded with `salvage_error` set instead of a recovery ref.)
+
 Operators may delete `egg/recovered/*` refs manually after replay (`git push origin --delete <ref>`). For automatic cleanup of refs left behind by replays that never came, see [Recovery Ref Cleanup](#recovery-ref-cleanup) below.
 
 ### Recovery Ref Cleanup

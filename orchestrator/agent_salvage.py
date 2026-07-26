@@ -215,9 +215,22 @@ def _run_git(
 
     ``core.hooksPath=/dev/null`` mirrors ``StateStore._run_git`` — the
     orchestrator runs git on agent-controlled worktrees and must never
-    execute their hooks.
+    execute their hooks. ``commit.gpgsign=false`` keeps
+    :func:`commit_working_tree` working in a worktree that inherited
+    ``commit.gpgsign=true`` from the clone's config: there is no signing key
+    in the orchestrator image, so every salvage commit would otherwise fail
+    and lose the working tree it exists to save.
     """
-    cmd = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(cwd), *args]
+    cmd = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "commit.gpgsign=false",
+        "-C",
+        str(cwd),
+        *args,
+    ]
     return subprocess.run(
         cmd,
         capture_output=True,

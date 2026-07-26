@@ -194,7 +194,13 @@ Under orchestrator ownership the worktree becomes a hot path.
    to the origin tip, so the successor inherits nothing uncommitted; it
    only makes the discarded state recoverable. Ignored files are excluded,
    and a failed snapshot logs at WARNING with the file count and proceeds
-   with the reset rather than blocking reuse.
+   with the reset rather than blocking reuse. The snapshot is skipped
+   entirely when the re-attach carries no `branch`: with no origin tip to
+   reset to and no salvage target, the commit would simply become the
+   successor's HEAD — un-vetted residue promoted to committed state, which
+   is what R6 exists to prevent. When the salvage push fails the bus
+   record says the snapshot was *not* pushed and asks for escalation
+   rather than reassuring the successor that nothing was lost.
 3. **Before handing off to spawn:** translate the validated paths from
    orchestrator-local (under `WORKTREE_BASE_DIR`) to host paths, matching
    what the create path already gets from the gateway. An untranslated
