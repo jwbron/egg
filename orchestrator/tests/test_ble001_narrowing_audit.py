@@ -173,7 +173,14 @@ def test_audit_window_retains_documented_ble001_population() -> None:
     # it degrades to ``teardown_confirmed: false`` instead of falling through to
     # the outer handler and logging a misleading "failed to list" — mirroring
     # ``_await_terminating_event_jobs`` on the event-loop path.
-    assert len(noqa_lines) <= 121, (
+    # Raised 121 -> 122 by #3636, which added one audited site: the phase-gate's
+    # ``record_resolution_outcome`` write in ``_run_hitl_gate`` was guarded on
+    # ``StateStoreError`` only, but ``_save_pipeline`` re-raises raw ``OSError``
+    # (ENOSPC/EROFS), so a full state volume propagated out of the gate at the
+    # moment the operator's answer was recorded. Broadened to match every other
+    # best-effort block in that file — an observability write must never strand
+    # the gate.
+    assert len(noqa_lines) <= 122, (
         f"Found {len(noqa_lines)} ``# noqa: BLE001`` swallows in "
         f"routes/pipelines.py, well past the documented population — a future "
         f"PR appears to have re-introduced swallow-all handlers without "
