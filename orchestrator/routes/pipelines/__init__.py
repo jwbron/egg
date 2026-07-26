@@ -1391,6 +1391,7 @@ from ._run_concurrent_support import (  # noqa: E402,F401
     _update_agents_complete_impl,
 )
 from ._run_hitl_gate import (  # noqa: E402,F401
+    _gate_wait_cancelled,
     _run_hitl_gate_converge,
 )
 from ._run_implement import (  # noqa: E402,F401

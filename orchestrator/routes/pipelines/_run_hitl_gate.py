@@ -10,6 +10,36 @@ from __future__ import annotations
 import routes.pipelines as _pkg  # noqa: E402,F401
 
 
+def _gate_wait_cancelled(resolved_decision, *, store, pipeline_id: str) -> bool:
+    """True when a gate's ``wait_for_decision`` was unblocked by an operator cancel (#3633).
+
+    ``wait_for_decision`` returns on two very different events: a human
+    resolved the decision, or the PATCH cancel route called
+    ``cancel_decision`` on it — which it does deliberately, under the comment
+    "cancel any pending decisions so ``wait_for_decision()`` unblocks"
+    (``_routes_crud.py``). Downstream the two were indistinguishable: a
+    cancelled decision carries no ``resolution``, and the empty string is a
+    member of ``_APPROVE_KEYWORDS``, so the gate read the operator's cancel as
+    an approval, took the "Approved — resume and advance" branch, wrote
+    ``RUNNING`` over the persisted ``CANCELLED``, and let the driver advance
+    into the next phase and mint a fresh cohort.
+
+    That is the #3633 symptom reached through the one path the persisted-status
+    layers cannot see: they all re-read a status this block has already
+    overwritten. ``wait_for_decision``'s own docstring asks callers to inspect
+    the returned status for exactly this reason; the gate never did.
+
+    The persisted status is checked too, so a cancel that lands *after*
+    ``cancel_decision`` has already swept the queue — or one whose decision was
+    resolved by a racing operator — still bails. Delegates to
+    ``_pipeline_cancelled`` for that half, inheriting its FAILED carve-out
+    (#1273) and its best-effort store-hiccup tolerance.
+    """
+    if getattr(resolved_decision, "status", None) == _pkg.DecisionStatus.CANCELLED:
+        return True
+    return _pkg._pipeline_cancelled(store, pipeline_id)
+
+
 def _run_hitl_gate_converge(
     pipeline,
     *,
@@ -166,6 +196,14 @@ def _run_hitl_gate_converge(
             _pkg._emit_pipeline_event(pipeline, "decision.created")
 
             _backstop_resolved = dq.wait_for_decision(_backstop.id)
+            if _pkg._gate_wait_cancelled(_backstop_resolved, store=store, pipeline_id=pipeline_id):
+                _pkg.logger.info(
+                    "Pipeline cancelled while awaiting the decision-ledger "
+                    "backstop — exiting the gate without advancing (#3633)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                )
+                return pipeline, "break"
             _backstop_resolution = str(
                 getattr(_backstop_resolved, "resolution", None) or ""
             ).strip()
@@ -403,6 +441,26 @@ def _run_hitl_gate_converge(
 
         # Check resolution — did the human approve or request changes?
         resolved_decision = dq.get_decision(decision.id)
+
+        # ...or did neither happen, because the operator cancelled the
+        # pipeline and the route cancelled this decision to unblock the wait
+        # above? Bail before any of the resolution parsing below: an unset
+        # resolution reads as an approval (``"" in _APPROVE_KEYWORDS``), and
+        # the approve branch rewrites the operator's CANCELLED to RUNNING and
+        # advances the phase — the #3633 spawn, through the one path the
+        # persisted-status layers cannot see. "break" leaves the driver loop
+        # the same way its own CANCELLED check at the loop head does, so the
+        # ``finally`` observes CANCELLED and preserves the worktrees
+        # ``restart_phase`` resumes from (#1725).
+        if _pkg._gate_wait_cancelled(resolved_decision, store=store, pipeline_id=pipeline_id):
+            _pkg.logger.info(
+                "Pipeline cancelled while awaiting the phase gate — "
+                "exiting the gate without advancing (#3633)",
+                pipeline_id=pipeline_id,
+                phase=current_phase.value,
+            )
+            return pipeline, "break"
+
         resolution = (resolved_decision.resolution or "").strip()
 
         # JSON-first resolution parsing: try structured payload before
@@ -495,6 +553,14 @@ def _run_hitl_gate_converge(
             )
             dq.wait_for_decision(followup.id)
             resolved_followup = dq.get_decision(followup.id)
+            if _pkg._gate_wait_cancelled(resolved_followup, store=store, pipeline_id=pipeline_id):
+                _pkg.logger.info(
+                    "Pipeline cancelled while awaiting gate follow-up "
+                    "specifics — exiting the gate without advancing (#3633)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                )
+                return pipeline, "break"
             followup_resolution = (resolved_followup.resolution or "").strip()
 
             # Parse follow-up resolution (also JSON-first)

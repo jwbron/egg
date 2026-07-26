@@ -92,11 +92,18 @@ def _pipeline_cancelled(store, pipeline_id: str) -> bool:
     """True if ``pipeline_id`` is persisted as CANCELLED (#3633).
 
     The operator's cancel is the authoritative "stop driving this run"
-    signal, and it is the one signal that survives every in-process
-    mechanism (a stop event a thread never checks, an event loop the cancel
-    route could not reach). Driver work loops re-read it so a cancelled
-    pipeline stops admitting slices and spawning agents rather than walking
-    the rest of its DAG against an operator who believes it is stopped.
+    signal, and the persisted status outlives the in-process mechanisms a
+    cancel cannot reach (a stop event a thread never checks, an event loop
+    the cancel route did not know about). Driver work loops re-read it so a
+    cancelled pipeline stops admitting slices and spawning agents rather
+    than walking the rest of its DAG against an operator who believes it is
+    stopped.
+
+    It is not inviolable, and callers should not treat it as such: the HITL
+    gate writes ``AWAITING_HUMAN`` / ``RUNNING`` over it as it converges,
+    which is why that path bails on a cancelled *decision* of its own accord
+    (``_gate_wait_cancelled``) instead of relying on a status its own
+    approve branch would already have overwritten.
 
     FAILED is deliberately not included: ``container_monitor``
     reconciliation can mark a live pipeline FAILED mid-poll, and the

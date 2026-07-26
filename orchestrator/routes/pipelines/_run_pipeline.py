@@ -941,6 +941,14 @@ def _run_pipeline(
             )
             if _hitl_gate_action == "continue":
                 continue
+            if _hitl_gate_action == "break":
+                # The operator cancelled while the gate was blocked in
+                # ``wait_for_decision`` (#3633). Leave the loop the same way
+                # the CANCELLED check at the loop head does rather than
+                # advancing the phase — the gate is the one place that
+                # overwrites the persisted status the other layers key on, so
+                # it has to bail on its own signal.
+                break
 
             # ----------------------------------------------------------
             # #2777 (cq-4, TASK-1-2) — inline ``_run_pipeline``
