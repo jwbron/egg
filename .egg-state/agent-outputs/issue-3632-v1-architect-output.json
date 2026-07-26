@@ -1,0 +1,76 @@
+{
+  "issue": 3632,
+  "phase": "plan",
+  "agent": "architect",
+  "title": "Lossless cancel_task resume: stop clearing on CANCELLED + run_epoch namespacing + BRC history persistence on cancel",
+  "summary": "ACK task_planner plan (Changes 1+2+3 in one slice, Change 4 deferred, #3633 out of scope). One architectural gap: _clear_concurrent_state at routes/phases/_transitions.py:56 must also be namespaced by run_epoch — it clears the message store and tracker at phase transitions and is not mentioned in the task_planner's plan. Without this, phase transitions would clear the wrong epoch's state. Verified all issue claims against the live tree. The stale-state-replay hazard (NOT #2053) is correctly identified: with Change 1 alone, reconstruct_tracker_from_messages after resume->orchestrator restart would replay pre-cancel CONSENSUS_* messages into the reset round. Changes 1+2 must ship together.",
+  "grounded_against_tree": "2026-07-26. Verified: _clear_pipeline_runtime_state called on CANCELLED (_routes_crud.py:717, inside if CANCELLED|FAILED at line 615); clears both tracker and message store (_lifecycle_helpers.py:183,202); message store keyed by bare pipeline_id (redis_message_store.py:69-71); tracker key is {pipeline_id} or {pipeline_id}/{slice_id} (peer_consensus/__init__.py:226-247); run_epoch bumped on CANCELLED->RUNNING in restart_agent (_routes_restart.py:350-354); restart_agent does NOT clear message store (_routes_restart.py:572-611); restart_phase also does NOT clear message store (_routes_restart.py:1191-1209); _clear_concurrent_state clears both tracker and message store (_transitions.py:56-80); reconstruct_tracker_from_messages uses bare pipeline_id (peer_consensus/__init__.py:324-331); startup_reconciliation only processes RUNNING pipelines (startup_reconciliation.py:305); run_epoch field exists on Pipeline model (models/_pipeline.py:163-168).",
+  "binding_inputs": {
+    "refine_phase_resolutions": "cq-1: stale-state replay (NOT #2053) is the correct hazard; Changes 1+2 must ship together. cq-2: rewrite test_cancel_clears_runtime_state -> test_cancel_preserves_runtime_state; pin create-path clear; add cancel->resume->restart->assert-not-resurrected test. cq-3: adopt Changes 1+2+3, defer Change 4, #3633 out of scope. decision-4: plan approved, advance to plan phase.",
+    "risk_analyst_assessment": "PROCEED_WITH_MITIGATIONS. Six risks: R1 (Fix #1 alone re-introduces #2053, HIGH/CERTAIN), R2 (run_epoch namespacing touches many call sites, HIGH/LIKELY), R3 (per-slice reconstruction risks false consensus, HIGH/POSSIBLE), R4 (BRC history persistence must not block cancel, MEDIUM/POSSIBLE), R5 (clear() must be namespaced, LOW/CERTAIN), R6 (_clear_concurrent_state must be namespaced, MEDIUM/LIKELY)."
+  },
+  "current_architecture": {
+    "the_bug": "_clear_pipeline_runtime_state is called on ANY terminal transition (CANCELLED, FAILED, COMPLETE) at _routes_crud.py:717. It removes the consensus tracker and clears the Redis message stream. On CANCELLED this destroys the BRC evidence needed for resume.",
+    "why_change_1_alone_is_unsafe": "With Change 1 alone (don't clear on CANCELLED), the message stream survives cancel keyed by bare pipeline_id. restart_agent bumps run_epoch and relaunches _run_pipeline, which creates a FRESH tracker via create_peer_consensus_tracker (overwriting the old one). But the message store still has old CONSENSUS_* messages. If the orchestrator restarts, startup_reconciliation (startup_reconciliation.py:305) processes RUNNING pipelines and calls reconstruct_tracker_from_messages, which replays the retained pre-cancel CONSENSUS_* messages, resurrecting confirmations the restart had just cleared. This is same-pipeline stale-state replay, NOT #2053.",
+    "the_fix": "Namespace both the tracker key and message stream key by (pipeline_id, run_epoch). run_epoch already exists on the Pipeline model and is bumped on all restart/recovery paths. With namespacing: (1) the old run_epoch's state is preserved but invisible to the new run_epoch, (2) reconstruct_tracker_from_messages on a resumed pipeline reads only the new epoch's messages (which are empty until new proposals arrive), (3) the POST-site clear on CREATE still clears all epochs for #2053.",
+    "uncovered_gap": "_clear_concurrent_state at routes/phases/_transitions.py:56 also clears the message store and tracker at phase transitions (complete_phase, advance_phase). With run_epoch namespacing, this path must also pass run_epoch to clear() and remove_peer_consensus_tracker(). Without this, phase transitions would clear the wrong epoch's state or fail to clear the current epoch's state entirely."
+  },
+  "findings": [
+    {"id": "F1", "finding": "The issue's claim that Change 1 is a 'minimum viable fix even without the namespacing work' is INCORRECT. Without run_epoch namespacing, the message store retains pre-cancel CONSENSUS_* messages that reconstruct_tracker_from_messages can replay after resume->orchestrator restart, resurrecting stale confirmations. This is a same-pipeline stale-state replay hazard, distinct from #2053 (which is about new pipelines reusing ids and stays closed via the create-path clear).", "confidence": "high"},
+    {"id": "F2", "finding": "_clear_concurrent_state at routes/phases/_transitions.py:56 is NOT mentioned in the task_planner's plan but MUST be namespaced by run_epoch. It is called at phase transitions (complete_phase, advance_phase) and clears both the message store (line 63) and the tracker (line 71). Callers include routes/phases/__init__.py, _routes_lifecycle.py (lines 638, 672), and _routes_restart.py.", "confidence": "high"},
+    {"id": "F3", "finding": "restart_agent does NOT clear the message store — it only calls tracker.remove_agent(agent_role) for the specific role being restarted (_routes_restart.py:595). This means old CONSENSUS_* messages persist in the stream under the bare pipeline_id, which is the root cause of the stale-state replay hazard.", "confidence": "high"},
+    {"id": "F4", "finding": "create_peer_consensus_tracker always creates a FRESH tracker, overwriting any existing one at the same key (_tracker_key). This means even without clearing on CANCELLED, the resumed pipeline gets a fresh tracker — but the message store's old messages can still be replayed by reconstruct_tracker_from_messages after an orchestrator restart.", "confidence": "high"},
+    {"id": "F5", "finding": "The risk_analyst's R6 correctly identifies that _clear_concurrent_state must be namespaced. The task_planner's plan does not mention this, creating a gap where phase transitions would clear the wrong epoch's state.", "confidence": "high"},
+    {"id": "F6", "finding": "The issue's Fact 5 (write_per_slice=False gap in restart_phase at _routes_restart.py:1089) is a genuine finding. The cancel path must use write_per_slice=True to persist per-slice CONSENSUS_* buckets, otherwise the in-flight slice's evidence is not written to disk.", "confidence": "high"}
+  ],
+  "recommended_approach": {
+    "scope": "Changes 1+2+3 in one slice (per cq-3 resolution). Change 4 deferred. #3633 out of scope.",
+    "ordering": "Change 2 (run_epoch namespacing) is foundational — it must land before or alongside Change 1. Change 3 is independent and may land first. The task_planner correctly merged all three into one slice due to file overlap (#3046).",
+    "gap_addition": "Add _clear_concurrent_state namespacing to task-1-2 or task-1-3. The function at _transitions.py:56 must accept run_epoch and pass it to get_message_store().clear() and remove_peer_consensus_tracker(). All callers must pass the current pipeline.run_epoch.",
+    "key_design_decision": "For a fresh pipeline (run_epoch=None), use created_at as the epoch. This matches the existing pattern in _run_pipeline.py:56. The key format: {pipeline_id}:{run_epoch_iso} for the tracker, pipeline:{pipeline_id}:{run_epoch_iso}:messages for the stream.",
+    "cleanup_strategy": "_clear_pipeline_runtime_state must clear ALL run_epoch namespaces for a given pipeline_id (for DELETE and CREATE paths). This requires Redis SCAN pattern matching (pipeline:{pipeline_id}:*:messages).",
+    "test_strategy": "Rewrite test_cancel_clears_runtime_state -> test_cancel_preserves_runtime_state. Pin create-path clear in test_create_clears_runtime_state. Add new regression test: cancel -> resume -> orchestrator restart -> assert consensus NOT resurrected. Add test for cancel-persists-BRC-history with per-slice buckets."
+  },
+  "implementation_plan": {
+    "slices": [
+      {"id": "1", "title": "Changes 1+2+3: Lossless cancel_task resume with run_epoch namespacing + BRC history persistence on cancel", "depends_on": [], "risk": "high", "notes": "Single slice per cq-3 resolution (file overlap). Includes the _clear_concurrent_state namespacing gap."}
+    ],
+    "tasks": [
+      {"id": "task-1-1", "title": "Stop clearing runtime state on CANCELLED", "risk": "low", "notes": "Split the if CANCELLED|FAILED block at _routes_crud.py:615 to only clear on FAILED."},
+      {"id": "task-1-2", "title": "Namespace the consensus tracker by run_epoch", "risk": "high", "notes": "Update _tracker_key in peer_consensus/__init__.py. Update all callers of get_peer_consensus_tracker, remove_peer_consensus_tracker, reconstruct_tracker_from_messages."},
+      {"id": "task-1-3", "title": "Namespace the message store by run_epoch", "risk": "high", "notes": "Update _stream_key and _counts_key in redis_message_store.py. Update all callers including _clear_concurrent_state at _transitions.py:56."},
+      {"id": "task-1-4", "title": "Update _clear_pipeline_runtime_state docstring", "risk": "low", "notes": "Reflect new call sites (delete + create + FAILED, not CANCELLED)."},
+      {"id": "task-1-5", "title": "Add cancel-specific BRC history persistence", "risk": "medium", "notes": "New function in _brc_history.py with write_per_slice=True for per-slice CONSENSUS_* buckets."},
+      {"id": "task-1-6", "title": "Wire cancel persistence into cancel path", "risk": "low", "notes": "Call in _routes_crud.py before background cleanup. Best-effort, non-blocking."},
+      {"id": "task-1-7", "title": "Update tests", "risk": "medium", "notes": "Rewrite test_cancel_clears_runtime_state, pin create-path, add regression test for stale-state replay."},
+      {"id": "task-1-8", "title": "Green the boundary", "risk": "low", "notes": "make lint + make test-all."}
+    ]
+  },
+  "open_questions": [
+    {"id": "arch-q1", "status": "resolved", "resolution": "The _clear_concurrent_state gap is a code-level implementation detail, not an operator-grade design decision. It must be addressed as part of task-1-3 (message store namespacing)."}
+  ],
+  "risk_assessment": [
+    {"risk": "Stale-state replay after resume -> orchestrator restart", "likelihood": "certain_without_fix_2", "impact": "high", "mitigation": "Change 2 (run_epoch namespacing) prevents reconstruct_tracker_from_messages from replaying pre-cancel messages into the new epoch's tracker."},
+    {"risk": "_clear_concurrent_state clears wrong epoch's state", "likelihood": "likely", "impact": "medium", "mitigation": "Thread run_epoch through _clear_concurrent_state and all its callers. Add to task-1-3."},
+    {"risk": "Large surface area for run_epoch namespacing", "likelihood": "likely", "impact": "high", "mitigation": "Mechanical change. run_epoch already threaded through Pipeline model. Introduce a helper to resolve (pipeline_id, run_epoch) from a Pipeline object."},
+    {"risk": "BRC history persistence on cancel blocks cancel response", "likelihood": "possible", "impact": "medium", "mitigation": "Run in background cleanup thread with best-effort semantics."},
+    {"risk": "Per-slice CONSENSUS_* buckets not written on cancel", "likelihood": "possible", "impact": "high", "mitigation": "Use write_per_slice=True in the cancel-specific persistence function."}
+  ],
+  "binding_invariants": [
+    "Changes 1+2 ship together in one slice — landing Change 1 alone is strictly worse than today.",
+    "The create-path clear (POST /pipelines) must still clear ALL run_epoch namespaces for a pipeline_id — this is the #2053 safety net.",
+    "The delete-path clear (DELETE /pipelines) must still clear ALL run_epoch namespaces for a pipeline_id.",
+    "_clear_concurrent_state must be namespaced by run_epoch — phase transitions must clear the current epoch's state, not another epoch's.",
+    "clear() must accept run_epoch and only clear the matching namespace.",
+    "The regression test must cover: cancel -> resume -> orchestrator restart -> assert consensus NOT resurrected.",
+    "test_cancel_clears_runtime_state must be rewritten to test_cancel_preserves_runtime_state.",
+    "test_create_clears_runtime_state must explicitly pin the create-path clear as load-bearing for #2053."
+  ],
+  "metrics": {
+    "files_to_modify": 11,
+    "call_sites_to_update": "dozens (all tracker + message-store callers)",
+    "tests_to_rewrite": 1,
+    "tests_to_add": 2,
+    "new_regression_test": "cancel -> resume -> orchestrator restart -> assert consensus NOT resurrected"
+  }
+}
