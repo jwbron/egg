@@ -38,9 +38,12 @@ def _run_implement_phase_slices(
     slice reached CONFIRMED; non-zero means at least one slice failed.
     """
     try:
-        from orchestrator.slice_scheduler import SliceScheduler
+        from orchestrator.slice_scheduler import SchedulerSliceState, SliceScheduler
     except ImportError:
-        from slice_scheduler import SliceScheduler
+        from slice_scheduler import (  # type: ignore[no-redef]
+            SchedulerSliceState,
+            SliceScheduler,
+        )
 
     try:
         from egg_contracts.loader import load_contract, save_contract
@@ -528,6 +531,31 @@ def _run_implement_phase_slices(
     try:
         while not scheduler.all_done():
             driver_heartbeat.record_tick(pipeline_id)  # #3540 liveness tick
+
+            # 0. Stop walking the DAG once the operator cancels (#3633).
+            #    ``cancel_task`` tears down the pipeline's containers and
+            #    stops its live BRC event loops, but nothing used to stop
+            #    THIS loop: the next tick admitted the next ready slice,
+            #    created its integration branch, and spawned a fresh agent
+            #    cohort — observed opening slice-3 two hours after a cancel.
+            #    Re-read the persisted status here so an in-flight wave is
+            #    the last one, and bail before admitting another.
+            #    ``_run_phase_execution`` maps the non-zero exit onto a clean
+            #    thread return rather than a phase FAILURE.
+            if _pkg._pipeline_cancelled(store, pipeline_id):
+                _pkg.logger.info(
+                    "Pipeline cancelled — stopping the slice loop without admitting further slices",
+                    pipeline_id=pipeline_id,
+                    unfinished=[
+                        rt.slice_id
+                        for rt in scheduler.list_slices()
+                        if rt.state != SchedulerSliceState.COMPLETE
+                    ],
+                )
+                aggregate_logs.append("--- slice loop stopped: pipeline cancelled ---")
+                overall_exit = 1
+                break
+
             # 1. Snapshot ready slices for this tick.
             ready_batch = list(scheduler.iter_ready())
             if not ready_batch:

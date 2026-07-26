@@ -372,10 +372,13 @@ class EventDecision:
     ``timing`` is a structured mapping for the slice-4 latency budget on a
     fresh spawn, ``None`` otherwise. ``blocked`` (#3496) names why a
     spawn-action decision did not spawn when the block is operator-relevant:
-    ``"exhausted"`` (terminal retry-budget exhaustion) or ``"parked"``
-    (#3548 — a no-op-park that only the retry heartbeat will release), so
-    the all-arms wedge detections can distinguish them from the benign
-    not-spawned shapes (dedupe, backoff).
+    ``"exhausted"`` (terminal retry-budget exhaustion), ``"parked"``
+    (#3548 — a no-op-park that only the retry heartbeat will release), or
+    ``"stopped"`` (#3633 — the loop was stopped mid-tick, typically by a
+    cancel), so the all-arms wedge detections can distinguish them from the
+    benign not-spawned shapes (dedupe, backoff). Only ``"exhausted"`` and
+    ``"parked"`` count toward a wedge; ``"stopped"`` is a teardown, not a
+    condition an operator can resolve.
     """
 
     role: str

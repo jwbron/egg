@@ -610,6 +610,27 @@ def _update_pipeline_body(pipeline_id: str) -> tuple[_pkg.Response, int]:
         ):
             _pkg._emit_pipeline_event(pipeline, "pipeline.cancelled")
 
+        # Stop the machinery that spawns agents BEFORE tearing down the
+        # agents it spawned (#3633). Cancel used to do only the teardown, so
+        # the live BRC event loops kept deriving arms and requesting one-shot
+        # Jobs against a pipeline the operator believed was stopped — and the
+        # container cleanup below raced loops that were still entitled to
+        # spawn replacements. Ordering it first closes that race.
+        #
+        # Gated on the CANCELLED *transition*: an idempotent re-cancel has
+        # nothing live left to stop, and FAILED is excluded deliberately —
+        # ``container_monitor`` reconciliation can mark a live pipeline FAILED
+        # mid-phase, and the poll loop recovers it to RUNNING once consensus
+        # completes (#1273). Tearing the loop down there would convert that
+        # recoverable transient into a permanently idle pipeline. The driver
+        # loops' own CANCELLED re-reads are the backstop for a loop that
+        # started after this ran.
+        if (
+            pipeline.status == _pkg.PipelineStatus.CANCELLED
+            and prev_status != _pkg.PipelineStatus.CANCELLED
+        ):
+            _pkg._stop_pipeline_event_loops(pipeline_id, reason="pipeline_cancelled")
+
         # If pipeline is being cancelled or failed, clean up containers
         # and cancel any pending decisions so wait_for_decision() unblocks.
         if pipeline.status in (_pkg.PipelineStatus.CANCELLED, _pkg.PipelineStatus.FAILED):

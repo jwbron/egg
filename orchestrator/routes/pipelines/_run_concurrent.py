@@ -397,21 +397,19 @@ def _run_concurrent_phase(
     start_time = _pkg.time.monotonic()
     objection_decision_created = False
 
-    # ``run_epoch`` is the authoritative epoch the owning ``_run_pipeline``
-    # thread captured at start (#1638). The poll loop uses it to detect a
-    # ``restart_phase`` (or any restart that bumps ``run_epoch``) that
-    # superseded this thread (#3315). ``start_time`` is a fresh monotonic
-    # clock per call, but a parked-then-restarted phase leaves the *old*
-    # ``_run_concurrent_phase`` thread alive in its poll loop with a
-    # ``start_time`` from the original phase start; once its ``elapsed``
-    # crosses ``consensus_timeout`` it would fire a spurious consensus-timeout
-    # OVERSEER_ALERT + HITL decision against the freshly-restarted phase. The
-    # new ``_run_pipeline`` thread owns the pipeline now, so this stale thread
-    # must bail before escalating. When ``run_epoch`` is not supplied (legacy
-    # / direct-call callers) the guard is dormant — behaviour is unchanged.
+    # Per-tick "should this thread still be here?" check. Two conditions,
+    # one pipeline load — see ``_phase_bail_reason_impl`` for the full
+    # rationale of each and for why FAILED is excluded:
+    #
+    # * a restart bumped ``run_epoch``, so a new ``_run_pipeline`` thread
+    #   owns the pipeline and this stale one must stop before it fires a
+    #   spurious consensus-timeout escalation against the fresh phase
+    #   (#3315; dormant when ``run_epoch`` is not supplied);
+    # * the operator cancelled the run, so this thread must stop driving
+    #   the slice DAG rather than keep spawning into it (#3633).
 
-    _superseded_by_restart = _pkg.functools.partial(
-        _pkg._superseded_by_restart_impl,
+    _phase_bail_reason = _pkg.functools.partial(
+        _pkg._phase_bail_reason_impl,
         store=store,
         pipeline_id=pipeline_id,
         run_epoch=run_epoch,
@@ -465,26 +463,24 @@ def _run_concurrent_phase(
         driver_heartbeat.record_tick(pipeline_id)
         elapsed = _pkg.time.monotonic() - start_time
 
-        # 0. Bail if a restart superseded this thread (#3315). A parked phase
-        #    that is restarted after the consensus-timeout budget elapsed
-        #    leaves this old thread polling with a stale ``start_time``; the
-        #    new ``_run_pipeline`` thread already owns the pipeline. Exit
-        #    cleanly — stop this executor's event loop so it stops requesting
-        #    one-shot spawns — WITHOUT firing the timeout escalation. Return a
-        #    NON-zero exit so the caller never mistakes this for success and
-        #    advances the phase; the post-return epoch check (#1638) at the
-        #    call site re-confirms the restart and exits the old thread without
-        #    marking the phase FAILED.
-        if _superseded_by_restart():
+        # 0. Bail if this thread no longer owns the phase (restart, #3315) or
+        #    the run was cancelled (#3633). Exit cleanly — stop this executor's
+        #    event loop so it stops requesting one-shot spawns — WITHOUT firing
+        #    the timeout escalation. Return a NON-zero exit so the caller never
+        #    mistakes this for success and advances the phase; the post-return
+        #    checks at the call site re-confirm the reason and exit the thread
+        #    without marking the phase FAILED.
+        _bail_reason = _phase_bail_reason()
+        if _bail_reason is not None:
             _pkg.logger.info(
-                "Phase superseded by restart (run_epoch changed) — exiting stale "
-                "_run_concurrent_phase thread without escalation",
+                "Exiting _run_concurrent_phase poll loop without escalation",
                 pipeline_id=pipeline_id,
                 phase=phase,
                 slice_id=slice_id,
+                reason=_bail_reason,
             )
             executor.stop_event_loop()
-            return 1, "Phase superseded by restart; stale monitor thread exited."
+            return 1, f"Phase monitor thread exited: {_bail_reason}."
 
         # 1. Check consensus
         try:

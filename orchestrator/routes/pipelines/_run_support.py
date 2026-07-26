@@ -88,6 +88,36 @@ def _clear_stale_impasses_for_producers(
         )
 
 
+def _pipeline_cancelled(store, pipeline_id: str) -> bool:
+    """True if ``pipeline_id`` is persisted as CANCELLED (#3633).
+
+    The operator's cancel is the authoritative "stop driving this run"
+    signal, and it is the one signal that survives every in-process
+    mechanism (a stop event a thread never checks, an event loop the cancel
+    route could not reach). Driver work loops re-read it so a cancelled
+    pipeline stops admitting slices and spawning agents rather than walking
+    the rest of its DAG against an operator who believes it is stopped.
+
+    FAILED is deliberately not included: ``container_monitor``
+    reconciliation can mark a live pipeline FAILED mid-poll, and the
+    consensus-complete path recovers it to RUNNING (#1273).
+
+    Best-effort: a missing store or a load failure returns ``False`` so a
+    transient store hiccup never tears down a legitimately-running phase.
+    """
+    if store is None:
+        return False
+    try:
+        return store.load_pipeline(pipeline_id).status == _pkg.PipelineStatus.CANCELLED
+    except Exception as exc:  # noqa: BLE001 — never wedge the caller
+        _pkg.logger.debug(
+            "Cancellation check failed; continuing",
+            pipeline_id=pipeline_id,
+            error=str(exc),
+        )
+        return False
+
+
 def _pipeline_superseded_by_restart(
     store, pipeline_id: str, run_epoch: _pkg.datetime | None
 ) -> bool:

@@ -10,17 +10,49 @@ from __future__ import annotations
 import routes.pipelines as _pkg  # noqa: E402,F401
 
 
-def _superseded_by_restart_impl(*, store, pipeline_id, run_epoch) -> bool:
-    """True if a newer run_epoch means another thread owns this pipeline.
+def _phase_bail_reason_impl(*, store, pipeline_id, run_epoch) -> str | None:
+    """Why this poll loop must exit without escalating, or ``None`` to keep polling.
 
-    Reloads pipeline state and compares its ``run_epoch`` against the
-    epoch this thread runs under. Mirrors the post-return epoch check
-    (#1638) but runs *inside* the poll loop so a superseded thread stops
-    polling before it can fire stale escalations. Best-effort: a load
-    failure returns ``False`` so a transient store hiccup never tears
-    down a legitimately-running phase.
+    Two independent conditions, resolved from a single pipeline load:
+
+    ``superseded_by_restart``
+        A newer ``run_epoch`` means another ``_run_pipeline`` thread owns
+        this pipeline (#3315). Mirrors the post-return epoch check (#1638)
+        but runs *inside* the poll loop so a superseded thread stops
+        polling before it can fire stale escalations.
+
+    ``pipeline_cancelled``
+        The operator cancelled the run (#3633). The cancel route stops this
+        phase's event loop directly, but nothing stops *this* thread, and
+        before this check it kept polling — admitting the next slice,
+        creating its integration branch, and spawning agents against a
+        pipeline the operator believes is stopped. Re-reading the persisted
+        status bounds a missed stop signal to one poll interval.
+
+    FAILED is deliberately NOT a bail condition: ``container_monitor``
+    reconciliation can mark a live pipeline FAILED while this loop polls,
+    and the consensus-complete branch recovers it to RUNNING (#1273).
+    Bailing here would turn that recoverable transient into a real failure.
+
+    Best-effort: a missing store or a load failure returns ``None`` so a
+    transient store hiccup never tears down a legitimately-running phase.
     """
-    return _pkg._pipeline_superseded_by_restart(store, pipeline_id, run_epoch)
+    if store is None:
+        return None
+    try:
+        _pip = store.load_pipeline(pipeline_id)
+    except Exception as _err:  # noqa: BLE001 — never wedge the caller
+        _pkg.logger.debug(
+            "Phase bail check failed; continuing",
+            pipeline_id=pipeline_id,
+            error=str(_err),
+        )
+        return None
+    if _pip.status == _pkg.PipelineStatus.CANCELLED:
+        return "pipeline_cancelled"
+    if run_epoch is not None and (_pip.run_epoch or _pip.created_at) != run_epoch:
+        return "superseded_by_restart"
+    return None
 
 
 def _record_container_exit_impl(
