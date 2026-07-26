@@ -44,7 +44,7 @@
         {
           "id": "task-1-2",
           "description": "Namespace the consensus tracker by run_epoch. Update _tracker_key in peer_consensus/__init__.py to include run_epoch in the key. Update all callers of get_peer_consensus_tracker, remove_peer_consensus_tracker, reconstruct_tracker_from_messages to pass run_epoch. run_epoch is already bumped on CANCELLED\u2192RUNNING in restart_agent (_routes_restart.py:354) and restart_phase (_routes_restart.py:1046).",
-          "status": "pending",
+          "status": "complete",
           "commit": "8a563897b",
           "checkpoint_id": null,
           "notes": "",
@@ -574,6 +574,17 @@
       "old_value": null,
       "new_value": "8a563897b",
       "reason": "Linked commit 8a56389 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-26T05:02:23.192450Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
       "checkpoint_id": null
     }
   ],
