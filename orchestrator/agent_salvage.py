@@ -621,14 +621,20 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
     if not _has_uncommitted_changes(worktree.repo_path):
         return None
     try:
-        add = _run_git("add", "-A", cwd=worktree.repo_path, check=False)
+        add = _run_git("add", "-A", "--ignore-errors", cwd=worktree.repo_path, check=False)
         if add.returncode != 0:
+            # Not fatal, same as the re-attach path's snapshot (#3639): per
+            # ``git-add(1)`` an unindexable entry (unreadable file, fifo, a
+            # filter that is not installed in the orchestrator image) aborts
+            # the add and exits non-zero with a partially populated index, and
+            # ``--ignore-errors`` still exits non-zero after skipping it.
+            # Returning here would discard the other N-1 files this helper
+            # exists to capture; commit whatever reached the index instead.
             logger.warning(
-                "Salvage: git add -A failed; skipping uncommitted capture",
+                "Salvage: git add -A reported errors; committing whatever reached the index",
                 worktree_id=worktree.worktree_id,
                 stderr=(add.stderr or "").strip(),
             )
-            return None
         commit = _run_git(
             "-c",
             f"user.name={_SALVAGE_COMMIT_NAME}",
