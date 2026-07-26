@@ -99,7 +99,7 @@
           "id": "task-1-4",
           "description": "Update _clear_pipeline_runtime_state docstring and behavior. The docstring currently says it's called on terminal transitions; update it to reflect that it's only called on delete, create, and FAILED (not CANCELLED). Also update the comment in _routes_crud.py that references #2053.",
           "status": "pending",
-          "commit": null,
+          "commit": "8a563897b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Docstring accurately reflects the new call sites; #2053 safety argument is preserved (create-path clear still defends against new-pipeline id reuse).",
@@ -607,6 +607,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-26T05:02:31.233012Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.3.commit",
+      "old_value": null,
+      "new_value": "8a563897b",
+      "reason": "Linked commit 8a56389 to task-1-4",
       "checkpoint_id": null
     }
   ],
