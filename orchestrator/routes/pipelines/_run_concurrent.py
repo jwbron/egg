@@ -725,12 +725,14 @@ def _run_concurrent_phase(
                             # success; skip handle_agent_failure (reviewer
                             # recovery path, not applicable to producers).
                             continue
+                        _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
                         _pkg._emit_producer_death_alert(
                             pipeline_id=pipeline_id,
                             role=role_value,
                             phase=phase_str,
                             slice_id=slice_id,
                             exit_code=info.exit_code,
+                            run_epoch=_run_epoch_str,
                         )
                         _pkg.logger.error(
                             "Producer agent died permanently — failing phase",

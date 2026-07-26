@@ -256,8 +256,9 @@ def send_message(pipeline_id: str) -> tuple[Response, int]:
         phase=pipeline.current_phase.value,
     )
 
+    _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
     message_store = get_message_store()
-    message_store.add_message(msg)
+    message_store.add_message(msg, run_epoch=_run_epoch_str)
 
     # Emit event for SSE streaming and audit
     emit_event(
@@ -297,7 +298,7 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
     """
     # Validate pipeline exists (consistent with send_message)
     try:
-        get_state_store_for_pipeline(pipeline_id)
+        _store, pipeline = get_state_store_for_pipeline(pipeline_id)
     except InvalidPipelineIdError as e:
         return _make_error(str(e), 400)
     except PipelineNotFoundError as e:
@@ -327,6 +328,7 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
     except (ValueError, TypeError):  # fmt: skip
         wait = 0
 
+    _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
     message_store = get_message_store()
 
     kwargs: dict[str, Any] = {
@@ -334,6 +336,7 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
         "since_id": since_id,
         "since": since,
         "limit": limit,
+        "run_epoch": _run_epoch_str,
     }
     if wait > 0:
         kwargs["wait"] = wait
@@ -484,12 +487,13 @@ def get_brc_transcript(pipeline_id: str) -> tuple[Response, int]:
     supplied there too).
     """
     try:
-        get_state_store_for_pipeline(pipeline_id)
+        _store, pipeline = get_state_store_for_pipeline(pipeline_id)
     except InvalidPipelineIdError as e:
         return _make_error(str(e), 400)
     except PipelineNotFoundError as e:
         return _make_error(str(e), 404)
 
+    _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
     phase = (request.args.get("phase") or "").strip()
     if phase not in _BRC_TRANSCRIPT_PHASES:
         return _make_error(
@@ -537,7 +541,7 @@ def get_brc_transcript(pipeline_id: str) -> tuple[Response, int]:
         from ..slice_id_validation import SLICE_ID_PATTERN  # type: ignore[no-redef]
 
     message_store = get_message_store()
-    messages = message_store.get_messages(pipeline_id, limit=_BRC_TRANSCRIPT_MAX_LIMIT)
+    messages = message_store.get_messages(pipeline_id, limit=_BRC_TRANSCRIPT_MAX_LIMIT, run_epoch=_run_epoch_str)
 
     records = [m for m in messages if m.message_type in BRC_HISTORY_TYPES and m.phase == phase]
 
@@ -658,12 +662,13 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
     they don't have to simulate blocking with sleep-and-poll loops.
     """
     try:
-        get_state_store_for_pipeline(pipeline_id)
+        _store, pipeline = get_state_store_for_pipeline(pipeline_id)
     except InvalidPipelineIdError as e:
         return _make_error(str(e), 400)
     except PipelineNotFoundError as e:
         return _make_error(str(e), 404)
 
+    _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
     wait_for_types = request.args.getlist("for")
     if not wait_for_types:
         return _make_error(
@@ -779,6 +784,7 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
             from_roles=from_producers or None,
             slice_id=slice_id_arg,
             from_tip=since_id is None,
+            run_epoch=_run_epoch_str,
         )
     finally:
         _track_long_poll_end()
@@ -793,7 +799,7 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
     if messages:
         cursor: str | None = messages[-1].id
     else:
-        cursor = message_store.get_latest_id(pipeline_id)
+        cursor = message_store.get_latest_id(pipeline_id, run_epoch=_run_epoch_str)
 
     data: dict[str, Any] = {
         "messages": [m.to_dict() for m in messages],
@@ -951,8 +957,9 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
         metadata=metadata,
         phase=pipeline.current_phase.value,
     )
+    _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
     store = get_message_store()
-    store.add_message(msg)
+    store.add_message(msg, run_epoch=_run_epoch_str)
     coordinator.record_state(pipeline_id, slice_id, from_role, state, waiting_on)
 
     # Emit an event so SSE consumers and HealthMonitor see it.
@@ -978,12 +985,13 @@ def message_status(pipeline_id: str) -> tuple[Response, int]:
     """Get message bus status for a pipeline."""
     # Validate pipeline exists (consistent with send_message)
     try:
-        get_state_store_for_pipeline(pipeline_id)
+        _store, pipeline = get_state_store_for_pipeline(pipeline_id)
     except InvalidPipelineIdError as e:
         return _make_error(str(e), 400)
     except PipelineNotFoundError as e:
         return _make_error(str(e), 404)
 
+    _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
     message_store = get_message_store()
-    status = message_store.get_status(pipeline_id)
+    status = message_store.get_status(pipeline_id, run_epoch=_run_epoch_str)
     return _make_success("Status retrieved", data=status)

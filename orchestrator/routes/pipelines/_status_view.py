@@ -157,7 +157,8 @@ def _get_concurrent_status(pipeline: _pkg.Pipeline, slice_id: str | None = None)
 
     if get_message_store is not None:
         store = get_message_store()
-        msg_status = store.get_status(pipeline.id)
+        _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
+        msg_status = store.get_status(pipeline.id, run_epoch=_run_epoch_str)
         result["messages"] = {
             "total": msg_status.get("total", 0),
             "by_type": msg_status.get("by_type", {}),

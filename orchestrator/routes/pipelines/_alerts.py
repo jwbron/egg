@@ -738,6 +738,7 @@ def _publish_consensus_timeout_alert(
             )
             return
         msg_store = store_fn()
+        _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
         msg_store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -748,7 +749,8 @@ def _publish_consensus_timeout_alert(
                 body=body,
                 metadata=metadata,
                 phase=phase_value,
-            )
+            ),
+            run_epoch=_run_epoch_str,
         )
     except Exception as e:
         _pkg.logger.warning(
@@ -766,6 +768,7 @@ def _emit_producer_death_alert(
     phase: str,
     slice_id: str | None,
     exit_code: int,
+    run_epoch: str | None = None,
 ) -> None:
     """Publish a high-priority ``OVERSEER_ALERT`` for permanent producer death (#2806).
 
@@ -835,7 +838,8 @@ def _emit_producer_death_alert(
                 body=body,
                 metadata=metadata,
                 phase=phase_value,
-            )
+            ),
+            run_epoch=run_epoch,
         )
     except Exception as e:
         _pkg.logger.warning(
@@ -1090,6 +1094,7 @@ def _publish_branch_divergence_alert(
             )
             return
         msg_store = store_fn()
+        _run_epoch_str = pipeline.run_epoch.isoformat() if pipeline.run_epoch else None
         msg_store.add_message(
             Message(
                 pipeline_id=pipeline_id,
@@ -1100,7 +1105,8 @@ def _publish_branch_divergence_alert(
                 body=body,
                 metadata=metadata,
                 phase=phase_value,
-            )
+            ),
+            run_epoch=_run_epoch_str,
         )
     except Exception as e:
         _pkg.logger.warning(
