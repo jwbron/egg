@@ -98,8 +98,14 @@ data:
             provider:
               order: [Alibaba]
               allow_fallbacks: false
-            # Closest knob to Opus xhigh — uncomment to opt into the
-            # deepest reasoning OpenRouter exposes for this model:
+            # Reasoning depth. MEASURE BEFORE UNCOMMENTING — on the models
+            # measured in #3624 this knob is a CAP BELOW the model's own
+            # default, not a ceiling above it. Mean reasoning tokens at
+            # max_tokens 16000, n=4: kimi-k3 3130 with no parameter vs 86 via
+            # `extra_body.reasoning.effort: high` (distributions do not
+            # overlap); glm-5.2 1689 vs 1516. Sending nothing is what gives
+            # these models full depth. Set it only for a model you have
+            # measured to reason MORE when explicitly asked:
             # reasoning:
             #   effort: "high"
       # Paired `[1m]` alias — absorbs Claude Code startup-probe
@@ -124,6 +130,8 @@ data:
             provider:
               order: [Alibaba]
               allow_fallbacks: false
+            # See the depth-vs-default measurement on the bare row above
+            # before uncommenting this.
             # reasoning:
             #   effort: "high"
 
