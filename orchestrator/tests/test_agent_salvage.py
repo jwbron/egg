@@ -590,6 +590,43 @@ class TestSalvageUncommitted:
         # Working tree is clean again — everything was captured.
         assert _git("status", "--porcelain", cwd=wt.repo_path).stdout.strip() == ""
 
+    def test_commit_working_tree_survives_a_partial_add(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A non-zero ``git add`` must not discard the files that did stage.
+
+        Per ``git-add(1)`` an unindexable entry aborts the add and exits
+        non-zero with a partially populated index, and ``--ignore-errors``
+        still exits non-zero after skipping it. Bailing there would throw away
+        the other N-1 files — the same defect fixed on the #3639 re-attach
+        path, on this #2807 sibling.
+        """
+        import agent_salvage
+
+        wt = self._clean_worktree(tmp_path)
+        self._dirty(wt.repo_path)
+        real_run_git = agent_salvage._run_git
+        saw_ignore_errors = False
+
+        def _flaky_run_git(*args: str, **kwargs: object):
+            nonlocal saw_ignore_errors
+            result = real_run_git(*args, **kwargs)
+            if args and args[0] == "add":
+                saw_ignore_errors = "--ignore-errors" in args
+                result.returncode = 1  # index populated, exit code still bad
+            return result
+
+        monkeypatch.setattr(agent_salvage, "_run_git", _flaky_run_git)
+        sha = commit_working_tree(wt)
+
+        assert saw_ignore_errors, "add must pass --ignore-errors to skip bad entries"
+        assert sha is not None
+        assert _git("rev-parse", "HEAD", cwd=wt.repo_path).stdout.strip() == sha
+        assert (
+            _git("show", "HEAD:new_feature.py", cwd=wt.repo_path).stdout
+            == "def added():\n    return 42\n"
+        )
+
     def test_salvage_pushes_uncommitted_edits_when_flag_set(self, tmp_path: Path) -> None:
         """salvage_uncommitted=True: dirty edits land in the pushed HEAD."""
         wt = self._clean_worktree(tmp_path)

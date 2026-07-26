@@ -7,7 +7,7 @@ the barrel (``from kubernetes_spawner import ...``), not directly.
 import os
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import kubernetes_spawner as _pkg
 from agent_salvage import _SALVAGE_COMMIT_EMAIL, _SALVAGE_COMMIT_NAME
@@ -480,9 +480,10 @@ def _clean_reused_worktree(
         # latched above, so the tree still hard-resets to the origin tip
         # and the successor never inherits a killed-mid-event working set.
         wip_commit: str | None = None
+        wip_files: int | None = None
         if was_dirty:
             if branch:
-                wip_commit = _preserve_dirty_tree(
+                snapshot = _preserve_dirty_tree(
                     _git,
                     d,
                     agent_worktree_id=agent_worktree_id,
@@ -490,6 +491,8 @@ def _clean_reused_worktree(
                     n_entries=len(dirty_entries),
                     state_unknown=state_unknown,
                 )
+                if snapshot is not None:
+                    wip_commit, wip_files = snapshot.sha, snapshot.n_files
             else:
                 # No branch ⇒ no origin tip to reset to and no salvage
                 # target, so a snapshot commit would just become the
@@ -501,7 +504,7 @@ def _clean_reused_worktree(
                     "(no branch to sync or salvage against)",
                     agent_worktree_id=agent_worktree_id,
                     repo=n,
-                    discarded_dirty_entries=len(dirty_entries),
+                    dirty_entries=len(dirty_entries),
                     dirty_state_unknown=state_unknown,
                 )
 
@@ -654,6 +657,7 @@ def _clean_reused_worktree(
                             recovery_ref=recovery_ref,
                             salvage_error=salvage_error,
                             wip_commit=wip_commit,
+                            wip_files=wip_files,
                         )
                 try:
                     _git(d, "reset", "--hard", f"origin/{branch}")
@@ -686,6 +690,13 @@ def _clean_reused_worktree(
 # The module-level ``from`` import binds the real values and is unaffected by
 # the suite's ``patch("kubernetes_spawner.agent_salvage")`` seam — that
 # rebinds the package *attribute*, not what is already bound here.
+# Largest snapshot (in files) that :func:`_record_discarded_tip` is allowed to
+# describe as plausibly-ignorable. One file is the ``brc-memory-<pipeline>.md``
+# case: written into the worktree on every ``brc_ack``/``brc_nack``, so any
+# respawn where the agent did not commit it lands here. Two or more files is
+# already the shape of the #3639 incident, which must keep the imperative ask.
+_SNAPSHOT_SOFT_MAX_FILES = 1
+
 _WIP_COMMIT_AUTHOR_NAME = _SALVAGE_COMMIT_NAME
 _WIP_COMMIT_AUTHOR_EMAIL = _SALVAGE_COMMIT_EMAIL
 _WIP_COMMIT_MESSAGE = (
@@ -698,6 +709,20 @@ _WIP_COMMIT_MESSAGE = (
 )
 
 
+class _DirtySnapshot(NamedTuple):
+    """The commit :func:`_preserve_dirty_tree` made, and how big it is.
+
+    ``n_files`` is carried alongside the sha because it is the only signal
+    that separates the #3639 incident (110 minutes, 33 files) from a
+    respawn whose worktree held one stray ``brc-memory-*.md``. The message
+    a resuming agent reads is worded off it — see
+    :func:`_record_discarded_tip`.
+    """
+
+    sha: str
+    n_files: int
+
+
 def _preserve_dirty_tree(
     git: Callable[..., Any],
     repo_dir: Path,
@@ -706,7 +731,7 @@ def _preserve_dirty_tree(
     repo: str,
     n_entries: int,
     state_unknown: bool = False,
-) -> str | None:
+) -> _DirtySnapshot | None:
     """Commit a re-attached worktree's dirty state before the R6 reset (#3639).
 
     ``_clean_reused_worktree``'s ``git reset --hard`` + ``git clean -fd``
@@ -719,8 +744,9 @@ def _preserve_dirty_tree(
     the exact shape the orphan detector already salvages to
     ``egg/recovered/...`` and records on the message bus.
 
-    Returns the snapshot commit's SHA, or ``None`` when nothing was
-    preserved (a tree with no committable change, or a failed commit).
+    Returns a :class:`_DirtySnapshot` (the commit's SHA and the number of
+    files it captured), or ``None`` when nothing was preserved (a tree
+    with no committable change, or a failed commit).
     Strictly best-effort: every failure logs at WARNING and returns
     ``None`` so the caller proceeds with the reset. Blocking reuse instead
     would only send the spawn down the create-with-retry path, which
@@ -766,10 +792,11 @@ def _preserve_dirty_tree(
         if not staged:
             logger.warning(
                 "Worktree re-attach: dirty tree held no committable change "
-                "(ignored files, or submodule-only dirt); discarding it",
+                "(ignored files, submodule-only dirt, or a failed add); "
+                "discarding it",
                 agent_worktree_id=agent_worktree_id,
                 repo=repo,
-                discarded_dirty_entries=n_entries,
+                dirty_entries=n_entries,
                 dirty_state_unknown=state_unknown,
             )
             return None
@@ -792,21 +819,23 @@ def _preserve_dirty_tree(
             "the hard reset below WILL discard it",
             agent_worktree_id=agent_worktree_id,
             repo=repo,
-            discarded_dirty_entries=n_entries,
+            dirty_entries=n_entries,
             dirty_state_unknown=state_unknown,
             error=str(e),
         )
         return None
 
+    n_files = len(staged.splitlines())
     logger.warning(
         "Worktree re-attach: auto-committed uncommitted work before hard reset (#3639)",
         agent_worktree_id=agent_worktree_id,
         repo=repo,
-        preserved_dirty_entries=n_entries,
-        preserved_files=len(staged.splitlines()),
+        dirty_entries=n_entries,
+        dirty_state_unknown=state_unknown,
+        preserved_files=n_files,
         wip_commit=sha,
     )
-    return sha
+    return _DirtySnapshot(sha=sha, n_files=n_files)
 
 
 def _record_discarded_tip(
@@ -824,6 +853,7 @@ def _record_discarded_tip(
     recovery_ref: str | None,
     salvage_error: str | None,
     wip_commit: str | None = None,
+    wip_files: int | None = None,
 ) -> None:
     """Durably record a dirty-discard's orphaned tip where the agent looks (#3509).
 
@@ -849,6 +879,16 @@ def _record_discarded_tip(
     path where the work is a ``gc`` away from gone would suppress exactly
     the escalation this record exists to trigger.
 
+    ``wip_files`` is how big that snapshot is, and it is what decides how
+    hard the message pushes. "Snapshot-only" on its own is a bad proxy for
+    "trivial": the #3639 incident (110 minutes, 33 modified files, zero
+    commits) is snapshot-only too, so keying the soft wording off the
+    commit count alone would soften precisely the case this record exists
+    for. The count is also stated outright rather than asking the reader
+    whether anything is "missing" — a memory-less agent has no baseline
+    against which that question means anything, which is this function's
+    own premise.
+
     Best-effort: a record failure is logged and swallowed; it must not
     block the re-attach path.
     """
@@ -858,14 +898,32 @@ def _record_discarded_tip(
     # same event as losing a stack of the agent's own commits: the imperative
     # "inspect it before starting work" is what turns #3509's message into
     # background noise when every respawn with a stray memory file triggers
-    # it. Soften the ask without suppressing the record.
-    snapshot_only = bool(wip_commit) and wip_commit == discarded_tip and n_commits == 1
+    # it. But the size of the snapshot, not its snapshot-ness, is what makes
+    # it ignorable — a one-file capture is as likely to be a leftover
+    # ``brc-memory-*.md`` as work, while #3639 itself was 33 files with no
+    # commits. An unknown count counts as substantial: the soft wording is an
+    # opt-in for the demonstrably trivial case, never a default.
+    snapshot_only = bool(wip_commit) and n_commits == 1
+    trivial_snapshot = (
+        snapshot_only and wip_files is not None and wip_files <= _SNAPSHOT_SOFT_MAX_FILES
+    )
+    snapshot_size = (
+        f"{wip_files} file(s) of uncommitted work" if wip_files is not None else "uncommitted work"
+    )
 
-    if recovery_ref and snapshot_only:
+    if recovery_ref and trivial_snapshot:
         recovery_text = (
-            f"The snapshot is preserved on remote ref {recovery_ref}; if any of "
-            f"that work is missing, run `git fetch origin {recovery_ref}` and "
-            "inspect it before re-deriving it."
+            f"The snapshot holds {snapshot_size} and is preserved on remote ref "
+            f"{recovery_ref}; run `git fetch origin {recovery_ref}` to read it if "
+            "you need it — at that size it is as likely to be a leftover state "
+            "file as work."
+        )
+    elif recovery_ref and snapshot_only:
+        recovery_text = (
+            f"The snapshot holds {snapshot_size} and is preserved on remote ref "
+            f"{recovery_ref}; run `git fetch origin {recovery_ref}` and inspect it "
+            "before starting work. If it contains completed work, build on it "
+            "(cherry-pick or reset) instead of re-deriving it."
         )
     elif recovery_ref:
         recovery_text = (
@@ -897,9 +955,9 @@ def _record_discarded_tip(
     elif wip_commit:
         wip_text = (
             f" Commit {wip_commit} is an AUTOMATIC snapshot of the uncommitted "
-            "changes your previous session left behind (#3639) and it was NOT "
-            "pushed — it exists only in the local object store. Escalate to an "
-            "operator before re-deriving any work."
+            f"changes your previous session left behind ({snapshot_size}, #3639) "
+            "and it was NOT pushed — it exists only in the local object store. "
+            "Escalate to an operator before re-deriving any work."
         )
     else:
         wip_text = ""
