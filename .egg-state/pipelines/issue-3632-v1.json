@@ -256,7 +256,16 @@
       "iteration_history": [],
       "phase_start_sha": "003554ebe331f11a84873a6e854603643c508e7f",
       "agent_exits": [],
-      "decision_ledger": null
+      "decision_ledger": {
+        "registered": [
+          "decision-4"
+        ],
+        "resolved": 1,
+        "explicit_none": false,
+        "attested_by": null,
+        "missing": false,
+        "candidates_considered": []
+      }
     }
   },
   "decisions": [
@@ -313,7 +322,7 @@
     }
   ],
   "created_at": "2026-07-25T22:57:36.434898Z",
-  "updated_at": "2026-07-26T01:17:46.360785Z",
+  "updated_at": "2026-07-26T01:17:52.692502Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -326,7 +335,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-25T23:45:13.364047Z",
-  "version": 44,
+  "version": 45,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
