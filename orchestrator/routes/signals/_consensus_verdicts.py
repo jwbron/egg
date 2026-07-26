@@ -109,6 +109,7 @@ def _emit_ready_to_confirm_nudges(
     newly_ready: list[dict[str, Any]],
     tracker: Any = None,
     slice_id: str | None = None,
+    run_epoch: str | None = None,
 ) -> None:
     """Emit a STATUS to each producer that newly became ready to confirm.
 
@@ -153,7 +154,8 @@ def _emit_ready_to_confirm_nudges(
                     ),
                     phase=phase,
                     metadata={"ready_to_confirm": True, "version": version, **_slice_meta},
-                )
+                ),
+                run_epoch=run_epoch,
             )
         except Exception as exc:
             if tracker is not None:
@@ -466,6 +468,14 @@ def handle_consensus_propose_signal(
     if not payload:
         return make_error_response("Missing payload")
 
+    # Load pipeline to resolve run_epoch for tracker namespacing (#3632)
+    _run_epoch_str = None
+    try:
+        _pip = _pkg.get_state_store(repo_path).load_pipeline(pipeline_id)
+        _run_epoch_str = _pip.run_epoch.isoformat() if _pip.run_epoch else None
+    except Exception:
+        pass
+
     # Validate proposal summary content (#1716)
     summary_error = _pkg._validate_brc_content(payload.get("summary", ""), "Proposal summary")
     if summary_error:
@@ -488,7 +498,7 @@ def handle_consensus_propose_signal(
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id, run_epoch=_run_epoch_str)
     if not tracker:
         scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
         return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
@@ -804,7 +814,8 @@ def handle_consensus_propose_signal(
                     "commit_sha": commit_sha,
                     **_slice_meta,
                 },
-            )
+            ),
+            run_epoch=_run_epoch_str,
         )
 
         # Notify stale reviewers that they need to re-review.  Includes
@@ -841,13 +852,15 @@ def handle_consensus_propose_signal(
                         "version": result.get("version"),
                         **_slice_meta,
                     },
-                )
+                ),
+                run_epoch=_run_epoch_str,
             )
 
         # A new proposal can unblock the global zero-proposal guard for
         # producers that were previously fully ACKed but unable to confirm.
         _pkg._emit_ready_to_confirm_nudges(
-            pipeline_id, phase, result.get("newly_ready", []), tracker, slice_id=slice_id
+            pipeline_id, phase, result.get("newly_ready", []), tracker,
+            slice_id=slice_id, run_epoch=_run_epoch_str,
         )
 
         return make_success_response(
@@ -920,6 +933,14 @@ def handle_consensus_ack_signal(
             400,
         )
 
+    # Load pipeline to resolve run_epoch for tracker namespacing (#3632)
+    _run_epoch_str = None
+    try:
+        _pip = _pkg.get_state_store(repo_path).load_pipeline(pipeline_id)
+        _run_epoch_str = _pip.run_epoch.isoformat() if _pip.run_epoch else None
+    except Exception:
+        pass
+
     try:
         slice_id = _extract_slice_id(data)
     except ValueError as exc:
@@ -930,7 +951,7 @@ def handle_consensus_ack_signal(
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id, run_epoch=_run_epoch_str)
     if not tracker:
         scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
         return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
@@ -984,7 +1005,8 @@ def handle_consensus_ack_signal(
                     "version": result.get("version"),
                     **_slice_meta,
                 },
-            )
+            ),
+            run_epoch=_run_epoch_str,
         )
 
         # Nudge any producer that the tracker says is now ready to confirm —
@@ -993,7 +1015,8 @@ def handle_consensus_ack_signal(
         # gate which fired before global guards (e.g. zero-proposal) cleared
         # and could mislead an advisory-only producer like documenter (#2078).
         _pkg._emit_ready_to_confirm_nudges(
-            pipeline_id, phase, result.get("newly_ready", []), tracker, slice_id=slice_id
+            pipeline_id, phase, result.get("newly_ready", []), tracker,
+            slice_id=slice_id, run_epoch=_run_epoch_str,
         )
 
         return make_success_response(
@@ -1045,6 +1068,14 @@ def handle_consensus_nack_signal(
     if reason_error:
         return make_error_response(reason_error, 400)
 
+    # Load pipeline to resolve run_epoch for tracker namespacing (#3632)
+    _run_epoch_str = None
+    try:
+        _pip = _pkg.get_state_store(repo_path).load_pipeline(pipeline_id)
+        _run_epoch_str = _pip.run_epoch.isoformat() if _pip.run_epoch else None
+    except Exception:
+        pass
+
     try:
         slice_id = _extract_slice_id(data)
     except ValueError as exc:
@@ -1055,7 +1086,7 @@ def handle_consensus_nack_signal(
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id, run_epoch=_run_epoch_str)
     if not tracker:
         scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
         return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
@@ -1092,7 +1123,8 @@ def handle_consensus_nack_signal(
                     "revision_count": result.get("revision_count"),
                     **_slice_meta,
                 },
-            )
+            ),
+            run_epoch=_run_epoch_str,
         )
 
         return make_success_response(
@@ -1116,6 +1148,14 @@ def handle_consensus_withdraw_signal(
 
     reason = data.get("reason", "")
 
+    # Load pipeline to resolve run_epoch for tracker namespacing (#3632)
+    _run_epoch_str = None
+    try:
+        _pip = _pkg.get_state_store(repo_path).load_pipeline(pipeline_id)
+        _run_epoch_str = _pip.run_epoch.isoformat() if _pip.run_epoch else None
+    except Exception:
+        pass
+
     # Validate withdrawal reason content (#1716)
     reason_error = _pkg._validate_brc_content(reason, "Withdrawal reason")
     if reason_error:
@@ -1131,7 +1171,7 @@ def handle_consensus_withdraw_signal(
     except ImportError:
         from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
 
-    tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+    tracker = get_peer_consensus_tracker(pipeline_id, slice_id, run_epoch=_run_epoch_str)
     if not tracker:
         scope = f"{pipeline_id}/{slice_id}" if slice_id else pipeline_id
         return make_error_response(f"No consensus tracker for pipeline {scope}", 404)
@@ -1155,7 +1195,8 @@ def handle_consensus_withdraw_signal(
                 body=reason,
                 phase=_pkg._resolve_pipeline_phase(pipeline_id, repo_path),
                 metadata=_slice_meta,
-            )
+            ),
+            run_epoch=_run_epoch_str,
         )
 
         return make_success_response(
