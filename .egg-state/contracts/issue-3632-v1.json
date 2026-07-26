@@ -162,7 +162,7 @@
         {
           "id": "task-1-7",
           "description": "Update tests. Rewrite test_cancel_clears_runtime_state \u2192 test_cancel_preserves_runtime_state (assert cancel does NOT clear). Pin the create-path clear explicitly in test_create_clears_runtime_state. Add a NEW regression test: cancel \u2192 resume \u2192 simulated orchestrator restart \u2192 assert consensus state is NOT resurrected by reconstruct_tracker_from_messages. Add a test verifying that cancel persists per-slice BRC history.",
-          "status": "pending",
+          "status": "complete",
           "commit": "8a563897b",
           "checkpoint_id": null,
           "notes": "",
@@ -684,6 +684,17 @@
       "old_value": null,
       "new_value": "8a563897b",
       "reason": "Linked commit 8a56389 to task-1-7",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-26T05:02:50.223786Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.6.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-7 as complete",
       "checkpoint_id": null
     }
   ],
