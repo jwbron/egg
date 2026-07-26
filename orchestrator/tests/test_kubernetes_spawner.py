@@ -17,6 +17,7 @@ import tokenize
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -3841,6 +3842,11 @@ class TestDirtyDiscardAutoSalvage:
         assert msg.metadata["wip_commit"] == wip
         assert expected_ref in msg.body
         assert wip in msg.body
+        # A real commit was lost alongside the snapshot, so the message keeps
+        # the imperative ask and names the snapshot within the count.
+        assert "one of which is an automatic snapshot" in msg.body
+        assert "inspect it before starting work" in msg.body
+        assert "nothing was lost" in msg.body
 
     def test_salvage_failure_still_resets_and_records_tip(self, spawner, mock_gateway, tmp_path):
         repo, origin_head, orphan_head = self._seed_orphan(tmp_path)
@@ -3860,6 +3866,15 @@ class TestDirtyDiscardAutoSalvage:
         assert _git(repo, "rev-parse", f"{discarded}^").stdout.strip() == orphan_head
         assert msg.metadata["recovery_ref"] is None
         assert "gateway down" in msg.metadata["salvage_error"]
+        # #3639: the body must NOT reassure a memory-less agent that nothing
+        # was lost on the one path where the snapshot was never pushed — that
+        # would suppress the escalation the preceding sentence just asked for.
+        assert "Nothing was lost" not in msg.body
+        assert "nothing was lost" not in msg.body
+        assert "was NOT" in msg.body and "local object store" in msg.body
+        assert "Escalate" in msg.body
+        # And it must not point at a tool that provably cannot see the sha.
+        assert "salvage_agent_commits cannot recover them" in msg.body
 
     def test_record_failure_does_not_block_reuse(self, spawner, mock_gateway, tmp_path):
         repo, origin_head, _ = self._seed_orphan(tmp_path)
@@ -4079,6 +4094,70 @@ class TestDirtyTreePreservedBeforeReset:
         # The resuming agent is told the top commit is a machine snapshot.
         assert wip in msg.body
         assert "AUTOMATIC snapshot" in msg.body
+        # Snapshot-only discard: the ask is "if any of that work is missing",
+        # not the imperative reserved for losing the agent's own commits — a
+        # respawn with one stray memory file must not read like data loss.
+        assert "if any of that work is missing" in msg.body
+        assert "inspect it before starting work" not in msg.body
+
+    def test_snapshot_commit_identity_matches_the_restart_path(
+        self, spawner, mock_gateway, tmp_path
+    ):
+        """The snapshot is greppable by ``[salvage]`` + the #2807 identity.
+
+        ``docs/reference/agent-recovery.md`` promises one ``[salvage]`` grep
+        finds every machine-made working-tree snapshot regardless of which
+        path took it. Pin both halves: the constants agree with
+        ``agent_salvage``'s, and the commit git actually produces carries
+        them.
+        """
+        import agent_salvage
+        from kubernetes_spawner import _worktree
+
+        assert _worktree._WIP_COMMIT_AUTHOR_NAME == agent_salvage._SALVAGE_COMMIT_NAME
+        assert _worktree._WIP_COMMIT_AUTHOR_EMAIL == agent_salvage._SALVAGE_COMMIT_EMAIL
+        assert _worktree._WIP_COMMIT_MESSAGE.startswith("[salvage]")
+
+        repo, _ = self._seed_dirty(tmp_path)
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            assert spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX) is True
+
+        wip = get_store.return_value.add_message.call_args.args[0].metadata["wip_commit"]
+        ident = _git(repo, "show", "-s", "--format=%an|%ae|%s", wip).stdout.strip()
+        author, email, subject = ident.split("|")
+        assert author == agent_salvage._SALVAGE_COMMIT_NAME
+        assert email == agent_salvage._SALVAGE_COMMIT_EMAIL
+        assert subject.startswith("[salvage]")
+
+    def test_no_branch_takes_no_snapshot(self, spawner, mock_gateway, tmp_path):
+        """``branch is None`` ⇒ no snapshot commit, and HEAD does not move.
+
+        With no branch there is no origin tip to reset to and no salvage
+        target, so a snapshot would simply become the successor's HEAD:
+        un-vetted residue promoted to committed state, which is what R6
+        exists to prevent. The dirt is discarded as it was pre-#3639.
+        """
+        repo, _origin_head = self._seed_dirty(tmp_path)
+        head_before = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, None, _REPOS, **_PIPE_CTX)
+
+        assert cleaned is True
+        # No snapshot was committed: HEAD is unmoved and the tree is clean.
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == head_before
+        assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+        assert not (repo / "new_module.py").exists()
+        mock_gateway.push_worktree_branch.assert_not_called()
+        get_store.return_value.add_message.assert_not_called()
 
     def test_snapshot_is_pushed_to_a_recovery_ref(self, spawner, mock_gateway, tmp_path):
         """The snapshot rides the existing #3509 recovery-ref namespace."""
@@ -4103,8 +4182,68 @@ class TestDirtyTreePreservedBeforeReset:
         assert kwargs["branch"] == (f"egg/recovered/pipe-1/slice-4-coder/{pushed_head['sha'][:12]}")
         assert kwargs["ref"] is None
 
+    def test_no_committable_change_takes_no_snapshot(self, tmp_path):
+        """The ``not staged`` branch: an empty index ⇒ no commit at all.
+
+        Reached in production by dirt that ``git add -A`` cannot stage — a
+        dirty submodule whose gitlink is unchanged shows as ` M sub` in
+        ``status --porcelain`` yet stages nothing. Driven here with a git
+        closure whose ``diff --cached`` is empty, because the end-to-end
+        ignored-files case never reaches this helper at all (ignored files do
+        not appear in ``status --porcelain``, so ``was_dirty`` is False).
+        """
+        from kubernetes_spawner._worktree import _preserve_dirty_tree
+
+        calls = []
+
+        def _fake_git(_repo_dir, *args, **_kwargs):
+            calls.append(args)
+            return SimpleNamespace(stdout="", returncode=0)
+
+        assert (
+            _preserve_dirty_tree(
+                _fake_git, tmp_path, agent_worktree_id=_WT_ID, repo="repo", n_entries=1
+            )
+            is None
+        )
+        assert not any("commit" in a for a in calls)
+
+    def test_partial_add_failure_still_commits_what_was_staged(self, tmp_path):
+        """A non-zero ``git add`` must not discard the files that did stage.
+
+        ``git-add(1)`` aborts on the first unindexable entry and exits
+        non-zero with a partially populated index; returning early there
+        would throw away the other N-1 files this helper exists to save.
+        """
+        from kubernetes_spawner._worktree import _preserve_dirty_tree
+
+        seen = []
+
+        def _flaky_git(_repo_dir, *args, **_kwargs):
+            seen.append(args)
+            if args[0] == "add":
+                assert "--ignore-errors" in args
+                raise RuntimeError("error: unable to index file 'broken.sock'")
+            if args[0] == "diff":
+                return SimpleNamespace(stdout="a.py\nb.py\n", returncode=0)
+            return SimpleNamespace(stdout="deadbeefcafe\n", returncode=0)
+
+        assert (
+            _preserve_dirty_tree(
+                _flaky_git, tmp_path, agent_worktree_id=_WT_ID, repo="repo", n_entries=3
+            )
+            == "deadbeefcafe"
+        )
+        assert any("commit" in a for a in seen)
+
     def test_ignored_only_dirt_is_discarded_without_a_commit(self, spawner, mock_gateway, tmp_path):
-        """Build output is not agent work: no snapshot, nothing salvaged."""
+        """Build output is not agent work: no snapshot, nothing salvaged.
+
+        Ignored files are absent from ``status --porcelain``, so this asserts
+        the outer ``if was_dirty:`` guard never fires — the helper is not
+        reached. The helper's own empty-index branch is pinned by
+        :meth:`test_no_committable_change_takes_no_snapshot`.
+        """
         repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
         (repo / ".gitignore").write_text("build/\n")
         _git(repo, "add", "-A")

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import kubernetes_spawner as _pkg
+from agent_salvage import _SALVAGE_COMMIT_EMAIL, _SALVAGE_COMMIT_NAME
 from kubernetes_spawner import (
     logger,
 )
@@ -426,6 +427,12 @@ def _clean_reused_worktree(
                 "core.hooksPath=/dev/null",
                 "-c",
                 "safe.directory=*",
+                # A worktree that inherits ``commit.gpgsign=true`` from the
+                # clone's config would fail every #3639 snapshot commit (no
+                # signing key in the orchestrator image), losing exactly the
+                # work the snapshot exists to save.
+                "-c",
+                "commit.gpgsign=false",
                 *args,
             ],
             capture_output=True,
@@ -450,12 +457,18 @@ def _clean_reused_worktree(
         # BEFORE the discard below erases the evidence: dirt is the
         # killed-mid-event signature that disqualifies the fast-forward
         # keep in the sync step (#3506). Unknown state counts as dirty.
+        # ``state_unknown`` distinguishes "status failed, assume dirty" from
+        # "status reported zero entries": without it the downstream WARNINGs
+        # report ``discarded_dirty_entries=0``, which reads as "nothing was
+        # there" on the one path where we genuinely do not know.
+        state_unknown = False
         try:
             dirty_entries = _git(d, "status", "--porcelain").stdout.strip().splitlines()
             was_dirty = bool(dirty_entries)
         except Exception:
             dirty_entries = []
             was_dirty = True
+            state_unknown = True
 
         # #3639: snapshot the dirty tree into a commit BEFORE the reset.
         # Uncommitted work is otherwise the one class of agent output no
@@ -475,6 +488,7 @@ def _clean_reused_worktree(
                     agent_worktree_id=agent_worktree_id,
                     repo=n,
                     n_entries=len(dirty_entries),
+                    state_unknown=state_unknown,
                 )
             else:
                 # No branch ⇒ no origin tip to reset to and no salvage
@@ -488,6 +502,7 @@ def _clean_reused_worktree(
                     agent_worktree_id=agent_worktree_id,
                     repo=n,
                     discarded_dirty_entries=len(dirty_entries),
+                    dirty_state_unknown=state_unknown,
                 )
 
         # reset --hard
@@ -664,16 +679,15 @@ def _clean_reused_worktree(
     return True
 
 
-# Identity + message for the synthetic commit that captures a re-attached
-# worktree's dirty state. Mirrors the #2807 restart-path convention
-# (``agent_salvage._SALVAGE_COMMIT_NAME`` / ``_SALVAGE_COMMIT_EMAIL`` /
-# ``_UNCOMMITTED_SALVAGE_MESSAGE``) so one ``[salvage]`` grep finds every
-# machine-made working-tree snapshot regardless of which path took it. The
-# values are duplicated rather than imported: ``kubernetes_spawner.agent_salvage``
-# is a patched seam in the suite, and reading constants off a Mock would
-# silently produce a garbage commit identity.
-_WIP_COMMIT_AUTHOR_NAME = "egg-salvage"
-_WIP_COMMIT_AUTHOR_EMAIL = "egg-salvage@localhost"
+# Identity for the synthetic commit that captures a re-attached worktree's
+# dirty state. Bound from the #2807 restart-path constants at import time so
+# one ``[salvage]`` grep finds every machine-made working-tree snapshot
+# regardless of which path took it, and so the two identities cannot drift.
+# The module-level ``from`` import binds the real values and is unaffected by
+# the suite's ``patch("kubernetes_spawner.agent_salvage")`` seam — that
+# rebinds the package *attribute*, not what is already bound here.
+_WIP_COMMIT_AUTHOR_NAME = _SALVAGE_COMMIT_NAME
+_WIP_COMMIT_AUTHOR_EMAIL = _SALVAGE_COMMIT_EMAIL
 _WIP_COMMIT_MESSAGE = (
     "[salvage] pre-reset working-tree state (#3639)\n"
     "\n"
@@ -691,6 +705,7 @@ def _preserve_dirty_tree(
     agent_worktree_id: str,
     repo: str,
     n_entries: int,
+    state_unknown: bool = False,
 ) -> str | None:
     """Commit a re-attached worktree's dirty state before the R6 reset (#3639).
 
@@ -705,11 +720,21 @@ def _preserve_dirty_tree(
     ``egg/recovered/...`` and records on the message bus.
 
     Returns the snapshot commit's SHA, or ``None`` when nothing was
-    preserved (an ignored-files-only tree, or a failed add/commit).
+    preserved (a tree with no committable change, or a failed commit).
     Strictly best-effort: every failure logs at WARNING and returns
     ``None`` so the caller proceeds with the reset. Blocking reuse instead
     would only send the spawn down the create-with-retry path, which
     discards the same state with less visibility.
+
+    A failing ``git add -A`` is *not* treated as fatal. Per ``git-add(1)``
+    the default behaviour on an unindexable entry (unreadable file, fifo,
+    a filter that is not installed in the orchestrator image) is to abort
+    the whole add and exit non-zero, leaving a partially populated index —
+    so returning early there would discard the other N-1 files. The add
+    passes ``--ignore-errors`` to keep going past the bad entry, and on a
+    non-zero exit the helper still commits whatever reached the index:
+    partial preservation strictly beats none for a helper whose purpose is
+    "never lose the working tree".
 
     Ignored files (``.gitignore``) are deliberately not captured: they are
     build output and caches, not agent work, and sweeping them in would
@@ -725,15 +750,27 @@ def _preserve_dirty_tree(
     carries the right config, so it is threaded in as a parameter.
     """
     try:
-        git(repo_dir, "add", "-A", timeout=120)
+        try:
+            git(repo_dir, "add", "-A", "--ignore-errors", timeout=120)
+        except Exception as add_error:  # partial index beats no index
+            logger.warning(
+                "Worktree re-attach: `git add -A` reported errors; committing "
+                "whatever reached the index",
+                agent_worktree_id=agent_worktree_id,
+                repo=repo,
+                dirty_entries=n_entries,
+                dirty_state_unknown=state_unknown,
+                error=str(add_error),
+            )
         staged = git(repo_dir, "diff", "--cached", "--name-only", timeout=60).stdout.strip()
         if not staged:
             logger.warning(
                 "Worktree re-attach: dirty tree held no committable change "
-                "(ignored files only); discarding it",
+                "(ignored files, or submodule-only dirt); discarding it",
                 agent_worktree_id=agent_worktree_id,
                 repo=repo,
                 discarded_dirty_entries=n_entries,
+                dirty_state_unknown=state_unknown,
             )
             return None
         git(
@@ -749,13 +786,14 @@ def _preserve_dirty_tree(
             timeout=120,
         )
         sha = git(repo_dir, "rev-parse", "HEAD").stdout.strip()
-    except Exception as e:  # noqa: BLE001  # preservation must never block the reset
+    except Exception as e:  # preservation must never block the reset
         logger.warning(
             "Worktree re-attach: could not preserve uncommitted work; "
             "the hard reset below WILL discard it",
             agent_worktree_id=agent_worktree_id,
             repo=repo,
             discarded_dirty_entries=n_entries,
+            dirty_state_unknown=state_unknown,
             error=str(e),
         )
         return None
@@ -804,12 +842,32 @@ def _record_discarded_tip(
     resuming agent must read such a commit as a mechanical checkpoint to
     inspect rather than as reviewed work it already proposed.
 
+    The reassurance that nothing was lost is conditional on
+    ``recovery_ref``: when the salvage push failed, the snapshot exists
+    only in the local object store and the message must say so and ask for
+    escalation. Telling a memory-less agent "nothing was lost" on the one
+    path where the work is a ``gc`` away from gone would suppress exactly
+    the escalation this record exists to trigger.
+
     Best-effort: a record failure is logged and swallowed; it must not
     block the re-attach path.
     """
     from message_store import Message, MessageType, get_message_store
 
-    if recovery_ref:
+    # A discard whose only casualty is the machine-made snapshot is not the
+    # same event as losing a stack of the agent's own commits: the imperative
+    # "inspect it before starting work" is what turns #3509's message into
+    # background noise when every respawn with a stray memory file triggers
+    # it. Soften the ask without suppressing the record.
+    snapshot_only = bool(wip_commit) and wip_commit == discarded_tip and n_commits == 1
+
+    if recovery_ref and snapshot_only:
+        recovery_text = (
+            f"The snapshot is preserved on remote ref {recovery_ref}; if any of "
+            f"that work is missing, run `git fetch origin {recovery_ref}` and "
+            "inspect it before re-deriving it."
+        )
+    elif recovery_ref:
         recovery_text = (
             f"The full commit stack is preserved on remote ref {recovery_ref}; "
             f"run `git fetch origin {recovery_ref}` and inspect it before "
@@ -817,24 +875,43 @@ def _record_discarded_tip(
             "(cherry-pick or reset) instead of re-deriving it."
         )
     else:
+        # NOT salvage_agent_commits: it enumerates worktree branches, which
+        # the reset below has already moved off the discarded tip
+        # (``salvage_discarded_tip``'s own docstring says so), so it provably
+        # cannot see this sha. The worktree's HEAD reflog can.
         recovery_text = (
             f"Automatic salvage FAILED ({salvage_error or 'unknown error'}); the "
-            "commits survive only in the local git object store until gc. Ask an "
-            "operator to recover them (salvage_agent_commits, #3368) before "
-            "re-deriving any work."
+            "commits survive only in this worktree's local git object store "
+            "until gc, unreachable from any ref. salvage_agent_commits cannot "
+            "recover them (it inspects worktree branches the reset has already "
+            f"moved, #3509) — ask an operator to fetch {discarded_tip} directly "
+            "out of the worktree (`git reflog`) before re-deriving any work."
         )
-    wip_text = (
-        (
+    if wip_commit and recovery_ref:
+        wip_text = (
             f" Commit {wip_commit} is an AUTOMATIC snapshot of the uncommitted "
-            "changes your previous session left behind (#3639). Nothing was "
-            "lost, but treat it as a WIP checkpoint to review, not as work you "
-            "already proposed."
+            "changes your previous session left behind (#3639); it is on the "
+            "recovery ref above, so nothing was lost. Treat it as a WIP "
+            "checkpoint to review, not as work you already proposed."
         )
-        if wip_commit
-        else ""
-    )
+    elif wip_commit:
+        wip_text = (
+            f" Commit {wip_commit} is an AUTOMATIC snapshot of the uncommitted "
+            "changes your previous session left behind (#3639) and it was NOT "
+            "pushed — it exists only in the local object store. Escalate to an "
+            "operator before re-deriving any work."
+        )
+    else:
+        wip_text = ""
+    count_text = f"{n_commits} unpushed commit(s)"
+    if wip_commit:
+        count_text += (
+            " (one of which is an automatic snapshot of uncommitted work)"
+            if n_commits > 1
+            else " (an automatic snapshot of uncommitted work)"
+        )
     body = (
-        f"Worktree re-attach discarded {n_commits} unpushed commit(s) from "
+        f"Worktree re-attach discarded {count_text} from "
         f"{repo} (worktree {agent_worktree_id}). Your previous tip was "
         f"{discarded_tip}; the worktree was reset to {remote_tip}"
         + (f" (origin/{branch})." if branch else ".")
