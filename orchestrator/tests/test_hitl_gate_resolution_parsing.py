@@ -132,6 +132,93 @@ class TestFreeTextStillRequestsChanges:
         assert feedback == resolution
 
 
+class TestPunctuationOnlyFirstLineIsNotApproval:
+    """#3636 inverted: ``""`` is an approve keyword, and the trailing-``.!``
+    strip could collapse a punctuation-only first line onto it — silently
+    approving a rejection whose first line is a stray ``.``.
+    """
+
+    @pytest.mark.parametrize("resolution", [".", "!", "...", "!!!", ".!.!"])
+    def test_punctuation_only_resolution_is_a_change_request(self, resolution):
+        approved, feedback, context = _classify_bare_gate_resolution(resolution)
+
+        assert approved is False
+        assert feedback == resolution
+        assert context == ""
+
+    def test_punctuation_first_line_does_not_approve_an_objection(self):
+        resolution = ".\nThe plan double-counts slice 2. Do not advance."
+        approved, feedback, context = _classify_bare_gate_resolution(resolution)
+
+        assert approved is False
+        # The objection survives whole as revision feedback rather than
+        # being demoted to "approve context" and discarded.
+        assert feedback == resolution
+        assert context == ""
+
+    def test_recovery_path_agrees(self):
+        assert _parse_resolution(".\nRejected — the rollback path is missing.") == (
+            False,
+            ".\nRejected — the rollback path is missing.",
+        )
+
+    def test_only_a_wholly_empty_resolution_approves(self):
+        """The historical reason ``""`` is an approve keyword: nothing to judge."""
+        assert _classify_bare_gate_resolution("") == (True, None, "")
+        assert _classify_bare_gate_resolution("   \n  ") == (True, None, "")
+
+
+class TestLineSeparators:
+    """``\\r\\n`` and lone ``\\r`` are line breaks too; a tab is not."""
+
+    @pytest.mark.parametrize("sep", ["\n", "\r\n", "\r"])
+    def test_every_line_separator_splits_the_option_word(self, sep):
+        approved, feedback, context = _classify_bare_gate_resolution(
+            f"approve{sep}{sep}The analysis is sound."
+        )
+
+        assert approved is True
+        assert feedback is None
+        assert context == "The analysis is sound."
+
+    def test_tab_is_not_a_line_separator(self):
+        """Horizontal whitespace does not start a new line, so the first line
+        is a sentence and stays a change request (the safe direction)."""
+        approved, feedback, _ = _classify_bare_gate_resolution("approve\tShip it")
+
+        assert approved is False
+        assert feedback == "approve\tShip it"
+
+
+class TestStructuredPayloadFallthrough:
+    """JSON the structured parsers rejected must not reach producers raw."""
+
+    def test_unknown_action_extracts_the_operator_prose(self):
+        approved, feedback, context = _classify_bare_gate_resolution(
+            '{"action": "defer", "feedback": "Revisit after the migration lands."}'
+        )
+
+        assert approved is False
+        assert feedback == "Revisit after the migration lands."
+        assert context == ""
+
+    def test_unknown_action_without_prose_asks_for_specifics(self):
+        """Nothing actionable, so the gate asks a follow-up instead of
+        re-running the phase against a JSON serialisation."""
+        assert _classify_bare_gate_resolution('{"action": "defer"}') == (False, None, "")
+
+    def test_non_string_feedback_field_is_ignored(self):
+        assert _classify_bare_gate_resolution('{"action": "defer", "feedback": {"a": 1}}') == (
+            False,
+            None,
+            "",
+        )
+
+    def test_json_list_is_still_free_text(self):
+        resolution = '["fix the tests"]'
+        assert _classify_bare_gate_resolution(resolution) == (False, resolution, "")
+
+
 class TestParseResolutionRecoveryPath:
     """``_parse_resolution`` backs the AWAITING_HUMAN restart path.
 

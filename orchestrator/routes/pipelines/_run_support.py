@@ -362,21 +362,50 @@ def _classify_bare_gate_resolution(resolution: str | None) -> tuple[bool, str | 
     * ``(False, feedback, "")``: change request with actionable feedback.
     """
     text = (resolution or "").strip()
-    first_line, _, remainder = text.partition("\n")
+
+    # An entirely empty resolution is the historical reason ``""`` is a
+    # member of ``_APPROVE_KEYWORDS``: there is nothing to approve or
+    # reject, so the gate advances. Settle that case *before* deriving
+    # ``head``, so a first line that merely collapses to ``""`` under the
+    # punctuation strip below (".", "!!!") can never reach the approve
+    # branch — that would be #3636 inverted, silently approving a
+    # rejection whose first line happens to be stray punctuation.
+    if not text:
+        return True, None, ""
+
+    # ``\r\n`` / lone ``\r`` are line separators too; splitting on ``\n``
+    # alone left a CR-only body unsplit. A tab is deliberately *not* a
+    # separator — it is horizontal whitespace, not a new line.
+    parts = _pkg.re.split(r"\r\n|\r|\n", text, maxsplit=1)
+    first_line = parts[0]
+    remainder = parts[1].strip() if len(parts) > 1 else ""
     # Trailing sentence punctuation is noise on a one-word selection
     # ("Approved." / "LGTM!"), never part of the option label itself.
     head = first_line.strip().rstrip(".!").strip().lower()
-    remainder = remainder.strip()
 
-    if head in _pkg._APPROVE_KEYWORDS:
+    if head and head in _pkg._APPROVE_KEYWORDS:
         return True, None, remainder
     if head in _pkg._BARE_OPTION_LABELS:
         # The option word carries no information the producers need; the
         # remainder (if any) is the actionable part.
         return False, remainder or None, ""
-    if text:
-        return False, text, ""
-    return True, None, ""
+
+    # A structured payload the JSON-first parsers rejected (unknown
+    # ``action``, or no ``action`` field at all) still arrives here as
+    # "bare" text. Returning the blob verbatim hands producers raw JSON
+    # as revision feedback; extract the operator's own prose instead, and
+    # when there is none fall back to "no specifics" so the caller asks a
+    # follow-up rather than re-running the phase against a serialisation.
+    try:
+        payload = _pkg.json.loads(text)
+    except ValueError, TypeError:  # JSONDecodeError is a ValueError
+        payload = None
+    if isinstance(payload, dict):
+        prose = payload.get("feedback") or payload.get("context") or ""
+        prose = prose.strip() if isinstance(prose, str) else ""
+        return False, prose or None, ""
+
+    return False, text, ""
 
 
 def _parse_resolution(resolution: str | None) -> tuple[bool, str | None]:

@@ -262,6 +262,15 @@ def _run_hitl_gate_converge(
             for d in pipeline.decisions
         )
 
+        # Bound on *both* arms of the branch below: the "no specifics"
+        # follow-up block further down reads them, and it is reachable
+        # from the reuse arm too (an orchestrator restart revives the
+        # driver against a pending gate — the #1152 case). Assigning
+        # them only in the ``else`` arm raised UnboundLocalError there,
+        # killing the driver mid-gate with the decision already resolved.
+        phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
+        draft_content: str | None = None
+
         if existing_pending_gate:
             _pkg.logger.info(
                 "HITL gate: reusing existing pending phase_gate decision",
@@ -277,6 +286,10 @@ def _run_hitl_gate_converge(
                 and d.phase == current_phase
                 and d.status == _pkg.DecisionStatus.PENDING
             )
+            # The reused decision already carries the gate content the
+            # operator is looking at; reuse it as the follow-up's context
+            # rather than re-reading the draft off the worktree.
+            draft_content = decision.context
         else:
             draft_content = _pkg._read_phase_draft(
                 worktree_repo_path,
@@ -285,7 +298,6 @@ def _run_hitl_gate_converge(
                 pipeline_id=pipeline_id,
                 branch=pipeline.branch,
             )
-            phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
 
             # Warn if draft is missing — the agent may not have written
             # it to the expected path.  See #1016.
@@ -467,6 +479,13 @@ def _run_hitl_gate_converge(
             parse_path=_parse_path,
             outcome="approved" if _is_approved else "needs_revision",
             has_feedback=bool(_revision_feedback),
+            # A leading bare "approve"/"yes"/"lgtm" makes everything after
+            # it advisory: the remainder is persisted to the contract and
+            # draft, but on the plain-advance path (no decisions resolved
+            # this round) it is not fed back to the producers. Log it so a
+            # conditional approval — "yes\nbut only after you fix X" — is
+            # greppable rather than invisible.
+            approve_context_preview=_bare_approve_context[:200],
             resolution_preview=resolution[:200],
         )
 
@@ -477,6 +496,13 @@ def _run_hitl_gate_converge(
         # gate approval, so the convergence re-run below must thread it
         # rather than the stale original resolution (#3392 review).
         followup_resolution: str | None = None
+        # The follow-up decision, when the "you didn't provide specifics"
+        # path is taken. It — not the primary gate decision — is what
+        # produced the final branch, so the parsed outcome is recorded on
+        # it too; otherwise an audit of the primary decision reads
+        # ``resolution: "request changes"`` with ``outcome: approved``
+        # and no record of the answer that actually decided it.
+        followup_decision_id: str | None = None
 
         if _needs_revision and _revision_feedback is None:
             # Bare request without actionable feedback — ask for specifics.
@@ -510,6 +536,7 @@ def _run_hitl_gate_converge(
                 decision_type="phase_gate",
                 phase=current_phase,
             )
+            followup_decision_id = followup.id
             dq.wait_for_decision(followup.id)
             resolved_followup = dq.get_decision(followup.id)
             followup_resolution = (resolved_followup.resolution or "").strip()
@@ -538,13 +565,25 @@ def _run_hitl_gate_converge(
                 # "approve\n\n<why>" on the follow-up is an approval too.
                 _fa, _ff, _fc = _pkg._classify_bare_gate_resolution(followup_resolution)
                 if _fa or not _ff:
-                    # Approved, or "request changes" again with still no
-                    # specifics; nothing actionable, so advance.
-                    _pkg.logger.info(
-                        "HITL follow-up: no actionable feedback, treating as approval",
-                        pipeline_id=pipeline_id,
-                        phase=current_phase,
-                    )
+                    # Two distinct shapes land here and they must not share
+                    # one log line: an explicit approval (possibly carrying
+                    # a justification, which *is* actionable prose), and a
+                    # repeat "request changes" that still names nothing to
+                    # act on. Both advance; only the second is a fallback.
+                    if _fa:
+                        _pkg.logger.info(
+                            "HITL follow-up: operator approved",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase,
+                            has_context=bool(_fc),
+                        )
+                    else:
+                        _pkg.logger.info(
+                            "HITL follow-up: change request repeated with no "
+                            "specifics, treating as approval",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase,
+                        )
                     _is_approved = True
                     _needs_revision = False
                     _bare_approve_context = _fc
@@ -553,24 +592,30 @@ def _run_hitl_gate_converge(
 
         # Persist the parsed branch on the decision record so the decision
         # API shows how the gate read the resolution, not just the raw text
-        # (#3636). Best-effort: an observability write must never strand
-        # the pipeline.
-        try:
-            dq.record_resolution_outcome(
-                decision.id,
-                "approved" if _is_approved else "needs_revision",
-            )
-        except (_pkg.DecisionNotFoundError, _pkg.StateStoreError) as outcome_err:
-            # Narrow by design: the only realistic failures are the decision
-            # having been cancelled out from under us and a state-store
-            # write failure. Anything else is a bug worth surfacing.
-            _pkg.logger.warning(
-                "Failed to record gate resolution outcome (continuing)",
-                pipeline_id=pipeline_id,
-                phase=current_phase.value,
-                decision_id=decision.id,
-                error=str(outcome_err),
-            )
+        # (#3636). Recorded on the follow-up decision as well when that
+        # path ran, since it is the answer that produced the branch.
+        _outcome = "approved" if _is_approved else "needs_revision"
+        for _outcome_target in (decision.id, followup_decision_id):
+            if _outcome_target is None:
+                continue
+            try:
+                dq.record_resolution_outcome(_outcome_target, _outcome)
+            except Exception as outcome_err:  # noqa: BLE001
+                # Deliberately broad, matching every other best-effort block
+                # in this file: an observability write must never strand the
+                # gate. The narrow form missed the write's real failure
+                # surface — ``_save_pipeline`` re-raises raw ``OSError``
+                # (ENOSPC/EROFS), which is not a ``StateStoreError``, so a
+                # full state volume would have propagated out of the gate at
+                # exactly the moment the operator's answer was recorded.
+                # Same lesson as #2219, in this same function.
+                _pkg.logger.warning(
+                    "Failed to record gate resolution outcome (continuing)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                    decision_id=_outcome_target,
+                    error=str(outcome_err),
+                )
 
         if _needs_revision and _revision_feedback:
             # Human provided feedback — re-run the phase with corrections

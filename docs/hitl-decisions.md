@@ -660,7 +660,12 @@ Resolutions are sent as JSON objects so the pipeline can parse the human's inten
 | Change approach | `{"action": "change_approach", "feedback": "..."}` | Re-run with different direction |
 | Submit feedback | `{"action": "submit_feedback", "answers": {...}}` | Structured answers |
 
-The pipeline runner (`orchestrator/routes/pipelines.py`) parses JSON payloads first, falling back to bare-string keyword matching for backward compatibility.
+The pipeline runner parses JSON payloads first, falling back to bare-string
+first-line matching for backward compatibility. The gate lives in
+`orchestrator/routes/pipelines/_run_hitl_gate.py`; the shared bare-string
+classifier is `_classify_bare_gate_resolution` in
+`orchestrator/routes/pipelines/_run_support.py`, alongside `_parse_resolution`
+(the `AWAITING_HUMAN` restart path's entry point).
 
 ### Bare-string resolutions
 
@@ -676,16 +681,34 @@ everything after it carried as context (`_classify_bare_gate_resolution`, #3636)
 | `request changes` | Request changes with no specifics; the gate asks a follow-up |
 | `request changes`<br>&nbsp;<br>`The risk section omits rollback.` | Request changes, with the remainder as the feedback |
 | `approve the rewrite but drop slice 3` | Request changes (the first line is a sentence, not a bare option word) |
+| `.`<br>`The plan double-counts slice 2.` | Request changes (a first line that is only punctuation is *not* a bare option word) |
 
 Matching is on the whole first line, so only the option-word-plus-justification
 shape is treated as a selection. Trailing sentence punctuation on the option
-word (`Approved.`, `LGTM!`) is ignored.
+word (`Approved.`, `LGTM!`) is ignored — but a first line consisting *only* of
+punctuation never approves; only a wholly empty resolution does.
+
+**Caveat — a leading bare approve word makes the rest advisory.** `yes` on the
+first line approves, so `yes` / `but only after you fix the rollback path` on
+the next line advances the phase. The remainder is preserved (persisted to the
+contract and draft by `_persist_phase_gate_resolution`, and logged as
+`approve_context_preview`), and it is threaded into the re-run prompt when the
+same round also resolved contract decisions — but on a plain-advance round it
+is *not* fed back to the producers as a change request. Conditional approvals
+belong on the `request changes` branch.
 
 Whichever branch the parser takes is logged (`HITL gate: resolution parsed`,
-with `parse_path` and `outcome`) and persisted on the decision record as
+with `parse_path` and `outcome`; `HITL recovery: stored resolution parsed` on
+the `AWAITING_HUMAN` restart path) and persisted on the decision record as
 `resolution_outcome` (`approved` / `needs_revision`) alongside the raw
 `resolution`, so the decision API shows how the gate read the operator's text
-rather than only the text itself.
+rather than only the text itself. When the gate takes the "you didn't provide
+specifics" follow-up path, the outcome is recorded on the follow-up decision as
+well as the primary gate decision, since the follow-up answer is what produced
+the final branch. The overseer's no-op-rerun heuristic
+(`_check_rerun_anomaly`) keys on `resolution_outcome == "needs_revision"`,
+falling back to a substring test on the raw resolution only for decisions
+resolved before the field existed.
 
 ### Creating Typed Decisions from Agents
 
@@ -1055,7 +1078,7 @@ the same multi-slice guard as the arms-exhausted withdrawal.
 ## Related Files
 
 - `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches all pending decisions with `draft_content`; enriches `phase_gate` decisions additionally with `completed_agents_summary` and `reviewer_feedback`
-- `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, `phase`, and `content_changed` fields; `content_changed` is set by the orchestrator on re-run phase gates to indicate whether the draft changed since the previous resolved decision (literal string comparison; `None` on first decision, `True`/`False` on subsequent ones). Also contains `OperatorDirective` (a single timestamped operator directive stored on kickback) and `IterationSummary` (BRC verdict snapshot for a kicked-back iteration), both accumulated on `PhaseExecution.operator_directives` / `PhaseExecution.iteration_history`.
+- `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, `phase`, `content_changed`, and `resolution_outcome` fields; `resolution_outcome` (`approved` / `needs_revision` / `None`) records which branch the gate's parser took for the stored `resolution` (#3636) and is exposed on both decision API serializers; `content_changed` is set by the orchestrator on re-run phase gates to indicate whether the draft changed since the previous resolved decision (literal string comparison; `None` on first decision, `True`/`False` on subsequent ones). Also contains `OperatorDirective` (a single timestamped operator directive stored on kickback) and `IterationSummary` (BRC verdict snapshot for a kicked-back iteration), both accumulated on `PhaseExecution.operator_directives` / `PhaseExecution.iteration_history`.
 - `orchestrator/decision_queue.py` — Decision queue handling typed decisions
 - `orchestrator/routes/decisions/` — Decision API endpoints (create, list, resolve), the `POST .../feedback/answer` route for contract-scoped feedback (`answer_feedback` MCP tool; #3007), the contract-decision fallback in `resolve_decision` that writes pre-gate `cq-N` resolutions directly to the contract when the id is not in the queue (#3071), the executable task-completion dispatch (`_maybe_complete_task_from_resolution`) that auto-executes `complete_task_as_operator` when the resolution matches "Mark task `<id>` complete" (#3124), orphaned-driver revival on `phase_gate` resolution: when no live `_run_pipeline` driver thread owns an `AWAITING_HUMAN` pipeline (e.g. after an orchestrator restart), the resolve path re-launches the driver via `start_pipeline`'s recovery branch so the resolution self-heals rather than hanging silently; an `OVERSEER_ALERT` is broadcast on the bus when the orphaned park is detected (before the `start_pipeline` re-launch, so it fires even if that re-launch returns non-200 or raises) (#3233), and the first-principles redirect accept-path (`_maybe_apply_first_principles_redirect`, in `_handlers.py` and re-exported through the package barrel `__init__.py`): when the operator resolves a `first_principles_reviewer` refine-phase decision with "Adopt the redirect", this handler rewrites the pipeline seed via `rewrite_task_description_as_operator` and re-runs the refine phase; "Don't build this" cancels the pipeline; "Proceed as-is" is a no-op (#3385); the consensus-timeout retry dispatch (`_maybe_dispatch_consensus_timeout_resolution`, in `_handlers.py`) that auto-executes `restart_phase` when a `consensus_timeout_incomplete` decision is resolved with "Retry phase" (#3421); and the arms-exhausted retry dispatch (`_maybe_dispatch_arms_exhausted_resolution`, sharing the `_execute_restart_phase` helper with the consensus-timeout path) that clears exhausted spawn budgets in-band, restarts the phase, or records an abort when an `event_arms_exhausted` decision is resolved (#3496); its no-op-park sibling (`_maybe_dispatch_arms_parked_resolution`) that releases no-op-parked keys in-band, restarts the phase, or records an abort when an `event_arms_parked` decision is resolved (#3548)
 - `orchestrator/operator_actions.py` — Operator-grade contract mutations; `complete_task_as_operator` applies task-status mutations as `Role.HUMAN`, bypassing the implementer/reviewer field-ownership restriction (#3124); `rewrite_task_description_as_operator` rewrites `contract.task_description` as `Role.HUMAN` for the first-principles redirect accept-path (#3385); `add_task_as_operator` appends a task to a slice as `Role.HUMAN` for the executable `adds_task` decision option and the direct `POST /api/v1/contracts/<id>/tasks` route (#3428)

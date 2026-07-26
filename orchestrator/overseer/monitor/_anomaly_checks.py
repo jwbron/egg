@@ -126,9 +126,16 @@ async def _check_orchestrator_reachability(self, pipeline_data: dict, phase_data
 async def _check_rerun_anomaly(self, decisions: list[dict], phase_data: dict) -> None:
     """Detect agents that completed suspiciously fast after request_changes.
 
-    Flags phase_gate decisions where the resolution contains
-    ``request_changes``, ``content_changed`` is ``False``, and the
-    subsequent work cycle lasted less than ``overseer_rerun_min_work_seconds``.
+    Flags phase_gate decisions the gate read as a change request, where
+    ``content_changed`` is ``False`` and the subsequent work cycle lasted
+    less than ``overseer_rerun_min_work_seconds``.
+
+    The kickback signal is ``resolution_outcome == "needs_revision"`` — the
+    branch the gate actually took (#3636). The legacy fallback is a
+    ``request_changes`` substring test on the raw resolution, which never
+    fired for the bare ``"request changes"`` (space) form that the gate's
+    own ``options=["approve", "request changes"]`` produce; it is retained
+    only for decisions resolved before ``resolution_outcome`` existed.
     """
     import datetime as _dt
 
@@ -142,9 +149,15 @@ async def _check_rerun_anomaly(self, decisions: list[dict], phase_data: dict) ->
             continue
         if d.get("decision_type") != "phase_gate":
             continue
-        resolution = d.get("resolution") or ""
-        if "request_changes" not in resolution.lower():
-            continue
+        outcome = d.get("resolution_outcome")
+        if outcome is not None:
+            if outcome != "needs_revision":
+                continue
+        else:
+            resolution = d.get("resolution") or ""
+            normalized = resolution.lower().replace(" ", "_")
+            if "request_changes" not in normalized and "change_approach" not in normalized:
+                continue
         if d.get("content_changed") is not False:
             continue
 
