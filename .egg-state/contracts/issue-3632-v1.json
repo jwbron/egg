@@ -121,7 +121,7 @@
           "id": "task-1-5",
           "description": "Add a cancel-specific BRC history persistence function in _brc_history.py. This function should call _write_brc_history with write_per_slice=True for the implement phase, ensuring per-slice CONSENSUS_* buckets are written to disk. It should be best-effort (never block cancel).",
           "status": "pending",
-          "commit": null,
+          "commit": "8a563897b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "On cancel, the in-flight slice's BRC history (including per-slice CONSENSUS_* buckets) is written to .egg-state/brc-history/ on the integration branch.",
@@ -629,6 +629,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-26T05:02:36.638284Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.4.commit",
+      "old_value": null,
+      "new_value": "8a563897b",
+      "reason": "Linked commit 8a56389 to task-1-5",
       "checkpoint_id": null
     }
   ],
