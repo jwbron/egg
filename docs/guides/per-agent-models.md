@@ -678,11 +678,13 @@ data:
 >   `request_params`. Note the asymmetry when you go looking: that warning is a
 >   one-shot per combo per process — a proxy discarding different param sets
 >   across several models emits one warning each, but not a second for the same
->   combo in the same process — so on a pod that has been serving traffic it has
->   likely already scrolled past (it re-fires after a proxy restart, and in
->   cycles on a proxy dropping params across more than 1000 distinct combos,
->   whose bookkeeping set clears on overflow). `request_params`, by contrast,
->   is on every `cost_callback` line and stays the queryable signal.
+>   combo while the bookkeeping set still holds it — so on a pod that has been
+>   serving traffic it has likely already scrolled past (it re-fires after a
+>   proxy restart, and in cycles on a proxy dropping params across more than
+>   1000 distinct combos, whose bookkeeping set clears on overflow — an
+>   intra-process clear, so an already-warned combo warns again). By contrast
+>   `request_params` is on every `cost_callback` line and stays the queryable
+>   signal.
 > - **A `<…>` value is a degradation marker, not a recorded value.** Every
 >   field is bounded so one pathological param cannot cost you the line —
 >   cost data included — when it fails to serialize. `<N chars omitted>` means
