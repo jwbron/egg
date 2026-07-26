@@ -172,3 +172,34 @@ slices:
         acceptance: "All tests pass, no behavior change in the diff."
         files: []
 ```
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the plan phase gate:
+
+Approved. Proceed to implement.
+
+The plan is sound and the review round earned this one. Two things it produced that the issue and I did not have:
+
+FIRST, THE R6 GAP IS A REAL FIND. _clear_concurrent_state at routes/phases/_transitions.py:56 is a THIRD site that clears the message store and consensus tracker keyed by bare pipeline_id, called from _advance.py:545 on every phase transition. Neither #3632, nor the refine analysis, nor I identified it. A run_epoch namespacing covering only _clear_pipeline_runtime_state would have left this path clearing the wrong namespace, and the bug would have survived the fix that was supposed to close it. It is correctly folded into task-1-3 in the slice scaffold. Verified against the tree.
+
+SECOND, THE ARCHITECT CORRECTED MY ISSUE TEXT. #3632 as I wrote it calls Change 1 a 'minimum viable fix even without the namespacing work'. That is wrong, the architect said so, and it is the second time this round that an agent has caught an error in the operator's brief. Treat the issue body as superseded on that point by cq-1's resolution.
+
+ONE INCONSISTENCY TO FIX RATHER THAN INHERIT. The R6 gap is in the architect's slices scaffold, the architect and risk_analyst outputs, and the BRC history, but NOT in .egg-state/drafts/issue-3632-v1-plan.md. The scaffold is what populates the contract so the work will carry, but the canonical plan draft now understates the change surface, and anyone reading it will miss the third call site. Bring plan.md into line early in implement rather than leaving two artifacts on the same branch disagreeing about the blast radius.
+
+BINDING CONSTRAINTS FOR IMPLEMENT, restated so nothing depends on reading back through resolved decisions:
+
+1. Namespace ALL THREE clear paths, not two: _clear_pipeline_runtime_state (_lifecycle_helpers.py:158), _clear_concurrent_state (_transitions.py:56), and every caller of the tracker and message-store accessors. A partial migration is the main hazard here; if a call site is missed it will silently read the wrong namespace rather than fail.
+
+2. Changes 1+2 land together. The hazard is same-pipeline stale-state replay after a resume flips the pipeline to RUNNING, NOT #2053. Do not label it #2053 in code comments, commit messages, or test names. #2053 is new-pipeline id reuse and stays closed via the create path.
+
+3. The create-path clear is now load-bearing. test_create_clears_runtime_state must assert it explicitly.
+
+4. Required regression test: cancel -> resume -> simulated orchestrator restart -> assert consensus state is NOT resurrected by reconstruct_tracker_from_messages. Change 2 is untested without it.
+
+5. Rename test_cancel_clears_runtime_state when you invert it. A test asserting the opposite of its name is a trap for the next reader.
+
+6. Change 3 must write per-slice CONSENSUS_* buckets. write_per_slice=False is precisely the gap that made the previous incident's in-flight slice unrecoverable.
+
+TWO NOTES ON HOW TO WORK. The slice green gate now defaults to ON, so slice close is gated on the repo's configured checks and a red gate will reach me as a decision rather than failing silently. Second, verify claims against the tree before asserting them: every file:line citation in the refine phase's struck Fact 3 resolved correctly, and what was missed was a guard one screen above the cited lines. When a claim is about control flow, read the enclosing function.
