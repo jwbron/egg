@@ -23,7 +23,7 @@
         {
           "id": "task-1-1",
           "description": "Modify _routes_crud.py to stop calling _clear_pipeline_runtime_state on CANCELLED. The call at line 717 is inside `if pipeline.status in (CANCELLED, FAILED)`. Split: only call _clear_pipeline_runtime_state for FAILED (and for delete/create paths). For CANCELLED, preserve the runtime state (tracker + message store) so resume is lossless.",
-          "status": "pending",
+          "status": "complete",
           "commit": "8a563897b",
           "checkpoint_id": null,
           "notes": "",
@@ -552,6 +552,17 @@
       "old_value": null,
       "new_value": "8a563897b",
       "reason": "Linked commit 8a56389 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-26T05:02:16.029124Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
       "checkpoint_id": null
     }
   ],
