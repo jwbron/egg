@@ -173,7 +173,15 @@ def test_audit_window_retains_documented_ble001_population() -> None:
     # it degrades to ``teardown_confirmed: false`` instead of falling through to
     # the outer handler and logging a misleading "failed to list" — mirroring
     # ``_await_terminating_event_jobs`` on the event-loop path.
-    assert len(noqa_lines) <= 121, (
+    # Raised 121 -> 124 by #3633 (cancel stops the driver), which added three
+    # audited sites: ``_stop_live_event_loops`` swallows a raising
+    # ``loop.stop()`` so one wedged loop cannot abort teardown of the rest;
+    # and the two cancellation/supersede probes
+    # (``_pipeline_superseded_by_restart`` / the CANCELLED status check) swallow
+    # a raising ``store.load_pipeline`` so a transient store hiccup degrades to
+    # "not cancelled / not superseded" instead of tearing down a
+    # legitimately-running phase.
+    assert len(noqa_lines) <= 124, (
         f"Found {len(noqa_lines)} ``# noqa: BLE001`` swallows in "
         f"routes/pipelines.py, well past the documented population — a future "
         f"PR appears to have re-introduced swallow-all handlers without "
