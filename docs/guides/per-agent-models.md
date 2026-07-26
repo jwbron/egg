@@ -668,9 +668,14 @@ data:
 >   provider's and can change under you with no egg change.
 > - **It is read after `drop_params` has acted**, so it reports what the wire
 >   carried, not what your config asked for. A knob you set in
->   `litellm_params` that does not appear here was silently discarded or
->   relocated into `extra_body` by LiteLLM's parameter mapper — which is the
->   fastest way to catch a tuning change that never took effect.
+>   `litellm_params` that does not appear here was discarded or relocated
+>   into `extra_body` by LiteLLM's parameter mapper. Patch 8
+>   (`drop_params_visibility.py`) also logs a `litellm.drop_params: dropped
+>   ...` warning the first time a given (provider, model, param-set) combo is
+>   discarded, naming the params and — when they came from this model's
+>   `litellm_params` — the `allowed_openai_params` remedy, so a tuning change
+>   that never took effect no longer waits on reading `request_params` to be
+>   noticed.
 > - **A `<…>` value is a degradation marker, not a recorded value.** Every
 >   field is bounded so one pathological param cannot cost you the line —
 >   cost data included — when it fails to serialize. `<N chars omitted>` means

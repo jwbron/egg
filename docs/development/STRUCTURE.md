@@ -540,8 +540,11 @@ config/
 ├── context-filters.yaml         # Operator allowlists for external integrations (jira.projects)
 ├── litellm-models.template.yaml # Operator template for registering non-Claude backends (copy to ~/.config/egg/litellm-models.yaml)
 ├── litellm/                     # egg-litellm image sources
-│   ├── Dockerfile               # Builds egg-litellm: stock LiteLLM + prompt-cache patches
-│   ├── patch_litellm_cache.py   # Build-time patches for cache_control passthrough on Qwen/DeepSeek routes
+│   ├── Dockerfile               # Builds egg-litellm: stock LiteLLM + prompt-cache and reasoning-parameter patches
+│   ├── patch_litellm_cache.py   # Build-time patches: cache_control passthrough on Qwen/DeepSeek routes, live OpenRouter capability lookup, drop_params visibility, no synthesized reasoning ceiling
+│   ├── openrouter_capabilities.py # Patch 7: live GET /api/v1/models capability lookup, unioned with LiteLLM's bundled model-cost map
+│   ├── drop_params_visibility.py  # Patch 8: warn once per (provider, model, param-set) when drop_params discards a parameter
+│   ├── anthropic_thinking_policy.py # Patch 9: stop synthesizing a reasoning_effort ceiling from the caller's thinking budget on non-Claude models
 │   └── cost_callback.py         # LiteLLM custom logger: upstream + estimated cost, per-role attribution (x-egg-* headers), cache hit rate, per-call decoding config -> pod stdout
 ├── repo_config.py               # Python API for repo access
 └── README.md
