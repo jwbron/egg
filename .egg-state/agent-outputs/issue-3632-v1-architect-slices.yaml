@@ -1,0 +1,51 @@
+# Recommended slice DAG for issue #3632 — lossless cancel_task resume.
+# Architect RECOMMENDS; task_planner owns the final DAG, ordering, and PR packaging.
+#
+# CONTEXT: This pipeline implements the fix and is itself a single-repo (egg) pipeline,
+# so standard #3046 FILE-LEVEL overlap rules shape our slices.
+#
+# BINDING operator rulings honored (from refine phase cq-1, cq-2, cq-3, decision-4):
+# - Changes 1+2 MUST ship together in one slice (stale-state replay hazard, NOT #2053).
+# - Change 3 is independent but touches the same files as 1+2 (#3046 overlap) -> merged.
+# - Change 4 (per-slice tracker reconstruction) is DEFERRED — not dropped.
+# - #3633 is OUT OF SCOPE — tracked separately.
+# - Test impact: rewrite test_cancel_clears_runtime_state, pin create-path, add
+#   cancel->resume->restart->assert-not-resurrected regression test.
+#
+# ARCHITECTURAL GAP (R6 from risk_analyst): _clear_concurrent_state at
+# routes/phases/_transitions.py:56 also clears the message store and tracker at
+# phase transitions. With run_epoch namespacing, this path MUST also be namespaced.
+# It is folded into task-1-3 (message store namespacing).
+slices:
+  - id: 1
+    name: |-
+      Changes 1+2+3: Lossless cancel_task resume with run_epoch namespacing + BRC history persistence on cancel
+    goal: |-
+      SINGLE SLICE — Changes 1+2 must ship together (stale-state replay hazard); Change 3 folded in
+      due to file overlap (#3046). Three coordinated changes:
+
+      Change 1 (task-1-1, task-1-4, task-1-6): Stop calling _clear_pipeline_runtime_state on
+      CANCELLED — only on FAILED, delete, and create. Split the
+      `if pipeline.status in (CANCELLED, FAILED)` block at _routes_crud.py:615. Update
+      _clear_pipeline_runtime_state docstring to reflect new call sites.
+
+      Change 2 (task-1-2, task-1-3): Namespace the consensus tracker and message store by
+      run_epoch. Update _tracker_key (peer_consensus/__init__.py:226) and _stream_key/
+      _counts_key (redis_message_store.py:69) to include run_epoch. Update ALL callers:
+      get_peer_consensus_tracker, remove_peer_consensus_tracker, reconstruct_tracker_from_messages,
+      get_message_store().clear(), get_messages(), get_stream_status(). ALSO namespace
+      _clear_concurrent_state at routes/phases/_transitions.py:56 (R6 gap — clears tracker
+      and message store at phase transitions; must pass run_epoch to both clear() and
+      remove_peer_consensus_tracker()). run_epoch already exists on Pipeline model
+      (models/_pipeline.py:163) and is bumped on all restart/recovery paths.
+
+      Change 3 (task-1-5): Add cancel-specific BRC history persistence with
+      write_per_slice=True (per-slice CONSENSUS_* buckets, NOT the write_per_slice=False
+      gap that made the last incident's in-flight slice unrecoverable). Run in the
+      background cleanup thread (best-effort, non-blocking).
+
+      Safety: #2053 stays closed via the create-path clear (POST /pipelines at
+      _routes_crud.py:514) which clears ALL run_epoch namespaces for a pipeline_id.
+      Stale-state replay is prevented by run_epoch namespacing: reconstruct_tracker_from_messages
+      on a resumed pipeline reads only the new epoch's messages (empty until new proposals).
+    dependencies: none
