@@ -3815,25 +3815,32 @@ class TestDirtyDiscardAutoSalvage:
         assert cleaned is True
         assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
 
-        expected_ref = f"egg/recovered/pipe-1/slice-4-coder/{orphan_head[:12]}"
+        # #3639: the dirt is committed before the reset, so the doomed tip is
+        # the WIP snapshot sitting on top of the predecessor's own commit.
+        wip = head_at_push["sha"]
+        assert wip != orphan_head
+        assert _git(repo, "rev-parse", f"{wip}^").stdout.strip() == orphan_head
+
+        expected_ref = f"egg/recovered/pipe-1/slice-4-coder/{wip[:12]}"
         mock_gateway.push_worktree_branch.assert_called_once()
         kwargs = mock_gateway.push_worktree_branch.call_args.kwargs
         assert kwargs["pipeline_id"] == "pipe-1"
         assert kwargs["repo_path"] == str(repo)
         assert kwargs["branch"] == expected_ref
         assert kwargs["ref"] is None
-        assert head_at_push["sha"] == orphan_head  # pushed before the reset
 
         msg = get_store.return_value.add_message.call_args.args[0]
         assert msg.pipeline_id == "pipe-1"
         assert msg.from_role == "orchestrator"
         assert msg.to_role == "coder"
-        assert msg.metadata["discarded_tip"] == orphan_head
+        assert msg.metadata["discarded_tip"] == wip
         assert msg.metadata["remote_tip"] == origin_head
         assert msg.metadata["recovery_ref"] == expected_ref
-        assert msg.metadata["discarded_commit_count"] == 1
+        # The predecessor's own commit AND the WIP snapshot above it.
+        assert msg.metadata["discarded_commit_count"] == 2
+        assert msg.metadata["wip_commit"] == wip
         assert expected_ref in msg.body
-        assert orphan_head in msg.body
+        assert wip in msg.body
 
     def test_salvage_failure_still_resets_and_records_tip(self, spawner, mock_gateway, tmp_path):
         repo, origin_head, orphan_head = self._seed_orphan(tmp_path)
@@ -3849,7 +3856,8 @@ class TestDirtyDiscardAutoSalvage:
         assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
         # The tip is still recorded durably even though the push failed.
         msg = get_store.return_value.add_message.call_args.args[0]
-        assert msg.metadata["discarded_tip"] == orphan_head
+        discarded = msg.metadata["discarded_tip"]
+        assert _git(repo, "rev-parse", f"{discarded}^").stdout.strip() == orphan_head
         assert msg.metadata["recovery_ref"] is None
         assert "gateway down" in msg.metadata["salvage_error"]
 
@@ -3867,7 +3875,7 @@ class TestDirtyDiscardAutoSalvage:
         assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
 
     def test_legacy_call_without_context_is_log_only(self, spawner, mock_gateway, tmp_path):
-        repo, origin_head, _ = self._seed_orphan(tmp_path)
+        repo, origin_head, _orphan_head = self._seed_orphan(tmp_path)
 
         with (
             patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
@@ -3968,8 +3976,13 @@ class TestDirtyDiscardAutoSalvage:
                 wait_for_gateway=False,
             )
 
+        # The salvaged tip is the #3639 WIP snapshot of the dirty tree, which
+        # sits directly on the predecessor's own unpushed commit.
         kwargs = mock_gateway.push_worktree_branch.call_args.kwargs
-        assert kwargs["branch"] == f"egg/recovered/pipe-1/slice-4-coder/{orphan_head[:12]}"
+        prefix = "egg/recovered/pipe-1/slice-4-coder/"
+        assert kwargs["branch"].startswith(prefix)
+        salvaged = kwargs["branch"][len(prefix) :]
+        assert _git(repo, "rev-parse", f"{salvaged}^").stdout.strip() == orphan_head
 
     def test_spawn_event_job_threads_private_mode(
         self, spawner, mock_k8s_client, mock_gateway, tmp_path
@@ -4011,6 +4024,159 @@ class TestDirtyDiscardAutoSalvage:
             )
 
         assert mock_gateway.push_worktree_branch.call_args.kwargs["mode"] == "private"
+
+
+class TestDirtyTreePreservedBeforeReset:
+    """Uncommitted work survives the re-attach reset (#3639).
+
+    The #3506/#3509 machinery preserves *commits*: a killed-mid-event
+    worktree whose session never committed had its entire working set
+    erased by ``reset --hard`` + ``clean -fd``, with the orphan detector
+    finding nothing to salvage (the #3639 incident: 110 minutes across 33
+    modified files). The dirty tree is now committed BEFORE the reset, so
+    it becomes an ordinary orphan the existing salvage path recovers,
+    without relaxing the R6 rule that the successor starts at the origin
+    tip.
+    """
+
+    def _seed_dirty(self, tmp_path):
+        """Worktree with dirt only; no commits ahead of the origin tip."""
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+        (repo / "seed.txt").write_text("hours of uncommitted edits\n")  # tracked
+        (repo / "new_module.py").write_text("def added():\n    return 1\n")  # untracked
+        return repo, origin_head
+
+    def test_uncommitted_work_is_salvaged_not_destroyed(self, spawner, mock_gateway, tmp_path):
+        """The #3639 regression: dirt with zero commits is preserved."""
+        repo, origin_head = self._seed_dirty(tmp_path)
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX)
+
+        assert cleaned is True
+        # R6 unchanged: the successor still starts at the origin tip with a
+        # clean tree; none of the residue is visible to it.
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+        assert (repo / "seed.txt").read_text() == "seed\n"
+        assert not (repo / "new_module.py").exists()
+
+        # ... but the work now exists as a pushed snapshot commit.
+        mock_gateway.push_worktree_branch.assert_called_once()
+        msg = get_store.return_value.add_message.call_args.args[0]
+        wip = msg.metadata["wip_commit"]
+        assert wip == msg.metadata["discarded_tip"]
+        assert msg.metadata["discarded_commit_count"] == 1
+        assert _git(repo, "rev-parse", f"{wip}^").stdout.strip() == origin_head
+        # Both the tracked edit and the untracked file are in the snapshot.
+        assert _git(repo, "show", f"{wip}:seed.txt").stdout == "hours of uncommitted edits\n"
+        assert "def added():" in _git(repo, "show", f"{wip}:new_module.py").stdout
+        # The resuming agent is told the top commit is a machine snapshot.
+        assert wip in msg.body
+        assert "AUTOMATIC snapshot" in msg.body
+
+    def test_snapshot_is_pushed_to_a_recovery_ref(self, spawner, mock_gateway, tmp_path):
+        """The snapshot rides the existing #3509 recovery-ref namespace."""
+        repo, _origin_head = self._seed_dirty(tmp_path)
+        pushed_head = {}
+
+        def _push(**kwargs):
+            pushed_head["sha"] = _git(repo, "rev-parse", "HEAD").stdout.strip()
+            return _FakePushResult(ok=True)
+
+        mock_gateway.push_worktree_branch.side_effect = _push
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store"),
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX)
+
+        assert cleaned is True
+        kwargs = mock_gateway.push_worktree_branch.call_args.kwargs
+        # Pushed while the snapshot was still HEAD, before the reset.
+        assert kwargs["branch"] == (f"egg/recovered/pipe-1/slice-4-coder/{pushed_head['sha'][:12]}")
+        assert kwargs["ref"] is None
+
+    def test_ignored_only_dirt_is_discarded_without_a_commit(self, spawner, mock_gateway, tmp_path):
+        """Build output is not agent work: no snapshot, nothing salvaged."""
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        (repo / ".gitignore").write_text("build/\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "add gitignore")
+        _git(repo, "push", "origin", _BRANCH)
+        origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+        (repo / "build").mkdir()
+        (repo / "build" / "artifact.o").write_text("binary\n")
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        mock_gateway.push_worktree_branch.assert_not_called()
+        get_store.return_value.add_message.assert_not_called()
+
+    def test_preservation_failure_still_resets(self, spawner, mock_gateway, tmp_path):
+        """A failed snapshot must not block reuse; the reset still runs.
+
+        ``_preserve_dirty_tree`` reports failure by returning ``None`` (it
+        swallows its own git errors, asserted below); the discard must then
+        proceed exactly as it did pre-#3639 rather than fall back to
+        recreate, which would destroy the same state with less visibility.
+        """
+        repo, origin_head = self._seed_dirty(tmp_path)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("kubernetes_spawner._worktree._preserve_dirty_tree", return_value=None),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+        mock_gateway.push_worktree_branch.assert_not_called()
+        get_store.return_value.add_message.assert_not_called()
+
+    def test_preserve_helper_swallows_git_failures(self, tmp_path):
+        """``_preserve_dirty_tree`` never raises: callers must reach the reset."""
+        from kubernetes_spawner._worktree import _preserve_dirty_tree
+
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("git index locked")
+
+        assert (
+            _preserve_dirty_tree(
+                _boom, tmp_path, agent_worktree_id=_WT_ID, repo="repo", n_entries=3
+            )
+            is None
+        )
+
+    def test_clean_tree_is_not_snapshotted(self, spawner, mock_gateway, tmp_path):
+        """No dirt ⇒ no snapshot commit (the common path is untouched)."""
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        origin_head = _git(repo, "rev-parse", f"origin/{_BRANCH}").stdout.strip()
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX)
+
+        assert cleaned is True
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        mock_gateway.push_worktree_branch.assert_not_called()
+        get_store.return_value.add_message.assert_not_called()
 
 
 class TestSpawnEventJobSessionReuse:

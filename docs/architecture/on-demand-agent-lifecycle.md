@@ -183,7 +183,18 @@ Under orchestrator ownership the worktree becomes a hot path.
    resuming agent with no session memory can find and resume its prior
    work instead of silently re-deriving it (falls back to log-only when
    `pipeline_id` context is unavailable, or record-only when the salvage
-   push itself fails).
+   push itself fails). **Uncommitted work is snapshotted first**
+   ([#3639](https://github.com/jwbron/egg/issues/3639)): a dirty tree is
+   committed (`git add -A` plus a `[salvage] pre-reset working-tree state`
+   commit) *before* the `reset --hard`, so it becomes an ordinary orphan
+   that the salvage + record path above recovers. Without that step a
+   session that worked for hours without committing had nothing for the
+   orphan detector to find and lost everything on a routine respawn. The
+   snapshot does not relax the residue policy: the tree still hard-resets
+   to the origin tip, so the successor inherits nothing uncommitted; it
+   only makes the discarded state recoverable. Ignored files are excluded,
+   and a failed snapshot logs at WARNING with the file count and proceeds
+   with the reset rather than blocking reuse.
 3. **Before handing off to spawn:** translate the validated paths from
    orchestrator-local (under `WORKTREE_BASE_DIR`) to host paths, matching
    what the create path already gets from the gateway. An untranslated
