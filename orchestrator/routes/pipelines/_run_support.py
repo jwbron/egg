@@ -118,33 +118,6 @@ def _pipeline_cancelled(store, pipeline_id: str) -> bool:
         return False
 
 
-def _pipeline_superseded_by_restart(
-    store, pipeline_id: str, run_epoch: _pkg.datetime | None
-) -> bool:
-    """True if a newer ``run_epoch`` means another thread now owns this pipeline.
-
-    Reloads pipeline state and compares its ``run_epoch`` against the epoch the
-    caller runs under (#3315 facet a). Best-effort: a missing epoch or a load
-    failure returns ``False`` so a transient store hiccup never tears down a
-    legitimately-running phase. Shared by the ``_run_concurrent_phase`` poll
-    loop and the slice-path impasse-retry wrapper so the "no escalation when
-    superseded" property holds on both routes.
-    """
-    if store is None or run_epoch is None:
-        return False
-    try:
-        _epoch_pip = store.load_pipeline(pipeline_id)
-    except Exception as _epoch_err:  # noqa: BLE001 — never wedge the caller
-        _pkg.logger.debug(
-            "Epoch supersession check failed; continuing",
-            pipeline_id=pipeline_id,
-            error=str(_epoch_err),
-        )
-        return False
-    current_epoch = _epoch_pip.run_epoch or _epoch_pip.created_at
-    return current_epoch != run_epoch
-
-
 def _spawn_and_wait(
     spawner,
     pipeline_id: str,

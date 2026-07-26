@@ -1434,7 +1434,6 @@ from ._run_support import (  # noqa: E402,F401
     _clear_stale_impasses_for_producers,
     _parse_resolution,
     _pipeline_cancelled,
-    _pipeline_superseded_by_restart,
     _spawn_and_wait,
 )
 from ._salvage import (  # noqa: E402,F401

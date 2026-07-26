@@ -1060,11 +1060,19 @@ def _read_redirect_seed_from_contract(pipeline_id: str, decision_id: Any) -> str
 
 
 def _cancel_pipeline_in_process(pipeline_id: str, *, reason: str) -> None:
-    """Cancel a pipeline from a resolution hook (status CANCELLED + cleanup).
+    """Cancel a pipeline from a resolution hook (status CANCELLED + loop stop).
 
     Mirrors the inline cancel pattern used elsewhere: flip status under the
-    pipeline state lock, emit ``PIPELINE_CANCELLED``, and cancel pending
-    decisions so any ``wait_for_decision`` unblocks.
+    pipeline state lock, stop the pipeline's live BRC event loops, emit
+    ``PIPELINE_CANCELLED``, and cancel pending decisions so any
+    ``wait_for_decision`` unblocks.
+
+    This is the second place CANCELLED originates (the PATCH route is the
+    first), so it needs the same #3633 loop teardown: without it the live
+    loops keep deriving arms and requesting one-shot Jobs, and only the
+    driver loops' own CANCELLED re-reads — a poll interval later — would
+    catch it. Note this hook does NOT tear down containers; the driver's
+    cancel bail and the operator's own cleanup own that half.
     """
     from models import PipelineStatus
     from state_store import get_pipeline_state_lock
@@ -1076,6 +1084,19 @@ def _cancel_pipeline_in_process(pipeline_id: str, *, reason: str) -> None:
         pipeline.status = PipelineStatus.CANCELLED
         pipeline.error = reason
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
+
+    try:
+        # Deferred import: routes.pipelines is too heavy to bind at module
+        # import time (same reason as the other hooks in this file).
+        from routes.pipelines import _stop_pipeline_event_loops
+
+        _stop_pipeline_event_loops(pipeline_id, reason="pipeline_cancelled")
+    except Exception:
+        logger.warning(
+            "Failed to stop BRC event loops after first-principles cancel",
+            pipeline_id=pipeline_id,
+            exc_info=True,
+        )
 
     try:
         _pkg.emit_event(

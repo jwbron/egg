@@ -173,15 +173,21 @@ def test_audit_window_retains_documented_ble001_population() -> None:
     # it degrades to ``teardown_confirmed: false`` instead of falling through to
     # the outer handler and logging a misleading "failed to list" — mirroring
     # ``_await_terminating_event_jobs`` on the event-loop path.
-    # Raised 121 -> 124 by #3633 (cancel stops the driver), which added three
-    # audited sites: ``_stop_live_event_loops`` swallows a raising
-    # ``loop.stop()`` so one wedged loop cannot abort teardown of the rest;
-    # and the two cancellation/supersede probes
-    # (``_pipeline_superseded_by_restart`` / the CANCELLED status check) swallow
-    # a raising ``store.load_pipeline`` so a transient store hiccup degrades to
-    # "not cancelled / not superseded" instead of tearing down a
-    # legitimately-running phase.
-    assert len(noqa_lines) <= 124, (
+    # Moved 121 -> 123 by #3633 (cancel stops the driver): three audited sites
+    # added, one pre-existing site removed.
+    #   + ``_stop_pipeline_event_loops`` (``_lifecycle_helpers.py``) swallows a
+    #     raising ``loop.stop()`` so one wedged loop cannot abort teardown of
+    #     the rest;
+    #   + ``_phase_bail_reason_impl`` (``_run_concurrent_support.py``) and
+    #     ``_pipeline_cancelled`` (``_run_support.py``) each swallow a raising
+    #     ``store.load_pipeline`` so a transient store hiccup degrades to "keep
+    #     polling / not cancelled" instead of tearing down a legitimately-
+    #     running phase;
+    #   - ``_pipeline_superseded_by_restart`` was deleted — its epoch
+    #     comparison folded into ``_phase_bail_reason_impl``, which resolves
+    #     both bail conditions from a single load — taking its own
+    #     ``store.load_pipeline`` swallow with it.
+    assert len(noqa_lines) <= 123, (
         f"Found {len(noqa_lines)} ``# noqa: BLE001`` swallows in "
         f"routes/pipelines.py, well past the documented population — a future "
         f"PR appears to have re-introduced swallow-all handlers without "

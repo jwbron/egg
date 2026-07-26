@@ -906,6 +906,23 @@ def _run_implement_phase_slices(
                 )
 
                 if exit_code_inner != 0:
+                    # An operator cancel is not a slice failure (#3633
+                    # review). The phase runner returns non-zero on its
+                    # cancel bail, and recording that as a failure would
+                    # set the slice FAILED, arm the downstream cascade, and
+                    # publish SLICE_CLOSED(outcome="failed") to the bus —
+                    # so operators and SSE consumers would see a failed
+                    # slice for a clean cancel. Same intent-preservation
+                    # argument as ``_run_phase_execution``'s CANCELLED
+                    # carve-out, one level down.
+                    if _pkg._pipeline_cancelled(store, pipeline_id):
+                        _pkg.logger.info(
+                            "Slice stopped by pipeline cancellation (not recorded as a failure)",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            exit_code=exit_code_inner,
+                        )
+                        return exit_code_inner, logs_inner
                     scheduler.record_failure(slice_id)
                     _pkg.logger.warning(
                         "Slice failed",

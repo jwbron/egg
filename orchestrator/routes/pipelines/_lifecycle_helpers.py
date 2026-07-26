@@ -189,7 +189,18 @@ def _stop_pipeline_event_loops(pipeline_id: str, *, reason: str) -> int:
             from ..event_loop import (  # type: ignore[no-redef]
                 get_live_event_loops,
             )
-    except ImportError:
+    except ImportError as import_err:
+        # A silent 0 here would turn cancel back into #3633 with no signal at
+        # all: the operator's cancel would report success while every live
+        # loop kept spawning. Log loudly so an import regression is visible.
+        _pkg.logger.warning(
+            "Cannot reach the live event-loop registry; cancelled pipeline's "
+            "BRC event loops were NOT stopped (they will keep spawning until "
+            "the driver loops' own CANCELLED re-read catches up)",
+            pipeline_id=pipeline_id,
+            reason=reason,
+            error=str(import_err),
+        )
         return 0
 
     stopped = 0

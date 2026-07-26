@@ -40,6 +40,7 @@ from models import (
     PipelineStatus,
 )
 from routes.pipelines import pipelines_bp
+from slice_scheduler import SchedulerSliceState
 
 PIPELINE_ID = "issue-3633"
 
@@ -493,7 +494,10 @@ class _StubScheduler:
         pass
 
     def list_slices(self):
-        return [SimpleNamespace(slice_id="slice-3", state="ready")]
+        # Real ``SchedulerSliceState``, not the bare string: the guard's
+        # ``rt.state != SchedulerSliceState.COMPLETE`` comprehension must be
+        # exercised against the enum production actually yields.
+        return [SimpleNamespace(slice_id="slice-3", state=SchedulerSliceState.READY)]
 
     def poll_cascades(self):  # pragma: no cover - unused
         return []
@@ -545,6 +549,10 @@ def test_slice_loop_admits_nothing_after_a_cancel():
             store=store,
             certs_volume=None,
             worktree_repo_path=pipelines_pkg.Path("/tmp/does-not-matter"),
+            # Production (``_run_phase.py``) always threads the owning
+            # thread's epoch through; pass it so this covers the real
+            # configuration rather than the ``None`` default.
+            run_epoch=cancelled.run_epoch or cancelled.created_at,
         )
 
     assert exit_code == 1
@@ -567,8 +575,9 @@ def test_slice_loop_keeps_running_while_the_pipeline_is_running():
         current_phase=PipelinePhase.IMPLEMENT,
         config=SimpleNamespace(max_parallel_slices=2),
     )
+    running = _cancellable_pipeline()
     store = MagicMock()
-    store.load_pipeline.return_value = _cancellable_pipeline()
+    store.load_pipeline.return_value = running
 
     # Let the loop reach the ready-set read once, then claim completion so
     # it exits without running a slice through the spawn machinery.
@@ -605,6 +614,7 @@ def test_slice_loop_keeps_running_while_the_pipeline_is_running():
             store=store,
             certs_volume=None,
             worktree_repo_path=pipelines_pkg.Path("/tmp/does-not-matter"),
+            run_epoch=running.run_epoch or running.created_at,
         )
 
     assert scheduler.iter_ready_calls >= 1, "the guard stopped a RUNNING pipeline"
