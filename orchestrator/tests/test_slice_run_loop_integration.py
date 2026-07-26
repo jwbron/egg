@@ -865,6 +865,97 @@ class TestRunImplementPhaseSlices:
         # Sibling with reachable evidence still runs and opens its PR.
         assert "slice-2" in pr_calls_slice_ids
 
+    def test_green_gate_red_escalates_to_hitl_and_fails_slice_without_pr(self) -> None:
+        """#3398: the green gate's blocking branch, end to end.
+
+        The sibling of ``test_evidence_reachability_failure_fails_slice_without_pr``
+        one statement later in the close path, and it exists for the same
+        reason: the gate unit tests live in ``test_slice_green_gate.py``,
+        this locks the wire-up from the slice run loop.
+
+        The added assertion over the evidence sibling is the HITL
+        escalation. Before it, a red verdict on a consensus-complete
+        slice recorded a failure and went FAILED with nothing on
+        ``contract.decisions``, so it was not resolvable through ``/sdlc`` /
+        ``provide_input``, so recovery meant an operator noticing the
+        failed phase and re-running the whole confirmed wave via
+        ``restart_phase``. On a gate-wiring red (a stale contract
+        snapshot reddening contract-hygiene tests, say) that recurs on
+        every close, so the re-run hits the same red.
+        """
+        pipeline = _make_pipeline()
+        failing = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        sibling = _make_slice("slice-2", tasks=[_make_task("task-2-1")])
+        contract = _make_contract(slices=[failing, sibling])
+
+        green_gate_failure = (
+            "slice slice-1: green gate failed — configured checks are red at "
+            "integration branch egg/issue-9999/slice-1 tip: test.\n\n"
+            "[test] exit 2:\nFAILED tests/test_x.py::test_y\n\n"
+            "If this close raised a green-gate decision on the contract, "
+            "resolve it; otherwise fix the named checks at the "
+            "egg/issue-9999/slice-1 tip and restart the slice. Set "
+            "EGG_SLICE_GREEN_GATE=off to bypass the gate entirely."
+        )
+
+        def _gate_side_effect(
+            _pipeline_id: str,
+            _spawner: Any,
+            slice_id: str,
+            _integration_branch: str,
+            _repo: str,
+            **_kwargs: Any,
+        ) -> str | None:
+            return green_gate_failure if slice_id == "slice-1" else None
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("routes.pipelines._check_slice_evidence_reachability", return_value=None),
+            patch(
+                "slice_green_gate.run_slice_green_gate",
+                side_effect=_gate_side_effect,
+            ) as mock_gate,
+            patch("routes.pipelines._escalate_green_gate_to_hitl") as mock_escalate,
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = self._make_spawner()
+            exit_code, logs = _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+
+        # Gate ran for each slice post-consensus, after the evidence gate.
+        assert {c.args[2] for c in mock_gate.call_args_list} == {"slice-1", "slice-2"}
+        # Only the red slice is escalated, and the question carries the
+        # deterministic headline rather than the varying output tails;
+        # the #3427 dedupe guard matches on question text.
+        assert [c.kwargs["slice_id"] for c in mock_escalate.call_args_list] == ["slice-1"]
+        headline = mock_escalate.call_args.kwargs["failure_headline"]
+        assert headline == green_gate_failure.split("\n\n", 1)[0]
+        assert "FAILED tests/test_x.py::test_y" not in headline
+        # Red slice fails through the cascade and its logs carry the
+        # full failure string, tails included.
+        assert exit_code != 0
+        assert "green gate failed" in logs
+        # No PR for the red slice; the sibling still opens its own.
+        pr_calls_slice_ids = [
+            c.kwargs["slice_id"] for c in spawner.gateway.create_slice_pr.call_args_list
+        ]
+        assert "slice-1" not in pr_calls_slice_ids
+        assert "slice-2" in pr_calls_slice_ids
+
     def test_reconciler_started_and_stopped(self) -> None:
         pipeline = _make_pipeline()
         contract = _make_contract(slices=[_make_slice("slice-1")])
