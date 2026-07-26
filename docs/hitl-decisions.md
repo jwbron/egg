@@ -660,7 +660,32 @@ Resolutions are sent as JSON objects so the pipeline can parse the human's inten
 | Change approach | `{"action": "change_approach", "feedback": "..."}` | Re-run with different direction |
 | Submit feedback | `{"action": "submit_feedback", "answers": {...}}` | Structured answers |
 
-The pipeline runner (`orchestrator/routes/pipelines.py`) parses JSON payloads first, falling back to legacy bare-string keyword matching for backward compatibility.
+The pipeline runner (`orchestrator/routes/pipelines.py`) parses JSON payloads first, falling back to bare-string keyword matching for backward compatibility.
+
+### Bare-string resolutions
+
+Not every caller sends JSON: the MCP `provide_input` tool takes a free-text
+`response`, and a phase gate's own options are the bare words `approve` /
+`request changes`. Bare strings are classified on their **first line**, with
+everything after it carried as context (`_classify_bare_gate_resolution`, #3636):
+
+| Resolution | Read as |
+|------------|---------|
+| `approve` / `approved` / `lgtm` / `yes` / empty | Approve, no context |
+| `approve`<br>&nbsp;<br>`Approved. The analysis is sound; advance.` | Approve, with the remainder as the operator's note (equivalent to `{"action": "approve", "context": "..."}`) |
+| `request changes` | Request changes with no specifics; the gate asks a follow-up |
+| `request changes`<br>&nbsp;<br>`The risk section omits rollback.` | Request changes, with the remainder as the feedback |
+| `approve the rewrite but drop slice 3` | Request changes (the first line is a sentence, not a bare option word) |
+
+Matching is on the whole first line, so only the option-word-plus-justification
+shape is treated as a selection. Trailing sentence punctuation on the option
+word (`Approved.`, `LGTM!`) is ignored.
+
+Whichever branch the parser takes is logged (`HITL gate: resolution parsed`,
+with `parse_path` and `outcome`) and persisted on the decision record as
+`resolution_outcome` (`approved` / `needs_revision`) alongside the raw
+`resolution`, so the decision API shows how the gate read the operator's text
+rather than only the text itself.
 
 ### Creating Typed Decisions from Agents
 

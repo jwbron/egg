@@ -46,6 +46,16 @@ class HITLDecision(BaseModel):
         default=None,
         description="Whether the phase output changed compared to the previous decision's context (literal string comparison, not semantic)",
     )
+    resolution_outcome: Literal["approved", "needs_revision"] | None = Field(
+        default=None,
+        description=(
+            "Which branch the phase gate's resolution parser took (#3636). "
+            "``resolution`` is the raw operator text; this records how the "
+            "gate read it, so an approval routed to the revision branch is "
+            "visible from the decision API instead of only from the phase "
+            "failing to advance."
+        ),
+    )
 
     @field_validator("resolution", mode="before")
     @classmethod

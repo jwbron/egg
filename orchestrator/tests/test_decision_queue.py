@@ -282,6 +282,44 @@ class TestResolveDecision:
 
 
 # ---------------------------------------------------------------------------
+# record_resolution_outcome (#3636)
+# ---------------------------------------------------------------------------
+
+
+class TestRecordResolutionOutcome:
+    """The parsed branch is recorded alongside the raw resolution."""
+
+    def test_outcome_defaults_to_none(self, queue):
+        """A decision carries no outcome until a gate parses it."""
+        decision = queue.queue_decision(question="Approve?")
+
+        assert decision.resolution_outcome is None
+
+    def test_records_outcome_without_touching_the_raw_resolution(self, queue):
+        """The operator's text is the audit trail; the outcome sits beside it."""
+        queue.queue_decision(question="Approve?")
+        queue.resolve_decision("decision-1", "approve\n\nApproved. Advance to plan.")
+
+        queue.record_resolution_outcome("decision-1", "approved")
+
+        decision = queue._load_pipeline().decisions[0]
+        assert decision.resolution_outcome == "approved"
+        assert decision.resolution == "approve\n\nApproved. Advance to plan."
+
+    def test_records_needs_revision(self, queue):
+        queue.queue_decision(question="Approve?")
+        queue.resolve_decision("decision-1", "The risk section is missing.")
+
+        queue.record_resolution_outcome("decision-1", "needs_revision")
+
+        assert queue._load_pipeline().decisions[0].resolution_outcome == "needs_revision"
+
+    def test_unknown_decision_raises(self, queue):
+        with pytest.raises(DecisionNotFoundError):
+            queue.record_resolution_outcome("decision-999", "approved")
+
+
+# ---------------------------------------------------------------------------
 # cancel_decision
 # ---------------------------------------------------------------------------
 

@@ -333,6 +333,52 @@ def _spawn_and_wait(
     return final_info.exit_code, container_logs
 
 
+def _classify_bare_gate_resolution(resolution: str | None) -> tuple[bool, str | None, str]:
+    """Classify a legacy bare-string phase-gate resolution (#3636).
+
+    A phase gate offers ``["approve", "request changes"]``, so answering
+    with the literal option word *plus* a justification is the natural
+    operator behaviour; and at a phase gate, justification is the whole
+    point. Matching the **entire** resolution string against
+    ``_APPROVE_KEYWORDS`` classified every such answer as free-text change
+    requests: the gate silently took the revision branch, re-ran the
+    phase, burned an ``max_hitl_review_cycles`` slot, and fed the
+    operator's approval back to the producers as revision feedback.
+
+    Match the **first line** instead and carry the remainder as context.
+    That mirrors how the structured ``{"action": "approve", "context":
+    ...}`` payload already behaves, and it makes the natural bare-string
+    shape correct by construction. A first line that is anything other
+    than a bare option word (e.g. ``"approve the rewrite but drop X"``)
+    still falls through to the free-text branch, so only the
+    option-word-plus-context shape changes meaning.
+
+    Returns ``(is_approved, revision_feedback, approve_context)``:
+
+    * ``(True, None, context)``: approved; ``context`` is the operator's
+      note after the option word (``""`` when there was none).
+    * ``(False, None, "")``: bare "request changes" with no specifics;
+      the caller asks a follow-up.
+    * ``(False, feedback, "")``: change request with actionable feedback.
+    """
+    text = (resolution or "").strip()
+    first_line, _, remainder = text.partition("\n")
+    # Trailing sentence punctuation is noise on a one-word selection
+    # ("Approved." / "LGTM!"), never part of the option label itself.
+    head = first_line.strip().rstrip(".!").strip().lower()
+    remainder = remainder.strip()
+
+    if head in _pkg._APPROVE_KEYWORDS:
+        return True, None, remainder
+    if head in _pkg._BARE_OPTION_LABELS:
+        # The option word carries no information the producers need; the
+        # remainder (if any) is the actionable part.
+        return False, remainder or None, ""
+    if text:
+        return False, text, ""
+    return True, None, ""
+
+
 def _parse_resolution(resolution: str | None) -> tuple[bool, str | None]:
     """Parse a HITL phase_gate resolution into (is_approved, feedback).
 
@@ -364,13 +410,6 @@ def _parse_resolution(resolution: str | None) -> tuple[bool, str | None]:
     except _pkg.json.JSONDecodeError, TypeError, AttributeError:
         pass
 
-    # Legacy bare-string resolution
-    if resolution.lower() in _pkg._APPROVE_KEYWORDS:
-        return True, None
-    elif resolution.lower() in _pkg._BARE_OPTION_LABELS:
-        return False, None
-    elif resolution:
-        # Free-text feedback — treat as request_changes
-        return False, resolution
-
-    return True, None
+    # Legacy bare-string resolution: first-line option-word matching (#3636)
+    _approved, _feedback, _ = _pkg._classify_bare_gate_resolution(resolution)
+    return _approved, _feedback
