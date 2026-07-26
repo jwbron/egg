@@ -10,7 +10,8 @@ lived and which nothing else exercises:
   ``approve\\n\\n<note>`` answer there is an approval too;
 * ``_bare_approve_context`` → ``_approve_context`` → the ``Operator note at
   the gate:`` line threaded into the decisions-resolved re-run;
-* the JSON-mapping-without-``context`` fallback onto the bare context;
+* that a JSON payload with no ``action`` field (e.g. a list) is read as free
+  text and reaches producers verbatim;
 * ``record_resolution_outcome`` on both the primary and the follow-up
   decision, and that its failure cannot strand the gate;
 * the reuse-an-existing-pending-gate arm reaching the follow-up block without
@@ -303,17 +304,21 @@ class TestApproveContextThreading:
             in gate_env["rerun_calls"][0]["feedback_text"]
         )
 
-    def test_json_mapping_without_context_falls_back_to_the_bare_context(self, gate_env):
-        """A JSON *list* is not a mapping, so the ``else: raise`` in the context
-        extractor must fall through to ``_bare_approve_context`` rather than
-        raising out of the gate."""
+    def test_json_list_resolution_is_free_text_and_reaches_producers_verbatim(self, gate_env):
+        """A JSON *list* has no ``action`` field, so the JSON-first parse
+        raises and the classifier reads it as free text: a change request
+        whose feedback is the raw string.
+
+        This never reaches the approve-context extractor — an approval is
+        either an ``{"action": ...}`` mapping or is not valid JSON at all —
+        which is why that extractor's non-mapping arm is a defensive
+        fallthrough rather than a branch with a reachable trigger.
+        """
         gate_env["bridge"].return_value = 1
         dq = FakeDecisionQueue(["[1, 2, 3]"])
 
         _pipeline, action = _run(gate_env, dq)
 
-        # A JSON list is free text → change request, so the gate re-runs with
-        # it as feedback rather than reaching the decisions-resolved path.
         assert action == "continue"
         assert gate_env["rerun_calls"][0]["feedback_text"] == "[1, 2, 3]"
 

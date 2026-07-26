@@ -131,11 +131,13 @@ async def _check_rerun_anomaly(self, decisions: list[dict], phase_data: dict) ->
     less than ``overseer_rerun_min_work_seconds``.
 
     The kickback signal is ``resolution_outcome == "needs_revision"`` — the
-    branch the gate actually took (#3636). The legacy fallback is a
-    ``request_changes`` substring test on the raw resolution, which never
-    fired for the bare ``"request changes"`` (space) form that the gate's
-    own ``options=["approve", "request changes"]`` produce; it is retained
-    only for decisions resolved before ``resolution_outcome`` existed.
+    branch the gate actually took (#3636). For decisions resolved before
+    that field existed, the fallback is a substring test on the raw
+    resolution, widened here to normalize spaces to underscores: the
+    pre-#3636 test looked for ``request_changes`` and so never fired for
+    the bare ``"request changes"`` (space) form that the gate's own
+    ``options=["approve", "request changes"]`` produce. Both spellings now
+    match.
     """
     import datetime as _dt
 

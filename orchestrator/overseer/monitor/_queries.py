@@ -158,7 +158,17 @@ async def _query_current_phase(self) -> dict:
 
 
 async def _query_decisions(self) -> list[dict]:
-    """Query all decisions (including resolved) for the pipeline."""
+    """Query all decisions (including resolved) for the pipeline.
+
+    ``egg-orch decision list --json`` prints the **whole** orchestrator
+    response envelope — ``{"success": ..., "message": ..., "data":
+    {"decisions": [...]}}`` — so the decisions live one level deeper than
+    a bare ``decisions`` key. Unwrapping only the flat shape silently
+    returned ``[]`` on every poll, which made every consumer of this
+    query (``_check_rerun_anomaly``) dead code with no error to show for
+    it. Unwrap the envelope first, exactly as ``_query_container_list``
+    does, and keep the flat shapes as fallbacks.
+    """
     try:
         rc, stdout, _ = await self._run_cli(
             "egg-orch",
@@ -172,8 +182,12 @@ async def _query_decisions(self) -> list[dict]:
             data = json.loads(stdout)
             if isinstance(data, list):
                 return data
-            if isinstance(data, dict) and data.get("decisions"):
-                return data["decisions"]
+            if isinstance(data, dict):
+                envelope = data.get("data")
+                if isinstance(envelope, dict) and envelope.get("decisions"):
+                    return envelope["decisions"]
+                if data.get("decisions"):
+                    return data["decisions"]
     except Exception:
         logger.debug("Failed to query decisions", exc_info=True)
     return []

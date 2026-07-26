@@ -706,18 +706,24 @@ def _run_hitl_gate_converge(
             # answer), not the stale original ``resolution`` — prefer
             # it so that context is not silently dropped (#3392 review).
             _context_source = followup_resolution if followup_resolution is not None else resolution
-            _approve_context = ""
             try:
                 _ap = _pkg.json.loads(_context_source)
-                if isinstance(_ap, dict):
-                    _approve_context = (_ap.get("context") or _ap.get("feedback") or "").strip()
-                else:
-                    raise _pkg.json.JSONDecodeError("not a mapping", _context_source, 0)
             except _pkg.json.JSONDecodeError, TypeError, AttributeError:
+                _ap = None
+            if isinstance(_ap, dict):
+                _approve_context = (_ap.get("context") or _ap.get("feedback") or "").strip()
+            else:
                 # Bare-string approve-with-context: the remainder after the
                 # leading option word is the operator's note, and dropping
                 # it here would silently discard exactly the prose the
-                # first-line fix exists to preserve (#3636).
+                # first-line fix exists to preserve (#3636). A non-mapping
+                # JSON scalar/list lands here too — it carries no ``context``
+                # field, so the bare remainder is the only context there is.
+                # (No approving resolution parses to a non-mapping today: an
+                # approval is either an ``{"action": ...}`` mapping or is not
+                # valid JSON at all. The previous ``raise "not a mapping"``
+                # to reach this branch was therefore dead code; falling
+                # through keeps the same behaviour without it.)
                 _approve_context = _bare_approve_context
 
             _rerun_feedback = (

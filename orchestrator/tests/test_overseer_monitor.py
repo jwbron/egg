@@ -1164,6 +1164,183 @@ class TestRerunAnomaly:
 
 
 # ===================================================================
+# test_decision_query_seam
+# ===================================================================
+
+
+_PHASE_DATA_FAST_CYCLE = {
+    "phase_execution": {
+        "cycle_timings": [
+            {
+                "cycle": 1,
+                "started_at": "2026-03-18T10:00:05",
+                "completed_at": "2026-03-18T10:00:15",
+                "commit_sha": None,
+            }
+        ]
+    }
+}
+
+
+def _decision_list_envelope(decisions: list[dict]) -> str:
+    """The exact stdout ``egg-orch decision list --json`` prints.
+
+    The CLI prints the whole orchestrator response envelope (see
+    ``sandbox/egg_lib/orch_cli/_decision.py``), not the bare decision list.
+    """
+    return json.dumps(
+        {
+            "success": True,
+            "message": f"Found {len(decisions)} decision(s)",
+            "data": {"decisions": decisions},
+        }
+    )
+
+
+class TestQueryDecisionsUnwrapsTheEnvelope:
+    """``_query_decisions`` must unwrap ``data.decisions`` (#3636 review).
+
+    Every other test in this file hand-builds the ``decisions`` list and
+    calls ``_check_rerun_anomaly`` directly, which bypasses this seam — and
+    that is exactly why the missing unwrap went unnoticed: the query
+    silently returned ``[]`` on every poll, making the whole re-run check
+    dead code with no error, log, or alert to show for it.
+    """
+
+    def _monitor(self, pipeline_id: str, stdout: str) -> OverseerMonitor:
+        monitor = OverseerMonitor(pipeline_id=pipeline_id, config=_MockConfig())
+        monitor._run_cli = AsyncMock(return_value=(0, stdout, ""))
+        return monitor
+
+    def test_unwraps_the_cli_response_envelope(self) -> None:
+        """The real CLI shape — ``{"data": {"decisions": [...]}}``."""
+        decisions = [{"id": "d-1", "decision_type": "phase_gate"}]
+        monitor = self._monitor("test-dq-001", _decision_list_envelope(decisions))
+
+        assert _run(monitor._query_decisions()) == decisions
+
+    def test_accepts_a_flat_decisions_mapping(self) -> None:
+        """A ``{"decisions": [...]}`` body still works."""
+        decisions = [{"id": "d-2", "decision_type": "phase_gate"}]
+        monitor = self._monitor("test-dq-002", json.dumps({"decisions": decisions}))
+
+        assert _run(monitor._query_decisions()) == decisions
+
+    def test_accepts_a_bare_list(self) -> None:
+        decisions = [{"id": "d-3", "decision_type": "phase_gate"}]
+        monitor = self._monitor("test-dq-003", json.dumps(decisions))
+
+        assert _run(monitor._query_decisions()) == decisions
+
+    def test_unrecognized_shape_yields_empty(self) -> None:
+        monitor = self._monitor("test-dq-004", json.dumps({"success": True, "data": {}}))
+
+        assert _run(monitor._query_decisions()) == []
+
+    def test_nonzero_exit_yields_empty(self) -> None:
+        monitor = OverseerMonitor(pipeline_id="test-dq-005", config=_MockConfig())
+        monitor._run_cli = AsyncMock(return_value=(1, "boom", ""))
+
+        assert _run(monitor._query_decisions()) == []
+
+    def test_outcome_keyed_kickback_survives_the_query_and_reaches_the_check(self) -> None:
+        """End-to-end over the seam: the field this PR adds must actually
+        reach ``_check_rerun_anomaly``, not be unwrapped into oblivion."""
+        config = _MockConfig()
+        config.overseer_rerun_min_work_seconds = 60
+
+        monitor = self._monitor(
+            "test-dq-006",
+            _decision_list_envelope(
+                [
+                    {
+                        "id": "d-outcome",
+                        "decision_type": "phase_gate",
+                        # Bare space form: the pre-#3636 substring test never
+                        # matched this, so only the outcome field flags it.
+                        "resolution": "request changes\n\nRollback path missing.",
+                        "resolution_outcome": "needs_revision",
+                        "content_changed": False,
+                        "status": "resolved",
+                        "resolved_at": "2026-03-18T10:00:00",
+                    }
+                ]
+            ),
+        )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
+
+        decisions = _run(monitor._query_decisions())
+        _run(monitor._check_rerun_anomaly(decisions, _PHASE_DATA_FAST_CYCLE))
+
+        monitor._create_hitl_decision.assert_awaited_once()
+        assert "d-outcome" in monitor._rerun_anomaly_reported
+
+    def test_approved_outcome_is_not_flagged_even_with_kickback_text(self) -> None:
+        """``resolution_outcome`` wins over the legacy substring heuristic:
+        an approve-with-context answer that happens to contain the words
+        "request changes" is not a kickback."""
+        config = _MockConfig()
+        config.overseer_rerun_min_work_seconds = 60
+
+        monitor = self._monitor(
+            "test-dq-007",
+            _decision_list_envelope(
+                [
+                    {
+                        "id": "d-approved",
+                        "decision_type": "phase_gate",
+                        "resolution": "approve\n\nI nearly did request changes here.",
+                        "resolution_outcome": "approved",
+                        "content_changed": False,
+                        "status": "resolved",
+                        "resolved_at": "2026-03-18T10:00:00",
+                    }
+                ]
+            ),
+        )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
+
+        decisions = _run(monitor._query_decisions())
+        _run(monitor._check_rerun_anomaly(decisions, _PHASE_DATA_FAST_CYCLE))
+
+        monitor._create_hitl_decision.assert_not_awaited()
+
+    def test_legacy_record_without_the_field_falls_back_to_normalized_matching(self) -> None:
+        """Decisions resolved before ``resolution_outcome`` existed have no
+        field to key on; the widened fallback normalizes the space form."""
+        config = _MockConfig()
+        config.overseer_rerun_min_work_seconds = 60
+
+        monitor = self._monitor(
+            "test-dq-008",
+            _decision_list_envelope(
+                [
+                    {
+                        "id": "d-legacy",
+                        "decision_type": "phase_gate",
+                        "resolution": "request changes",
+                        "content_changed": False,
+                        "status": "resolved",
+                        "resolved_at": "2026-03-18T10:00:00",
+                    }
+                ]
+            ),
+        )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
+
+        decisions = _run(monitor._query_decisions())
+        _run(monitor._check_rerun_anomaly(decisions, _PHASE_DATA_FAST_CYCLE))
+
+        monitor._create_hitl_decision.assert_awaited_once()
+
+
+# ===================================================================
 # test_status_consistency
 # ===================================================================
 
