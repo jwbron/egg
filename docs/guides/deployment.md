@@ -365,6 +365,7 @@ For reproducible builds, pin to an exact version tag.
 | `launcher-secret` | Gateway authentication token |
 | `lifecycle-secret` | Orchestrator lifecycle-control auth token (required for k8s deployments) |
 | `litellm-models.yaml` | Host-side LiteLLM `model_list` overlay; copy from `config/litellm-models.template.yaml` (see [Per-Agent Models](per-agent-models.md)) |
+| `routing-policy.yaml` | Gateway routing policy — switchover remaps + fallback chains; copy from `config/routing-policy.template.yaml`, hot-reloaded by `make routing-policy` ([details above](#make-deploy-details)) |
 
 ## Health Checks
 

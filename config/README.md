@@ -32,11 +32,12 @@ All persistent user configuration is consolidated under `~/.config/egg/`:
 ├── config.yaml                 # All non-secret settings (compose, ports, identity, etc.)
 ├── secrets.env                 # All secrets (Slack, GitHub, Confluence, JIRA tokens)
 ├── launcher-secret             # Gateway launcher secret (dedicated file)
+├── lifecycle-secret            # Orchestrator lifecycle-control auth token — required for k8s deploys, `make k3s-secrets` aborts without it (`openssl rand -hex 32 >` it, or let `bin/egg-init` generate it)
 ├── github-token                # GitHub token (dedicated file)
 ├── github-app-id               # GitHub App ID (if using App auth)
 ├── github-app-installation-id  # GitHub App Installation ID
 ├── github-app.pem              # GitHub App private key (bot identity)
-├── reviewer-app.pem            # Reviewer GitHub App private key (optional, for separate reviewer bot)
+├── reviewer-app.pem            # Optional: reviewer GitHub App private key, for a separate reviewer bot identity
 ├── npm-packages-token          # Optional: read-only token for the GitHub Packages npm read-through
 ├── litellm-models.yaml         # Optional: host-side LiteLLM model_list overlay, applied by `make litellm-config` (copy from config/litellm-models.template.yaml)
 ├── routing-policy.yaml         # Optional: gateway routing policy — switchover remaps + fallback chains, hot-reloaded by `make routing-policy` (copy from config/routing-policy.template.yaml)
