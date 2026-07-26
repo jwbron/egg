@@ -597,11 +597,13 @@ k3s-secrets:  ## Create gateway secrets from ~/.config/egg/
 	@if [ ! -f "$$HOME/.config/egg/launcher-secret" ]; then \
 		echo "ERROR: $$HOME/.config/egg/launcher-secret not found."; \
 		echo "Run 'bin/egg-deploy init' to generate it."; \
+		echo "Or generate it directly: openssl rand -hex 32 > $$HOME/.config/egg/launcher-secret"; \
 		exit 1; \
 	fi
 	@if [ ! -f "$$HOME/.config/egg/lifecycle-secret" ]; then \
 		echo "ERROR: $$HOME/.config/egg/lifecycle-secret not found."; \
-		echo "Generate it: openssl rand -hex 32 > $$HOME/.config/egg/lifecycle-secret"; \
+		echo "Run 'bin/egg-deploy init' to generate it."; \
+		echo "Or generate it directly: openssl rand -hex 32 > $$HOME/.config/egg/lifecycle-secret"; \
 		exit 1; \
 	fi
 	@echo "==> Creating gateway-secrets in egg-system namespace..."
