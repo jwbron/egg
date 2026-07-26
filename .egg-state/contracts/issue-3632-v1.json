@@ -141,7 +141,7 @@
         {
           "id": "task-1-6",
           "description": "Wire the cancel-specific persistence into the cancel path in _routes_crud.py. Call the new function in the `if pipeline.status in (CANCELLED, FAILED)` block, before _clear_pipeline_runtime_state (which still runs for FAILED).",
-          "status": "pending",
+          "status": "complete",
           "commit": "8a563897b",
           "checkpoint_id": null,
           "notes": "",
@@ -662,6 +662,17 @@
       "old_value": null,
       "new_value": "8a563897b",
       "reason": "Linked commit 8a56389 to task-1-6",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-26T05:02:44.801070Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.5.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-6 as complete",
       "checkpoint_id": null
     }
   ],
