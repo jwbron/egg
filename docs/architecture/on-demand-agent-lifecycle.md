@@ -235,11 +235,15 @@ Under orchestrator ownership the worktree becomes a hot path.
    including when the path list cannot be read at all. The staged-path
    read uses `-z` so `wip_paths` carries real bytes rather than
    `core.quotePath` C-quoted tokens, which means a filename that is not
-   valid UTF-8 makes the read undecodable under `subprocess`'s strict
-   `text=True` decode; that logs a WARNING and commits blind
-   (`wip_paths`/`wip_files` become `null`, so the record takes the
-   imperative) rather than letting a filename cost the working tree. A
-   snapshot whose `git add -A` reported errors is marked incomplete in
+   valid UTF-8 would be undecodable under `subprocess`'s strict `text=True`
+   decode; the read passes `errors="replace"`, so one bad name costs one
+   name (a U+FFFD in `wip_paths`, which matches no softening glob) rather
+   than the whole path set. Anything that still defeats that read — a
+   timeout on a large staged set, a non-zero `diff` against a locked index
+   — logs a WARNING and commits blind (`wip_paths`/`wip_files` become
+   `null`, so the record takes the imperative) rather than letting a
+   metadata read cost the working tree. A
+   snapshot whose `git add -A` did not complete cleanly is marked incomplete in
    both its commit message and the bus record, since a truncated snapshot
    is otherwise indistinguishable downstream from a complete one. The same
    marker rides the #2807 crash-salvage commit
