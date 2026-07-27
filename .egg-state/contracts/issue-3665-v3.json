@@ -9,7 +9,577 @@
   "pipeline_id": "issue-3665-v3",
   "current_phase": "plan",
   "acceptance_criteria": [],
-  "slices": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Populate EventStreamSnapshot fields in snapshot_from_health_context()",
+      "goal": "Populate all 8 currently-empty EventStreamSnapshot fields so that the\ndetection plane's detectors can actually read the data they need. This is\nthe prerequisite for slices 2-5.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Populate runtime section of EventStreamSnapshot. Wire\ndriver_heartbeat.tick_age_seconds() and spawn_age_seconds() into\nsnapshot_from_health_context() under raw[\"runtime\"]. This activates\ndetect_run_pipeline_thread_liveness() and DriverLivenessCheck.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- snapshot.raw.runtime contains tick_age_s and spawn_age_s\n- detect_run_pipeline_thread_liveness fires when the driver thread is stale",
+          "files_affected": [
+            "orchestrator/health_checks/detection_plane.py",
+            "orchestrator/driver_heartbeat.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-2",
+          "description": "Populate consensus section of snapshot. Wire\npeer_consensus.get_peer_consensus_tracker().evaluate() into the snapshot\nbuilder. This activates detect_brc_thrash(), detect_incomplete_consensus_deferral(),\nand consensus field readers in PhaseStallDetector.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- snapshot.consensus contains tracker.evaluate() output\n- detectors reading consensus field fire correctly",
+          "files_affected": [
+            "orchestrator/health_checks/detection_plane.py",
+            "orchestrator/peer_consensus/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-3",
+          "description": "Populate container_transitions from kubernetes_monitor pod-state log.\nWire KubernetesMonitor._pod_states into the snapshot. This activates\ndetect_container_death(), detect_container_oom_evicted(),\ndetect_container_restart_loop(), detect_overseer_self_injection().",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- snapshot.container_transitions contains pod state transitions\n- container death/oom/restart detectors fire on real transitions",
+          "files_affected": [
+            "orchestrator/health_checks/detection_plane.py",
+            "orchestrator/kubernetes_monitor.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-4",
+          "description": "Fix RunningAgent role field and populate age fields. Use agent role\nfrom pipeline state instead of container ID; populate last_tool_call_age_s\nand last_heartbeat_age_s from health monitor anchors. This activates\ndetect_heartbeat_stall().",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- RunningAgent.role is the agent role (not container ID)\n- last_tool_call_age_s and last_heartbeat_age_s are populated\n- detect_heartbeat_stall fires on stale heartbeats",
+          "files_affected": [
+            "orchestrator/health_checks/detection_plane.py",
+            "orchestrator/health_monitor.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-5",
+          "description": "Populate midturn_messages in snapshot. Wire agent tool-call logs into\nsnapshot_from_health_context() as midturn_messages tuples. This is the\nprerequisite for the loop detector in slice-3.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- snapshot.midturn_messages contains tool-call records with tool_name and input_hash\n- populated from agent_log_store or live pod logs",
+          "files_affected": [
+            "orchestrator/health_checks/detection_plane.py",
+            "orchestrator/agent_log_store.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-6",
+          "description": "Tests for snapshot population. Verify all 13 EventStreamSnapshot fields\nare populated.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Tests assert all 13 fields populated\n- runtime, consensus, container_transitions, midturn_messages all non-empty",
+          "files_affected": [
+            "orchestrator/tests/test_detection_plane_wiring.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "Wire the detection plane into RUNTIME_TICK",
+      "goal": "Make the detection plane actually run in production by calling\n_run_overseer_detection_plane() from _run_runtime_tick_checks(), routing\nrequires_adjudication findings to the overseer agent and routine findings\nto the corrective executor. Also route findings to the operator alert surface.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Wire _run_overseer_detection_plane() into RUNTIME_TICK path. Call it\nfrom _run_runtime_tick_checks() after building the snapshot, routing\nrequires_adjudication findings to the overseer agent and routine\nfindings to the corrective executor. Guard against double-evaluation\n(two call sites: _check_pod and _reconciliation_sweep).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Detection plane runs on every RUNTIME_TICK sweep\n- findings with requires_adjudication escalate to overseer\n- routine findings emit to event bus\n- no double-evaluation on dual call sites",
+          "files_affected": [
+            "orchestrator/kubernetes_monitor.py",
+            "orchestrator/routes/pipelines/_overseer.py",
+            "orchestrator/health_checks/runner.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-2",
+          "description": "Route detection-plane findings to the operator alert surface. Route\nfindings to the same OVERSEER_ALERT / HITL / Slack surfaces the\noverseer uses, so the operator sees one consistent alert stream.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Detection-plane findings appear on the OVERSEER_ALERT surface\n- requires_adjudication findings escalate to overseer\n- routine findings emit to event bus",
+          "files_affected": [
+            "orchestrator/health_checks/runner.py",
+            "orchestrator/routes/pipelines/_overseer.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-3",
+          "description": "Tests for detection plane wiring. Verify the detection plane is called\nfrom RUNTIME_TICK; verify no double-evaluation; verify findings are routed\nto the alert surface.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Tests assert detection plane invoked on RUNTIME_TICK\n- double-evaluation guard prevents duplicate findings\n- findings routed to alert surface",
+          "files_affected": [
+            "orchestrator/tests/test_detection_plane_wiring.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-3",
+      "name": "Deterministic loop detector",
+      "goal": "Implement the empirical finding from the issue \u2014 \"counting tool inputs never\nissued before in the session over a trailing window separates a loop from work\ncleanly\" \u2014 as a deterministic detector that runs in the detection plane.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Implement detect_tool_input_loop() in health_checks/tier1/. Read\nmidturn_messages from the snapshot, count distinct tool-input strings over\na trailing window (e.g. 5 polls). If the count is zero for N consecutive\npolls, fire tool_input_loop / high with requires_adjudication=False. Must\nhandle variable cycle shapes (1-, 2-, 3-, 8-cycles) \u2014 not keyed on a fixed shape.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Detector fires on zero-new-input windows of any cycle shape\n- does not fire on productive agents\n- evidence includes the tool input hash and window size",
+          "files_affected": [
+            "orchestrator/health_checks/tier1/loop_detection.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-2",
+          "description": "Increase log capture fidelity for one-shot event pods. The k8s log API\ntruncates at ~100 chars per line (kubernetes_client.py:455 read_job_log_snapshot\nwith tail_lines=2000). Increase fidelity so the unique-tool-input counter\nhas enough data to distinguish distinct tool calls sharing a prefix.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Tool call log lines are captured at full length (not truncated to 100 chars)\n- the loop detector can distinguish distinct tool calls sharing a prefix",
+          "files_affected": [
+            "orchestrator/kubernetes_client.py",
+            "orchestrator/agent_log_store.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-3-3",
+          "description": "Tests for the loop detector. Verify it fires on zero-new-input windows,\ndoes not fire on productive agents, handles variable cycle shapes (1-, 2-, 3-, 8-cycles).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Tests cover single-input, 2-cycle, 3-cycle, and 8-cycle loops\n- productive agent with new tool inputs does not trigger\n- evidence payload is correct",
+          "files_affected": [
+            "orchestrator/tests/test_loop_detection.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-2"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-4",
+      "name": "Timeout visibility and classification",
+      "goal": "Make the 2-hour timeout visible to agents and classify timeout-killed pods\ndistinctly from crashes, so they don't consume the failure streak budget.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add agent_timeout_seconds to PipelineConfig (default 7200).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- PipelineConfig.agent_timeout_seconds field exists with default 7200\n- validated >= 60",
+          "files_affected": [
+            "orchestrator/models/_config.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-2",
+          "description": "Pass EGG_AGENT_TIMEOUT env through the spawner so the agent can\nself-report its remaining budget.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Spawner sets EGG_AGENT_TIMEOUT env var from PipelineConfig.agent_timeout_seconds\n- agent reads it and can self-report remaining budget",
+          "files_affected": [
+            "orchestrator/kubernetes_spawner/_spawn.py",
+            "sandbox/llm/claude/config.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-3",
+          "description": "Classify timeout-killed pods distinctly. When exit_code == -1 and the\ntimeout fired (detectable via agent result error message 'Timed out after\n{timeout} seconds'), classify as a clean timeout, not a crash. Add\nJOB_OUTCOME_TIMEOUT outcome and route to record_timeout (not record_abort).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Timeout-killed pods classified as clean timeout\n- failure streak NOT incremented\n- alert says 'killed by 2h agent timeout'",
+          "files_affected": [
+            "orchestrator/kubernetes_monitor.py",
+            "orchestrator/kubernetes_spawner/_models.py",
+            "orchestrator/event_loop/__init__.py",
+            "orchestrator/event_loop/_supervisor.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-4",
+          "description": "Surface the timeout to the agent via heartbeat. Emit a HEARTBEAT with\nstate WAITING_FOR_EVENT and body 'approaching 2h timeout' at 90-minute\nintervals.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Agent receives a heartbeat warning at 90 minutes\n- message is readable and actionable",
+          "files_affected": [
+            "orchestrator/kubernetes_monitor.py",
+            "sandbox/egg_lib/orch_cli/_message.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-4-5",
+          "description": "Tests for timeout classification. Verify timeout-killed pods don't\nincrement the failure streak; verify the agent receives the warning heartbeat.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Tests assert streak untouched by timeout\n- heartbeat warning emitted at 90 minutes\n- exit classification distinguishes timeout from crash",
+          "files_affected": [
+            "orchestrator/tests/test_timeout_classification.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-3"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-5",
+      "name": "Alert evidence + false-positive fixes",
+      "goal": "Make alerts actionable by enriching them with evidence, and fix the\nconvergence-stall false positive by unifying timestamp sources.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Enrich OVERSEER_ALERT payloads with evidence. Add structured evidence\n(container logs, BRC state, tracker evaluation) to _broadcast_alert().",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Alert payloads include evidence dict with container logs, BRC state, and tracker evaluation\n- operator can diagnose without grepping",
+          "files_affected": [
+            "orchestrator/overseer/monitor/_alerting.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-2",
+          "description": "Fix the convergence-stall false positive. Unify the timestamp source\nbetween _check_convergence_stall() (event_loop/_loop.py:859) and\n_has_recent_peer_progress() (health_monitor.py:388). Both should use\nthe same 'bus activity' signal.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Convergence-stall alert does not fire when peer heartbeat is seconds old and health monitor logs the agent as alive\n- same timestamp source used for both alerting and deferral",
+          "files_affected": [
+            "orchestrator/event_loop/_loop.py",
+            "orchestrator/health_monitor.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-3",
+          "description": "Name the 2-hour timeout explicitly in exit classification. When a pod\nis killed by timeout, the alert should say 'killed by 2h agent timeout'\nnot 'container exited with code -1.' (Depends on TASK-4-3.)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Exit classification message for timeout-killed pods says 'killed by 2h agent timeout'\n- distinct from crash classification",
+          "files_affected": [
+            "orchestrator/kubernetes_monitor.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-5-4",
+          "description": "Tests for alert evidence and false-positive fixes. Verify alerts carry\nevidence; verify convergence-stall doesn't fire when peer heartbeat is recent.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Tests assert evidence in alert payloads\n- convergence-stall does not fire when peer heartbeat is recent\n- timeout classification message is correct",
+          "files_affected": [
+            "orchestrator/tests/test_alert_evidence.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-4"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "decision-1",
@@ -82,7 +652,14 @@
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
-  "pr": null,
+  "pr": {
+    "title": "Supervision second pass: wire detection plane + loop detector + timeout classification + alert evidence",
+    "description": "Five linear slices across the four analysis areas from issue #3665:\n(1) populate all 13 EventStreamSnapshot fields in snapshot_from_health_context();\n(2) wire _run_overseer_detection_plane() into RUNTIME_TICK with double-evaluation\nguard; (3) implement a deterministic unique-tool-input loop detector reading\nmidturn_messages from the snapshot; (4) classify timeout-killed pods (exit -1 from\nasyncio.timeout) as clean timeouts not crashes, surface the 2h timeout to agents\nvia heartbeat, and make the timeout configurable per-pipeline; (5) enrich\nOVERSEER_ALERT payloads with evidence and fix the convergence-stall false positive\nby unifying timestamp sources. Slices are linear because they share overlapping\nfiles (kubernetes_monitor.py, detection_plane.py, health_monitor.py).",
+    "test_plan": "Automated (per slice; `make test` narrows to reachable suites, then\n`make test-all` before phase exit; `make lint` green throughout):\n- Slice 1: test_detection_plane_wiring.py \u2014 all 13 snapshot fields populated.\n- Slice 2: test_detection_plane_wiring.py \u2014 detection plane invoked on RUNTIME_TICK;\n  double-evaluation guard prevents duplicate findings; findings routed to alert surface.\n- Slice 3: test_loop_detection.py \u2014 fires on zero-new-input windows of any\n  cycle shape (1-, 2-, 3-, 8-cycles); does not fire on productive agents.\n- Slice 4: test_timeout_classification.py \u2014 streak untouched by timeout;\n  heartbeat warning emitted at 90 minutes; exit classification distinguishes\n  timeout from crash.\n- Slice 5: test_alert_evidence.py \u2014 evidence in alert payloads; convergence-stall\n  does not fire when peer heartbeat is recent.",
+    "manual_steps": "",
+    "context_pr_number": null,
+    "deferred_actions": []
+  },
   "feedback": null,
   "phase_configs": null,
   "agent_executions": []
