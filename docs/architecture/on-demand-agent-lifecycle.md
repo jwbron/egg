@@ -216,6 +216,13 @@ Under orchestrator ownership the worktree becomes a hot path.
    "inspect it before starting work", as does a snapshot flagged partial
    (a truncated capture's path list omits whatever failed to stage, so it
    cannot establish that the snapshot holds nothing but state files). The
+   bus record's metadata carries the inputs *and* the outcome as separate
+   fields — `wip_paths` (capped), `wip_partial`,
+   `wip_machine_state_only` (the path predicate alone) and `wip_softened`
+   (whether the body actually softened) — so a triage consumer can
+   reconstruct the decision instead of regexing the prose; the two derived
+   fields diverge whenever a machine-state-only path set is disqualified
+   by a commit stack, a truncated capture, or a failed salvage push. The
    threshold selects wording only; the snapshot itself is always taken. A
    snapshot whose `git add -A` reported errors is marked incomplete in
    both its commit message and the bus record, since a truncated snapshot

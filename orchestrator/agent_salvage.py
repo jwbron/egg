@@ -86,11 +86,19 @@ _SLICE_WORKTREE_RE = re.compile(r"^(slice-[0-9]+)-(.+)$")
 # commit to succeed.
 _UNCOMMITTED_SALVAGE_MESSAGE = "[salvage] pre-crash working-tree state (#2807)"
 # Appended when ``git add -A`` reported errors, mirroring the re-attach path's
-# ``_WIP_COMMIT_PARTIAL_SUFFIX`` (#3639). A truncated snapshot is otherwise
-# indistinguishable downstream from a complete one — same subject, same
-# ``egg/recovered/...`` ref. This path is the worse of the two: unlike the
-# re-attach path it writes no message-bus record, so the commit message is the
-# only channel anyone triaging that recovery ref ever sees.
+# ``kubernetes_spawner._worktree._WIP_COMMIT_PARTIAL_SUFFIX`` (#3639). A
+# truncated snapshot is otherwise indistinguishable downstream from a complete
+# one — same subject, same ``egg/recovered/...`` ref. This path is the worse of
+# the two: unlike the re-attach path it writes no message-bus record, so the
+# commit message is the only channel anyone triaging that recovery ref ever
+# sees.
+#
+# The near-duplication is deliberate. The two texts differ only in naming whose
+# working tree was truncated ("crashed agent's" here, "previous session's"
+# there), which is the one thing a triager reading a lone commit message cannot
+# infer. The grep token — the leading ``INCOMPLETE:`` and the ``git add -A``
+# phrase — is identical in both, so one search finds every truncated snapshot
+# regardless of which path took it. Change one, change the other.
 _UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX = (
     "\n"
     "\n"

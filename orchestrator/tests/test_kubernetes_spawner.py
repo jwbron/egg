@@ -4678,6 +4678,31 @@ class TestDiscardedTipMessageWording:
         assert "a state file the orchestrator rewrites" not in body
         assert "inspect it before starting work" not in body
 
+    def test_wide_roster_snapshot_states_a_count_instead_of_naming_paths(self):
+        """Past ``_SOFT_BRANCH_MAX_NAMED_PATHS`` the body stops enumerating (R5 #3).
+
+        This is the branch a real roster hits: five BRC roles each leaving a
+        memory file is five paths, and inlining a dozen of them to say
+        "nothing here" spends the reader's context budget on noise. The full
+        list still rides in the metadata.
+        """
+        paths = tuple(
+            f".egg-state/agent-outputs/{role}/brc-memory-pipe-1.md"
+            for role in ("coder", "tester", "reviewer_code", "reviewer_design", "documenter")
+        )
+        msg = self._message(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=len(paths),
+            wip_paths=paths,
+        )
+        assert "holds only 5 files — orchestrator-written state" in msg.body
+        for path in paths:
+            assert f"`{path}`" not in msg.body
+        assert "read it if you need it" in msg.body
+        assert msg.metadata["wip_paths"] == list(paths)
+
     def test_flat_orchestrator_state_files_are_machine_state(self):
         """``agent-outputs/`` residue is not only the per-role memory file.
 
@@ -4722,10 +4747,14 @@ class TestDiscardedTipMessageWording:
     def test_glob_star_does_not_cross_a_path_separator(self):
         """The discriminator matches by name, so it must match precisely (R4 #5).
 
-        ``fnmatch``'s ``*`` crosses ``/`` and normalises case, so a deeper
-        path or a lookalike directory would slip onto the soft branch. Nothing
-        writes these today — the point is that the primitive cannot be the
-        thing that lets one through later.
+        ``fnmatch``'s ``*`` crosses ``/``, so a deeper path or a lookalike
+        directory would slip onto the soft branch — the first two cases are
+        what the old primitive genuinely got wrong. The third pins
+        case-sensitivity as intended semantics on every platform rather than
+        as a regression: ``os.path.normcase`` is the identity on POSIX, so
+        ``fnmatch`` already rejected it on the deployment platform. Nothing
+        writes any of these today — the point is that the primitive cannot be
+        the thing that lets one through later.
         """
         for path in (
             ".egg-state/agent-outputs/a/b/c/brc-memory-x.md",
@@ -4776,9 +4805,10 @@ class TestDiscardedTipMessageWording:
     def test_metadata_carries_the_softening_inputs(self):
         """A consumer seeing a softened body must be able to reconstruct why.
 
-        ``wip_files``/``wip_partial`` describe the snapshot; ``wip_paths``
-        and ``wip_machine_state_only`` are what the wording was *decided
-        from*, and without them the softening is unauditable downstream.
+        ``wip_files``/``wip_partial`` describe the snapshot; ``wip_paths``,
+        ``wip_machine_state_only`` and ``wip_softened`` are what the wording
+        was *decided from* and what it decided, and without them the
+        softening is unauditable downstream.
         """
         soft = self._message(
             n_commits=1,
@@ -4790,6 +4820,7 @@ class TestDiscardedTipMessageWording:
         assert soft.metadata["wip_paths"] == [self._MEMORY_FILE]
         assert soft.metadata["wip_paths_truncated"] is False
         assert soft.metadata["wip_machine_state_only"] is True
+        assert soft.metadata["wip_softened"] is True
 
         loud = self._message(
             n_commits=1,
@@ -4799,6 +4830,52 @@ class TestDiscardedTipMessageWording:
             wip_paths=("src/feature.py",),
         )
         assert loud.metadata["wip_machine_state_only"] is False
+        assert loud.metadata["wip_softened"] is False
+
+    def test_metadata_predicate_and_verdict_diverge(self):
+        """The path predicate and the wording verdict are separate fields (R5 #1).
+
+        Each of the three cases below has machine-state-only paths but a body
+        that is *not* softened, for a different reason. Reporting the verdict
+        under ``wip_machine_state_only`` would contradict ``wip_paths`` in the
+        same dict; reporting the predicate as the verdict would tell a triage
+        query filtering for softened records that the escalation body below
+        was softened. Both fields, both honest.
+        """
+        machine_state = {
+            "recovery_ref": "egg/recovered/x",
+            "wip_commit": "aaaa1111",
+            "wip_files": 1,
+            "wip_paths": (self._MEMORY_FILE,),
+        }
+
+        # A stack of the agent's own commits rode along with the snapshot:
+        # the paths are still state files, the discard is not trivial.
+        multi = self._message(**{**machine_state, "n_commits": 3})
+        assert multi.metadata["wip_machine_state_only"] is True
+        assert multi.metadata["wip_softened"] is False
+        assert "inspect it before starting work" in multi.body
+
+        # The capture is truncated, so the path list does not describe the
+        # tree — softening cannot be earned from it.
+        partial = self._message(**{**machine_state, "n_commits": 1, "wip_partial": True})
+        assert partial.metadata["wip_machine_state_only"] is True
+        assert partial.metadata["wip_softened"] is False
+        assert "inspect it before starting work" in partial.body
+
+        # The salvage push failed: the body is the loudest one this function
+        # emits, so the verdict must not read as softened.
+        unpushed = self._message(
+            **{
+                **machine_state,
+                "n_commits": 1,
+                "recovery_ref": None,
+                "salvage_error": "gateway down",
+            }
+        )
+        assert unpushed.metadata["wip_machine_state_only"] is True
+        assert unpushed.metadata["wip_softened"] is False
+        assert "Escalate to an operator" in unpushed.body
 
     def test_metadata_path_list_is_capped(self):
         """A pathological working tree must not inline itself into the bus.

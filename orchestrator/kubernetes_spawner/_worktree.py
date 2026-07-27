@@ -749,6 +749,15 @@ _WIP_COMMIT_MESSAGE = (
 # otherwise indistinguishable downstream from a complete one — same subject,
 # same ``egg/recovered/...`` ref — and the only other record is an
 # orchestrator WARNING nobody who cherry-picks this commit will read.
+#
+# Deliberately a near-duplicate of the #2807 restart path's
+# ``agent_salvage._UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX`` rather than a shared
+# constant: the two differ only in naming whose working tree was truncated
+# ("previous session's" here, "crashed agent's" there), and that provenance is
+# the one thing a triager reading a lone commit message cannot infer. The
+# grep token — the leading ``INCOMPLETE:`` and the ``git add -A`` phrase — is
+# identical in both, so one search still finds every truncated snapshot
+# regardless of which path took it. Change one, change the other.
 _WIP_COMMIT_PARTIAL_SUFFIX = (
     "\n"
     "\n"
@@ -906,12 +915,17 @@ def _path_matches_glob(path: str, glob: str) -> bool:
     """Segment-wise glob match where ``*`` does not cross ``/``.
 
     ``fnmatch`` is the wrong primitive for a discriminator whose whole job
-    is to match the noise source *precisely*: its ``*`` crosses separators
-    (so ``.egg-state/agent-outputs/a/b/c/brc-memory-x.md`` matches
-    ``.../*/brc-memory*.md``) and it normalises case via ``os.path.normcase``.
-    Matching segment-by-segment with equal depth, using the case-sensitive
-    :func:`fnmatch.fnmatchcase`, keeps a deeper or differently-cased path
-    off the soft branch.
+    is to match the noise source *precisely*: its ``*`` crosses separators,
+    so ``.egg-state/agent-outputs/a/b/c/brc-memory-x.md`` matches
+    ``.../*/brc-memory*.md``. Matching segment-by-segment with equal depth
+    keeps a deeper path off the soft branch.
+
+    :func:`fnmatch.fnmatchcase` rather than :func:`fnmatch.fnmatch` is a
+    smaller point and not a behaviour change on the deployment platform:
+    ``fnmatch`` normalises case through ``os.path.normcase``, which is the
+    identity on POSIX, so both are case-sensitive on Linux. The explicit
+    form states the intended semantics on every platform rather than
+    inheriting them from the host.
     """
     segments = path.split("/")
     patterns = glob.split("/")
@@ -1023,7 +1037,8 @@ def _record_discarded_tip(
     # capture is missing evidence by another name, and softening must never
     # fall out of missing evidence.
     snapshot_only = bool(wip_commit) and n_commits == 1
-    trivial_snapshot = snapshot_only and not wip_partial and _is_machine_state_only(wip_paths)
+    machine_state_only = _is_machine_state_only(wip_paths)
+    trivial_snapshot = snapshot_only and not wip_partial and machine_state_only
     # ``wip_files``/``wip_paths`` are assigned together off ``_DirtySnapshot``,
     # so in production a truthy ``wip_commit`` always carries both. The ``None``
     # arms here and in ``trivial_snapshot`` are defensive only — they exist so a
@@ -1080,7 +1095,9 @@ def _record_discarded_tip(
             f"moved, #3509) — ask an operator to fetch {discarded_tip} directly "
             "out of the worktree (`git reflog`) before re-deriving any work."
         )
-    if wip_commit and recovery_ref and trivial_snapshot:
+    if recovery_ref and trivial_snapshot:
+        # ``trivial_snapshot`` already implies a truthy ``wip_commit`` (via
+        # ``snapshot_only``), so this arm needs no separate conjunct for it.
         # The softening has to survive the whole body: restating "AUTOMATIC
         # snapshot ... treat it as a WIP checkpoint to review" here would put
         # an imperative in the last sentence the reader sees, undoing the
@@ -1168,11 +1185,23 @@ def _record_discarded_tip(
                     # record is not the place to inline an arbitrarily wide
                     # working tree, and ``wip_files`` already carries the
                     # untruncated count.
+                    #
+                    # The two derived fields are kept distinct because they
+                    # answer different questions and diverge on real inputs.
+                    # ``wip_machine_state_only`` is the *path predicate* alone,
+                    # so it stays true for a multi-commit discard, a truncated
+                    # capture, or a failed salvage push — cases where the
+                    # wording is not softened. ``wip_softened`` is the actual
+                    # verdict the body took, gated on ``recovery_ref`` exactly
+                    # as the soft branch is. Reporting the verdict under the
+                    # predicate's name would contradict ``wip_paths`` in one
+                    # direction and the body in the other.
                     "wip_files": wip_files,
                     "wip_partial": wip_partial,
                     "wip_paths": list(wip_paths[:_METADATA_MAX_PATHS]) if wip_paths else None,
                     "wip_paths_truncated": bool(wip_paths and len(wip_paths) > _METADATA_MAX_PATHS),
-                    "wip_machine_state_only": trivial_snapshot,
+                    "wip_machine_state_only": machine_state_only,
+                    "wip_softened": bool(recovery_ref and trivial_snapshot),
                 },
             )
         )
