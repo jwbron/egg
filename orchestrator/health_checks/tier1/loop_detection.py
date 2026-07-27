@@ -164,7 +164,7 @@ def _read_session_transcript(agent_role: str) -> str | None:
         try:
             with open(transcript_path, encoding="utf-8") as f:
                 return f.read()
-        except (OSError, IOError):
+        except OSError:
             logger.debug(
                 "Could not read session transcript at %s",
                 transcript_path,
@@ -192,7 +192,7 @@ def _read_session_transcript(agent_role: str) -> str | None:
         if transcript_files:
             with open(transcript_files[0], encoding="utf-8") as f:
                 return f.read()
-    except (OSError, IOError):
+    except OSError:
         pass
 
     return None
