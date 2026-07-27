@@ -1744,6 +1744,98 @@ class TestPhaseGateResolutionPersistence:
         assert len(updated.decisions) == 1
         assert updated.decisions[0].resolution == "Ship it"
 
+    def test_non_string_context_still_reaches_the_contract(self, tmp_path):
+        """A dict ``context`` on an approve must not drop the operator's note.
+
+        ``Decision.resolution`` is ``str | None``, so handing pydantic a dict
+        raised ``ValidationError``, which the broad ``except Exception``
+        below swallowed as a warning: the operator approved with a note, the
+        gate advanced, and the note never reached the contract that
+        next-phase agents load (#3636 review).
+        """
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines import _persist_phase_gate_resolution
+
+        contract = Contract(pipeline_id="test-pipe")
+        save_contract(contract, tmp_path)
+
+        draft_dir = tmp_path / ".egg-state" / "drafts"
+        draft_dir.mkdir(parents=True)
+        draft_path = draft_dir / "test-pipe-analysis.md"
+        draft_path.write_text("# Refine Draft\n\nSome analysis content.\n")
+
+        decision = self._make_decision(
+            json.dumps({"action": "approve", "context": {"note": "ship it"}})
+        )
+
+        _persist_phase_gate_resolution(
+            tmp_path,
+            "test-pipe",
+            decision,
+            "refine",
+            None,
+        )
+
+        updated = load_contract("test-pipe", tmp_path)
+        assert len(updated.decisions) == 1
+        # JSON, not the Python repr — the same rendering the gate itself
+        # threads into the re-run, so one note is not spelled two ways.
+        assert updated.decisions[0].resolution == '{"note": "ship it"}'
+        assert '{"note": "ship it"}' in draft_path.read_text()
+
+    def test_non_string_feedback_still_reaches_the_contract(self, tmp_path):
+        """``context`` absent, ``feedback`` non-string — same coercion."""
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines import _persist_phase_gate_resolution
+
+        contract = Contract(pipeline_id="test-pipe")
+        save_contract(contract, tmp_path)
+
+        decision = self._make_decision(json.dumps({"action": "approve", "feedback": [1, 2]}))
+
+        _persist_phase_gate_resolution(
+            tmp_path,
+            "test-pipe",
+            decision,
+            "refine",
+            None,
+        )
+
+        updated = load_contract("test-pipe", tmp_path)
+        assert len(updated.decisions) == 1
+        assert updated.decisions[0].resolution == "[1, 2]"
+
+    def test_falsy_context_is_still_skipped(self, tmp_path):
+        """``{}`` / ``[]`` carry no note, so the early return must still fire.
+
+        The coercion is falsy-in / empty-out for the same reason the gate's
+        is: serialising ``{}`` to the truthy ``"{}"`` would persist a
+        two-character non-note as the operator's resolution.
+        """
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines import _persist_phase_gate_resolution
+
+        contract = Contract(pipeline_id="test-pipe")
+        save_contract(contract, tmp_path)
+
+        for payload in (
+            {"action": "approve", "context": {}},
+            {"action": "approve", "feedback": []},
+        ):
+            _persist_phase_gate_resolution(
+                tmp_path,
+                "test-pipe",
+                self._make_decision(json.dumps(payload)),
+                "refine",
+                None,
+            )
+
+        updated = load_contract("test-pipe", tmp_path)
+        assert updated.decisions == []
+
 
 class TestInlineRequestChangesClearsConcurrentState:
     """Verify that inline request_changes clears stale consensus state (#1296).

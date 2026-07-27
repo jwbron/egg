@@ -426,16 +426,30 @@ def _coerce_gate_resolution_text(value: object) -> str:
     Strings pass through unchanged. Anything else is rendered as JSON so the
     operator's content still reaches the producers instead of crashing the
     driver; an unserialisable object degrades to ``repr``-ish ``str()``.
-    ``None`` (an absent field) is the empty string, matching the
-    ``payload.get("feedback", "")`` default it replaces.
+
+    **Falsy in, empty out.** Every falsy value — ``None``, ``{}``, ``[]``,
+    ``False``, ``0`` — is the empty string, matching the
+    ``payload.get("feedback", "")`` default this replaces. Serialising them
+    instead would return the *truthy* strings ``"{}"`` / ``"[]"`` /
+    ``"false"`` / ``"0"`` and flip the "did the operator actually give us
+    specifics?" guard: a client that posts ``{"action": "request_changes",
+    "feedback": {}}`` for an empty field would skip the follow-up prompt and
+    re-run the whole phase against a two-character serialisation
+    (#3636 review). ``_classify_bare_gate_resolution`` above already drops
+    non-string prose the same way.
     """
     if isinstance(value, str):
         return value
-    if value is None:
+    if not value:
         return ""
     try:
         return _pkg.json.dumps(value)
     except ValueError, TypeError:
+        # Unreachable from the four production call sites — every input
+        # originates in ``json.loads`` and is JSON-serialisable by
+        # construction. Kept because this helper's contract is "never raise
+        # on the gate path": a future caller passing a live object must not
+        # be able to strand a pipeline the way #3636's ``.strip()`` did.
         return str(value)
 
 

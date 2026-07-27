@@ -1246,12 +1246,8 @@ class TestQueryDecisionsUnwrapsTheEnvelope:
     def test_outcome_keyed_kickback_survives_the_query_and_reaches_the_check(self) -> None:
         """End-to-end over the seam: the field this PR adds must actually
         reach ``_check_rerun_anomaly``, not be unwrapped into oblivion."""
-        config = _MockConfig()
-        config.overseer_rerun_min_work_seconds = 60
-
         monitor = self._monitor(
             "test-dq-006",
-            config=config,
             stdout=_decision_list_envelope(
                 [
                     {
@@ -1282,12 +1278,8 @@ class TestQueryDecisionsUnwrapsTheEnvelope:
         """``resolution_outcome`` wins over the legacy substring heuristic:
         an approve-with-context answer that happens to contain the words
         "request changes" is not a kickback."""
-        config = _MockConfig()
-        config.overseer_rerun_min_work_seconds = 60
-
         monitor = self._monitor(
             "test-dq-007",
-            config=config,
             stdout=_decision_list_envelope(
                 [
                     {
@@ -1314,12 +1306,8 @@ class TestQueryDecisionsUnwrapsTheEnvelope:
     def test_legacy_record_without_the_field_falls_back_to_normalized_matching(self) -> None:
         """Decisions resolved before ``resolution_outcome`` existed have no
         field to key on; the widened fallback normalizes the space form."""
-        config = _MockConfig()
-        config.overseer_rerun_min_work_seconds = 60
-
         monitor = self._monitor(
             "test-dq-008",
-            config=config,
             stdout=_decision_list_envelope(
                 [
                     {
@@ -1341,6 +1329,45 @@ class TestQueryDecisionsUnwrapsTheEnvelope:
         _run(monitor._check_rerun_anomaly(decisions, _PHASE_DATA_FAST_CYCLE))
 
         monitor._create_hitl_decision.assert_awaited_once()
+
+    def test_configured_threshold_below_the_cycle_suppresses_the_flag(self) -> None:
+        """The threshold is genuinely read from config, not just defaulted.
+
+        ``_PHASE_DATA_FAST_CYCLE`` is a 10s work cycle, which is under the
+        60s ``getattr`` default and so flags in every test above. Configuring
+        5s flips the outcome — the only shape that proves
+        ``overseer_rerun_min_work_seconds`` is load-bearing rather than
+        coincidentally equal to the default (#3636 review).
+        """
+        config = _MockConfig()
+        config.overseer_rerun_min_work_seconds = 5
+
+        monitor = self._monitor(
+            "test-dq-009",
+            config=config,
+            stdout=_decision_list_envelope(
+                [
+                    {
+                        "id": "d-threshold",
+                        "decision_type": "phase_gate",
+                        "resolution": "request changes",
+                        "resolution_outcome": "needs_revision",
+                        "content_changed": False,
+                        "status": "resolved",
+                        "resolved_at": "2026-03-18T10:00:00",
+                    }
+                ]
+            ),
+        )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
+
+        decisions = _run(monitor._query_decisions())
+        _run(monitor._check_rerun_anomaly(decisions, _PHASE_DATA_FAST_CYCLE))
+
+        monitor._create_hitl_decision.assert_not_awaited()
+        assert "d-threshold" not in monitor._rerun_anomaly_reported
 
 
 # ===================================================================
@@ -1503,6 +1530,40 @@ class TestHitlResolutionPropagation:
         _run(monitor._check_hitl_resolution_propagation(decisions))
         monitor._create_hitl_decision.assert_not_awaited()
         assert "d-11" in monitor._hitl_resolution_verified
+
+    def test_no_flag_when_contract_spells_it_resolved_true(self) -> None:
+        """The contract's real spelling is ``resolved: bool``, not ``status``.
+
+        ``shared/egg_contracts/models.py``'s ``Decision`` has no ``status``
+        key at all, so the ``status == "resolved"`` arm exercised by the test
+        above was never satisfiable against real contract data. This is the
+        arm the widening exists for (#3636 review).
+        """
+        config = _MockConfig()
+        config.overseer_hitl_propagation_timeout_seconds = 10
+
+        monitor = OverseerMonitor(pipeline_id="test-hitl-prop-002b", config=config)
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+        monitor._query_contract_data = AsyncMock(
+            return_value={"decisions": [{"id": "d-11b", "resolved": True}]}
+        )
+        monitor._broadcast_alert = AsyncMock()
+
+        decisions = [
+            {
+                "id": "d-11b",
+                "decision_type": "phase_gate",
+                "status": "resolved",
+                "resolution": "approve",
+            }
+        ]
+
+        monitor._hitl_resolution_pending["d-11b"] = time.time() - 999
+
+        _run(monitor._check_hitl_resolution_propagation(decisions))
+        monitor._create_hitl_decision.assert_not_awaited()
+        assert "d-11b" in monitor._hitl_resolution_verified
 
     def test_skips_already_verified(self) -> None:
         """Skips decisions that have already been verified."""

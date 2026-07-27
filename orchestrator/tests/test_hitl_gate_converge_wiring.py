@@ -15,7 +15,11 @@ lived and which nothing else exercises:
 * ``record_resolution_outcome`` on both the primary and the follow-up
   decision, and that its failure cannot strand the gate;
 * that a non-string ``context`` / ``feedback`` in an otherwise-valid
-  ``{"action": ...}`` payload cannot fail the pipeline;
+  ``{"action": ...}`` payload cannot fail the pipeline, and that a *falsy*
+  one still asks the operator for specifics instead of re-running the phase
+  against its serialisation;
+* the contract write with ``_persist_phase_gate_resolution`` left unstubbed,
+  so a note that only the real helper drops is not masked by the fixture;
 * the reuse-an-existing-pending-gate arm reaching the follow-up block without
   an ``UnboundLocalError``.
 """
@@ -393,6 +397,55 @@ class TestNonStringPayloadFields:
 
         assert len(dq.queued) == 2
         assert "didn't provide specific feedback" in dq.queued[1].question
+
+    @pytest.mark.parametrize("empty", ["{}", "[]", "false", "0", '""'])
+    def test_falsy_feedback_on_a_change_request_asks_for_specifics(self, gate_env, empty):
+        """Every falsy value must behave like the absent field, not like content.
+
+        Serialising them would return the *truthy* strings ``"{}"`` / ``"[]"``
+        / ``"false"`` / ``"0"``, which flips the "did the operator give us
+        specifics?" guard: a client posting ``{"action": "request_changes",
+        "feedback": {}}`` for an empty field would skip the follow-up prompt
+        and re-run the whole phase against a two-character serialisation
+        (#3636 review).
+        """
+        dq = FakeDecisionQueue([f'{{"action": "request_changes", "feedback": {empty}}}', "approve"])
+
+        _pipeline, action = _run(gate_env, dq)
+
+        assert len(dq.queued) == 2, "no follow-up was queued — the falsy field read as content"
+        assert "didn't provide specific feedback" in dq.queued[1].question
+        assert gate_env["rerun_calls"] == []
+        assert action is None
+
+
+class TestContractPersistenceWithoutTheStub:
+    """The one collaborator the other tests stub out — run it for real.
+
+    ``gate_env`` no-ops ``_persist_phase_gate_resolution``, which is exactly
+    where the approve-with-dict-context note was being dropped: the helper
+    read ``payload["context"]`` uncoerced and handed a dict to
+    ``Decision(resolution=...)``, whose ``str | None`` field pydantic
+    rejected — swallowed by the helper's broad ``except`` (#3636 review).
+    """
+
+    def test_dict_context_on_an_approve_reaches_the_contract(self, gate_env):
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines._ledger import _persist_phase_gate_resolution
+
+        save_contract(Contract(pipeline_id="issue-3636"), gate_env["repo_path"])
+        dq = FakeDecisionQueue(['{"action": "approve", "context": {"note": "ship it"}}'])
+
+        with patch(
+            "routes.pipelines._persist_phase_gate_resolution",
+            _persist_phase_gate_resolution,
+        ):
+            _pipeline, action = _run(gate_env, dq)
+
+        assert action is None
+        updated = load_contract("issue-3636", gate_env["repo_path"])
+        assert [d.resolution for d in updated.decisions] == ['{"note": "ship it"}']
 
 
 class TestExistingPendingGateReuse:

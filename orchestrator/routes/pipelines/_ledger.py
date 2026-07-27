@@ -1319,7 +1319,17 @@ def _persist_phase_gate_resolution(
         try:
             payload = _pkg.json.loads(raw)
             if isinstance(payload, dict):
-                resolution_context = payload.get("context", "") or payload.get("feedback", "")
+                # Coerced for the same reason the gate coerces its own read of
+                # these fields: nothing type-checks them, and a non-string
+                # ``context`` lands in ``Decision(resolution=...)`` below,
+                # where pydantic rejects it (``resolution: str | None``) and
+                # the broad ``except`` swallows it as a warning — so the
+                # operator approves with a note and the note never reaches the
+                # contract (#3636 review). Coercing here also keeps the draft
+                # section rendering the JSON form rather than a Python repr.
+                resolution_context = _pkg._coerce_gate_resolution_text(
+                    payload.get("context") or payload.get("feedback")
+                )
                 if not resolution_context:
                     _pkg.logger.debug(
                         "Phase gate approved without context, nothing to persist",
