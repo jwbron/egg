@@ -451,6 +451,7 @@ def _register_coverage_gap_detectors(plane: DetectionPlane) -> None:
         detect_effective_model_drift,
         detect_llm_substrate_unreachable,
     )
+    from health_checks.tier1.loop_detection import detect_agent_livelock
     from health_checks.tier1.runtime_liveness import (
         detect_agent_restart_propagation,
         detect_duration_drift,
@@ -490,6 +491,7 @@ def _register_coverage_gap_detectors(plane: DetectionPlane) -> None:
         detect_effective_model_drift,
         detect_anthropic_5xx_sustained,
         detect_overseer_self_health,
+        detect_agent_livelock,
     )
 
     existing = set(plane.detectors)
@@ -532,8 +534,28 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
     }
 
     live_ids = getattr(context, "live_container_ids", None) or set()
+
+    # #3665: enrich running agents with heartbeat and tool-call ages from the
+    # health monitor, so detectors like ``detect_heartbeat_stall`` can actually
+    # fire in the live path (previously these fields were always None).
+    agent_activity: dict[str, dict[str, float | None]] = {}
+    try:
+        from health_monitor import get_health_monitor
+
+        hm = get_health_monitor()
+        if hm is not None:
+            agent_activity = hm.get_agent_activity_ages()
+    except Exception:
+        pass
+
     running_agents = tuple(
-        RunningAgent(role=str(cid), state="running", lifecycle_owner=lifecycle_owner)
+        RunningAgent(
+            role=str(cid),
+            state="running",
+            lifecycle_owner=lifecycle_owner,
+            last_heartbeat_age_s=_agent_age(agent_activity, str(cid), "last_heartbeat_age_s"),
+            last_tool_call_age_s=_agent_age(agent_activity, str(cid), "last_activity_age_s"),
+        )
         for cid in live_ids
     )
 
@@ -544,6 +566,18 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
         running_agents=running_agents,
         phase_state=phase_state,
     )
+
+
+def _agent_age(
+    activity: dict[str, dict[str, float | None]],
+    agent_id: str,
+    key: str,
+) -> float | None:
+    """Safely extract an age field from the agent activity map."""
+    info = activity.get(agent_id)
+    if info is None:
+        return None
+    return info.get(key)
 
 
 def _context_lifecycle_owner(context: Any, pipeline: Any) -> str:

@@ -40,6 +40,10 @@ from health_checks.tier1.llm_substrate import (
     detect_effective_model_drift,
     detect_llm_substrate_unreachable,
 )
+from health_checks.tier1.loop_detection import (
+    AgentLivelockCheck,
+    detect_agent_livelock,
+)
 from health_checks.tier1.phase_output import PhaseOutputPresenceCheck
 from health_checks.tier1.runtime_liveness import (
     detect_agent_restart_propagation,
@@ -56,6 +60,7 @@ from health_checks.tier1.worktree_branch import (
 )
 
 __all__ = [
+    "AgentLivelockCheck",
     "ConsensusStallCheck",
     "ContainerLivenessCheck",
     "DriverLivenessCheck",
@@ -64,6 +69,7 @@ __all__ = [
     "StartupStateCheck",
     "StateConsistencyCheck",
     # slice-8 §5 coverage-gap detectors
+    "detect_agent_livelock",
     "detect_agent_restart_propagation",
     "detect_anthropic_5xx_sustained",
     "detect_approved_decision_orphaned",

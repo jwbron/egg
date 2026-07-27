@@ -41,6 +41,7 @@ class _EventJobStatusView:
         self._ABNORMAL = _event_loop.JOB_OUTCOME_ABNORMAL
         self._FATAL = _event_loop.JOB_OUTCOME_FATAL
         self._RATE_LIMITED = _event_loop.JOB_OUTCOME_RATE_LIMITED
+        self._LEGITIMATE = _event_loop.JOB_OUTCOME_LEGITIMATE
 
     def outcome_for(self, dedupe_key: str) -> str:
         selector = f"{LABEL_EVENT_DEDUPE}={_pkg._dedupe_label_value(dedupe_key)}"
@@ -77,6 +78,14 @@ class _EventJobStatusView:
             # spurious rate-limit.
             if self._failed_with_rate_limited(dedupe_key):
                 return self._RATE_LIMITED
+            # #3665: a SIGTERM (exit 143) from the sandbox's 2-hour agent
+            # timeout is a legitimate lifecycle termination, not a crash.
+            # Without this check it falls through to ``abnormal``, incrementing
+            # the fail-streak budget against a timeout the agent couldn't see
+            # coming. Treat it as a legitimate outcome so the event loop
+            # does not count it against the streak.
+            if self._failed_with_timeout_sigterm(dedupe_key):
+                return self._LEGITIMATE
             return self._ABNORMAL
         # Live = PENDING/CREATING/RUNNING — the same single-source set the
         # adoption filter (``_event_dedupe_key_live``) and live-pod accounting
@@ -135,6 +144,33 @@ class _EventJobStatusView:
             return False
         return any(getattr(c, "exit_code", None) == EX_RATE_LIMITED for c in containers)
 
+    def _failed_with_timeout_sigterm(self, dedupe_key: str) -> bool:
+        """Return True iff the failed event pod exited with SIGTERM (143).
+
+        #3665: a SIGTERM (exit 143) is produced when the sandbox's
+        ``ClaudeConfig.timeout`` (default 7200s = 2h) fires, or when the
+        orchestrator sends SIGTERM during phase teardown. Both are legitimate
+        lifecycle terminations, not crashes — counting them against the
+        fail-streak budget causes false exhaustion escalations. Best-effort:
+        a list error, a missing pod (already GC'd), or an unreadable exit code
+        all return ``False`` so the caller falls back to the ordinary
+        ``abnormal`` classification.
+        """
+        try:
+            containers = self._spawner.k8s.list_containers(
+                labels={LABEL_EVENT_DEDUPE: _pkg._dedupe_label_value(dedupe_key)}
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort; fall back to abnormal
+            logger.debug(
+                "Failed to read pod exit code for timeout-sigterm check",
+                dedupe_key=dedupe_key,
+                error=str(exc),
+            )
+            return False
+        if not isinstance(containers, (list, tuple)):
+            return False
+        return any(getattr(c, "exit_code", None) == 143 for c in containers)
+
     def exit_detail_for(self, dedupe_key: str) -> str | None:
         """Return a short operator-facing exit description for a dead pod (#3496).
 
@@ -164,7 +200,11 @@ class _EventJobStatusView:
         )
         if not codes:
             return None
-        return "exit_code=" + ",".join(str(code) for code in codes)
+        detail = "exit_code=" + ",".join(str(code) for code in codes)
+        # #3665: annotate SIGTERM (143) as a timeout, not a crash
+        if 143 in codes:
+            detail += " (SIGTERM — likely sandbox timeout or orchestrator teardown)"
+        return detail
 
     def reap_terminated(self, dedupe_key: str) -> int:
         """Delete terminal (FAILED/EXITED) Jobs carrying this dedupe-key label.
