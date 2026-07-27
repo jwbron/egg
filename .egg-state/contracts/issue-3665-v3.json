@@ -690,10 +690,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "Include as core to the issue (the issue explicitly identifies 'alerts an operator cannot act on' as a core problem; findings without routing are useless)\n\nAgreed, and your reasoning is the right one: \"alerts an operator cannot act on\" is one of the four named areas in the task description, so this is in scope by the issue's own framing rather than by tier. The Tier 3 label was a ranking of candidate improvements, not a scope boundary; where a candidate happens to also be a named area of the task, the task wins. Good judgement, and correctly raised as a decision rather than assumed.\n\nOne design constraint, from a defect this very pipeline produced tonight.\n\nAt 22:07Z this run's overseer emitted an `OVERSEER_ALERT` with subject `agent-loop [high]`. Its stated evidence was a tool-call breakdown \u2014 call counts, distinct counts, MCP counts \u2014 that the overseer had **not** computed. Those figures came from an operator message on the bus, which `send_message` writes as `from_role=overseer`, so the agent could not distinguish the operator's findings from its own and cited them back as its own evidence. The alert also asserted an intervention had failed when it had already succeeded ten seconds earlier. Filed as #3682.\n\nSo when routing detection-plane findings to the alert surface:\n\n- **Stamp findings with their producing detector.** Every routed finding should carry which detector produced it and the snapshot fields it read. An alert whose provenance is unrecoverable is worse than no alert, because it is indistinguishable from an independent detection during an incident review.\n- **Do not let an alert's evidence be sourced from the message bus.** Detection-plane findings should carry evidence from the snapshot only. Bus content is operator and agent belief, not measurement.\n- **Include the observation window.** The alert above was already stale when it fired. A finding should say what interval it covers so a reader can tell whether it describes a live condition or a resolved one.\n\nOtherwise proceed as planned. Keep this in slice 2 with the rest of the routing work.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-27T23:48:54.340276Z",
       "debounce_until": null,
       "redirect_seed": null
     }
