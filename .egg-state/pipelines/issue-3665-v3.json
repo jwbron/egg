@@ -11,7 +11,7 @@
     }
   ],
   "prompt": "This pipeline's task is GitHub issue #3665 — https://github.com/jwbron/egg/issues/3665. Fetch the live issue body (`gh issue view 3665`) before structural decisions. Worktree artifacts (drafts, agent outputs) that reference any other issue or pipeline are leftovers from previous runs — they are NOT your task.\n\n## The problem\n\nWe ran two long pipelines over the last three days. Between them, seven agents entered\nrepetition loops — the same tool call, or a short cycle of them, repeated until something\noutside the system intervened. Five different roles, across all three phases. Not one was\ndetected by the product. Every one of them was caught by a monitor I was running by hand in a\nterminal, and cleared by me typing an answer into the bus.\n\nIn the same window, the supervision layer was noisy in the other direction. A convergence-stall\nalert fired at `[high]` priority against a coder whose peer heartbeat was seconds old, while the\nhealth monitor was concurrently logging, every 30 seconds, that the same agent was alive. That\nalert was then read — by me — as the cause of a 110-minute work loss it had nothing to do with.\nThe misdiagnosis cost more than the alert would ever have saved. Separately, two agents were\nkilled at exactly two hours by a timeout none of them could see coming, and both kills were\ncounted as crashes against the fail-streak budget.\n\nSo the layer whose job is to distinguish a working agent from a wedged one was silent for seven\nwedged agents and loud at several healthy ones. Both directions have the same consequence: an\noperator stops trusting the signal and goes back to watching by hand, which is what happened.\n\nThere is one more thing worth stating plainly, because it shaped everything above. While\nbuilding that hand-rolled monitor I rewrote the \"is this role stuck?\" rule five times. Each\nversion looked obviously correct and each produced false positives against live data — producers\nare legitimately podless between events; reviewers legitimately wait on upstream producers; a\ndeclared no-op leaves its review edges pending forever; a NACK is a verdict and discharges the\nobligation just as an ACK does. Two of those five states are not visible in the status payload at\nall. Whatever gets built here will hit all five. A detector that cries wolf gets muted, and a\nmuted detector misses the real stall.\n\n## What has already landed — do not rebuild it\n\nThe last pass over this area produced work that shipped. Verify each of these in the tree and\ntreat them as done:\n\n- Terminating-Job adoption on the event-loop respawn path (#3613); confirmed working on its\n  first real test.\n- A re-attached worktree's uncommitted work is preserved before reset (#3644, plus #3647, #3652,\n  #3654, #3656, #3660).\n- Cancel stops the driver (#3645, plus #3649, #3655, #3657).\n- Phase-gate approvals parse on their first line (#3648).\n- Never-heartbeated roles anchor at Job start (#3612).\n- The simplifier's first propose is gated on its upstream producer (#3607).\n- Green gate defaults to on (#3609) and a red escalates to HITL (#3628).\n- Every routed call records its decoding config (#3611, #3625).\n- Re-reviews are blocking-only (#3661).\n\nThat list is what shipped. It is not a statement about what remains.\n\n## Areas worth attention\n\nFour, loosely. How you cut them up, order them, or merge them is your call.\n\n- **Signals that exist and are not consulted.** In more than one place the information needed to\n  tell working from wedged is already computed, in the same process, seconds away from the code\n  that decides. It is not read. Some detectors are also unreachable because an input they require\n  is never populated.\n\n- **Session boundaries read as failures.** An agent that simply ran long, or exited cleanly\n  without emitting the verdict it owed, or whose pod vanished, is currently indistinguishable\n  from one that crashed. Some of these consume a retry budget or an arm they should not, and at\n  least one suppresses the very check that would have noticed.\n\n- **Loops that nothing detects.** This is the seven. One empirical result from the incident\n  analysis is worth handing over rather than making you rediscover: across every instance,\n  counting *tool inputs never issued before in the session* over a trailing window separates a\n  loop from work cleanly — a working agent produces new ones and a loop of any length produces\n  none. Two constraints found the hard way: the pod log cannot support this, because tool inputs\n  are truncated at about 100 characters and distinct commands sharing a prefix collapse together;\n  and the cycle shape varies (single-input, 2-, 3-, and 8-cycles were all observed), so anything\n  keyed on a fixed shape or on dominance misses most of them. What to do with that is yours to\n  decide.\n\n- **Alerts an operator cannot act on.** Some fire without the evidence that would make them\n  readable. Some name a threshold whose detector does not exist. Some outcomes are distinguishable\n  only by which log string was emitted.\n\n## What to propose\n\nTwo things, and keep them separate.\n\n**The work.** Decide what is worth doing across those areas, in what order, and what to leave\nout. Nothing above is a requirement; if you find something in the list is already handled, drop\nit and say where.\n\n**A candidate list.** Beyond whatever you propose to build, produce a ranked list of further\nimprovements to this layer that you think are worth making. Every entry must carry a\nfile-and-symbol citation and a verdict on whether the thing is present or absent in the tree\ntoday. This list is a deliverable in its own right and does not obligate anyone to implement any\nof it — it is input to the gate, and the gate decides. Do not defer chosen work into it.\n\n## Ground rules\n\n**Verify before you build.** Some of what looks missing here may already exist; this description\nis written from an operator's experience, not from the code. Check the tree before planning\nanything, and say what you checked. If something is already implemented, drop it and say so\nrather than building it twice.\n\n**Scope is yours to propose.** If a judgement call would materially change the shape of the work,\nraise it as a decision rather than guessing.\n\n**Read the prior write-ups critically, or not at all.** #3595 is the incident analysis and #3596\nwas the first pass over this area; both contain superseded plans and at least one hypothesis that\nwas later disproved. The repository is the source of truth.\n\n**This layer is watching you while you change it.** Its blind spots are the ones described above,\nso do not assume an absence of alerts means anything is fine.",
-  "status": "awaiting_human",
+  "status": "running",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -158,14 +158,14 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "awaiting_human",
+      "status": "running",
       "started_at": "2026-07-27T22:15:11.506636Z",
       "work_started_at": "2026-07-27T22:58:04.158599Z",
-      "completed_at": "2026-07-27T23:12:16.883535Z",
+      "completed_at": null,
       "containers": [],
       "agents": [],
       "review_cycles": 0,
-      "hitl_review_cycles": 0,
+      "hitl_review_cycles": 1,
       "cycle_timings": [
         {
           "cycle": 0,
@@ -182,8 +182,36 @@
       ],
       "artifacts": {},
       "error": null,
-      "operator_directives": [],
-      "iteration_history": [],
+      "operator_directives": [
+        {
+          "iteration_n": 0,
+          "created_at": "2026-07-27T23:37:47.242151Z",
+          "feedback_text": "The decomposition is sound and the dependency chain is right: snapshot before plane, plane before detector, and the linear slice ordering is correctly justified by the shared-file overlap in `kubernetes_monitor.py` / `detection_plane.py` / `health_monitor.py`. The double-evaluation guard is properly carried through — you named both call sites and made it a task and an acceptance criterion. Slice 4's split of `JOB_OUTCOME_TIMEOUT` from `record_abort` is exactly the right shape. Keep all of that.\n\nFour items, one of which will fail the green gate at implement if it ships as written.\n\n**1. Blocking: acceptance criterion 1 is unsatisfiable by your own tasks.**\n\nAC-1 states the snapshot builder \"populates all 13 `EventStreamSnapshot` fields (currently only 5)\", and TASK-1-6 is \"Tests for snapshot population. Verify all 13 fields are populated.\"\n\nBut slice 1 assigns only five: `runtime` (TASK-1-1), `consensus` (TASK-1-2), `container_transitions` (TASK-1-3), the `RunningAgent` role and age fields (TASK-1-4), `midturn_messages` (TASK-1-5). Four fields are populated by **no task in any slice**: `decision_state`, `gateway_error_counters`, `cost_counters`, `git_state`. In this document each of those four appears exactly once, in the problem statement at lines 63-64, and never again.\n\nThose four are candidates #16, #17, #18 and #21 — Tier 3 and Tier 4. Your own \"What to leave out\" says \"Tier 3–5 from the candidate list are input to the gate, not a work queue.\" So AC-1 requires precisely the work the same document forbids.\n\nLeft as-is this fails at implement: the tester writes TASK-1-6 against AC-1, the assertion fails, and the coder either scope-creeps into excluded Tier 3/4 work or the slice green gate blocks and cannot be cleared. Fix AC-1 and TASK-1-6 to name the five fields actually in scope, and state that the remaining four stay empty by decision with the detectors reading them remaining inert.\n\n**2. A constraint from the refine gate was dropped.**\n\nThe refine approval required: `health_checks/tier1/consensus_stall.py` contains both the dormant `detect_heartbeat_stall` function **and** a registered `ConsensusStallCheck` class that already runs on every runtime tick, so once the plane is live that pair must not double-fire. Nothing in this plan addresses it. Your only \"double\" references are the invocation-level double-evaluation guard, which is a different problem — that stops the plane being *evaluated* twice; it does nothing about two independent layers reporting the same consensus stall once each.\n\nAdd this to slice 2. It is the first place duplication will appear and it is cheap to handle now.\n\n**3. Tier 3 work was pulled in without registering a decision.**\n\nTASK-2-2 (route findings to the operator alert surface) is candidate #19, Tier 3. TASK-3-2 (log capture fidelity past the ~100-char truncation) is candidate #20, Tier 3. The refine approval said to stay within Tier 1 and Tier 2 and to register a decision rather than expand scope. No decision was registered.\n\nTo be clear, I am not asking you to drop them. **TASK-3-2 is arguably a hard dependency** — the ~100-char tool-input truncation is exactly why the loop detector cannot be built on the pod log, so a loop detector without it may be unimplementable. That is a good argument; it just needs to be made rather than assumed. Register the scope decision, state the dependency argument for #20, and either justify #19 the same way or move it out.\n\n**4. `midturn_messages` is sequenced last, and it gates the primary deliverable.**\n\nThe refine approval asked for `midturn_messages` first among slice 1's fields, because slice 3's `detect_tool_input_loop()` is the one item that would actually have caught the seventeen livelocks this issue exists for. It is TASK-1-5, fifth of six. Move it to TASK-1-1.\n\nThis matters practically: the loop detector is in slice 3 of 5, so it lands only after two slices of prerequisite work. If the phase runs out of budget the single highest-value item is what gets cut. Sequencing its dependency first is the cheapest insurance against that.\n\n**Scope of this revision:** fix these four and re-propose. Do not re-derive the plan, do not re-read files to satisfy this feedback, and do not change the five-slice decomposition or the linear ordering — both are correct. Every correction above carries the verified answer inline."
+        }
+      ],
+      "iteration_history": [
+        {
+          "iteration_n": 0,
+          "completed_at": "2026-07-27T23:37:47.242162Z",
+          "final_proposal_commit": {
+            "task_planner": "6092b5a7afd4e018c2c7f83fdf1161cbab01430e",
+            "simplifier": "e030b6112",
+            "architect": "d2a9f8e77",
+            "risk_analyst": "89c187678"
+          },
+          "verdict_matrix": {
+            "reviewer_plan->architect": "acked",
+            "reviewer_plan->task_planner": "acked",
+            "reviewer_plan->risk_analyst": "acked",
+            "risk_analyst->architect": "acked",
+            "risk_analyst->task_planner": "acked",
+            "reviewer_plan->simplifier": "acked",
+            "simplifier->task_planner": "acked"
+          },
+          "nack_reasons": [],
+          "artifacts_snapshot": {}
+        }
+      ],
       "phase_start_sha": "1cd0c8ad786880fe7388a2ac9f377010ed97486a",
       "agent_exits": [],
       "decision_ledger": {
@@ -274,7 +302,7 @@
     }
   ],
   "created_at": "2026-07-27T20:11:36.638844Z",
-  "updated_at": "2026-07-27T23:37:47.201549Z",
+  "updated_at": "2026-07-27T23:37:47.245412Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -287,7 +315,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-27T22:15:08.623204Z",
-  "version": 41,
+  "version": 42,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
