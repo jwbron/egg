@@ -632,6 +632,34 @@
       "resolved_at": "2026-07-27T22:15:05.118119Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "cq-1",
+      "question": "Should TASK-3-2 (log fidelity, candidate #20, Tier 3) be included in the plan?",
+      "type": "hitl",
+      "phase": "plan",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Include as hard dependency (k8s log API truncates tool-call lines at ~100 chars, making the loop detector unimplementable without full-length inputs)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Exclude as Tier 3 (remain input to the gate only)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -645,6 +673,44 @@
       "old_value": "refine",
       "new_value": "plan",
       "reason": "orchestrator phase-transition sync (driver_startup; #3521)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-27T23:43:08.919825Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-1",
+        "question": "Should TASK-3-2 (log fidelity, candidate #20, Tier 3) be included in the plan?",
+        "type": "hitl",
+        "phase": "plan",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Include as hard dependency (k8s log API truncates tool-call lines at ~100 chars, making the loop detector unimplementable without full-length inputs)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Exclude as Tier 3 (remain input to the gate only)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should TASK-3-2 (log fidelity, candidate #20, Tier...",
       "checkpoint_id": null
     }
   ],
