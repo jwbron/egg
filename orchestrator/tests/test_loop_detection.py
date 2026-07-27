@@ -2,18 +2,21 @@
 
 CORRECTED per operator feedback (cq-1, cq-3):
 
-* **cq-1**: The detector reads the live session transcript (not
-  ``agent_log_store``) and keys on the **full untruncated**
-  ``(tool_name, input)`` pair (no 80-char truncation). Tests verify
-  that distinct inputs sharing a prefix are NOT collapsed.
+* **cq-1**: The detector reads the live session transcript from
+  ``session_state_store`` (not ``agent_log_store``) and keys on the
+  **full untruncated** ``(tool_name, input)`` pair (no 80-char
+  truncation). Tests verify that distinct inputs sharing a prefix are
+  NOT collapsed.
 
 * **cq-3**: ``requires_adjudication=True`` — the detector escalates to
   HITL with the looping input quoted verbatim, not a nudge.
 
 * **Metric correction**: The detector uses novelty counting (fire at
   zero new inputs in the trailing window), not a ratio threshold.
-  Tests verify that a 3-cycle loop (ABC repeated) fires, and that
-  a working agent with all unique inputs does NOT fire.
+
+Tests use the ``tool_calls_by_role`` path (populated in the snapshot's
+``raw`` field) to exercise the production code path without mocking
+``_get_agent_logs``.
 """
 
 from __future__ import annotations
@@ -32,13 +35,25 @@ def _make_snapshot(
     phase: str = "implement",
     status: str = "RUNNING",
     pipeline_id: str = "issue-99",
+    tool_calls_by_role: dict[str, list[str]] | None = None,
 ) -> EventStreamSnapshot:
+    """Build a snapshot with optional tool_calls_by_role in the raw field.
+
+    The ``tool_calls_by_role`` field is what the detector reads in production
+    (populated by ``snapshot_from_health_context`` via
+    ``_extract_tool_calls_by_role``). Tests provide it directly here so the
+    production code path is exercised without mocking ``_get_agent_logs``.
+    """
+    raw: dict = {}
+    if tool_calls_by_role:
+        raw["tool_calls_by_role"] = tool_calls_by_role
     return EventStreamSnapshot(
         snapshot_id=f"{pipeline_id}:{phase}",
         pipeline_id=pipeline_id,
         phase=phase,
         running_agents=tuple(running_agents or []),
         phase_state={"status": status},
+        raw=raw,
     )
 
 
@@ -114,7 +129,8 @@ class TestDetectAgentLivelock:
         snapshot = _make_snapshot(running_agents=[])
         assert detect_agent_livelock(snapshot) is None
 
-    def test_no_finding_when_logs_unavailable(self) -> None:
+    def test_no_finding_when_no_tool_calls(self) -> None:
+        """No tool_calls_by_role in snapshot and no transcript available."""
         agent = RunningAgent(role="coder", state="running")
         snapshot = _make_snapshot(running_agents=[agent])
         with patch(
@@ -131,13 +147,12 @@ class TestDetectAgentLivelock:
         first half. Novelty = 0 → livelock.
         """
         agent = RunningAgent(role="coder", state="running")
-        snapshot = _make_snapshot(running_agents=[agent])
-        logs = "\n".join(["> Bash: ls -la /tmp"] * 12)
-        with patch(
-            "health_checks.tier1.loop_detection._get_agent_logs",
-            return_value=logs,
-        ):
-            finding = detect_agent_livelock(snapshot)
+        tool_calls = ["Bash:ls -la /tmp"] * 12
+        snapshot = _make_snapshot(
+            running_agents=[agent],
+            tool_calls_by_role={"coder": tool_calls},
+        )
+        finding = detect_agent_livelock(snapshot)
         assert finding is not None
         assert finding.finding_class == FINDING_AGENT_LIVELOCK
         assert finding.severity.value == "high"
@@ -157,13 +172,12 @@ class TestDetectAgentLivelock:
         signatures that were NOT seen in the first half → novelty > 0.
         """
         agent = RunningAgent(role="coder", state="running")
-        snapshot = _make_snapshot(running_agents=[agent])
-        logs = "\n".join([f"> Bash: command_{i}" for i in range(20)])
-        with patch(
-            "health_checks.tier1.loop_detection._get_agent_logs",
-            return_value=logs,
-        ):
-            finding = detect_agent_livelock(snapshot)
+        tool_calls = [f"Bash:command_{i}" for i in range(20)]
+        snapshot = _make_snapshot(
+            running_agents=[agent],
+            tool_calls_by_role={"coder": tool_calls},
+        )
+        finding = detect_agent_livelock(snapshot)
         assert finding is None
 
     def test_finding_when_too_few_tool_calls_but_all_identical(self) -> None:
@@ -173,13 +187,12 @@ class TestDetectAgentLivelock:
         novelty = 0 → livelock.
         """
         agent = RunningAgent(role="coder", state="running")
-        snapshot = _make_snapshot(running_agents=[agent])
-        logs = "\n".join(["> Bash: ls -la /tmp"] * 5)
-        with patch(
-            "health_checks.tier1.loop_detection._get_agent_logs",
-            return_value=logs,
-        ):
-            finding = detect_agent_livelock(snapshot)
+        tool_calls = ["Bash:ls -la /tmp"] * 5
+        snapshot = _make_snapshot(
+            running_agents=[agent],
+            tool_calls_by_role={"coder": tool_calls},
+        )
+        finding = detect_agent_livelock(snapshot)
         assert finding is not None
         assert finding.finding_class == FINDING_AGENT_LIVELOCK
         assert finding.evidence["novel_in_window"] == 0
@@ -191,13 +204,12 @@ class TestDetectAgentLivelock:
         only A, B, C, all of which were seen in the first half → novelty = 0.
         """
         agent = RunningAgent(role="coder", state="running")
-        snapshot = _make_snapshot(running_agents=[agent])
-        logs = "\n".join(["> Bash: a", "> Bash: b", "> Bash: c"] * 20)
-        with patch(
-            "health_checks.tier1.loop_detection._get_agent_logs",
-            return_value=logs,
-        ):
-            finding = detect_agent_livelock(snapshot)
+        tool_calls = ["Bash:a", "Bash:b", "Bash:c"] * 20
+        snapshot = _make_snapshot(
+            running_agents=[agent],
+            tool_calls_by_role={"coder": tool_calls},
+        )
+        finding = detect_agent_livelock(snapshot)
         assert finding is not None
         assert finding.finding_class == FINDING_AGENT_LIVELOCK
         assert finding.evidence["total_tool_calls"] == 60
@@ -213,15 +225,12 @@ class TestDetectAgentLivelock:
         cmd_9 were NOT → novelty = 4 > 0 → no livelock.
         """
         agent = RunningAgent(role="coder", state="running")
-        snapshot = _make_snapshot(running_agents=[agent])
-        logs = "\n".join(
-            [f"> Bash: cmd_{i}" for i in range(10)] + ["> Bash: cmd_0", "> Bash: cmd_1"]
+        tool_calls = [f"Bash:cmd_{i}" for i in range(10)] + ["Bash:cmd_0", "Bash:cmd_1"]
+        snapshot = _make_snapshot(
+            running_agents=[agent],
+            tool_calls_by_role={"coder": tool_calls},
         )
-        with patch(
-            "health_checks.tier1.loop_detection._get_agent_logs",
-            return_value=logs,
-        ):
-            finding = detect_agent_livelock(snapshot)
+        finding = detect_agent_livelock(snapshot)
         assert finding is None
 
     def test_finding_for_8_cycle_loop(self) -> None:
@@ -231,13 +240,12 @@ class TestDetectAgentLivelock:
         only A-H, all of which were seen in the first half → novelty = 0.
         """
         agent = RunningAgent(role="coder", state="running")
-        snapshot = _make_snapshot(running_agents=[agent])
-        logs = "\n".join([f"> Bash: {c}" for c in "ABCDEFGH"] * 5)
-        with patch(
-            "health_checks.tier1.loop_detection._get_agent_logs",
-            return_value=logs,
-        ):
-            finding = detect_agent_livelock(snapshot)
+        tool_calls = [f"Bash:{c}" for c in "ABCDEFGH"] * 5
+        snapshot = _make_snapshot(
+            running_agents=[agent],
+            tool_calls_by_role={"coder": tool_calls},
+        )
+        finding = detect_agent_livelock(snapshot)
         assert finding is not None
         assert finding.finding_class == FINDING_AGENT_LIVELOCK
         assert finding.evidence["total_tool_calls"] == 40
@@ -247,16 +255,15 @@ class TestDetectAgentLivelock:
     def test_finding_quotes_looping_input_verbatim(self) -> None:
         """cq-3: the looping input must be quoted verbatim in the finding."""
         agent = RunningAgent(role="coder", state="running")
-        snapshot = _make_snapshot(running_agents=[agent])
-        looping_input = "> Bash: grep -rn 'convergence_stall' orchestrator/event_loop/_loop.py | head -20"
-        logs = "\n".join([looping_input] * 15)
-        with patch(
-            "health_checks.tier1.loop_detection._get_agent_logs",
-            return_value=logs,
-        ):
-            finding = detect_agent_livelock(snapshot)
+        looping_input = "Bash:grep -rn 'convergence_stall' orchestrator/event_loop/_loop.py | head -20"
+        tool_calls = [looping_input] * 15
+        snapshot = _make_snapshot(
+            running_agents=[agent],
+            tool_calls_by_role={"coder": tool_calls},
+        )
+        finding = detect_agent_livelock(snapshot)
         assert finding is not None
-        # The looping input must be in the evidence (format: "tool_name:input")
+        # The looping input must be in the evidence
         assert "grep -rn 'convergence_stall'" in finding.evidence["looping_input"]
         # And in the recommended action
         assert "grep -rn 'convergence_stall'" in finding.recommended_action
@@ -268,13 +275,12 @@ class TestDetectAgentLivelock:
         only A and B, both of which were seen in the first half → novelty = 0.
         """
         agent = RunningAgent(role="coder", state="running")
-        snapshot = _make_snapshot(running_agents=[agent])
-        logs = "\n".join(["> Bash: a", "> Bash: b"] * 15)
-        with patch(
-            "health_checks.tier1.loop_detection._get_agent_logs",
-            return_value=logs,
-        ):
-            finding = detect_agent_livelock(snapshot)
+        tool_calls = ["Bash:a", "Bash:b"] * 15
+        snapshot = _make_snapshot(
+            running_agents=[agent],
+            tool_calls_by_role={"coder": tool_calls},
+        )
+        finding = detect_agent_livelock(snapshot)
         assert finding is not None
         assert finding.finding_class == FINDING_AGENT_LIVELOCK
         assert finding.evidence["total_tool_calls"] == 30
@@ -289,15 +295,14 @@ class TestDetectAgentLivelock:
         they would collapse and the detector might miss the loop.
         """
         agent = RunningAgent(role="coder", state="running")
-        snapshot = _make_snapshot(running_agents=[agent])
         prefix = "x" * 80
         # 15 calls: alternating between two distinct inputs that share a prefix
-        logs = "\n".join([f"> Bash: {prefix}aaa", f"> Bash: {prefix}bbb"] * 7 + [f"> Bash: {prefix}aaa"])
-        with patch(
-            "health_checks.tier1.loop_detection._get_agent_logs",
-            return_value=logs,
-        ):
-            finding = detect_agent_livelock(snapshot)
+        tool_calls = [f"Bash:{prefix}aaa", f"Bash:{prefix}bbb"] * 7 + [f"Bash:{prefix}aaa"]
+        snapshot = _make_snapshot(
+            running_agents=[agent],
+            tool_calls_by_role={"coder": tool_calls},
+        )
+        finding = detect_agent_livelock(snapshot)
         assert finding is not None
         assert finding.finding_class == FINDING_AGENT_LIVELOCK
         # The two distinct inputs are correctly identified as unique
@@ -334,16 +339,15 @@ class TestAgentLivelockCheck:
 
         check = AgentLivelockCheck()
         agent = RunningAgent(role="coder", state="running")
-        logs = "\n".join(["> Bash: ls -la /tmp"] * 12)
+        tool_calls = ["Bash:ls -la /tmp"] * 12
 
-        with (
-            patch("health_checks.detection_plane.snapshot_from_health_context") as mock_snapshot,
-            patch(
-                "health_checks.tier1.loop_detection._get_agent_logs",
-                return_value=logs,
-            ),
-        ):
-            mock_snapshot.return_value = _make_snapshot(running_agents=[agent])
+        with patch(
+            "health_checks.detection_plane.snapshot_from_health_context"
+        ) as mock_snapshot:
+            mock_snapshot.return_value = _make_snapshot(
+                running_agents=[agent],
+                tool_calls_by_role={"coder": tool_calls},
+            )
             context = MagicMock()
             context.pipeline_id = "issue-99"
             result = check.run(context)
