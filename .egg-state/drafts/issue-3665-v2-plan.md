@@ -1,4 +1,4 @@
-# Task Planner Proposal: Supervision Layer, Second Pass (#3665)
+# Task Planner Proposal: Supervision Layer, Second Pass (#3665) — v3
 
 ## Summary
 
@@ -13,7 +13,7 @@ The supervision layer was silent on seven livelocks and loud at healthy agents. 
 - ✅ Terminating-Job adoption on event-loop respawn path (#3613)
 - ✅ Worktree uncommitted work preservation on re-attach (#3644, #3647, #3652, #3654, #3656, #3660)
 - ✅ Cancel stops the driver (#3645, #3649, #3655, #3657)
-- ✅ Phase-gate approvals parse on first line (#3648)
+- ✅ Phase-gate approvals parse on their first line (#3648)
 - ✅ Never-heartbeated roles anchor at Job start (#3612)
 - ✅ Simplifier's first propose is gated on its upstream producer (#3607)
 - ✅ Green gate defaults to on (#3609), red escalates to HITL (#3628)
@@ -27,24 +27,25 @@ The supervision layer was silent on seven livelocks and loud at healthy agents. 
 - **`agent_timeout_seconds`** config field does NOT exist on PipelineConfig — needs to be added.
 - **`active_deadline_seconds`** is hardcoded to 14400 (4h) in `kubernetes_client.py:350` — needs to be configurable.
 - **Exit code 143 (SIGTERM)** is only treated as clean during phase transition (`kubernetes_monitor.py:532`) — needs to also be clean during RUNNING phase (sandbox timeout).
-- **`AgentLivelockCheck`** class does NOT exist — needs to be created.
-- **`detect_agent_livelock`** function does NOT exist — needs to be created.
 
-### Already Implemented in Commit 6ffe97c8e (issue-3665-supervision-gaps branch)
-Commit `6ffe97c8e` on the `issue-3665-supervision-gaps` branch already implements all three supervision fixes (17 files, 1072 insertions). The plan integrates this commit rather than reimplementing it. The coder's task is to VERIFY the integration is correct and complete, and address any gaps identified by reviewers.
+### Already Implemented in Commit 68b185ca (issue-3665-supervision-gaps branch)
+Commit `68b185ca` (tip of `issue-3665-supervision-gaps` branch, verified at integration time) implements all three supervision fixes (17 files, 1072 insertions). The plan integrates this commit, with corrections to the livelock detector per operator feedback (cq-1, cq-3).
 
 ## Proposed Work
 
-### Task 1: Integrate Supervision-Layer Fixes from Commit 6ffe97c8e (task-1-1, task-1-3)
-**Source:** Commit `6ffe97c8e` on `issue-3665-supervision-gaps` branch
+### Task 1: Integrate Supervision-Layer Fixes (task-1-1, task-1-3)
+**Source:** Commit `68b185ca` on `issue-3665-supervision-gaps` branch (verified at integration time)
 
-Integrate the three supervision-layer fixes that already exist in commit `6ffe97c8e`:
+Integrate the three supervision-layer fixes, with corrections to the livelock detector per operator feedback:
 
-1. **Agent livelock/repetition-loop detection** — `orchestrator/health_checks/tier1/loop_detection.py` (new, 317 lines):
-   - `detect_agent_livelock` function: parses Claude Code tool-call lines from `agent_log_store` transcripts, fires when unique tool-input ratio drops below 10% with ≥10 total calls. `requires_adjudication=False`.
-   - `AgentLivelockCheck` class: Tier 1 HealthCheck wrapper, registered in `cli.py`.
+1. **Agent livelock/repetition-loop detection** — `orchestrator/health_checks/tier1/loop_detection.py` (new):
+   - **CORRECTION per cq-1**: Read the live session transcript at `$HOME/.claude/projects/<encoded-cwd>/<session-id>.jsonl` inside the running pod, NOT `agent_log_store` (pod stdout). Key on the FULL untruncated `(tool_name, input)` pair — no character limit.
+   - **CORRECTION per issue**: Implement novelty metric — count inputs never issued before IN THE SESSION over a trailing window, fire at zero. NOT a ratio (unique/total).
+   - **CORRECTION per cq-3**: Recovery is a two-step process: (1) post a terminating message to the bus, then (2) respawn with a fresh session. The detector escalates to HITL with the looping input quoted verbatim, since it cannot know the answer to the agent's question.
+   - `requires_adjudication=False` (deterministic detection), but the corrective action escalates to HITL.
    - Registered in `DetectionPlane.default()` via `_register_coverage_gap_detectors`.
    - Exported from `tier1/__init__.py`.
+   - Registered in `cli.py` health check runner.
 
 2. **Two-hour timeout visibility** — modifies 5 files:
    - `orchestrator/models/_config.py`: adds `agent_timeout_seconds: int = Field(default=7200, ge=60)`.
@@ -60,7 +61,7 @@ Integrate the three supervision-layer fixes that already exist in commit `6ffe97
    - `orchestrator/health_checks/detection_plane.py`: enriches `snapshot_from_health_context` to populate `last_tool_call_age_s` and `last_heartbeat_age_s` on `RunningAgent` entries; registers `detect_heartbeat_stall` in `DetectionPlane.default()`.
 
 **Files to verify/integrate:**
-- `orchestrator/health_checks/tier1/loop_detection.py` (new)
+- `orchestrator/health_checks/tier1/loop_detection.py` (new, with corrections)
 - `orchestrator/health_checks/detection_plane.py` (modified)
 - `orchestrator/health_checks/tier1/__init__.py` (modified)
 - `orchestrator/cli.py` (modified)
@@ -74,66 +75,86 @@ Integrate the three supervision-layer fixes that already exist in commit `6ffe97
 - `orchestrator/event_loop/__init__.py` (modified)
 - `sandbox/llm/claude/config.py` (modified)
 
-### Task 2: Verify Test Coverage (task-1-4)
-**Source:** Commit `6ffe97c8e` includes 4 test files
+### Task 2: Two-Hour Timeout Visibility (task-1-2)
+Same as task 1 above — see files list.
 
-Verify the test coverage from commit `6ffe97c8e`:
-- `orchestrator/tests/test_loop_detection.py` (210 lines) — unit tests for `detect_agent_livelock`.
-- `orchestrator/tests/test_agent_timeout_config.py` (36 lines) — tests for `agent_timeout_seconds` config.
-- `orchestrator/tests/test_convergence_stall_suppression.py` (127 lines) — tests for activity-based suppression.
-- `orchestrator/tests/test_timeout_sigterm.py` (148 lines) — tests for exit 143 classification.
+### Task 3: False Convergence-Stall Suppression (task-1-3)
+Same as task 1 above — see files list.
 
-**Files to verify:**
-- `orchestrator/tests/test_loop_detection.py` (new)
-- `orchestrator/tests/test_agent_timeout_config.py` (new)
-- `orchestrator/tests/test_convergence_stall_suppression.py` (new)
-- `orchestrator/tests/test_timeout_sigterm.py` (new)
+### Task 4: Alert Evidence Bundling (task-1-4) — RESTORED
+**Priority 4 from the issue's "What to propose" section.**
+
+Enrich OVERSEER_ALERT payloads with structured evidence so operators can act without hand-investigation:
+- `latest_heartbeat_age_s` — seconds since last heartbeat
+- `latest_tool_call_age_s` — seconds since last tool call
+- `last_progress_event` — the most recent progress event data
+- `blocking_agents` — the BRC consensus blocking set
+- `consensus_state` — the current BRC consensus matrix state
+
+The overseer already fetches container logs separately at `_poll.py:78-85`, so most of the data is in hand. This is what makes the other three fixes usable: a livelock alert that does not carry the repeated input and the ages is an alert an operator has to investigate by hand.
+
+**Files to modify:**
+- `orchestrator/health_monitor.py` — enrich escalation dicts with evidence fields
+- `orchestrator/event_loop/_loop.py` — enrich convergence-stall anomaly payloads
+- `orchestrator/overseer/monitor/_alerting.py` — enrich OVERSEER_ALERT payloads
+
+### Task 5: Tests (task-1-5)
+Verify test coverage from commit `68b185ca` and add tests for the corrected livelock detector:
+- `orchestrator/tests/test_loop_detection.py` — update to test novelty metric (not ratio), live session transcript parsing (not agent_log_store), and HITL escalation (not nudge).
+- `orchestrator/tests/test_agent_timeout_config.py` — verify agent_timeout_seconds config.
+- `orchestrator/tests/test_convergence_stall_suppression.py` — verify activity-based suppression.
+- `orchestrator/tests/test_timeout_sigterm.py` — verify exit 143 classification.
+
+## What Was Left Out (and Why)
+
+- **Per-agent timeout configuration** (candidate #2): The operator resolved cq-2 as pipeline-level only. Per-role overrides are a real follow-up but not in scope for this work.
+- **Timeout warning emission** (candidate #3): The operator's cq-2 resolution notes the agent must be able to SEE the deadline. `EGG_AGENT_TIMEOUT_SECONDS` reaching the sandbox is necessary but not sufficient; the remaining budget must reach the agent's prompt or a tool it can call. This is a follow-up — the current work makes the timeout visible and non-fatal, which is the core ask.
+- **Agent log retention policy** (candidate #7): The livelock detector now reads from the live session transcript, not `agent_log_store`, so the 24h TTL is no longer a concern for detection.
+- **Convergence-stall suppression for reviewers** (candidate #9): The `_has_recent_agent_activity` check applies to all roles. Reviewers legitimately wait on producers; their activity pattern differs. This is a follow-up — the current work suppresses false alerts against busy agents, which is the core ask.
+- **Two-hour timeout config validation** (candidate #10): The K8s `active_deadline_seconds` default (14400) remains as the outer safety net per cq-2 resolution. No validation needed — the operator explicitly chose this.
 
 ## Candidate List (Deliverable — Not Obligated)
 
 | # | Improvement | File/Symbol | Present? |
 |---|------------|-------------|----------|
-| 1 | **Tool-call signature tracking in pod logs** — The livelock detector parses `"> tool_name args"` lines, but Claude Code's log format may vary. A structured tool-call event emitter (like the existing `tool_use` logger in `client.py:808`) could write to a dedicated stream that's more reliable to parse. | `shared/egg_agent/client.py:808` (tool_use logging) | Partially present (logs exist, not structured for parsing) |
-| 2 | **Per-agent timeout configuration** — `agent_timeout_seconds` is pipeline-level. Different roles (coder vs. overseer) may need different timeouts. Consider role-scoped overrides. | `orchestrator/models/_config.py` | Absent (pipeline-level only) |
-| 3 | **Timeout warning emission** — The sandbox should emit a warning heartbeat at 90% of the timeout so the health monitor can surface "agent approaching timeout" before the SIGTERM fires. | `shared/egg_agent/client.py` (timeout handling) | Absent |
-| 4 | **Livelock recovery action** — The detector fires `requires_adjudication=False`, so the bounded corrective vocabulary (slice-6) handles it. But what corrective action is available? A "nudge agent with loop description" or "respawn agent" action needs to be defined in the corrective executor. | `orchestrator/health_checks/runner.py` (corrective actions) | Absent |
+| 1 | **Structured tool-call event emitter** — The livelock detector reads the live session transcript at `$HOME/.claude/projects/<cwd>/<session>.jsonl`. A structured emitter (writing tool calls to a dedicated stream) would be cleaner long-term but is strictly more work than reading a transcript that already exists. | `shared/egg_agent/client.py:808` (tool_use logging) | Absent (transcript reading used instead) |
+| 2 | **Per-agent timeout configuration** — `agent_timeout_seconds` is pipeline-level. Different roles (coder vs. overseer) may need different timeouts. Consider role-scoped overrides. | `orchestrator/models/_config.py` | Absent (pipeline-level only, per cq-2) |
+| 3 | **Timeout warning emission** — The sandbox should emit a warning heartbeat at 90% of the timeout so the health monitor can surface "agent approaching timeout" before the SIGTERM fires. The agent must also be able to SEE the deadline in its prompt or a tool. | `shared/egg_agent/client.py` (timeout handling) | Absent |
+| 4 | **Livelock recovery action** — The detector fires and escalates to HITL with the looping input quoted verbatim. An operator supplies the terminating answer, then the agent is respawned with a fresh session. A fully autonomous recovery path (without operator input) is not shipped because the detector cannot know the answer to the agent's question. | `orchestrator/health_checks/runner.py` (corrective actions) | Absent (HITL escalation shipped) |
 | 5 | **Exit-code 143 provenance annotation** — When a 143 is classified as legitimate, the `exit_detail` should distinguish "sandbox timeout" from "orchestrator teardown SIGTERM" so operators can tell which path fired. | `orchestrator/kubernetes_spawner/_models.py:exit_detail_for` | Partially present (annotated as "likely sandbox timeout or orchestrator teardown") |
-| 6 | **Heartbeat-stall detector registration** — `detect_heartbeat_stall` exists in `consensus_stall.py` but is not registered in `DetectionPlane.default()`. The snapshot enrichment (task 3) makes it usable, but it still needs explicit registration. | `orchestrator/health_checks/detection_plane.py:_register_coverage_gap_detectors` | Addressed by commit 6ffe97c8e (registers detect_heartbeat_stall) |
-| 7 | **Agent log retention policy** — `agent_log_store` uses a 24h TTL. For long-running pipelines, logs from early agents may expire before incident response. Consider a pipeline-level retention override. | `orchestrator/agent_log_store.py:AGENT_LOG_TTL_SECONDS` | Present (24h default, no override) |
-| 8 | **Livelock window tunability** — The 300s window and 10% unique-ratio threshold are hardcoded. These should be config-driven for different pipeline types. | `orchestrator/health_checks/tier1/loop_detection.py` | Present (configurable via constructor params) |
+| 6 | **Heartbeat-stall detector registration** — `detect_heartbeat_stall` exists in `consensus_stall.py` but is not registered in `DetectionPlane.default()`. The snapshot enrichment makes it usable. | `orchestrator/health_checks/detection_plane.py:_register_coverage_gap_detectors` | Addressed by commit 68b185ca (registers detect_heartbeat_stall) |
+| 7 | **Agent log retention policy** — `agent_log_store` uses a 24h TTL. The livelock detector now reads from the live session transcript, so this is no longer a concern for detection. | `orchestrator/agent_log_store.py:AGENT_LOG_TTL_SECONDS` | Present (24h default, not used by livelock detector) |
+| 8 | **Livelock window tunability** — The 300s window is configurable via constructor params on `AgentLivelockCheck`. | `orchestrator/health_checks/tier1/loop_detection.py` | Present (configurable via constructor params) |
 | 9 | **Convergence-stall suppression for reviewers** — The `_has_recent_agent_activity` check applies to all roles. Reviewers legitimately wait on producers; their activity pattern differs. Consider role-specific suppression logic. | `orchestrator/event_loop/_loop.py:_check_convergence_stall` | Absent (uniform suppression) |
-| 10 | **Two-hour timeout config validation** — `agent_timeout_seconds` defaults to 7200 but the K8s `active_deadline_seconds` default is 14400. If an operator sets a custom timeout, both must stay in sync. Consider a validation that warns when they diverge. | `orchestrator/kubernetes_client.py:350` (hardcoded 14400) | Absent |
+| 10 | **Two-hour timeout config validation** — `agent_timeout_seconds` defaults to 7200 but the K8s `active_deadline_seconds` default is 14400. Per cq-2, the 4h K8s deadline is kept as the outer safety net. | `orchestrator/kubernetes_client.py:350` (hardcoded 14400) | Present (kept as outer safety net per cq-2) |
 
 ## Open Questions
 
-The following decisions are registered on the SDLC contract (cq-1, cq-2, cq-3) and will be resolved by the operator before or during implementation:
+The following decisions are registered on the SDLC contract and have been resolved:
 
-- **cq-1**: Livelock detector tool-call signature parsing: Should we parse the existing Claude Code log format as-is, or add a structured tool-call event emitter in the sandbox for more reliable parsing? The plan defaults to parsing existing logs (agent_log_store captures full stdout).
-- **cq-2**: Two-hour timeout: Should the agent_timeout_seconds config be pipeline-level only (uniform 7200s default), or support per-role overrides? The plan defaults to pipeline-level.
-- **cq-3**: Livelock recovery action: When the detector fires, should the corrective vocabulary nudge the agent with a loop description, or respawn the agent? The plan defaults to nudge (less disruptive).
+- **cq-1** (resolved): The livelock detector must NOT source from `agent_log_store` and must NOT truncate the signature. Read the live session transcript at `$HOME/.claude/projects/<cwd>/<session>.jsonl` inside the running pod, and key on the FULL untruncated `(tool_name, input)` pair.
+- **cq-2** (resolved): Pipeline-level only. Ship the uniform 7200s default and make it configurable; do not build per-role overrides. The agent must be able to SEE the deadline. Keep the 4h K8s `active_deadline_seconds` as the outer safety net.
+- **cq-3** (resolved): Recovery is a two-step process: (1) post a terminating message to the bus, then (2) respawn with a fresh session. The detector escalates to HITL with the looping input quoted verbatim, since it cannot know the answer to the agent's question.
 
 ```yaml
 # yaml-tasks
 pr:
-  title: "Supervision layer second pass: integrate livelock detection, timeout visibility, false-stall suppression"
+  title: "Supervision layer second pass: integrate livelock detection, timeout visibility, false-stall suppression, alert evidence"
   description: |
-    Integrates commit 6ffe97c8e from the issue-3665-supervision-gaps branch,
-    which implements all three supervision fixes: (1) agent livelock/repetition-loop
-    detection via a deterministic detector that analyzes agent log transcripts for
-    zero new unique tool inputs over a trailing window; (2) two-hour timeout
-    visibility — add agent_timeout_seconds config, pass it through the spawn path,
-    classify exit 143 (SIGTERM) as a legitimate outcome rather than a crash;
-    (3) false convergence-stall suppression — consult health monitor per-agent
-    activity data before firing stall alerts, and enrich the detection-plane
-    snapshot builder to populate tool-call/heartbeat ages.
+    Integrates commit 68b185ca from the issue-3665-supervision-gaps branch,
+    with corrections to the livelock detector per operator feedback (cq-1,
+    cq-3): reads live session transcripts instead of pod logs, uses novelty
+    metric instead of ratio, and escalates to HITL with respawn instead of
+    nudge. Also restores priority 4 (alert evidence bundling) that was
+    dropped in v2.
 phases:
   - id: 1
     name: Integrate Supervision-Layer Fixes
-    goal: Integrate commit 6ffe97c8e which implements all three supervision fixes — livelock detection, two-hour timeout visibility, and false convergence-stall suppression. Verify the integration is correct and complete.
+    goal: Integrate commit 68b185ca which implements all three supervision fixes — livelock detection (corrected per cq-1/cq-3), two-hour timeout visibility, and false convergence-stall suppression. Verify the integration is correct and complete.
     tasks:
       - id: TASK-1-1
-        description: Integrate orchestrator/health_checks/tier1/loop_detection.py (detect_agent_livelock + AgentLivelockCheck). Verify registration in DetectionPlane.default(), tier1/__init__.py, and cli.py. Verify the detector parses Claude Code tool-call lines from agent_log_store transcripts and fires on zero new unique tool inputs.
-        acceptance: loop_detection.py exists and is correct; detect_agent_livelock returns Finding on livelock, None on normal; AgentLivelockCheck implements HealthCheck protocol; registered in DetectionPlane.default() and tier1/__init__.py; registered in cli.py health check runner; test_loop_detection.py passes
+        description: "Integrate orchestrator/health_checks/tier1/loop_detection.py with CORRECTIONS per cq-1/cq-3: read live session transcript at $HOME/.claude/projects/<cwd>/<session>.jsonl (NOT agent_log_store), key on FULL untruncated (tool_name, input) pair (NOT 80-char truncation), implement novelty metric (count of inputs never issued before in session, fire at zero — NOT ratio), escalate to HITL with looping input quoted (NOT nudge). Verify registration in DetectionPlane.default(), tier1/__init__.py, and cli.py."
+        acceptance: loop_detection.py reads live session transcript; keys on full untruncated (tool_name, input); implements novelty metric (zero new inputs = livelock); escalates to HITL with looping input quoted; registered in DetectionPlane.default() and tier1/__init__.py; registered in cli.py; test_loop_detection.py passes
         files:
           - orchestrator/health_checks/tier1/loop_detection.py
           - orchestrator/health_checks/detection_plane.py
@@ -152,8 +173,8 @@ phases:
     goal: Integrate agent_timeout_seconds config, EGG_AGENT_TIMEOUT_SECONDS env passing, active_deadline_seconds on K8s Job, and exit 143 classification as JOB_OUTCOME_LEGITIMATE.
     tasks:
       - id: TASK-1-2
-        description: Integrate agent_timeout_seconds field in PipelineConfig. Pass EGG_AGENT_TIMEOUT_SECONDS to sandbox in concurrent_executor.py. Pass active_deadline_seconds to K8s Job in kubernetes_spawner/_spawn.py. Add _failed_with_timeout_sigterm to _EventJobStatusView and classify exit 143 as JOB_OUTCOME_LEGITIMATE. Update _classify_exit in kubernetes_monitor.py to treat 143 as clean during RUNNING phase.
-        acceptance: agent_timeout_seconds config field exists and serializes; EGG_AGENT_TIMEOUT_SECONDS passed to sandbox; active_deadline_seconds passed to K8s Job; exit 143 classified as JOB_OUTCOME_LEGITIMATE not ABNORMAL; _classify_exit treats 143 as clean; test_agent_timeout_config.py and test_timeout_sigterm.py pass
+        description: Integrate agent_timeout_seconds field in PipelineConfig (default 7200, ge=60). Pass EGG_AGENT_TIMEOUT_SECONDS to sandbox in concurrent_executor.py. Pass active_deadline_seconds to K8s Job in kubernetes_spawner/_spawn.py. Add _failed_with_timeout_sigterm to _EventJobStatusView and classify exit 143 as JOB_OUTCOME_LEGITIMATE. Update _classify_exit in kubernetes_monitor.py to treat 143 as clean during RUNNING phase. Update sandbox/llm/claude/config.py to use EGG_AGENT_TIMEOUT_SECONDS.
+        acceptance: agent_timeout_seconds config field exists and serializes; EGG_AGENT_TIMEOUT_SECONDS passed to sandbox; active_deadline_seconds passed to K8s Job; exit 143 classified as JOB_OUTCOME_LEGITIMATE not ABNORMAL; _classify_exit treats 143 as clean; sandbox config uses EGG_AGENT_TIMEOUT_SECONDS; test_agent_timeout_config.py and test_timeout_sigterm.py pass
         files:
           - orchestrator/models/_config.py
           - orchestrator/concurrent_executor.py
@@ -162,18 +183,30 @@ phases:
           - orchestrator/kubernetes_monitor.py
           - sandbox/llm/claude/config.py
     dependencies: []
-  - id: 4
-    name: Tests
-    goal: Verify test coverage for all three changes
+  - id: 5
+    name: Alert Evidence Bundling
+    goal: Restore priority 4 — enrich OVERSEER_ALERT payloads with structured evidence (heartbeat/tool-call ages, progress events, blocking agents, consensus state) so operators can act without hand-investigation.
     tasks:
       - id: TASK-1-4
-        description: Verify test_loop_detection.py, test_agent_timeout_config.py, test_convergence_stall_suppression.py, and test_timeout_sigterm.py all pass. These tests were included in commit 6ffe97c8e.
-        acceptance: All four test files exist and pass; test coverage is complete for all three supervision fixes
+        description: Enrich OVERSEER_ALERT payloads with latest_heartbeat_age_s, latest_tool_call_age_s, last_progress_event, blocking_agents, consensus_state. The overseer already fetches container logs at _poll.py:78-85, so most data is in hand. Modify health_monitor.py escalation dicts, event_loop/_loop.py convergence-stall anomaly payloads, and overseer/monitor/_alerting.py OVERSEER_ALERT payloads.
+        acceptance: OVERSEER_ALERT payloads carry structured evidence fields; convergence-stall alerts include agent activity ages; livelock alerts include the looping input; unit tests pass
+        files:
+          - orchestrator/health_monitor.py
+          - orchestrator/event_loop/_loop.py
+          - orchestrator/overseer/monitor/_alerting.py
+    dependencies: ["1"]
+  - id: 6
+    name: Tests
+    goal: Verify test coverage for all changes, with corrected livelock detector tests
+    tasks:
+      - id: TASK-1-5
+        description: Update test_loop_detection.py to test novelty metric (not ratio), live session transcript parsing (not agent_log_store), and HITL escalation (not nudge). Verify test_agent_timeout_config.py, test_convergence_stall_suppression.py, and test_timeout_sigterm.py all pass.
+        acceptance: All test files exist and pass; livelock detector tests verify novelty metric and live transcript parsing; timeout tests verify exit 143 classification; convergence-stall tests verify activity-based suppression
         files:
           - orchestrator/tests/test_loop_detection.py
           - orchestrator/tests/test_agent_timeout_config.py
           - orchestrator/tests/test_convergence_stall_suppression.py
           - orchestrator/tests/test_timeout_sigterm.py
     dependencies: ["2"]
-    serialized_chain_order: ["1", "2"]
+    serialized_chain_order: ["1", "2", "5"]
 ```
