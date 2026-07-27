@@ -755,6 +755,7 @@ class OrchestratorEventLoop:
     _handle_role = _loop._handle_role
     _reap_superseded_siblings = _loop._reap_superseded_siblings
     _check_convergence_stall = _loop._check_convergence_stall
+    _has_recent_agent_activity = _loop._has_recent_agent_activity
     run = _loop.run
     _is_complete = _loop._is_complete
     start = _loop.start

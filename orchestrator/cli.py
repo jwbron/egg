@@ -332,6 +332,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         try:
             from health_checks.runner import HealthCheckRunner
             from health_checks.tier1 import (
+                AgentLivelockCheck,
                 ConsensusStallCheck,
                 ContainerLivenessCheck,
                 DriverLivenessCheck,
@@ -352,6 +353,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
             runner.register(
                 DriverLivenessCheck()
             )  # _run_pipeline driver alive + progressing? (#3540)
+            runner.register(AgentLivelockCheck())  # Agent repetition loop detection (#3665)
 
             # Store runner on app for access by routes and other modules
             app.config["HEALTH_CHECK_RUNNER"] = runner

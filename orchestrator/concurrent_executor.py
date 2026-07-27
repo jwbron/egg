@@ -500,6 +500,12 @@ class ConcurrentPhaseExecutor:
             "EGG_CONCURRENT_MODE": "true",
             "EGG_MESSAGE_POLL_INTERVAL": str(poll_interval),
         }
+        # Surface the agent timeout to the sandbox so the agent can warn
+        # before the deadline and so the K8s Job active_deadline_seconds
+        # matches the sandbox-side ClaudeConfig.timeout (#3665).
+        agent_timeout = getattr(config, "agent_timeout_seconds", None)
+        if agent_timeout is not None:
+            env["EGG_AGENT_TIMEOUT_SECONDS"] = str(agent_timeout)
         # Add review graph info for BRC protocol
         graph = self._get_review_graph()
         if graph.is_producer(role.value):
