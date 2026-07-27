@@ -1,5 +1,13 @@
 {
   "entries": {
+    "078555a1b9dca712f8eb32071695b2f13d9ca42e": {
+      "branch": "egg/issue-3665-v2/work",
+      "patch_id": "6484ce009c6e4cbc284880e12884895718f4eb32",
+      "pipeline_id": "issue-3665-v2",
+      "registered_at": "2026-07-27T07:33:33.941896+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "291bb622880c38c0813b2aff6b03a98e6028a6c5": {
       "branch": "egg/issue-3665-v2/work",
       "patch_id": "10fd0adb659ebe2644fb2aa514a79c915160bfa1",
