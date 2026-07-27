@@ -90,11 +90,31 @@
       "tester": "laguna-s-2.1"
     }
   },
-  "phases": {},
+  "phases": {
+    "refine": {
+      "phase": "refine",
+      "status": "running",
+      "started_at": "2026-07-27T05:51:34.987264Z",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "operator_directives": [],
+      "iteration_history": [],
+      "phase_start_sha": "2d8a11dc60bc542059ce4f09b73e7ff7eddf3b63",
+      "agent_exits": [],
+      "decision_ledger": null
+    }
+  },
   "decisions": [],
   "created_at": "2026-07-27T05:51:29.067833Z",
-  "updated_at": "2026-07-27T05:51:29.176607Z",
-  "contract_synced": false,
+  "updated_at": "2026-07-27T05:51:34.987430Z",
+  "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
@@ -106,7 +126,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 3,
+  "version": 5,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
