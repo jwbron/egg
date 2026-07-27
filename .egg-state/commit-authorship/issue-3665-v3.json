@@ -7,6 +7,14 @@
       "registered_at": "2026-07-27T21:12:26.172595+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "61b157459d051ab669927552d4509cc39588ef06": {
+      "branch": "egg/issue-3665-v3/work",
+      "patch_id": "760033b22d336c06dcbbf73eb2f51eaa07f66207",
+      "pipeline_id": "issue-3665-v3",
+      "registered_at": "2026-07-27T21:16:46.118500+00:00",
+      "repo": null,
+      "role": "simplifier"
     }
   },
   "version": 2
