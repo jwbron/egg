@@ -216,6 +216,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "f0be3fe54a2f89c5aaf21265e3e5bcea922f1074": {
+      "branch": "egg/issue-3665-v3/work",
+      "patch_id": "9fed7980983c493b986623e1d16ed08f2a989043",
+      "pipeline_id": "issue-3665-v3",
+      "registered_at": "2026-07-27T23:46:53.335422+00:00",
+      "repo": null,
+      "role": "risk_analyst"
+    },
     "fab4bd7952abc1172898b9a7d34511e3b6320f7d": {
       "branch": "egg/issue-3665-v3/work",
       "patch_id": "b62234bba67a5187a64948d45ed14c597cdc06bd",
