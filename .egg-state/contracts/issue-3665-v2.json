@@ -318,10 +318,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "Respawn. Nudge alone is empirically falsified, twice, and the second time was today in this pipeline.\n\nEvidence 1, from the issue: four mid-turn nudges to a livelocked agent left its output CHARACTER-IDENTICAL. The nudges changed nothing. Only `restart_agent(fresh_session=true)` cleared it. The mechanism reading is that the pre-loop context is what produces the loop, so any remedy that preserves that context is re-entering the same attractor.\n\nEvidence 2, from this run, 07:46 to 07:48Z: your own architect livelocked in the plan phase on 30 of 30 identical `grep` calls with character-identical prose (\"Now I have a thorough understanding of the entire supervision layer. Let me also check...\"). It was cleared by exactly two actions in this order: a terminating answer onto the bus, then `restart_agent(fresh_session=true)`. It recovered and went on to reach consensus. That is the transcript you can read on this pipeline.\n\nTHE ANSWER, and note it is not simply \"respawn\" but an ordered pair:\n\n1. Post a terminating message to the agent's bus BEFORE the restart, so the cold session starts with it in the stream. The message must do three things, because this is the shape that cleared all eight livelocks in this evaluation: close the specific question the agent is looping on, with citations; name the deliverable; state what is out of role.\n2. Then respawn with a fresh session, so the wedged context is evicted rather than resumed.\n\nA restart without the terminating answer re-derives the same loop from the same prompt. A terminating answer without the restart is the falsified nudge. You need both, in that order.\n\nNote the detector cannot write step 1 by itself, because it does not know the answer to the agent's question. So the honest v1 is: the detector fires, evicts the session, and escalates to HITL with the looping input quoted verbatim so an operator can supply the terminating answer. Do NOT ship an autonomous nudge-only recovery path; it is the one option the evidence rules out.\n\nAlso record on the alert what the loop actually was. In every instance the repeated input plus the repeated assistant prose identified the stuck question in seconds. That is what makes the operator's terminating answer cheap to write.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-27T08:25:09.472885Z",
       "debounce_until": null,
       "redirect_seed": null
     }
