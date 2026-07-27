@@ -34,6 +34,8 @@ The gateway is a flat package of single-file modules. `gateway.py` holds the Fla
 
 When a module outgrows the 1,000-code-line cap in `scripts/file-size-allowlist.yaml`, it is split into a **sub-package with an explicit re-export barrel**, per the canonical [decomposition pattern](../docs/guides/decomposition-pattern.md) ([#3312](https://github.com/jwbron/egg/issues/3312)). The `__init__.py` barrel is the **stable public API**: external importers and `unittest.mock.patch` targets resolve through it (gateway modules are imported top-level, e.g. `import git_client` / `patch("git_client._foo")`), so they survive the split. Submodules are underscore-prefixed and package-private.
 
+Line and byte figures in the slice records below are **the measurements that were in force when each split landed** — most predate the #3671 re-baseline onto code lines (and its loose 150 KB byte backstop), so a "over the byte cap" note there describes the then-current 100 KB cap, not today's. `scripts/file-size-allowlist.yaml` is the live source of truth for both the caps and which files are currently exempt.
+
 **Container packaging:** `gateway/Dockerfile` ships top-level modules via the non-recursive glob `COPY gateway/*.py ./` (`gateway/Dockerfile:67`), which does **not** match a sub-package directory. Each `gateway/` decomposition therefore adds an explicit `COPY gateway/<name>/ ./<name>/` line in the same slice and smoke-checks `python -c 'import <name>'` inside the built image — source-tree lint/test stays green while a missing `COPY` would break the running image.
 
 ### `git_client/` — `git` CLI wrapper ([#3312](https://github.com/jwbron/egg/issues/3312), slice 11)

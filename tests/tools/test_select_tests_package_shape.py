@@ -42,6 +42,7 @@ Coverage:
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 import os
 import subprocess
@@ -185,12 +186,16 @@ def test_dunder_main_path_style_invocation_works() -> None:
         assert d in proc.stdout, f"missing test-root {d!r} in stdout: {proc.stdout!r}"
 
 
+@functools.cache
 def _load_file_size_checker():
     """Load ``scripts/check-file-sizes.py`` as a module.
 
     Measuring with the lint's own helpers (rather than re-implementing a
     line count here) keeps this test honest: the cap and the counting
     rule both come from the thing ``make lint`` actually runs.
+
+    Cached: the caller is parametrized, and re-executing the module (and
+    rebinding ``sys.modules``) once per case buys nothing.
     """
     path = REPO_ROOT / "scripts" / "check-file-sizes.py"
     spec = importlib.util.spec_from_file_location("check_file_sizes_shape", path)
@@ -225,9 +230,11 @@ def test_submodules_under_hard_size_cap(submodule: str) -> None:
     checker = _load_file_size_checker()
     cap = checker.load_config().caps.hard_code_lines
     code_lines = checker.measure(target).code_lines
+    # This assertion reads the cap only, never allowlist membership, so
+    # re-adding an exemption cannot make it pass -- splitting is the only
+    # way out, which is the point of the belt-and-braces guard.
     assert code_lines <= cap, (
-        f"{submodule}: {code_lines} code lines > {cap} hard cap; "
-        f"split further or restore the allowlist entry."
+        f"{submodule}: {code_lines} code lines > {cap} hard cap; split it further."
     )
 
 
