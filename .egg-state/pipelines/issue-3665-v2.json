@@ -115,12 +115,40 @@
       "iteration_history": [],
       "phase_start_sha": "2d8a11dc60bc542059ce4f09b73e7ff7eddf3b63",
       "agent_exits": [],
-      "decision_ledger": null
+      "decision_ledger": {
+        "registered": [],
+        "resolved": 0,
+        "explicit_none": true,
+        "attested_by": "refiner",
+        "missing": false,
+        "candidates_considered": [
+          {
+            "question": "Should the tool-input loop detector use the agent SDK's tool interceptor or a separate log capture mechanism?",
+            "disposition": "not_operator_grade",
+            "why": "This is an implementation detail for the implement phase to decide. The refiner's job is to identify the gap and propose the approach, not to resolve the specific mechanism."
+          },
+          {
+            "question": "Should the timeout outcome category replace or supplement the existing abnormal outcome?",
+            "disposition": "not_operator_grade",
+            "why": "This is an engineering decision about outcome classification. The issue explicitly states timeouts should not count as crashes, so a separate category is the right approach. The implementer will decide the exact integration."
+          },
+          {
+            "question": "Should the convergence-stall check be modified to consult alive-signal gates, or should a new detector be added?",
+            "disposition": "not_operator_grade",
+            "why": "Modifying the existing check is the most direct fix and avoids duplicate detection. The implementer will determine the exact integration point."
+          },
+          {
+            "question": "Should alert evidence be bundled in the OVERSEER_ALERT payload or fetched separately by the overseer?",
+            "disposition": "not_operator_grade",
+            "why": "Bundling in the payload is more operator-friendly but increases message size. The implementer will balance this trade-off."
+          }
+        ]
+      }
     }
   },
   "decisions": [],
   "created_at": "2026-07-27T05:51:29.067833Z",
-  "updated_at": "2026-07-27T06:10:57.079014Z",
+  "updated_at": "2026-07-27T06:11:02.045540Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -133,7 +161,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 9,
+  "version": 10,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
