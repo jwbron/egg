@@ -521,6 +521,37 @@ class HealthMonitor:
             return True
         return agent_id not in self._active_jobs
 
+    def get_agent_activity_ages(self) -> dict[str, dict[str, float | None]]:
+        """Return per-agent activity ages for the convergence-stall check (#3665).
+
+        Returns a dict mapping agent_id -> {
+            "last_heartbeat_age_s": seconds since last heartbeat (or None),
+            "last_progress_age_s": seconds since last progress event (or None),
+            "last_activity_age_s": seconds since last CONTAINER_ACTIVITY (or None),
+        }
+
+        Used by the event loop's convergence-stall check to suppress false
+        alerts against agents that are actively working (recent heartbeats or
+        container activity) even when the BRC bus is quiet.
+        """
+        now = time.time()
+        result: dict[str, dict[str, float | None]] = {}
+        with self._lock:
+            for agent_id, agent in self._agents.items():
+                hb_age = now - agent.last_heartbeat if agent.last_heartbeat > 0 else None
+                progress_age = now - agent.last_progress if agent.last_progress > 0 else None
+                activity_age = (
+                    now - agent.last_activity
+                    if agent.last_activity > _NEVER_SEEN_ACTIVITY
+                    else None
+                )
+                result[agent_id] = {
+                    "last_heartbeat_age_s": hb_age,
+                    "last_progress_age_s": progress_age,
+                    "last_activity_age_s": activity_age,
+                }
+        return result
+
     def _is_brc_idle(self, agent_id: str) -> bool:
         """Check if an agent is idle waiting for BRC upstream producers.
 
