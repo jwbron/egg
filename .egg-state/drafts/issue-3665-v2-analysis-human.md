@@ -194,17 +194,274 @@ Enrich `OVERSEER_ALERT` payloads with structured evidence:
 
 ## What was left out (and why)
 
-- **The overseer poll cycle (`_poll_cycle`)** — This is the deprecated
-  standing-pod shape. The issue's "health monitor was logging, every 30 seconds"
-  refers to the old in-pod overseer. In the current architecture, the
-  orchestrator-side detection plane (`health_checks/`) and the event loop's
-  convergence-stall check are the active supervision paths. The overseer is now
-  on-demand (adjudication only). Changes to the overseer poll cycle are not
-  proposed because it is deprecated (#2270 slice-4).
+- **The overseer poll cycle (`_poll_cycle`)** — CORRECTION: The overseer is NOT
+  deprecated. Verified in the tree:
+  - `grep -n deprecated orchestrator/overseer/monitor/__init__.py` returns nothing;
+    `start()` carries no deprecation marker.
+  - `overseer_poll_interval_seconds` (default 30, `overseer/monitor/__init__.py:80`)
+    is live and consumed at `overseer/monitor/_anomaly_checks.py:218` and
+    `overseer/monitor/_consensus_stall.py:113` and `:288`.
+  - The overseer pod runs in this pipeline — `_run_pipeline.py:386` spawns it
+    phase-scoped.
+  - The standing-pod *respawn loop* was removed (#2270 slice-5,
+    `_run_pipeline_support.py:76-84`), but the overseer pod itself is still spawned
+    and runs its poll cycle.
+  - The issue's "health monitor was logging, every 30 seconds, that the same agent
+    was alive" refers to the orchestrator-side health monitor's alive-signal gate
+    (`health_monitor.py:928`, "Heartbeat alert deferred by alive-signal gate"),
+    NOT the overseer.
+  - The overseer has two issues that belong in the candidate list (below), not in
+    the four priorities: #3577 (`detect_phase_long_running` referenced by config
+    but absent) and #3212 (no crash-respawn backoff — single spawn with no retry).
 - **The `detect_loop` / `classify_activity_pattern` LLM classifiers** — These are
   Haiku-tier classifiers that run only after an alert is raised. They are not the
   right tool for proactive loop detection. The issue explicitly states the
   empirical finding is about counting unique tool inputs, which is deterministic.
-- **The 4-hour K8s `active_deadline_seconds`** — This is a K8s-level safety net,
-  not an application-level timeout. It is correctly set higher than the 2-hour
-  agent timeout. No change needed.
+- **The 4-hour K8s `active_deadline_seconds`** — This is a K8s-level safety net
+  (`kubernetes_client.py:350`), not an application-level timeout. It is correctly
+  set higher than the 2-hour agent timeout. No change needed, but the distinction
+  between K8s deadline kills (exit 137) and agent timeouts (exit -1) is not
+  surfaced — this is candidate #3.
+
+## Candidate list (ranked)
+
+Ranked by (operator pain × cheapness to build). Each entry is an improvement NOT
+proposed in priorities 1–4. Every entry carries a file-and-symbol citation and an
+explicit PRESENT or ABSENT verdict for the thing in the tree today.
+
+### 1. [ABSENT] Overseer phase-duration affordance (#3577)
+**Citation:** `models/_config.py:428` (`overseer_long_running_phase_seconds`,
+default 3600, description references `detect_phase_long_running`);
+`overseer/monitor/_anomaly_checks.py` and `overseer/monitor/_consensus_stall.py`
+(consumers of `overseer_poll_interval_seconds`).
+**Verdict:** ABSENT. The config field `overseer_long_running_phase_seconds` exists
+and is read at `_routes_status.py:135-136` for status reporting, but no
+`detect_phase_long_running` function exists anywhere in the codebase. The overseer
+has no phase-duration detector — a phase can run indefinitely without the overseer
+noticing. The orchestrator-side `detect_duration_drift` (runtime_liveness.py:138)
+fills a similar role but is itself unwired (see candidate #4).
+**Ranking rationale:** High operator pain (long-running phases waste resources and
+delay feedback) × low build cost (one detector function + registration).
+
+### 2. [ABSENT] Overseer crash-respawn backoff (#3212)
+**Citation:** `routes/pipelines/_run_pipeline.py:385-411` (overseer spawn wrapped
+in try/except, continues without monitoring on failure);
+`_run_pipeline_support.py:76-84` (standing-pod respawn loop removed).
+**Verdict:** ABSENT. The overseer is spawned once per phase. If it crashes (e.g.,
+due to a route rate limit), there is no backoff or retry — the spawn is wrapped in
+a try/except that logs a warning and continues without monitoring. The standing-pod
+respawn loop that used to keep it alive was removed (#2270 slice-5). There is no
+crash-respawn loop for the overseer — it is a single spawn with no retry.
+**Ranking rationale:** Medium operator pain (overseer death = blind spot for the
+rest of the phase) × medium build cost (need backoff logic + spawn retry).
+
+### 3. [ABSENT] K8s deadline kill vs. agent timeout distinction
+**Citation:** `kubernetes_client.py:350` (`active_deadline_seconds=14400`, 4h K8s
+deadline); `shared/egg_agent/__main__.py:47` (2h agent timeout, default=7200);
+`kubernetes_spawner/_models.py:80` (`outcome_for` maps all non-zero exits to
+`JOB_OUTCOME_ABNORMAL`).
+**Verdict:** ABSENT. A K8s deadline kill produces exit code 137 (SIGKILL), while
+an agent timeout produces exit code -1 (from `asyncio.timeout`). Both map to
+`JOB_OUTCOME_ABNORMAL` and both increment the failure streak. There is no way to
+distinguish a K8s-level deadline from an agent-level timeout at the outcome
+classification level. The 4h K8s deadline and 2h agent timeout are independent
+kill horizons, but no supervision path distinguishes them.
+**Ranking rationale:** Medium operator pain (misclassified kills consume retry
+budget) × low build cost (add exit-code discrimination in `outcome_for`).
+
+### 4. [PRESENT but UNWIRED] `detect_duration_drift` detector
+**Citation:** `health_checks/tier1/runtime_liveness.py:138`
+(`detect_duration_drift`); `health_checks/detection_plane.py:525-532`
+(`snapshot_from_health_context` does NOT populate `expected_duration_s`).
+**Verdict:** PRESENT but UNWIRED. The detector fires when
+`started_age_s > expected_duration_s * factor`, but `expected_duration_s` is only
+set in `phase_state` if the pipeline config provides it. The
+`snapshot_from_health_context` function does NOT populate
+`expected_duration_s` from the pipeline config. **Fix:** populate it from
+`pipeline.config.consensus_timeout_minutes` or a similar config field.
+**Ranking rationale:** Medium operator pain (phase-duration drift goes undetected)
+× very low build cost (one-line fix in `snapshot_from_health_context`).
+
+### 5. [PRESENT but UNWIRED] `detect_heartbeat_stall` detector
+**Citation:** `health_checks/tier1/consensus_stall.py:217`
+(`detect_heartbeat_stall`); `health_checks/detection_plane.py:534-538`
+(`snapshot_from_health_context` does NOT populate `last_tool_call_age_s` /
+`last_heartbeat_age_s`).
+**Verdict:** PRESENT but UNWIRED. The detector fires when BOTH
+`last_tool_call_age_s` AND `last_heartbeat_age_s` are stale. But
+`snapshot_from_health_context` only creates `RunningAgent` entries from
+`context.live_container_ids` (container ID strings), setting only `role`,
+`state`, and `lifecycle_owner`. The age fields are never populated — they default
+to `None`, so the detector's guard at line 242 always skips. **Fix:** populate
+these fields from the health monitor's state or the session state store.
+**Ranking rationale:** High operator pain (heartbeat stalls are the most common
+wedge) × low build cost (populate two fields in the snapshot builder).
+
+### 6. [ABSENT] Structured tool-call history for loop detection
+**Citation:** `shared/egg_agent/client.py:31` (`_MAX_TOOL_CONTENT_LOG_LEN = 2000`);
+`shared/egg_agent/tool_interceptor.py:29` (intercepts tool calls for permissions
+only).
+**Verdict:** ABSENT. Tool calls are logged (truncated to 2000 chars) but not
+tracked in a structured history that could be queried for uniqueness. The
+`tool_interceptor.py` module intercepts calls but only for permission checking,
+not for loop detection. A structured tool-call history (tool name + input hash)
+would enable the deterministic loop detector in priority 1.
+**Ranking rationale:** High operator pain (seven livelocks went undetected) ×
+medium build cost (add structured logging + storage in the SDK client).
+
+### 7. [ABSENT] Alert evidence bundling
+**Citation:** `health_monitor.py:730-736` (escalation dict has only
+`{type, agent_id, reason, timestamp}`); `overseer/monitor/_poll.py:78-85`
+(fetches container logs separately); `event_loop/_loop.py:942-957`
+(convergence-stall alert carries no structured evidence).
+**Verdict:** ABSENT. The escalation payload from `health_monitor.py` contains only
+`{type, agent_id, reason, timestamp}` — no structured evidence. The overseer
+fetches container logs separately, but the alert itself carries no heartbeat age,
+tool-call age, or consensus state. An operator reading the alert must manually
+correlate multiple sources. The convergence-stall alert goes directly to
+`OVERSEER_ALERT` via the `convergence_stall_notifier` callback, bypassing the
+overseer's own filtering.
+**Ranking rationale:** Medium operator pain (misdiagnosis costs more than missed
+alerts) × medium build cost (enrich payload structure + include evidence).
+
+### 8. [ABSENT] Timeout outcome category in JobSupervisor
+**Citation:** `event_loop/__init__.py:172-177` (`JOB_OUTCOME_*` constants, no
+`TIMEOUT`); `event_loop/_supervisor.py:158-229` (`record_abort` increments streak);
+`kubernetes_spawner/_models.py:80` (`outcome_for` maps exit -1 to `ABNORMAL`).
+**Verdict:** ABSENT. A timeout (exit code -1 from `asyncio.timeout` in
+`client.py:765`) is classified as `JOB_OUTCOME_ABNORMAL`, incrementing the failure
+streak and consuming retry budget. There is no `JOB_OUTCOME_TIMEOUT` constant. The
+2-hour timeout in `__main__.py:47` is invisible to the agent. This is the same
+issue as priority 3, but listed here as a candidate because the priority proposes
+the full solution (timeout category + agent-visible warning + streak protection)
+while this entry is just the outcome-category gap.
+**Ranking rationale:** High operator pain (timeouts consume retry budget) × low
+build cost (add constant + outcome mapping).
+
+### 9. [ABSENT] Agent-visible timeout warning
+**Citation:** `shared/egg_agent/__main__.py:47` (default=7200);
+`shared/egg_agent/client.py:765` (`asyncio.timeout(7200)`).
+**Verdict:** ABSENT. The agent has no way to know it will be killed at 2 hours.
+The timeout is a hard process-level kill with no pre-warning. The agent cannot
+self-terminate gracefully or emit a final verdict. (Same as priority 3, but listed
+as a separate candidate because it's the agent-visibility half of the solution.)
+**Ranking rationale:** Medium operator pain (agents can't clean up before being
+killed) × low build cost (emit a heartbeat with countdown before timeout).
+
+### 10. [PRESENT but NOISY] Overseer poll cycle alert filtering
+**Citation:** `overseer/monitor/_poll.py:71` (`_filter_current_phase_agents`);
+`event_loop/_loop.py:942-957` (convergence-stall alert bypasses overseer).
+**Verdict:** PRESENT but NOISY. The overseer filters alerts to current-phase
+agents, but the convergence-stall alert from the event loop bypasses the overseer
+entirely — it goes directly to `OVERSEER_ALERT` via the
+`convergence_stall_notifier` callback. The overseer's filtering does not apply.
+**Ranking rationale:** Low operator pain (false positives are annoying but not
+critical) × low build cost (route convergence-stall alerts through the overseer
+filter).
+
+### 11. [ABSENT] Session-boundary outcome classification
+**Citation:** `event_loop/_supervisor.py:37` (`record_success` increments no-op
+streak); `event_loop/_loop.py:88-91` (`JOB_OUTCOME_SUCCESS`).
+**Verdict:** ABSENT. A clean exit (rc=0) that produced no BRC progress is
+classified as `JOB_OUTCOME_SUCCESS` and increments the no-op streak (#3425). But a
+clean exit that DID produce progress is also `JOB_OUTCOME_SUCCESS` — the two are
+indistinguishable at the outcome level. The no-op streak mechanism (#3425) is the
+closest thing, but it only catches repeated no-ops of the SAME dedupe key, not a
+one-shot clean exit that forgot to emit a verdict.
+**Ranking rationale:** Medium operator pain (clean exits without verdicts are
+silent failures) × medium build cost (distinguish progress-producing from
+progress-less exits).
+
+### 12. [PRESENT] No-op park mechanism (#3425)
+**Citation:** `event_loop/_supervisor.py:37-98` (`record_success` increments no-op
+streak); `event_loop/_supervisor.py:665-779` (`noop_parked`).
+**Verdict:** PRESENT and FUNCTIONAL. A clean exit with no BRC progress re-derives
+the identical dedupe key, climbing the no-op streak. After
+`SUPERVISION_NOOP_STREAK_PARK` (3) clean completions, the arm parks.
+Self-releases on contract-decision fingerprint change or retry heartbeat. This
+handles the "declared no-op" case from the issue.
+**Ranking rationale:** Listed for completeness — this is the one session-boundary
+mechanism that works correctly. No action needed.
+
+### 13. [PRESENT] WAITING_ON_ROLE self-report probe (#3520)
+**Citation:** `event_loop/_supervisor.py:924-988` (`_emit_noop_alert` with
+`waiting` probe); `event_loop/_supervisor.py:824` (`_probe_waiting_on`).
+**Verdict:** PRESENT but NARROWLY APPLIED. The probe is only consulted in
+`_emit_noop_alert` for no-op parks. It is NOT consulted in:
+- `_check_convergence_stall` (the false-positive convergence-stall alert)
+- `health_monitor.py:check_heartbeats` (the heartbeat timeout alert)
+This is the exact gap that produced the false positive described in the issue.
+**Ranking rationale:** High operator pain (false positives erode trust) × low
+build cost (consult the existing probe in two more call sites).
+
+### 14. [ABSENT] Pod-vanishing detection
+**Citation:** `kubernetes_monitor.py:458-463` (reconciliation marks agents
+FAILED when container_id not in live_ids);
+`health_checks/tier1/container_liveness.py:88-108` (`ContainerLivenessCheck`).
+**Verdict:** PARTIALLY PRESENT. `ContainerLivenessCheck` detects missing
+containers but marks them as `FAILED` (infrastructure problem), not as a session
+boundary. A pod that vanishes (node drain, eviction) is indistinguishable from a
+crash. The `agent_log_store` preserves logs, but the outcome classification
+doesn't distinguish "pod vanished" from "agent crashed."
+**Ranking rationale:** Low operator pain (pod vanishing is rare) × medium build
+cost (add outcome classification for vanished pods).
+
+### 15. [ABSENT] Fail-streak budget protection for timeouts
+**Citation:** `event_loop/_supervisor.py:158-229` (`record_abort` increments
+streak); `event_loop/_supervisor.py:32` (`JOB_OUTCOME_ABNORMAL`).
+**Verdict:** ABSENT. A timeout exit (rc=-1) maps to `JOB_OUTCOME_ABNORMAL`, which
+increments the failure streak toward `SUPERVISION_FAILURE_STREAK_ALERT` (10) and
+engages `AGENT_FAILED`. The issue states "both kills were counted as crashes
+against the fail-streak budget." There is no timeout-specific path.
+**Ranking rationale:** High operator pain (timeouts consume retry budget) × low
+build cost (route timeout exits to a separate streak counter).
+
+### 16. [PRESENT] BRC thrash detector
+**Citation:** `health_checks/tier1/brc_thrashing.py:57` (`detect_brc_thrash`).
+**Verdict:** PRESENT and FUNCTIONAL. Detects NACK→propose→NACK cycles (threshold 3)
+and late CONFIRMED-then-re-NACK. Registered in the detection plane. This is the
+one detector that correctly handles a loop pattern.
+**Ranking rationale:** Listed for completeness — this is the one loop detector
+that works. No action needed.
+
+### 17. [PRESENT] Container restart loop detector
+**Citation:** `health_checks/tier1/container_k8s.py:220`
+(`detect_container_restart_loop`).
+**Verdict:** PRESENT and FUNCTIONAL. Detects crash-loops (restart count ≥ 3).
+Registered in the detection plane.
+**Ranking rationale:** Listed for completeness. No action needed.
+
+### 18. [PRESENT] Driver liveness check
+**Citation:** `health_checks/tier1/driver_liveness.py:93` (`DriverLivenessCheck`).
+**Verdict:** PRESENT and FUNCTIONAL. Three modes: `driver_dead`, `driver_hung`,
+`driver_no_progress`. Runs on RUNTIME_TICK. This caught the #3540 incident (11+
+hours of RUNNING with zero spawns).
+**Ranking rationale:** Listed for completeness. No action needed.
+
+### 19. [PRESENT] Phase stall detector (lifecycle-owner-aware)
+**Citation:** `health_checks/detection_plane.py:295` (`PhaseStallDetector`).
+**Verdict:** PRESENT and FUNCTIONAL. The #3230 fix: fires only when phase is
+RUNNING, zero running agents, NO lifecycle owner queued, no HITL pending, and past
+grace window. This is the model the other detectors should follow.
+**Ranking rationale:** Listed for completeness. No action needed.
+
+### 20. [PRESENT] Post-consensus-timeout absolute cap
+**Citation:** `models/_config.py:167-177`
+(`post_consensus_max_total_seconds` default 14400 = 4 hours);
+`routes/pipelines/_run_concurrent.py:1227-1234`.
+**Verdict:** PRESENT. The post-timeout poll loop has an absolute cap of 4 hours
+(14400s). This prevents unbounded waiting but does not address the 2-hour agent
+timeout being counted as a crash.
+**Ranking rationale:** Listed for completeness. No action needed.
+
+### 21. [ABSENT] Tool-input truncation in pod logs
+**Citation:** `agent_log_store.py:49-51` (MAX_LOG_BYTES = 1 MiB tail);
+`shared/egg_agent/client.py:32` (`_MAX_TOOL_CONTENT_LOG_LEN = 2000`).
+**Verdict:** PARTIALLY ADDRESSED. The issue states "the pod log cannot support
+this, because tool inputs are truncated at about 100 characters." The
+`agent_log_store` captures the tail (1 MiB), and the SDK client truncates
+individual log entries to 2000 chars. But neither captures the full structured
+tool input — the truncation is at the log level, not the data level. A structured
+tool-call history (candidate #6) would bypass this.
+**Ranking rationale:** Low operator pain (pod logs are a secondary signal) × low
+build cost (already partially addressed by candidate #6).
