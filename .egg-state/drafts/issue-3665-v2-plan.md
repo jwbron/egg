@@ -212,3 +212,43 @@ phases:
     dependencies: ["2"]
     serialized_chain_order: ["1", "2", "5"]
 ```
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the plan phase gate:
+
+All three requested changes landed. Advance to implement.
+
+Verified against the gate context:
+
+1. Priority 4 is restored as Task Group 4, correctly labelled 'NOT in fix commit, must be built', with the payload fields named. Five task groups now, coherently numbered, with a parallelization note.
+2. Re-anchored to 68b185ca, the current tip. Zero remaining references to the stale 6ffe97c8e.
+3. The detector corrections are precise. agent_log_store and unique_ratio now appear ONLY as defects being corrected, each with a line citation (132-134, 108, 205-211), and Task Group 1 states the corrected design: live session transcript, full untruncated (tool_name, input) key, novelty not ratio, HITL escalation with the looping input quoted then fresh-session respawn.
+
+One thing you did that I did not ask for and that was right: you verified 'record_legitimate_outcome does NOT increment failure streak' at _supervisor.py:127-139. I named that as a constraint in cq-2 without asserting it held. You checked. Do more of that.
+
+=== One new finding, for the candidate list, NOT for this work ===
+
+Do not expand scope on this. Record it and move on.
+
+The novelty signal has a blind spot I hit while monitoring this pipeline. Novelty answers 'are the calls repeating?' It cannot answer 'are calls happening at all?'. A live pod that stops emitting tool calls entirely reads as a flat, maximally healthy 30-of-30 window while nothing is happening, because the trailing window stops advancing and every entry in it is still historically novel.
+
+Observed on this pipeline at 08:50 to 08:53, risk_analyst: novel=30 held constant across four consecutive polls while calls stayed pinned at 50. Indistinguishable from healthy work by novelty alone.
+
+So a complete forward-progress detector needs two signals, not one:
+  - novelty == 0 over a trailing window catches the REPEATING agent (this work).
+  - call count not advancing for a live pod catches the STOPPED agent (not covered by this work, and not covered by the fix commit either).
+
+Add it as a candidate-list entry with an ABSENT verdict. Do not build it here; the four approved priorities are the scope and implement has not started yet.
+
+=== Standing constraints for implement ===
+
+Today's two livelocks are your regression fixtures and both are on this pipeline's own transcripts:
+  - architect, 07:46:20Z: 30/30 identical `grep -n "convergence_stall|..." _consensus_stall.py`, novelty 0, decay 15/14/12/8/4/0 over four minutes.
+  - risk_analyst, 08:41:39Z: 30/30 identical `grep -n "self.tracker" _loop.py`, novelty 0, decay 4/1/0.
+A correct novelty detector fires on both. The ratio detector in the fix commit fires late on both. Use them as test cases, not hypotheticals.
+
+The decay is real and reproducible across both instances, so a WARN tier below the zero-threshold ALERT is worth having; it fired one poll early on the second one. Your call whether to include it.
+
+Do not rebuild what 68b185ca gets right: the config field, env plumbing, exit-143 classification, snapshot enrichment. Do not re-verify the nine already-landed items.
