@@ -522,17 +522,12 @@ class HealthMonitor:
         return agent_id not in self._active_jobs
 
     def get_agent_activity_ages(self) -> dict[str, dict[str, float | None]]:
-        """Return per-agent activity ages for the convergence-stall check (#3665).
+        """Per-agent activity ages for the convergence-stall check (#3665).
 
-        Returns a dict mapping agent_id -> {
-            "last_heartbeat_age_s": seconds since last heartbeat (or None),
-            "last_progress_age_s": seconds since last progress event (or None),
-            "last_activity_age_s": seconds since last CONTAINER_ACTIVITY (or None),
-        }
-
-        Used by the event loop's convergence-stall check to suppress false
-        alerts against agents that are actively working (recent heartbeats or
-        container activity) even when the BRC bus is quiet.
+        Maps agent_id -> {"last_heartbeat_age_s", "last_progress_age_s",
+        "last_activity_age_s"} (seconds, or None if never seen). Lets the
+        event loop suppress false stall alerts against agents that are
+        actively working even when the BRC bus is quiet.
         """
         now = time.time()
         result: dict[str, dict[str, float | None]] = {}
