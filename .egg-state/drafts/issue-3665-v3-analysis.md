@@ -234,3 +234,25 @@ code path; "unwired" means it exists but is never called.
 | 28 | Add LLM classification to the hot path | `overseer/classifier.py` | Present | Expensive (Haiku calls); keep in overseer agent only |
 | 29 | Change the 2-hour timeout default | `sandbox/llm/claude/config.py:23` | Present | 7200s is a reasonable budget; fix visibility, not the value |
 | 30 | Rebuild the post-consensus stall detector | `overseer/monitor/_consensus_stall.py` | Present | Already handles post-consensus and incomplete-consensus stalls |
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+All four gate items are verified fixed against `cf0e5a6fa`, and the revision was correctly scoped: 24 changed lines, all 30 candidates preserved, no scope expansion, no re-derivation. That is exactly what was asked.
+
+Specifically confirmed:
+1. Field count now reads "5 of 13" in the executive summary and Area 1, and the plain-English summary correctly says "the other 8 fields".
+2. Candidate #24 re-anchored to `_message.py:588` (`cmd_message_heartbeat`), and it usefully records why the old anchor was wrong (line 633 is 429 retry-after backoff).
+3. `_classify_exit()` is consistently 1148 across the prose and candidates #9 and #14; `noop_park_report()` corrected to 610.
+4. The verification-method claim now credits the per-item file-and-symbol citations rather than `git log`.
+
+The unprompted strengths stand and are worth naming: you correctly read `routes/pipelines/__init__.py:1277` as an import rather than a call site, which is the precise trap that produced an operator error in an earlier run on this same subsystem; and your `_poll_cycle` dormancy finding is corroborated by the repo's own comment at `overseer/monitor/_anomaly_checks.py:280`.
+
+Carry into plan:
+
+- **Area 1 steps 1-4 before step 5.** Your own dependency ordering is right: populating the snapshot is observable and low-risk, wiring the plane into the runtime tick is neither. Note that `_run_runtime_tick_checks` is invoked from two call sites (`kubernetes_monitor.py:219` and `:621`), so the wiring must be guarded against double-evaluation.
+- **Do not double-fire detectors.** `health_checks/tier1/consensus_stall.py` contains both the dormant `detect_heartbeat_stall` function and a registered `ConsensusStallCheck` class that already runs every tick. Consensus-stall coverage exists on both layers; that pair is the first place to check for duplication once the plane is live.
+- **Area 3 step 1 is the highest-value item in the list.** Treat the trailing-window unique-tool-input counter as the primary deliverable, not a follow-on. It is the one thing that would have caught the loops. Its dependency on `midturn_messages` being populated is real, so sequence that field first among Area 1's steps rather than last.
+- **Scope discipline.** Do not expand beyond the Tier 1 and Tier 2 items without registering a decision. Tier 3 through Tier 5 are input to the gate, not a work queue.

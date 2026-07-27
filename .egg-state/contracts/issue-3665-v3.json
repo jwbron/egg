@@ -36,6 +36,32 @@
       "resolved_at": "2026-07-27T21:44:00.556112Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.\n\nDecision ledger: 1 decision(s) registered this phase (decision-1), 1 resolved.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "All four gate items are verified fixed against `cf0e5a6fa`, and the revision was correctly scoped: 24 changed lines, all 30 candidates preserved, no scope expansion, no re-derivation. That is exactly what was asked.\n\nSpecifically confirmed:\n1. Field count now reads \"5 of 13\" in the executive summary and Area 1, and the plain-English summary correctly says \"the other 8 fields\".\n2. Candidate #24 re-anchored to `_message.py:588` (`cmd_message_heartbeat`), and it usefully records why the old anchor was wrong (line 633 is 429 retry-after backoff).\n3. `_classify_exit()` is consistently 1148 across the prose and candidates #9 and #14; `noop_park_report()` corrected to 610.\n4. The verification-method claim now credits the per-item file-and-symbol citations rather than `git log`.\n\nThe unprompted strengths stand and are worth naming: you correctly read `routes/pipelines/__init__.py:1277` as an import rather than a call site, which is the precise trap that produced an operator error in an earlier run on this same subsystem; and your `_poll_cycle` dormancy finding is corroborated by the repo's own comment at `overseer/monitor/_anomaly_checks.py:280`.\n\nCarry into plan:\n\n- **Area 1 steps 1-4 before step 5.** Your own dependency ordering is right: populating the snapshot is observable and low-risk, wiring the plane into the runtime tick is neither. Note that `_run_runtime_tick_checks` is invoked from two call sites (`kubernetes_monitor.py:219` and `:621`), so the wiring must be guarded against double-evaluation.\n- **Do not double-fire detectors.** `health_checks/tier1/consensus_stall.py` contains both the dormant `detect_heartbeat_stall` function and a registered `ConsensusStallCheck` class that already runs every tick. Consensus-stall coverage exists on both layers; that pair is the first place to check for duplication once the plane is live.\n- **Area 3 step 1 is the highest-value item in the list.** Treat the trailing-window unique-tool-input counter as the primary deliverable, not a follow-on. It is the one thing that would have caught the loops. Its dependency on `midturn_messages` being populated is real, so sequence that field first among Area 1's steps rather than last.\n- **Scope discipline.** Do not expand beyond the Tier 1 and Tier 2 items without registering a decision. Tier 3 through Tier 5 are input to the gate, not a work queue.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-27T22:15:05.118119Z",
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
