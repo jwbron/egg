@@ -8,6 +8,14 @@
       "repo": null,
       "role": "coder"
     },
+    "00f81a6f81cbf33e03e5c7535e9912c3711b0318": {
+      "branch": "egg/issue-3665-v2/slice-2",
+      "patch_id": "7b5635aa03c96163c384ef2610f04158a7a02f47",
+      "pipeline_id": "issue-3665-v2",
+      "registered_at": "2026-07-27T13:35:58.211831+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "01cc530fa836a26e4a25488f6a80084cc479610f": {
       "branch": "egg/issue-3665-v2/slice-1",
       "patch_id": "c5e60a2444decc7ca859180afe3d8a41ea654d94",
