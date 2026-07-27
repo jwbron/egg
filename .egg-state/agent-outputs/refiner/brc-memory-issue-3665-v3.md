@@ -43,9 +43,10 @@
 ### Key finding: the detection plane is dead code in production
 
 The #2270 detection plane (the "structural replacement for the respawning overseer watcher pod")
-is fully implemented but never invoked. `snapshot_from_health_context()` only populates 3 of the
-12 snapshot fields. The `DetectionPlane.evaluate()` method exists but `_run_overseer_detection_plane()`
-has zero call sites outside its definition.
+is fully implemented but never invoked. `snapshot_from_health_context()` only populates 5 of the
+13 snapshot fields (`snapshot_id`, `pipeline_id`, `phase`, `running_agents`, `phase_state`).
+The `DetectionPlane.evaluate()` method exists but `_run_overseer_detection_plane()` has zero
+call sites outside its definition (the import in `__init__.py:1277` is not a call site).
 
 ### The 2-hour timeout
 
@@ -77,7 +78,7 @@ has zero call sites outside its definition.
 
 ### Session boundaries read as failures
 
-- `kubernetes_monitor.py:524-548` — `_reconcile_pod_state` classifies exit codes: 0 and 143
+- `kubernetes_monitor.py:1148` — `_classify_exit()` classifies exit codes: 0 and 143
   are clean; everything else is FAILED.
 - An agent killed by the 2-hour timeout exits with code -1 (from `client.py:920`), which is
   NOT 0 or 143, so it's classified as FAILED and increments the failure streak.

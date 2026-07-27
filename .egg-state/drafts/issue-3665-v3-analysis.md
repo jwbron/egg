@@ -4,18 +4,21 @@
 
 The supervision layer has three parallel mechanisms, but the newest and most promising one —
 the #2270 detection plane — is **completely unwired** in production. `snapshot_from_health_context()`
-populates only 3 of 12 snapshot fields, and `_run_overseer_detection_plane()` has zero call sites.
+populates only 5 of 13 snapshot fields, and `_run_overseer_detection_plane()` has zero call sites.
 The HealthMonitor tripwires ARE wired (via kubernetes_monitor RUNTIME_TICK) but operate on a
 different data path. The overseer agent IS spawned per-phase but its LLM-based classification
 requires a poll cycle that has no production construction site.
 
 The root cause of "silent on seven livelocks, loud at healthy agents" is: the deterministic
-detectors that could catch loops never run, and the LLM-based overseer that does run has
-no reliable input pipeline.
+detectors that could catch loops never run (the detection plane is unwired), and the LLM-based
+overseer that does run has no reliable input pipeline (its poll cycle has no production
+construction site).
 
 ## What has already landed (verified)
 
-All 9 items from the issue are confirmed in the tree (verified via `git log --oneline --all`):
+All 9 items from the issue are confirmed in the tree (verified via per-item file-and-symbol
+citations — the git log confirms a commit message exists, but the file-and-symbol anchors are
+the real evidence that the code is present):
 
 | Item | PR | File(s) | Status |
 |------|-----|---------|--------|
@@ -33,8 +36,9 @@ All 9 items from the issue are confirmed in the tree (verified via `git log --on
 
 ### Area 1: Signals that exist and are not consulted
 
-**Problem:** The detection plane's `snapshot_from_health_context()` populates only 3 of 12
-`EventStreamSnapshot` fields. The `consensus`, `container_transitions`, `runtime`, `cost_counters`,
+**Problem:** The detection plane's `snapshot_from_health_context()` populates only 5 of 13
+`EventStreamSnapshot` fields (`snapshot_id`, `pipeline_id`, `phase`, `running_agents`,
+`phase_state`). The `consensus`, `container_transitions`, `runtime`, `cost_counters`,
 `gateway_error_counters`, `midturn_messages`, `git_state`, and `decision_state` fields are all
 left empty. This means every detector that reads those fields is silently inert in production.
 
@@ -70,7 +74,7 @@ left empty. This means every detector that reads those fields is silently inert 
 ### Area 2: Session boundaries read as failures
 
 **Problem:** An agent killed by the 2-hour `ClaudeConfig.timeout` (7200s) exits with code -1,
-which `_classify_exit()` in `kubernetes_monitor.py:1164` classifies as FAILED (not 0/143),
+which `_classify_exit()` in `kubernetes_monitor.py:1148` classifies as FAILED (not 0/143),
 incrementing the failure streak. The agent never sees the timeout coming.
 
 **Proposed work (ordered):**
@@ -193,7 +197,7 @@ code path; "unwired" means it exists but is never called.
 
 | # | Improvement | File-and-symbol citation | Present? | Wired? |
 |---|------------|--------------------------|----------|--------|
-| 9 | Classify timeout-killed pods (exit -1 from `asyncio.timeout`) as clean timeout, not crash | `kubernetes_monitor.py:_classify_exit()` (line 1164) | Present (bug) | Yes |
+| 9 | Classify timeout-killed pods (exit -1 from `asyncio.timeout`) as clean timeout, not crash | `kubernetes_monitor.py:_classify_exit()` (line 1148) | Present (bug) | Yes |
 | 10 | Surface the 2-hour `ClaudeConfig.timeout` to the agent via heartbeat before expiry | `sandbox/egg_lib/orch_cli/_message.py:cmd_message_heartbeat` + `sandbox/llm/claude/config.py:23` | Present (not surfaced) | No |
 | 11 | Make agent timeout configurable per-pipeline | `models/_config.py:PipelineConfig` + `sandbox/llm/claude/config.py:ClaudeConfig.timeout` | Present (hardcoded 7200) | No |
 | 12 | Unify convergence-stall alert and alive-signal gate timestamp sources | `event_loop/_loop.py:_check_convergence_stall()` (line 859) vs `health_monitor.py:_has_recent_peer_progress()` (line 388) | Present (divergent) | Yes (both) |
@@ -218,8 +222,8 @@ code path; "unwired" means it exists but is never called.
 | 21 | Populate `git_state` in snapshot for worktree corruption detection | `health_checks/detection_plane.py:snapshot_from_health_context()` + `health_checks/context.py:git_log` | Present (unused) | No |
 | 22 | Wire `detect_duration_drift()` with `expected_duration_s` from pipeline config | `health_checks/tier1/runtime_liveness.py:138` + `models/_config.py` | Present (field absent) | No |
 | 23 | Implement `detect_auto_advance_wedge()` detector | `health_checks/tier1/decision_queue.py:detect_auto_advance_wedge` | Present (unpopulated) | No |
-| 24 | Add `EGG_HEARTBEAT_RATE_LIMIT` config to PipelineConfig | `sandbox/egg_lib/orch_cli/_message.py:633` (hardcoded 60s) | Present (hardcoded) | No |
-| 25 | Surface `noop_park_report()` and `exhausted_report()` in get_status | `event_loop/_supervisor.py:558` / `584` | Present (not surfaced) | No |
+| 24 | Add `EGG_HEARTBEAT_RATE_LIMIT` config to PipelineConfig | `sandbox/egg_lib/orch_cli/_message.py:588` (`cmd_message_heartbeat`, no rate-limit config) | Present (not configurable) | No |
+| 25 | Surface `noop_park_report()` and `exhausted_report()` in get_status | `event_loop/_supervisor.py:558` / `610` | Present (not surfaced) | No |
 
 ## Tier 5 — Won't do (out of scope or already handled)
 
