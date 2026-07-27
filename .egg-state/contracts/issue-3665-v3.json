@@ -12,8 +12,8 @@
   "slices": [
     {
       "id": "slice-1",
-      "name": "Populate EventStreamSnapshot fields in snapshot_from_health_context()",
-      "goal": "Populate all 8 currently-empty EventStreamSnapshot fields so that the\ndetection plane's detectors can actually read the data they need. This is\nthe prerequisite for slices 2-5.",
+      "name": "Populate in-scope EventStreamSnapshot fields in snapshot_from_health_context()",
+      "goal": "Populate the 5 in-scope EventStreamSnapshot fields (midturn_messages, runtime,\nconsensus, container_transitions, RunningAgent role+age) so that the detection\nplane's detectors can actually read the data they need. The remaining 4 fields\n(decision_state, gateway_error_counters, cost_counters, git_state) are Tier 3-4\ncandidates and remain empty by decision. midturn_messages is TASK-1-1 (first)\nper the refine gate's carry-into-plan note.",
       "status": "pending",
       "review_cycles": 0,
       "max_cycles": 3,
@@ -22,6 +22,28 @@
       "tasks": [
         {
           "id": "task-1-1",
+          "description": "Populate midturn_messages in snapshot. Wire agent tool-call logs into\nsnapshot_from_health_context() as midturn_messages tuples. Sequenced first\nper the refine gate's instruction (\"Area 3 step 1 is the highest-value item...\nsequence that field first among Area 1's steps rather than last\"). This is\nthe prerequisite for the loop detector in slice-3.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- snapshot.midturn_messages contains tool-call records with tool_name and input_hash\n- populated from agent_log_store or live pod logs",
+          "files_affected": [
+            "orchestrator/health_checks/detection_plane.py",
+            "orchestrator/agent_log_store.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-2",
           "description": "Populate runtime section of EventStreamSnapshot. Wire\ndriver_heartbeat.tick_age_seconds() and spawn_age_seconds() into\nsnapshot_from_health_context() under raw[\"runtime\"]. This activates\ndetect_run_pipeline_thread_liveness() and DriverLivenessCheck.",
           "status": "pending",
           "commit": null,
@@ -43,7 +65,7 @@
           "jira_action_status": null
         },
         {
-          "id": "task-1-2",
+          "id": "task-1-3",
           "description": "Populate consensus section of snapshot. Wire\npeer_consensus.get_peer_consensus_tracker().evaluate() into the snapshot\nbuilder. This activates detect_brc_thrash(), detect_incomplete_consensus_deferral(),\nand consensus field readers in PhaseStallDetector.",
           "status": "pending",
           "commit": null,
@@ -65,7 +87,7 @@
           "jira_action_status": null
         },
         {
-          "id": "task-1-3",
+          "id": "task-1-4",
           "description": "Populate container_transitions from kubernetes_monitor pod-state log.\nWire KubernetesMonitor._pod_states into the snapshot. This activates\ndetect_container_death(), detect_container_oom_evicted(),\ndetect_container_restart_loop(), detect_overseer_self_injection().",
           "status": "pending",
           "commit": null,
@@ -87,7 +109,7 @@
           "jira_action_status": null
         },
         {
-          "id": "task-1-4",
+          "id": "task-1-5",
           "description": "Fix RunningAgent role field and populate age fields. Use agent role\nfrom pipeline state instead of container ID; populate last_tool_call_age_s\nand last_heartbeat_age_s from health monitor anchors. This activates\ndetect_heartbeat_stall().",
           "status": "pending",
           "commit": null,
@@ -109,35 +131,13 @@
           "jira_action_status": null
         },
         {
-          "id": "task-1-5",
-          "description": "Populate midturn_messages in snapshot. Wire agent tool-call logs into\nsnapshot_from_health_context() as midturn_messages tuples. This is the\nprerequisite for the loop detector in slice-3.",
-          "status": "pending",
-          "commit": null,
-          "checkpoint_id": null,
-          "notes": "",
-          "acceptance_criteria": "- snapshot.midturn_messages contains tool-call records with tool_name and input_hash\n- populated from agent_log_store or live pod logs",
-          "files_affected": [
-            "orchestrator/health_checks/detection_plane.py",
-            "orchestrator/agent_log_store.py"
-          ],
-          "role": "coder",
-          "review_cycles": 0,
-          "max_cycles": 3,
-          "escalated": false,
-          "delegation_attempts": 0,
-          "gaps": [],
-          "jira_key": null,
-          "jira_action": null,
-          "jira_action_status": null
-        },
-        {
           "id": "task-1-6",
-          "description": "Tests for snapshot population. Verify all 13 EventStreamSnapshot fields\nare populated.",
+          "description": "Tests for snapshot population. Verify the 5 in-scope fields are populated\n(runtime, consensus, container_transitions, midturn_messages, RunningAgent\nrole+age). Verify the 4 excluded fields (decision_state, gateway_error_counters,\ncost_counters, git_state) remain empty by decision.",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "- Tests assert all 13 fields populated\n- runtime, consensus, container_transitions, midturn_messages all non-empty",
+          "acceptance_criteria": "- Tests assert 5 in-scope fields populated\n- Tests assert 4 excluded fields remain empty by decision\n- runtime, consensus, container_transitions, midturn_messages, RunningAgent all non-empty",
           "files_affected": [
             "orchestrator/tests/test_detection_plane_wiring.py"
           ],
@@ -164,8 +164,8 @@
     },
     {
       "id": "slice-2",
-      "name": "Wire the detection plane into RUNTIME_TICK",
-      "goal": "Make the detection plane actually run in production by calling\n_run_overseer_detection_plane() from _run_runtime_tick_checks(), routing\nrequires_adjudication findings to the overseer agent and routine findings\nto the corrective executor. Also route findings to the operator alert surface.",
+      "name": "Wire the detection plane into RUNTIME_TICK + consensus-stall double-fire guard",
+      "goal": "Make the detection plane actually run in production by calling\n_run_overseer_detection_plane() from _run_runtime_tick_checks(), routing\nrequires_adjudication findings to the overseer agent and routine findings\nto the corrective executor. Also prevent consensus-stall double-firing\n(ConsensusStallCheck class runs every tick via HealthCheckRunner; the\ndetection plane's consensus-stall detector must not fire on the same snapshot).",
       "status": "pending",
       "review_cycles": 0,
       "max_cycles": 3,
@@ -197,15 +197,15 @@
         },
         {
           "id": "task-2-2",
-          "description": "Route detection-plane findings to the operator alert surface. Route\nfindings to the same OVERSEER_ALERT / HITL / Slack surfaces the\noverseer uses, so the operator sees one consistent alert stream.",
+          "description": "Prevent consensus-stall double-firing. health_checks/tier1/consensus_stall.py\ncontains both the dormant detect_heartbeat_stall() function and a registered\nConsensusStallCheck class that already runs every tick. Once the detection\nplane is live, the plane's consensus-stall detector and this registered check\nmust not double-fire. Add a guard in the detection plane's consensus-stall\ndetector to check whether ConsensusStallCheck has already fired for this\nsnapshot, or vice-versa.",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "- Detection-plane findings appear on the OVERSEER_ALERT surface\n- requires_adjudication findings escalate to overseer\n- routine findings emit to event bus",
+          "acceptance_criteria": "- ConsensusStallCheck and the detection plane's consensus-stall detector do not both fire on the same snapshot\n- No duplicate consensus-stall alerts or findings",
           "files_affected": [
-            "orchestrator/health_checks/runner.py",
-            "orchestrator/routes/pipelines/_overseer.py"
+            "orchestrator/health_checks/tier1/consensus_stall.py",
+            "orchestrator/health_checks/detection_plane.py"
           ],
           "role": "coder",
           "review_cycles": 0,
@@ -219,12 +219,34 @@
         },
         {
           "id": "task-2-3",
-          "description": "Tests for detection plane wiring. Verify the detection plane is called\nfrom RUNTIME_TICK; verify no double-evaluation; verify findings are routed\nto the alert surface.",
+          "description": "Route detection-plane findings to the operator alert surface. Route\nfindings to the same OVERSEER_ALERT / HITL / Slack surfaces the\noverseer uses, so the operator sees one consistent alert stream.\n(Scope decision: candidate #19, Tier 3 \u2014 included because the issue\nexplicitly identifies \"alerts an operator cannot act on\" as a core\nproblem; findings without routing are useless.)",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "- Tests assert detection plane invoked on RUNTIME_TICK\n- double-evaluation guard prevents duplicate findings\n- findings routed to alert surface",
+          "acceptance_criteria": "- Detection-plane findings appear on the OVERSEER_ALERT surface\n- requires_adjudication findings escalate to overseer\n- routine findings emit to event bus",
+          "files_affected": [
+            "orchestrator/health_checks/runner.py",
+            "orchestrator/routes/pipelines/_overseer.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-2-4",
+          "description": "Tests for detection plane wiring. Verify the detection plane is called\nfrom RUNTIME_TICK; verify no double-evaluation; verify findings are routed\nto the alert surface; verify no double-firing of consensus-stall detectors.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "- Tests assert detection plane invoked on RUNTIME_TICK\n- double-evaluation guard prevents duplicate findings\n- consensus-stall double-fire guard prevents duplicate reporting\n- findings routed to alert surface",
           "files_affected": [
             "orchestrator/tests/test_detection_plane_wiring.py"
           ],
@@ -284,7 +306,7 @@
         },
         {
           "id": "task-3-2",
-          "description": "Increase log capture fidelity for one-shot event pods. The k8s log API\ntruncates at ~100 chars per line (kubernetes_client.py:455 read_job_log_snapshot\nwith tail_lines=2000). Increase fidelity so the unique-tool-input counter\nhas enough data to distinguish distinct tool calls sharing a prefix.",
+          "description": "Increase log capture fidelity for one-shot event pods. The k8s log API\ntruncates at ~100 chars per line (kubernetes_client.py:455 read_job_log_snapshot\nwith tail_lines=2000). Increase fidelity so the unique-tool-input counter\nhas enough data to distinguish distinct tool calls sharing a prefix.\n(Scope decision: candidate #20, Tier 3 \u2014 included as a hard dependency;\nwithout full-length tool inputs, the loop detector cannot distinguish\ndistinct tool calls sharing a prefix.)",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
@@ -794,8 +816,8 @@
   "plan_review_feedback": "",
   "pr": {
     "title": "Supervision second pass: wire detection plane + loop detector + timeout classification + alert evidence",
-    "description": "Five linear slices across the four analysis areas from issue #3665:\n(1) populate all 13 EventStreamSnapshot fields in snapshot_from_health_context();\n(2) wire _run_overseer_detection_plane() into RUNTIME_TICK with double-evaluation\nguard; (3) implement a deterministic unique-tool-input loop detector reading\nmidturn_messages from the snapshot; (4) classify timeout-killed pods (exit -1 from\nasyncio.timeout) as clean timeouts not crashes, surface the 2h timeout to agents\nvia heartbeat, and make the timeout configurable per-pipeline; (5) enrich\nOVERSEER_ALERT payloads with evidence and fix the convergence-stall false positive\nby unifying timestamp sources. Slices are linear because they share overlapping\nfiles (kubernetes_monitor.py, detection_plane.py, health_monitor.py).",
-    "test_plan": "Automated (per slice; `make test` narrows to reachable suites, then\n`make test-all` before phase exit; `make lint` green throughout):\n- Slice 1: test_detection_plane_wiring.py \u2014 all 13 snapshot fields populated.\n- Slice 2: test_detection_plane_wiring.py \u2014 detection plane invoked on RUNTIME_TICK;\n  double-evaluation guard prevents duplicate findings; findings routed to alert surface.\n- Slice 3: test_loop_detection.py \u2014 fires on zero-new-input windows of any\n  cycle shape (1-, 2-, 3-, 8-cycles); does not fire on productive agents.\n- Slice 4: test_timeout_classification.py \u2014 streak untouched by timeout;\n  heartbeat warning emitted at 90 minutes; exit classification distinguishes\n  timeout from crash.\n- Slice 5: test_alert_evidence.py \u2014 evidence in alert payloads; convergence-stall\n  does not fire when peer heartbeat is recent.",
+    "description": "Five linear slices across the four analysis areas from issue #3665:\n(1) populate 5 in-scope EventStreamSnapshot fields in snapshot_from_health_context()\n(midturn_messages first per refine gate); (2) wire _run_overseer_detection_plane()\ninto RUNTIME_TICK with double-evaluation guard + consensus-stall double-fire guard\n+ route findings to alert surface; (3) implement a deterministic unique-tool-input\nloop detector reading midturn_messages from the snapshot + increase log capture fidelity;\n(4) classify timeout-killed pods (exit -1 from asyncio.timeout) as clean timeouts not\ncrashes, surface the 2h timeout to agents via heartbeat, and make the timeout\nconfigurable per-pipeline; (5) enrich OVERSEER_ALERT payloads with evidence and fix\nthe convergence-stall false positive by unifying timestamp sources. Slices are linear\nbecause they share overlapping files (kubernetes_monitor.py, detection_plane.py,\nhealth_monitor.py). Two Tier 3 items included with registered scope decisions:\nTASK-3-2 (log fidelity, hard dependency for loop detector) and TASK-2-3 (alert routing,\ncore to the issue's \"alerts an operator cannot act on\" problem).",
+    "test_plan": "Automated (per slice; `make test` narrows to reachable suites, then\n`make test-all` before phase exit; `make lint` green throughout):\n- Slice 1: test_detection_plane_wiring.py \u2014 5 in-scope snapshot fields populated;\n  4 excluded fields remain empty by decision.\n- Slice 2: test_detection_plane_wiring.py \u2014 detection plane invoked on RUNTIME_TICK;\n  double-evaluation guard prevents duplicate findings; consensus-stall double-fire\n  guard prevents duplicate reporting; findings routed to alert surface.\n- Slice 3: test_loop_detection.py \u2014 fires on zero-new-input windows of any\n  cycle shape (1-, 2-, 3-, 8-cycles); does not fire on productive agents.\n- Slice 4: test_timeout_classification.py \u2014 streak untouched by timeout;\n  heartbeat warning emitted at 90 minutes; exit classification distinguishes\n  timeout from crash.\n- Slice 5: test_alert_evidence.py \u2014 evidence in alert payloads; convergence-stall\n  does not fire when peer heartbeat is recent.",
     "manual_steps": "",
     "context_pr_number": null,
     "deferred_actions": []

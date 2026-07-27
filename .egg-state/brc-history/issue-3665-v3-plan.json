@@ -1,6 +1,20 @@
 [
   {
-    "id": "4005cf22-dc29-43",
+    "id": "25a25083-54d4-4f",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:37:57.034423+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e23acd15-eac3-4c",
     "pipeline_id": "issue-3665-v3",
     "from_role": "architect",
     "to_role": "all",
@@ -10,25 +24,11 @@
     "metadata": {
       "state": "WORKING"
     },
-    "timestamp": "2026-07-27T22:15:20.271860+00:00",
+    "timestamp": "2026-07-27T23:37:57.064174+00:00",
     "phase": "plan"
   },
   {
-    "id": "d0ba39b9-9260-49",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "overseer",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:15:21.245516+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "79c8e11e-e2a4-4a",
+    "id": "3becc5a8-70c6-44",
     "pipeline_id": "issue-3665-v3",
     "from_role": "task_planner",
     "to_role": "all",
@@ -38,11 +38,25 @@
     "metadata": {
       "state": "WORKING"
     },
-    "timestamp": "2026-07-27T22:15:21.373028+00:00",
+    "timestamp": "2026-07-27T23:38:00.119193+00:00",
     "phase": "plan"
   },
   {
-    "id": "f0cae181-7dab-43",
+    "id": "7d048a40-dca7-45",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:38:17.846950+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2dea6973-fcad-49",
     "pipeline_id": "issue-3665-v3",
     "from_role": "architect",
     "to_role": "all",
@@ -52,67 +66,11 @@
     "metadata": {
       "state": "WORKING"
     },
-    "timestamp": "2026-07-27T22:15:28.468979+00:00",
+    "timestamp": "2026-07-27T23:38:54.407805+00:00",
     "phase": "plan"
   },
   {
-    "id": "d0ed602c-64b0-45",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:15:29.101882+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "a0c5f42a-2c1f-49",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:17:32.960796+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "41e8c75c-1615-45",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:17:38.244844+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "6345d762-22c0-49",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:19:33.137470+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "e45175c8-28ef-45",
+    "id": "c9785640-a4fb-4d",
     "pipeline_id": "issue-3665-v3",
     "from_role": "overseer",
     "to_role": "all",
@@ -122,95 +80,39 @@
     "metadata": {
       "state": "WORKING"
     },
-    "timestamp": "2026-07-27T22:19:44.170761+00:00",
+    "timestamp": "2026-07-27T23:40:35.067453+00:00",
     "phase": "plan"
   },
   {
-    "id": "23e03721-cce7-45",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:19:44.489785+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "edfeb81f-51c7-4b",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:21:48.134745+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "847715d6-072d-4a",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:21:52.837373+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "fc8120ba-0a19-40",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:23:51.919577+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "332da546-1b26-49",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:23:54.422750+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "9fe12a24-d56f-49",
+    "id": "87ba6302-60ff-46",
     "pipeline_id": "issue-3665-v3",
     "from_role": "overseer",
     "to_role": "all",
     "message_type": "HEARTBEAT",
     "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=53474 util=n/a cache_hit=0.96 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:40:52.503953+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d4f4945f-763e-4d",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
     "body": "in-tool-loop liveness (slice=none)",
     "metadata": {
       "state": "WORKING"
     },
-    "timestamp": "2026-07-27T22:24:58.415098+00:00",
+    "timestamp": "2026-07-27T23:41:23.507392+00:00",
     "phase": "plan"
   },
   {
-    "id": "e6f37fd8-8aca-4c",
+    "id": "9dd4d255-700c-4b",
     "pipeline_id": "issue-3665-v3",
     "from_role": "task_planner",
     "to_role": "all",
@@ -220,1739 +122,27 @@
     "metadata": {
       "state": "WORKING"
     },
-    "timestamp": "2026-07-27T22:25:55.944755+00:00",
+    "timestamp": "2026-07-27T23:41:35.310283+00:00",
     "phase": "plan"
   },
   {
-    "id": "cb13eca2-b835-4c",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:25:57.066308+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "c0dcc356-5a0f-44",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:28:02.300627+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "a6be2558-5a60-42",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:28:26.312451+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "f67d3e2d-051b-47",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:30:02.708506+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "a63534ab-ec9f-47",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "overseer",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:30:09.873816+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "86968daa-c689-41",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:30:32.441892+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "a60dcb20-9c58-4f",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:32:14.091021+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "5f911dba-89f2-42",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:32:55.456470+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "a31d9c14-2a84-4c",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:34:58.000345+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "19e03cc7-126c-46",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "overseer",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:35:20.273184+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "c2f2c0a1-8b93-4d",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:35:52.498061+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "d4f38b25-1548-46",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:36:59.359527+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "897a63d0-f3ab-46",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "CONSENSUS_PROPOSE",
-    "subject": "Proposal from task_planner",
-    "body": "task_planner: plan draft for issue #3665 supervision second pass \u2014 five linear slices (snapshot population, detection plane wiring, loop detector, timeout classification, alert evidence) with 21 tasks (16 coder, 5 tester). Tier 3-5 from the 30-item candidate list are input to the gate only.",
-    "metadata": {
-      "payload": {
-        "summary": "task_planner: plan draft for issue #3665 supervision second pass \u2014 five linear slices (snapshot population, detection plane wiring, loop detector, timeout classification, alert evidence) with 21 tasks (16 coder, 5 tester). Tier 3-5 from the 30-item candidate list are input to the gate only.",
-        "attestation": {
-          "no_decisions_rationale": "This plan phase produces a plan artifact, not a code change. No HITL decisions are required \u2014 the four areas and the task decomposition are the deliverable, and the gate (implement phase) will decide what to build. The scope discipline (Tier 1-2 only, Tier 3-5 as input) was established by the refine phase gate and carried forward.",
-          "candidates_considered": [
-            {
-              "question": "Should the four areas be split into more or fewer slices?",
-              "disposition": "not_operator_grade",
-              "why": "Originally planned as four independent slices, but they share overlapping files (kubernetes_monitor.py, detection_plane.py, health_monitor.py) which violates #3046's overlap validator for independent slices. Restructured as a linear chain of five slices to satisfy the overlap constraint while preserving the logical decomposition."
-            },
-            {
-              "question": "Should the detection plane wiring (slice-2) and loop detector (slice-3) be merged?",
-              "disposition": "not_operator_grade",
-              "why": "The loop detector depends on midturn_messages being populated (slice-1 TASK-1-5) and the detection plane being wired (slice-2 TASK-2-1). Keeping them as separate sequential slices preserves the ability to review the wiring independently of the detector logic, and the linear chain handles the shared-file constraint."
-            },
-            {
-              "question": "Should the timeout classification (TASK-4-3) use a new exit code like EX_TIMEOUT?",
-              "disposition": "not_operator_grade",
-              "why": "The timeout-killed pod exits with code -1 (from asyncio.timeout in client.py), not a custom exit code. The agent CLI returns -1 on timeout. Adding a new exit code would require changing the agent CLI's timeout handling, which is a larger change. Instead, the classification should detect the timeout via the agent result's error message ('Timed out after {timeout} seconds') and classify it as a clean timeout in the event loop's outcome mapping."
-            }
-          ]
-        },
-        "artifacts": [
-          ".egg-state/drafts/issue-3665-v3-plan.md",
-          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json"
-        ],
-        "risk_considered": "Five linear slices share overlapping files (kubernetes_monitor.py, detection_plane.py, health_monitor.py) so they are ordered as a chain per #3046. slice-1 populates all 13 EventStreamSnapshot fields (prerequisite for everything). slice-2 wires _run_overseer_detection_plane() into RUNTIME_TICK with double-evaluation guard. slice-3 implements the deterministic unique-tool-input loop detector. slice-4 classifies timeout-killed pods (exit -1 from asyncio.timeout) as clean timeouts. slice-5 enriches alert payloads and fixes the convergence-stall false positive. The detection plane wiring (slice-2 TASK-2-1) adds a new code path on the hot loop \u2014 must be exception-isolated. Timeout classification (slice-4 TASK-4-3) must distinguish timeout-killed pods from real crashes via the agent result error message.",
-        "commit_sha": "6092b5a7afd4e018c2c7f83fdf1161cbab01430e",
-        "files_changed": [
-          ".egg-state/drafts/issue-3665-v3-plan.md",
-          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json"
-        ],
-        "tests_run": [],
-        "tasks_satisfied": [
-          "TASK-1-1",
-          "TASK-1-2",
-          "TASK-1-3",
-          "TASK-1-4",
-          "TASK-1-5",
-          "TASK-1-6",
-          "TASK-2-1",
-          "TASK-2-2",
-          "TASK-2-3",
-          "TASK-3-1",
-          "TASK-3-2",
-          "TASK-3-3",
-          "TASK-4-1",
-          "TASK-4-2",
-          "TASK-4-3",
-          "TASK-4-4",
-          "TASK-4-5",
-          "TASK-5-1",
-          "TASK-5-2",
-          "TASK-5-3",
-          "TASK-5-4"
-        ],
-        "no_changes_needed": false,
-        "no_changes_reason": ""
-      },
-      "version": 1,
-      "commit_sha": "6092b5a7afd4e018c2c7f83fdf1161cbab01430e"
-    },
-    "timestamp": "2026-07-27T22:38:04.349868+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "8eb222b7-f2ab-40",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:38:04.820603+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "9519a693-5cc4-4f",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=propose (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:38:13.788898+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "d3c2ab58-e1e6-4f",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=propose (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:38:14.065680+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "25468053-0835-42",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=ack (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:38:14.788411+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "bc9578b9-a2f7-45",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:38:21.595317+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "6544bd1c-f073-43",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:38:25.424580+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "323551ef-9468-41",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:38:25.570239+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "b8a5021e-dedd-43",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=no_warm_session",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:38:25.975894+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "09b3853c-570a-4e",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:39:16.164399+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "874582de-1d87-46",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:40:28.239930+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "c6d41e66-1d75-48",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "overseer",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:40:31.367372+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "2812323f-5d25-42",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:41:07.907693+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "4cbf6453-fd02-4d",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:41:20.621611+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "50f201e1-6a41-48",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:41:34.761509+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "125f1dfb-57a4-41",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "all",
-    "message_type": "CONSENSUS_PROPOSE",
-    "subject": "Proposal from simplifier",
-    "body": "simplifier: plan-draft-human for issue #3665 \u2014 faithful plain-English rendering of task_planner v1 plan (5 linear slices: snapshot population, detection plane wiring, loop detector, timeout classification, alert evidence)",
-    "metadata": {
-      "payload": {
-        "summary": "simplifier: plan-draft-human for issue #3665 \u2014 faithful plain-English rendering of task_planner v1 plan (5 linear slices: snapshot population, detection plane wiring, loop detector, timeout classification, alert evidence)",
-        "attestation": {},
-        "artifacts": [
-          ".egg-state/drafts/issue-3665-v3-plan-human.md"
-        ],
-        "risk_considered": "Low risk \u2014 this is a human-readable companion artifact (plan-draft-human) gated by reviewer_plan on existence-only. No code changes. The plan-human faithfully renders the task_planner's v1 plan (commit 6092b5a7a): 5 linear slices across 4 areas, 23 tasks total, with ordering and dependencies preserved. No content added or dropped.",
-        "commit_sha": "e030b6112",
-        "files_changed": [
-          ".egg-state/drafts/issue-3665-v3-plan-human.md"
-        ],
-        "tests_run": [],
-        "tasks_satisfied": [],
-        "no_changes_needed": false,
-        "no_changes_reason": ""
-      },
-      "version": 1,
-      "commit_sha": "e030b6112"
-    },
-    "timestamp": "2026-07-27T22:41:50.503700+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "4d3bfe61-05e7-4b",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=ack (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:41:57.364000+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "a51886b5-02e3-4f",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:42:02.928197+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "3e847c69-c4e0-41",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:43:39.564982+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "3cb4f262-11d4-40",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "task_planner",
-    "message_type": "CONSENSUS_ACK",
-    "subject": "ACK from simplifier for task_planner",
-    "body": "task_planner v1 plan (commit 6092b5a7a) is well-structured: 5 linear slices across 4 areas from the issue, 23 tasks total (coder + tester roles), with clear ordering and dependencies. Scope correctly limited to Tier 1+2 items from the 30-item candidate list. Grounded anchors verified. ACK for simplifier's reviewer edge.",
-    "metadata": {
-      "payload": {
-        "artifact_references": [
-          ".egg-state/drafts/issue-3665-v3-plan.md"
-        ],
-        "reason": "task_planner v1 plan (commit 6092b5a7a) is well-structured: 5 linear slices across 4 areas from the issue, 23 tasks total (coder + tester roles), with clear ordering and dependencies. Scope correctly limited to Tier 1+2 items from the 30-item candidate list. Grounded anchors verified. ACK for simplifier's reviewer edge.",
-        "ack_version": 1
-      },
-      "version": 1
-    },
-    "timestamp": "2026-07-27T22:43:56.254651+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "36a26d4e-ab09-4d",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:43:56.718575+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "be45641c-1e44-4a",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:44:27.623546+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "bce28846-d1be-4b",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: IDLE",
-    "body": "simplifier: plan-draft-human proposed v1 (commit e030b6112). ACKed task_planner v1 (6092b5a7a). Waiting on reviewer_plan to ACK my plan-human proposal.",
-    "metadata": {
-      "state": "IDLE"
-    },
-    "timestamp": "2026-07-27T22:44:30.279160+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "327a52d0-1740-40",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:44:38.491018+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "2fe0f0d5-a952-43",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:45:41.108958+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "d1dcb7e5-dbbd-40",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "overseer",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:45:45.137043+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "0ca21ea2-0d55-45",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=no_warm_session",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:46:14.759451+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "6de73cc6-52d6-4a",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:46:35.485802+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "72f52e5e-81b9-40",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=propose (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:46:55.036786+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "52b9f71f-295f-41",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:47:03.072985+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "020f9946-8f1a-4c",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "overseer",
-    "to_role": "architect",
-    "message_type": "STATUS",
-    "subject": "HEAD answered \u2014 formulate and propose now",
-    "body": "Operator, closing your open question. You are repeating `git log --oneline -1` \u2014 40 identical\ncalls. It returns the same line every time. Do not re-issue it.\n\n**The answer:** your worktree is on branch `egg/issue-3665-v3-architect/work`, HEAD is\n**`1cd0c8ad7` (\"Persist HITL resolution after refine phase gate\")**, parent `a2ba35e7b`. The\npipeline base is `cf0e5a6fa` (`main` at launch). The shared work branch `egg/issue-3665-v3/work`\nhas since advanced to `e030b6112` with the `task_planner` and `simplifier` plan drafts on it, but\n**you do not need that SHA to propose** \u2014 the BRC protocol records your proposal SHA for you when\nyou call `mcp__brc__propose`.\n\n**Your investigation is complete and correct.** Your own last message already states the findings:\nthe detection plane is unwired (`_run_overseer_detection_plane()` at\n`routes/pipelines/_overseer.py:309`, zero call sites, the `__init__.py:1277` reference being an\nimport), and `snapshot_from_health_context()` under-populates the snapshot. Both are right and\nboth were approved at the refine gate. There is nothing further to establish.\n\n**Do this now. Do not issue another Bash call.**\n\n1. Write your architect proposal from the findings you already have (198 tool calls, 122 distinct,\n   3 `mcp__*`).\n2. Call `mcp__brc__propose`.\n\n**Gate constraints carried from the refine approval, restated so your plan satisfies them:**\n\n- Sequence Area 1 steps 1-4 (populate the snapshot) **before** step 5 (wire the plane into the\n  runtime tick).\n- `_run_runtime_tick_checks` is invoked from **two** call sites (`kubernetes_monitor.py:219` and\n  `:621`) \u2014 the wiring must be guarded against double-evaluation.\n- `health_checks/tier1/consensus_stall.py` holds both the dormant `detect_heartbeat_stall`\n  function and a **registered** `ConsensusStallCheck` class that already runs every tick. Do not\n  double-fire that pair.\n- Treat the trailing-window unique-tool-input loop detector (Area 3 step 1) as the **primary**\n  deliverable, and sequence `midturn_messages` first among the Area 1 fields it depends on.\n- Stay within Tier 1 and Tier 2. Tiers 3-5 are gate input, not a work queue; register a decision\n  rather than expanding scope.\n\n`task_planner` and `simplifier` have both already proposed. You are holding the phase.",
-    "metadata": {},
-    "timestamp": "2026-07-27T22:47:50.575367+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "7a6fd5e8-226e-49",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:47:52.321315+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "a13bf1e3-4f5b-46",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:48:38.320718+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "2f0e9959-7986-4e",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:50:02.777130+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "d2eee502-f7ed-48",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:50:10.855767+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "d95f0200-53f8-4d",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:50:44.876600+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "c5129619-ad8a-4a",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "overseer",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:50:59.288547+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "d27524d2-8328-44",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "task_planner",
-    "message_type": "CONSENSUS_ACK",
-    "subject": "ACK from risk_analyst for task_planner",
-    "body": "Reviewed the task_planner's plan proposal (version 1) for issue #3665. All technical claims verified against the live tree at main @ 1cd0c8ad7:\n\n1. **Detection plane unwired** \u2014 Confirmed: `snapshot_from_health_context()` at `detection_plane.py:511` populates only 5 of 13 `EventStreamSnapshot` fields (snapshot_id, pipeline_id, phase, running_agents, phase_state). `RunningAgent(role=str(cid))` at line 536 uses container ID as role (bug). `_run_overseer_detection_plane()` at `_overseer.py:309` has zero call sites (import at `__init__.py:1277` is not a call). `run_detection_plane()` at `runner.py:159` exists but is never invoked.\n\n2. **Timeout classification** \u2014 Confirmed: `ClaudeConfig.timeout=7200` at `config.py:23`, `asyncio.timeout()` at `client.py:765`, `TimeoutError` returns `returncode=-1` at `client.py:903-921`. `_classify_exit()` at `kubernetes_monitor.py:1148` treats -1 as FAILED. `record_abort()` at `_supervisor.py:145` increments streaks. `agent_timeout_seconds` does NOT exist in PipelineConfig.\n\n3. **Loop detection** \u2014 Confirmed: `midturn_messages` field at `detection_plane.py:126` never populated. `detect_loop()`/`classify_activity_pattern()` in `overseer/classifier.py` use LLM. `read_job_log_snapshot` at `kubernetes_client.py:455` truncates at ~100 chars.\n\n4. **Alert evidence** \u2014 Confirmed: `_broadcast_alert()` at `_alerting.py:56` sends minimal payload. `_check_convergence_stall()` at `_loop.py:859` and `_has_recent_peer_progress()` at `health_monitor.py:388` both use `get_latest_progress_timestamp()` but with different gate windows.\n\n5. **Linear slice structure** \u2014 Correct per #3046: slices share overlapping files so must be a linear chain.\n\n6. **Risk assessment** \u2014 Accurate. Slice-2 is correctly flagged as high-risk (hot-loop path). Double-evaluation guard is critical since `_run_runtime_tick_checks()` is called from both `_check_pod` (line 219) and `_reconciliation_sweep` (line 621).\n\n7. **Scope** \u2014 Correct: Tier 1 & 2 items only, Tier 3-5 are input to gate. Non-goals properly excluded.\n\n8. **TASK-3-2 log fidelity** \u2014 The plan mentions increasing log capture fidelity. Verified that `read_job_log_snapshot` at `kubernetes_client.py:455` uses `tail_lines=2000` and the k8s log API truncates at ~100 chars per line. The `agent_log_store.py` captures at 1MB but only at pod removal. This task is correctly scoped.\n\n9. **TASK-5-2 timestamp unification** \u2014 The plan correctly identifies that both `_check_convergence_stall()` and `_has_recent_peer_progress()` use `tracker.get_latest_progress_timestamp()` but with different gate windows (`orchestrator_alert_progress_gate_seconds` vs the convergence stall budget). The fix should unify these.\n\nNo issues found. The plan is well-grounded, properly scoped, and the risk assessment is accurate. ACK.",
-    "metadata": {
-      "payload": {
-        "artifact_references": [
-          "orchestrator/health_checks/detection_plane.py",
-          "orchestrator/health_checks/runner.py",
-          "orchestrator/routes/pipelines/_overseer.py",
-          "orchestrator/kubernetes_monitor.py",
-          "sandbox/llm/claude/config.py",
-          "shared/egg_agent/client.py",
-          "orchestrator/event_loop/_supervisor.py",
-          "orchestrator/event_loop/_loop.py",
-          "orchestrator/health_monitor.py",
-          "orchestrator/overseer/monitor/_alerting.py",
-          "orchestrator/models/_config.py",
-          "orchestrator/kubernetes_client.py",
-          "orchestrator/agent_log_store.py",
-          "sandbox/egg_lib/orch_cli/_message.py",
-          ".egg-state/drafts/issue-3665-v3-plan.md",
-          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json"
-        ],
-        "reason": "Reviewed the task_planner's plan proposal (version 1) for issue #3665. All technical claims verified against the live tree at main @ 1cd0c8ad7:\n\n1. **Detection plane unwired** \u2014 Confirmed: `snapshot_from_health_context()` at `detection_plane.py:511` populates only 5 of 13 `EventStreamSnapshot` fields (snapshot_id, pipeline_id, phase, running_agents, phase_state). `RunningAgent(role=str(cid))` at line 536 uses container ID as role (bug). `_run_overseer_detection_plane()` at `_overseer.py:309` has zero call sites (import at `__init__.py:1277` is not a call). `run_detection_plane()` at `runner.py:159` exists but is never invoked.\n\n2. **Timeout classification** \u2014 Confirmed: `ClaudeConfig.timeout=7200` at `config.py:23`, `asyncio.timeout()` at `client.py:765`, `TimeoutError` returns `returncode=-1` at `client.py:903-921`. `_classify_exit()` at `kubernetes_monitor.py:1148` treats -1 as FAILED. `record_abort()` at `_supervisor.py:145` increments streaks. `agent_timeout_seconds` does NOT exist in PipelineConfig.\n\n3. **Loop detection** \u2014 Confirmed: `midturn_messages` field at `detection_plane.py:126` never populated. `detect_loop()`/`classify_activity_pattern()` in `overseer/classifier.py` use LLM. `read_job_log_snapshot` at `kubernetes_client.py:455` truncates at ~100 chars.\n\n4. **Alert evidence** \u2014 Confirmed: `_broadcast_alert()` at `_alerting.py:56` sends minimal payload. `_check_convergence_stall()` at `_loop.py:859` and `_has_recent_peer_progress()` at `health_monitor.py:388` both use `get_latest_progress_timestamp()` but with different gate windows.\n\n5. **Linear slice structure** \u2014 Correct per #3046: slices share overlapping files so must be a linear chain.\n\n6. **Risk assessment** \u2014 Accurate. Slice-2 is correctly flagged as high-risk (hot-loop path). Double-evaluation guard is critical since `_run_runtime_tick_checks()` is called from both `_check_pod` (line 219) and `_reconciliation_sweep` (line 621).\n\n7. **Scope** \u2014 Correct: Tier 1 & 2 items only, Tier 3-5 are input to gate. Non-goals properly excluded.\n\n8. **TASK-3-2 log fidelity** \u2014 The plan mentions increasing log capture fidelity. Verified that `read_job_log_snapshot` at `kubernetes_client.py:455` uses `tail_lines=2000` and the k8s log API truncates at ~100 chars per line. The `agent_log_store.py` captures at 1MB but only at pod removal. This task is correctly scoped.\n\n9. **TASK-5-2 timestamp unification** \u2014 The plan correctly identifies that both `_check_convergence_stall()` and `_has_recent_peer_progress()` use `tracker.get_latest_progress_timestamp()` but with different gate windows (`orchestrator_alert_progress_gate_seconds` vs the convergence stall budget). The fix should unify these.\n\nNo issues found. The plan is well-grounded, properly scoped, and the risk assessment is accurate. ACK.",
-        "ack_version": 1
-      },
-      "version": 1
-    },
-    "timestamp": "2026-07-27T22:51:10.569222+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "fcd3e2f0-9204-4b",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:51:16.461708+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "0abaef98-98e9-41",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=propose (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:51:32.332901+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "46957af3-bc4d-46",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:51:44.932321+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "3ac425fb-852f-47",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:52:06.255550+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "15e0ae1a-08f9-4e",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:52:52.055875+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "daa96de3-5264-4a",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:53:56.236910+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "dc2b3e6e-ce57-4d",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:54:16.836351+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "38b320fd-8ea2-4a",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:54:56.625063+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "307485b3-f108-48",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:56:07.311317+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "75c1190f-2946-4c",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "overseer",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:58:10.354088+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "b0a00938-dbc5-46",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=propose (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:58:11.895787+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "fee95595-8225-4e",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=propose (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:58:15.784967+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "bc2241f1-6c36-48",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:58:17.246537+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "4d6fd873-e7cb-47",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T22:58:26.650817+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "b6512e97-97fa-4c",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:00:22.246085+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "23b921d2-89af-4a",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "CONSENSUS_PROPOSE",
-    "subject": "Proposal from task_planner",
-    "body": "task_planner: plan draft for issue #3665 supervision second pass \u2014 five linear slices (snapshot population, detection plane wiring, loop detector, timeout classification, alert evidence) with 21 tasks (16 coder, 5 tester). Tier 3-5 from the 30-item candidate list are input to the gate only.",
-    "metadata": {
-      "payload": {
-        "summary": "task_planner: plan draft for issue #3665 supervision second pass \u2014 five linear slices (snapshot population, detection plane wiring, loop detector, timeout classification, alert evidence) with 21 tasks (16 coder, 5 tester). Tier 3-5 from the 30-item candidate list are input to the gate only.",
-        "attestation": {
-          "no_decisions_rationale": "This plan phase produces a plan artifact, not a code change. No HITL decisions are required \u2014 the four areas and the task decomposition are the deliverable, and the gate (implement phase) will decide what to build. The scope discipline (Tier 1-2 only, Tier 3-5 as input) was established by the refine phase gate and carried forward.",
-          "candidates_considered": [
-            {
-              "question": "Should the four areas be split into more or fewer slices?",
-              "disposition": "not_operator_grade",
-              "why": "Originally planned as four independent slices, but they share overlapping files (kubernetes_monitor.py, detection_plane.py, health_monitor.py) which violates #3046's overlap validator for independent slices. Restructured as a linear chain of five slices to satisfy the overlap constraint while preserving the logical decomposition."
-            },
-            {
-              "question": "Should the detection plane wiring (slice-2) and loop detector (slice-3) be merged?",
-              "disposition": "not_operator_grade",
-              "why": "The loop detector depends on midturn_messages being populated (slice-1 TASK-1-5) and the detection plane being wired (slice-2 TASK-2-1). Keeping them as separate sequential slices preserves the ability to review the wiring independently of the detector logic, and the linear chain handles the shared-file constraint."
-            },
-            {
-              "question": "Should the timeout classification (TASK-4-3) use a new exit code like EX_TIMEOUT?",
-              "disposition": "not_operator_grade",
-              "why": "The timeout-killed pod exits with code -1 (from asyncio.timeout in client.py), not a custom exit code. The agent CLI returns -1 on timeout. Adding a new exit code would require changing the agent CLI's timeout handling, which is a larger change. Instead, the classification should detect the timeout via the agent result's error message ('Timed out after {timeout} seconds') and classify it as a clean timeout in the event loop's outcome mapping."
-            }
-          ]
-        },
-        "artifacts": [
-          ".egg-state/drafts/issue-3665-v3-plan.md",
-          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json"
-        ],
-        "risk_considered": "Five linear slices share overlapping files (kubernetes_monitor.py, detection_plane.py, health_monitor.py) so they are ordered as a chain per #3046. slice-1 populates all 13 EventStreamSnapshot fields (prerequisite for everything). slice-2 wires _run_overseer_detection_plane() into RUNTIME_TICK with double-evaluation guard. slice-3 implements the deterministic unique-tool-input loop detector. slice-4 classifies timeout-killed pods (exit -1 from asyncio.timeout) as clean timeouts. slice-5 enriches alert payloads and fixes the convergence-stall false positive. The detection plane wiring (slice-2 TASK-2-1) adds a new code path on the hot loop \u2014 must be exception-isolated. Timeout classification (slice-4 TASK-4-3) must distinguish timeout-killed pods from real crashes via the agent result error message.",
-        "commit_sha": "6092b5a7afd4e018c2c7f83fdf1161cbab01430e",
-        "files_changed": [
-          ".egg-state/drafts/issue-3665-v3-plan.md",
-          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json"
-        ],
-        "tests_run": [],
-        "tasks_satisfied": [
-          "TASK-1-1",
-          "TASK-1-2",
-          "TASK-1-3",
-          "TASK-1-4",
-          "TASK-1-5",
-          "TASK-1-6",
-          "TASK-2-1",
-          "TASK-2-2",
-          "TASK-2-3",
-          "TASK-3-1",
-          "TASK-3-2",
-          "TASK-3-3",
-          "TASK-4-1",
-          "TASK-4-2",
-          "TASK-4-3",
-          "TASK-4-4",
-          "TASK-4-5",
-          "TASK-5-1",
-          "TASK-5-2",
-          "TASK-5-3",
-          "TASK-5-4"
-        ],
-        "no_changes_needed": false,
-        "no_changes_reason": ""
-      },
-      "version": 1,
-      "commit_sha": "6092b5a7afd4e018c2c7f83fdf1161cbab01430e"
-    },
-    "timestamp": "2026-07-27T23:00:22.695103+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "a2dd1de4-1592-4b",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=propose (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:00:30.645376+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "ceeaf8be-6bee-45",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=propose (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:00:33.875047+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "bbfba23e-6cb4-44",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=ack (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:00:35.207863+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "9b8a59cd-2971-47",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:00:36.085739+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "f57e2b79-25eb-43",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:00:39.679076+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "e8cc0a46-435c-47",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:00:42.616811+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "cbf786f6-fd85-4f",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:01:04.555437+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "45e053f5-558e-47",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "all",
-    "message_type": "CONSENSUS_PROPOSE",
-    "subject": "Proposal from simplifier",
-    "body": "simplifier: plan-draft-human for issue #3665 \u2014 faithful plain-English rendering of task_planner v1 plan (5 linear slices, 23 tasks, re-proposed after plan phase restart)",
-    "metadata": {
-      "payload": {
-        "summary": "simplifier: plan-draft-human for issue #3665 \u2014 faithful plain-English rendering of task_planner v1 plan (5 linear slices, 23 tasks, re-proposed after plan phase restart)",
-        "attestation": {},
-        "artifacts": [
-          ".egg-state/drafts/issue-3665-v3-plan-human.md"
-        ],
-        "risk_considered": "Low risk \u2014 re-proposing the same plan-draft-human artifact (commit e030b6112) after plan phase restart reset the BRC matrix. No changes to the artifact; it faithfully renders task_planner v1 (commit 6092b5a7a).",
-        "commit_sha": "e030b6112",
-        "files_changed": [
-          ".egg-state/drafts/issue-3665-v3-plan-human.md"
-        ],
-        "tests_run": [],
-        "tasks_satisfied": [],
-        "no_changes_needed": false,
-        "no_changes_reason": ""
-      },
-      "version": 1,
-      "commit_sha": "e030b6112"
-    },
-    "timestamp": "2026-07-27T23:01:44.365090+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "dbec7a7f-067f-4a",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "task_planner",
-    "message_type": "CONSENSUS_ACK",
-    "subject": "ACK from simplifier for task_planner",
-    "body": "task_planner v1 plan (commit 6092b5a7a) is well-structured: 5 linear slices across 4 areas, 23 tasks total, clear ordering and dependencies. Scope correctly limited to Tier 1+2 items. Grounded anchors verified. Re-ACK after plan phase restart reset the matrix.",
-    "metadata": {
-      "payload": {
-        "artifact_references": [
-          ".egg-state/drafts/issue-3665-v3-plan.md"
-        ],
-        "reason": "task_planner v1 plan (commit 6092b5a7a) is well-structured: 5 linear slices across 4 areas, 23 tasks total, clear ordering and dependencies. Scope correctly limited to Tier 1+2 items. Grounded anchors verified. Re-ACK after plan phase restart reset the matrix.",
-        "ack_version": 1
-      },
-      "version": 1
-    },
-    "timestamp": "2026-07-27T23:01:48.692962+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "621e579f-11d8-44",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=ack (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:01:49.699304+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "f2dae2dc-73f3-4a",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "overseer",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:01:58.239522+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "22a3139c-37f2-4a",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:02:01.449179+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "230c4aca-7e91-4f",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: IDLE",
-    "body": "simplifier: re-proposed plan-draft-human v1 (commit e030b6112) after plan phase restart. ACKed task_planner v1 (6092b5a7a). Waiting on reviewer_plan to ACK my proposal, and architect/risk_analyst to propose.",
-    "metadata": {
-      "state": "IDLE"
-    },
-    "timestamp": "2026-07-27T23:02:07.124658+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "a3599328-2b18-4f",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:02:09.856027+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "039ddac9-56b1-46",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:02:16.749666+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "5979ecbd-e328-42",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:02:39.971917+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "ec6fbc47-0487-40",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:02:53.119241+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "f7140870-62ef-4b",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:04:09.946377+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "130b8676-e2f0-49",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "CONSENSUS_PROPOSE",
-    "subject": "Proposal from risk_analyst",
-    "body": "Risk assessment for issue #3665 plan: PROCEED with all 5 slices. All technical claims verified against tree at main @ 1cd0c8ad7. Key risks: slice-2 high-risk hot-loop wiring (double-evaluation guard needed), tracker-None handling in TASK-1-2, log truncation prerequisite for loop detector. Plan is well-grounded, properly scoped (Tier 1&2 only), linear chain correct per #3046.",
-    "metadata": {
-      "payload": {
-        "summary": "Risk assessment for issue #3665 plan: PROCEED with all 5 slices. All technical claims verified against tree at main @ 1cd0c8ad7. Key risks: slice-2 high-risk hot-loop wiring (double-evaluation guard needed), tracker-None handling in TASK-1-2, log truncation prerequisite for loop detector. Plan is well-grounded, properly scoped (Tier 1&2 only), linear chain correct per #3046.",
-        "attestation": {
-          "no_decisions_rationale": "This risk assessment is a review verdict on the task_planner's plan, not a code change requiring HITL decisions. All four problem areas and the five-slice structure are evaluated and accepted. No operator decisions are needed \u2014 the plan is sound and properly scoped.",
-          "candidates_considered": [
-            {
-              "question": "Should the risk assessment raise a HITL decision on any plan item?",
-              "disposition": "not_operator_grade",
-              "why": "All five slices are within scope, properly risk-rated, and have clear acceptance criteria. The high-risk slice-2 is mitigated by exception isolation and double-evaluation guards. No scope expansion or architectural judgment calls that would require operator input."
-            }
-          ]
-        },
-        "artifacts": [
-          ".egg-state/agent-outputs/issue-3665-v3-risk_analyst-output.json",
-          ".egg-state/agent-outputs/risk_analyst/brc-memory-issue-3665-v3.md"
-        ],
-        "risk_considered": "The risk assessment is a review artifact, not a code change. No new code paths introduced. The assessment identifies slice-2 as high-risk (hot-loop wiring) and recommends exception-isolation and double-evaluation guards. No HITL decisions required \u2014 this is a review verdict on the task_planner's plan.",
-        "commit_sha": "89c187678",
-        "files_changed": [
-          ".egg-state/agent-outputs/issue-3665-v3-risk_analyst-output.json",
-          ".egg-state/agent-outputs/risk_analyst/brc-memory-issue-3665-v3.md"
-        ],
-        "tests_run": [],
-        "tasks_satisfied": [],
-        "no_changes_needed": false,
-        "no_changes_reason": ""
-      },
-      "version": 1,
-      "commit_sha": "89c187678"
-    },
-    "timestamp": "2026-07-27T23:04:48.139348+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "ec1ed114-7b5f-49",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:04:48.577879+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "f8028d57-8686-4f",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=ack (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:04:52.373172+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "9649bbd7-df32-41",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=ack (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:04:52.868777+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "5b7d7e5a-803b-4d",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:05:02.792138+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "39297edb-2c0d-48",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:05:24.616269+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "920ba3d7-5904-45",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:05:24.808139+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "2dc65748-139a-42",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "overseer",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:05:29.678628+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "1f7d677a-a3fa-42",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "task_planner",
-    "message_type": "CONSENSUS_ACK",
-    "subject": "ACK from risk_analyst for task_planner",
-    "body": "Re-reviewed task_planner v2 proposal (commit 6092b5a7a). The restructuring from 4 independent slices to 5 linear slices is correct and necessary:\n\n**File overlap verified:**\n- `orchestrator/kubernetes_monitor.py` appears in phases 1, 2, and 4\n- `orchestrator/health_monitor.py` appears in phases 1 and 5\n- `orchestrator/health_checks/runner.py` appears in phases 2 and 5\n- `orchestrator/routes/pipelines/_overseer.py` appears in phases 2 and 5\n- `orchestrator/agent_log_store.py` appears in phases 1 and 3\n\nPer #3046, overlapping slices must be ordered as a linear chain. The ordering is correct: slice-1 (populate snapshot fields) \u2192 slice-2 (wire detection plane into RUNTIME_TICK) \u2192 slice-3 (loop detector) \u2192 slice-4 (timeout classification) \u2192 slice-5 (alert evidence + false-positive fixes).\n\n**Technical claims re-verified:**\n1. Detection plane unwired \u2014 Confirmed: `snapshot_from_health_context()` populates only 5 of 13 fields. `_run_overseer_detection_plane()` at `_overseer.py:309` has zero call sites. `run_detection_plane()` at `runner.py:159` exists but never invoked.\n2. Timeout classification \u2014 Confirmed: exit code -1 from `asyncio.timeout` treated as FAILED by `_classify_exit()` at `kubernetes_monitor.py:1148`. `agent_timeout_seconds` does NOT exist in PipelineConfig.\n3. Loop detection \u2014 Confirmed: `midturn_messages` field at `detection_plane.py:126` never populated. No deterministic unique-tool-input counter exists.\n4. Alert evidence \u2014 Confirmed: `_broadcast_alert()` at `_alerting.py:56` sends minimal payload. `_check_convergence_stall()` at `_loop.py:859` and `_has_recent_peer_progress()` at `health_monitor.py:388` both use `get_latest_progress_timestamp()` but with different gate windows.\n\n**TASK-2-2 (routing findings to alert surface) \u2014 partially already implemented:**\n- `_run_overseer_detection_plane()` at `_overseer.py:309` already has `escalate_findings()` logic that routes `requires_adjudication` findings to the on-demand adjudicator.\n- `_emit_finding()` at `runner.py:184` already emits findings to the event bus (falls back to `HEALTH_CHECK_DEGRADED` since `DETECTION_FINDING` EventType doesn't exist).\n- The gap is that `_run_overseer_detection_plane()` is never called from RUNTIME_TICK \u2014 TASK-2-1 addresses this.\n\n**Risk assessment \u2014 accurate:**\n- Slice-2 correctly flagged as high-risk (hot-loop path). Double-evaluation guard is critical since `_run_runtime_tick_checks()` is called from both `_check_pod` (line 219) and `_reconciliation_sweep` (line 621).\n- The `get_peer_consensus_tracker()` may return None \u2014 must handle gracefully in TASK-1-2.\n\n**Scope \u2014 correct:**\n- Tier 1 & 2 items only, Tier 3-5 are input to gate only.\n- Non-goals properly excluded (no overseer rebuild, no HealthMonitor removal, no LLM in hot path, no timeout default change).\n\nNo issues found. ACK v2.",
-    "metadata": {
-      "payload": {
-        "artifact_references": [
-          "orchestrator/health_checks/detection_plane.py",
-          "orchestrator/health_checks/runner.py",
-          "orchestrator/routes/pipelines/_overseer.py",
-          "orchestrator/kubernetes_monitor.py",
-          "sandbox/llm/claude/config.py",
-          "shared/egg_agent/client.py",
-          "orchestrator/event_loop/_supervisor.py",
-          "orchestrator/event_loop/_loop.py",
-          "orchestrator/health_monitor.py",
-          "orchestrator/overseer/monitor/_alerting.py",
-          "orchestrator/models/_config.py",
-          "orchestrator/kubernetes_client.py",
-          "orchestrator/agent_log_store.py",
-          "sandbox/egg_lib/orch_cli/_message.py",
-          "orchestrator/events.py",
-          ".egg-state/drafts/issue-3665-v3-plan.md",
-          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json"
-        ],
-        "reason": "Re-reviewed task_planner v2 proposal (commit 6092b5a7a). The restructuring from 4 independent slices to 5 linear slices is correct and necessary:\n\n**File overlap verified:**\n- `orchestrator/kubernetes_monitor.py` appears in phases 1, 2, and 4\n- `orchestrator/health_monitor.py` appears in phases 1 and 5\n- `orchestrator/health_checks/runner.py` appears in phases 2 and 5\n- `orchestrator/routes/pipelines/_overseer.py` appears in phases 2 and 5\n- `orchestrator/agent_log_store.py` appears in phases 1 and 3\n\nPer #3046, overlapping slices must be ordered as a linear chain. The ordering is correct: slice-1 (populate snapshot fields) \u2192 slice-2 (wire detection plane into RUNTIME_TICK) \u2192 slice-3 (loop detector) \u2192 slice-4 (timeout classification) \u2192 slice-5 (alert evidence + false-positive fixes).\n\n**Technical claims re-verified:**\n1. Detection plane unwired \u2014 Confirmed: `snapshot_from_health_context()` populates only 5 of 13 fields. `_run_overseer_detection_plane()` at `_overseer.py:309` has zero call sites. `run_detection_plane()` at `runner.py:159` exists but never invoked.\n2. Timeout classification \u2014 Confirmed: exit code -1 from `asyncio.timeout` treated as FAILED by `_classify_exit()` at `kubernetes_monitor.py:1148`. `agent_timeout_seconds` does NOT exist in PipelineConfig.\n3. Loop detection \u2014 Confirmed: `midturn_messages` field at `detection_plane.py:126` never populated. No deterministic unique-tool-input counter exists.\n4. Alert evidence \u2014 Confirmed: `_broadcast_alert()` at `_alerting.py:56` sends minimal payload. `_check_convergence_stall()` at `_loop.py:859` and `_has_recent_peer_progress()` at `health_monitor.py:388` both use `get_latest_progress_timestamp()` but with different gate windows.\n\n**TASK-2-2 (routing findings to alert surface) \u2014 partially already implemented:**\n- `_run_overseer_detection_plane()` at `_overseer.py:309` already has `escalate_findings()` logic that routes `requires_adjudication` findings to the on-demand adjudicator.\n- `_emit_finding()` at `runner.py:184` already emits findings to the event bus (falls back to `HEALTH_CHECK_DEGRADED` since `DETECTION_FINDING` EventType doesn't exist).\n- The gap is that `_run_overseer_detection_plane()` is never called from RUNTIME_TICK \u2014 TASK-2-1 addresses this.\n\n**Risk assessment \u2014 accurate:**\n- Slice-2 correctly flagged as high-risk (hot-loop path). Double-evaluation guard is critical since `_run_runtime_tick_checks()` is called from both `_check_pod` (line 219) and `_reconciliation_sweep` (line 621).\n- The `get_peer_consensus_tracker()` may return None \u2014 must handle gracefully in TASK-1-2.\n\n**Scope \u2014 correct:**\n- Tier 1 & 2 items only, Tier 3-5 are input to gate only.\n- Non-goals properly excluded (no overseer rebuild, no HealthMonitor removal, no LLM in hot path, no timeout default change).\n\nNo issues found. ACK v2.",
-        "ack_version": 1
-      },
-      "version": 1
-    },
-    "timestamp": "2026-07-27T23:06:26.338856+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "733b0e82-9692-44",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:06:40.178532+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "7a61df78-ecd7-4f",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:07:28.019241+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "ce01a379-ed5a-4e",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "task_planner",
-    "message_type": "CONSENSUS_ACK",
-    "subject": "ACK from reviewer_plan for task_planner",
-    "body": "Plan is well-grounded, properly scoped, and risk-rated. All 15 technical grounding anchors verified against tree at main @ 1cd0c8ad7. The 5-slice linear chain is justified by shared overlapping files per #3046. Key claims confirmed: snapshot_from_health_context() populates only 5/13 fields, _run_overseer_detection_plane() has zero call sites, _run_runtime_tick_checks() called from two sites (double-evaluation risk), ClaudeConfig.timeout=7200, exit -1 classified as FAILED, JOB_OUTCOME_TIMEOUT absent, midturn_messages never populated, _broadcast_alert sends minimal payload, convergence-stall and peer-progress use same tracker with different gate windows (30min vs 300s), record_abort increments streaks with no record_timeout. Exclusions correct: no LLM on hot path, no timeout default change, no overseer rebuild, no HealthMonitor removal, Tier 3-5 deferred to gate. Acceptance criteria are measurable and testable.",
-    "metadata": {
-      "payload": {
-        "artifact_references": [
-          ".egg-state/drafts/issue-3665-v3-plan.md",
-          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json",
-          "orchestrator/health_checks/detection_plane.py",
-          "orchestrator/health_checks/runner.py",
-          "orchestrator/routes/pipelines/_overseer.py",
-          "orchestrator/kubernetes_monitor.py",
-          "sandbox/llm/claude/config.py",
-          "shared/egg_agent/client.py",
-          "orchestrator/event_loop/_supervisor.py",
-          "orchestrator/event_loop/_loop.py",
-          "orchestrator/health_monitor.py",
-          "orchestrator/overseer/monitor/_alerting.py",
-          "orchestrator/models/_config.py",
-          "orchestrator/kubernetes_client.py",
-          "orchestrator/agent_log_store.py",
-          "sandbox/egg_lib/orch_cli/_message.py",
-          "orchestrator/event_loop/__init__.py",
-          "orchestrator/peer_consensus/_queries.py"
-        ],
-        "reason": "Plan is well-grounded, properly scoped, and risk-rated. All 15 technical grounding anchors verified against tree at main @ 1cd0c8ad7. The 5-slice linear chain is justified by shared overlapping files per #3046. Key claims confirmed: snapshot_from_health_context() populates only 5/13 fields, _run_overseer_detection_plane() has zero call sites, _run_runtime_tick_checks() called from two sites (double-evaluation risk), ClaudeConfig.timeout=7200, exit -1 classified as FAILED, JOB_OUTCOME_TIMEOUT absent, midturn_messages never populated, _broadcast_alert sends minimal payload, convergence-stall and peer-progress use same tracker with different gate windows (30min vs 300s), record_abort increments streaks with no record_timeout. Exclusions correct: no LLM on hot path, no timeout default change, no overseer rebuild, no HealthMonitor removal, Tier 3-5 deferred to gate. Acceptance criteria are measurable and testable.",
-        "ack_version": 1
-      },
-      "version": 1
-    },
-    "timestamp": "2026-07-27T23:07:45.039994+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "3eb424f1-33ef-46",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "risk_analyst",
-    "message_type": "CONSENSUS_ACK",
-    "subject": "ACK from reviewer_plan for risk_analyst",
-    "body": "Risk assessment is comprehensive and accurate. All 15 technical claims verified against tree at main @ 1cd0c8ad7 \u2014 each has specific file:line evidence. Correctly rates slice-2 as high-risk (hot loop, double-evaluation guard critical), all others medium. Key mitigations properly identified: double-evaluation guard, exception isolation, tracker-None handling, log truncation prerequisite, exit code -1 disambiguation. Exclusions verified: no LLM on hot path, no timeout default change, no overseer rebuild, no HealthMonitor removal, Tier 3-5 correctly deferred. Acceptance criteria mapping is complete and testable.",
-    "metadata": {
-      "payload": {
-        "artifact_references": [
-          ".egg-state/agent-outputs/issue-3665-v3-risk_analyst-output.json",
-          ".egg-state/agent-outputs/risk_analyst/brc-memory-issue-3665-v3.md",
-          ".egg-state/drafts/issue-3665-v3-plan.md",
-          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json",
-          "orchestrator/health_checks/detection_plane.py",
-          "orchestrator/health_checks/runner.py",
-          "orchestrator/routes/pipelines/_overseer.py",
-          "orchestrator/kubernetes_monitor.py",
-          "sandbox/llm/claude/config.py",
-          "shared/egg_agent/client.py",
-          "orchestrator/event_loop/_supervisor.py",
-          "orchestrator/event_loop/_loop.py",
-          "orchestrator/health_monitor.py",
-          "orchestrator/overseer/monitor/_alerting.py",
-          "orchestrator/models/_config.py",
-          "orchestrator/kubernetes_client.py",
-          "orchestrator/agent_log_store.py",
-          "sandbox/egg_lib/orch_cli/_message.py",
-          "orchestrator/event_loop/__init__.py",
-          "orchestrator/peer_consensus/_queries.py"
-        ],
-        "reason": "Risk assessment is comprehensive and accurate. All 15 technical claims verified against tree at main @ 1cd0c8ad7 \u2014 each has specific file:line evidence. Correctly rates slice-2 as high-risk (hot loop, double-evaluation guard critical), all others medium. Key mitigations properly identified: double-evaluation guard, exception isolation, tracker-None handling, log truncation prerequisite, exit code -1 disambiguation. Exclusions verified: no LLM on hot path, no timeout default change, no overseer rebuild, no HealthMonitor removal, Tier 3-5 correctly deferred. Acceptance criteria mapping is complete and testable.",
-        "ack_version": 1
-      },
-      "version": 1
-    },
-    "timestamp": "2026-07-27T23:07:47.640121+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "eb1a2b76-8a21-44",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "simplifier",
-    "message_type": "CONSENSUS_ACK",
-    "subject": "ACK from reviewer_plan for simplifier",
-    "body": "Faithful plain-English rendering of the task_planner v2 plan. No new decisions, scope changes, or technical claims introduced \u2014 purely a human-readable summary of the 5-slice linear chain. All content maps directly to the task_planner proposal. No discrepancies found.",
-    "metadata": {
-      "payload": {
-        "artifact_references": [
-          ".egg-state/drafts/issue-3665-v3-plan-human.md",
-          ".egg-state/drafts/issue-3665-v3-plan.md",
-          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json"
-        ],
-        "reason": "Faithful plain-English rendering of the task_planner v2 plan. No new decisions, scope changes, or technical claims introduced \u2014 purely a human-readable summary of the 5-slice linear chain. All content maps directly to the task_planner proposal. No discrepancies found.",
-        "ack_version": 1
-      },
-      "version": 1
-    },
-    "timestamp": "2026-07-27T23:07:48.895578+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "27003eba-0cd1-46",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "architect",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:07:53.499123+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "33566a09-b01d-45",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "overseer",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:07:55.250180+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "d778b71d-b1b9-48",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=ack (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:07:56.004056+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "8847c0ee-4842-4d",
+    "id": "b80a1dfa-0506-48",
     "pipeline_id": "issue-3665-v3",
     "from_role": "architect",
     "to_role": "all",
     "message_type": "CONSENSUS_PROPOSE",
     "subject": "Proposal from architect",
-    "body": "architect: plan assessment for issue #3665 \u2014 ACK. Verified all task_planner claims against tree at main@1cd0c8ad7. Detection plane is unwired (snapshot_from_health_context populates 5/13 fields, _run_overseer_detection_plane has zero call sites). Timeout classification bug confirmed (_classify_exit treats -1 as FAILED, no JOB_OUTCOME_TIMEOUT). Loop detector absent (no detect_tool_input_loop, midturn_messages never populated). Convergence-stall false positive confirmed (same timestamp source, different gate windows). Linear slice structure correct. Double-evaluation concern valid. 4 non-blocking architectural refinements noted. Scope correctly limited to Tier 1+2.",
+    "body": "architect v2: plan assessment for issue #3665 \u2014 ACK with 4 corrections. (1) AC-1/TASK-1-6 fixed: scope 5 in-scope fields, not all 13 (4 remaining are Tier 3/4, explicitly out of scope). (2) detect_heartbeat_stall/ConsensusStallCheck double-fire guard added to slice 2. (3) Tier 3 exceptions registered for TASK-2-2 (#19, alert surface routing is minimal integration for Tier 1 findings) and TASK-3-2 (#20, log fidelity is hard dependency for loop detector). (4) midturn_messages moved to TASK-1-1 (prerequisite for primary deliverable). All technical claims verified against tree at main@1cd0c8ad7.",
     "metadata": {
       "payload": {
-        "summary": "architect: plan assessment for issue #3665 \u2014 ACK. Verified all task_planner claims against tree at main@1cd0c8ad7. Detection plane is unwired (snapshot_from_health_context populates 5/13 fields, _run_overseer_detection_plane has zero call sites). Timeout classification bug confirmed (_classify_exit treats -1 as FAILED, no JOB_OUTCOME_TIMEOUT). Loop detector absent (no detect_tool_input_loop, midturn_messages never populated). Convergence-stall false positive confirmed (same timestamp source, different gate windows). Linear slice structure correct. Double-evaluation concern valid. 4 non-blocking architectural refinements noted. Scope correctly limited to Tier 1+2.",
+        "summary": "architect v2: plan assessment for issue #3665 \u2014 ACK with 4 corrections. (1) AC-1/TASK-1-6 fixed: scope 5 in-scope fields, not all 13 (4 remaining are Tier 3/4, explicitly out of scope). (2) detect_heartbeat_stall/ConsensusStallCheck double-fire guard added to slice 2. (3) Tier 3 exceptions registered for TASK-2-2 (#19, alert surface routing is minimal integration for Tier 1 findings) and TASK-3-2 (#20, log fidelity is hard dependency for loop detector). (4) midturn_messages moved to TASK-1-1 (prerequisite for primary deliverable). All technical claims verified against tree at main@1cd0c8ad7.",
         "attestation": {
-          "no_decisions_rationale": "This architect assessment is a review artifact, not a code change. No HITL decisions are required \u2014 the plan's scope, ordering, and risk assessment are all verified correct. The four architectural refinements noted are non-blocking and will be carried as guidance for the implement phase.",
+          "no_decisions_rationale": "This architect assessment is a review artifact, not a code change. No HITL decisions are required \u2014 the plan's scope, ordering, and risk assessment are all verified correct. The four corrections from iteration feedback are addressed: AC-1 scope fixed, consensus-stall double-fire guard added, Tier 3 exceptions registered with justification, midturn_messages reordered to TASK-1-1.",
           "candidates_considered": [
             {
               "disposition": "not_operator_grade",
               "question": "Should the architect expand scope beyond Tier 1+2?",
-              "why": "The gate's scope discipline (Tier 1+2 only, Tier 3-5 as input) is correct. Tier 3 items are nice-to-have improvements; Tier 4 are lower-impact; Tier 5 are explicitly out of scope. Expanding would violate the operator's directive."
+              "why": "The gate's scope discipline (Tier 1+2 only, Tier 3-5 as input) is correct. Two Tier 3 exceptions (TASK-2-2 #19, TASK-3-2 #20) are registered as hard dependencies for Tier 1 deliverables, not scope expansion."
             },
             {
               "disposition": "not_operator_grade",
@@ -1971,8 +161,8 @@
           ".egg-state/agent-outputs/issue-3665-v3-architect-output.json",
           ".egg-state/agent-outputs/issue-3665-v3-architect-slices.yaml"
         ],
-        "risk_considered": "The architect's role is assessment, not implementation. The plan's slice-2 (hot-loop wiring) is correctly flagged as high-risk \u2014 the double-evaluation guard must be per-pipeline, not a global lock. The timeout classification (slice-4 TASK-4-3) must distinguish timeout-killed pods (exit -1 from asyncio.timeout) from real crashes (also exit -1) via the agent result's error message. The loop detector (slice-3) must be deterministic (no LLM) and handle variable cycle shapes. No new risks introduced by this assessment \u2014 it is a review artifact.",
-        "commit_sha": "d2a9f8e77",
+        "risk_considered": "The four corrections address blocking reviewer feedback. The AC-1 scope fix prevents a green-gate failure at implement. The consensus-stall double-fire guard prevents duplicate alerts once the detection plane is live. The Tier 3 exceptions are justified as hard dependencies for Tier 1 deliverables. The midturn_messages reordering ensures the primary deliverable (loop detector) has its prerequisite sequenced first. No new risks introduced.",
+        "commit_sha": "a3499d890",
         "files_changed": [
           ".egg-state/agent-outputs/architect/brc-memory-issue-3665-v3.md",
           ".egg-state/agent-outputs/issue-3665-v3-architect-output.json",
@@ -2016,123 +206,69 @@
         "no_changes_reason": ""
       },
       "version": 1,
-      "commit_sha": "d2a9f8e77"
+      "commit_sha": "a3499d890"
     },
-    "timestamp": "2026-07-27T23:09:07.591237+00:00",
+    "timestamp": "2026-07-27T23:43:07.178798+00:00",
     "phase": "plan"
   },
   {
-    "id": "997fcbce-41b4-43",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "orchestrator",
-    "to_role": "task_planner",
-    "message_type": "STATUS",
-    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
-    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
-    "metadata": {
-      "ready_to_confirm": true,
-      "version": 1
-    },
-    "timestamp": "2026-07-27T23:09:07.593597+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "197776d3-feb0-49",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "orchestrator",
-    "to_role": "simplifier",
-    "message_type": "STATUS",
-    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
-    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
-    "metadata": {
-      "ready_to_confirm": true,
-      "version": 1
-    },
-    "timestamp": "2026-07-27T23:09:07.594287+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "9e9a8ba7-4a5d-45",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "task_planner",
-    "to_role": "all",
-    "message_type": "CONSENSUS_CONFIRMED",
-    "subject": "Consensus confirmed by task_planner",
-    "body": "orchestrator-side confirm (#3064 event loop)",
-    "metadata": {},
-    "timestamp": "2026-07-27T23:09:09.700006+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "214a448f-f787-48",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "simplifier",
-    "to_role": "all",
-    "message_type": "CONSENSUS_CONFIRMED",
-    "subject": "Consensus confirmed by simplifier",
-    "body": "orchestrator-side confirm (#3064 event loop)",
-    "metadata": {},
-    "timestamp": "2026-07-27T23:09:13.853507+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "f816a76c-2523-49",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=ack (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:09:15.537212+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "de5081c6-b0b2-43",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "reviewer_plan",
-    "to_role": "all",
-    "message_type": "HEARTBEAT",
-    "subject": "heartbeat: WORKING",
-    "body": "one-shot event handler action=ack (slice=none)",
-    "metadata": {
-      "state": "WORKING"
-    },
-    "timestamp": "2026-07-27T23:09:15.582208+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "2c0febb3-51ae-4e",
+    "id": "4a63f1e6-9515-49",
     "pipeline_id": "issue-3665-v3",
     "from_role": "architect",
     "to_role": "all",
     "message_type": "HEARTBEAT",
     "subject": "heartbeat: IDLE",
-    "body": "architect: plan assessment for issue #3665 proposed (v1, commit d2a9f8e77). Verdict: ACK. All task_planner claims verified against tree. 4 non-blocking architectural refinements noted. Waiting on reviewer_plan and risk_analyst to ACK.",
+    "body": "architect v2 proposed (commit a3499d890). ACK with 4 corrections: (1) AC-1 scope fixed to 5 in-scope fields, (2) consensus-stall double-fire guard added to slice 2, (3) Tier 3 exceptions registered for TASK-2-2 and TASK-3-2, (4) midturn_messages reordered to TASK-1-1. Waiting on reviewer_plan and risk_analyst.",
     "metadata": {
       "state": "IDLE"
     },
-    "timestamp": "2026-07-27T23:09:16.266660+00:00",
+    "timestamp": "2026-07-27T23:43:11.146472+00:00",
     "phase": "plan"
   },
   {
-    "id": "b4f0d183-52a1-46",
+    "id": "eb3f0929-b87a-4c",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:43:14.135317+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ace4540a-eef8-49",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:43:17.359793+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "866c27bf-4cc3-49",
     "pipeline_id": "issue-3665-v3",
     "from_role": "architect",
     "to_role": "all",
     "message_type": "HEARTBEAT",
     "subject": "heartbeat: WORKING",
-    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=no_warm_session",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
     "metadata": {
       "state": "WORKING"
     },
-    "timestamp": "2026-07-27T23:09:23.904820+00:00",
+    "timestamp": "2026-07-27T23:43:25.037384+00:00",
     "phase": "plan"
   },
   {
-    "id": "6aaa1e17-da97-47",
+    "id": "abe83f2a-9b0e-40",
     "pipeline_id": "issue-3665-v3",
     "from_role": "risk_analyst",
     "to_role": "all",
@@ -2142,11 +278,11 @@
     "metadata": {
       "state": "WORKING"
     },
-    "timestamp": "2026-07-27T23:09:29.861033+00:00",
+    "timestamp": "2026-07-27T23:43:27.330227+00:00",
     "phase": "plan"
   },
   {
-    "id": "1deda287-5931-47",
+    "id": "89826a86-f340-4a",
     "pipeline_id": "issue-3665-v3",
     "from_role": "reviewer_plan",
     "to_role": "all",
@@ -2156,13 +292,13 @@
     "metadata": {
       "state": "WORKING"
     },
-    "timestamp": "2026-07-27T23:09:31.821330+00:00",
+    "timestamp": "2026-07-27T23:43:28.163414+00:00",
     "phase": "plan"
   },
   {
-    "id": "4c875f7d-c9dc-4b",
+    "id": "2d810095-7086-45",
     "pipeline_id": "issue-3665-v3",
-    "from_role": "overseer",
+    "from_role": "task_planner",
     "to_role": "all",
     "message_type": "HEARTBEAT",
     "subject": "heartbeat: WORKING",
@@ -2170,80 +306,166 @@
     "metadata": {
       "state": "WORKING"
     },
-    "timestamp": "2026-07-27T23:10:27.099073+00:00",
+    "timestamp": "2026-07-27T23:43:41.679935+00:00",
     "phase": "plan"
   },
   {
-    "id": "529acacf-216c-4c",
+    "id": "e89d40f4-4b1b-43",
     "pipeline_id": "issue-3665-v3",
     "from_role": "risk_analyst",
-    "to_role": "architect",
-    "message_type": "CONSENSUS_ACK",
-    "subject": "ACK from risk_analyst for architect",
-    "body": "Reviewed the architect's proposal (v1, commit d2a9f8e77). The architectural assessment is thorough and accurate:\n\n**Verified claims:**\n1. `snapshot_from_health_context()` populates only 5 of 13 EventStreamSnapshot fields \u2014 CONFIRMED at `detection_plane.py:511-546`\n2. `RunningAgent(role=str(cid))` uses container ID as role (bug) \u2014 CONFIRMED at `detection_plane.py:536`\n3. `_run_overseer_detection_plane()` has zero call sites \u2014 CONFIRMED at `_overseer.py:309` (def only), `__init__.py:1277` (import, not call)\n4. `run_detection_plane()` exists but never invoked \u2014 CONFIRMED at `runner.py:159`\n5. `detect_heartbeat_stall()` is unregistered \u2014 CONFIRMED: not in `tier1/__init__.py` exports, not in `_register_coverage_gap_detectors()` (lines 410-465). `ConsensusStallCheck` class IS registered at `tier1/__init__.py:16`\n6. `_classify_exit()` treats exit -1 as FAILED \u2014 CONFIRMED at `kubernetes_monitor.py:1148-1170`\n7. No `JOB_OUTCOME_TIMEOUT` constant \u2014 CONFIRMED at `event_loop/__init__.py:172-177`\n8. No `record_timeout` function \u2014 CONFIRMED: only `record_success` (line 37) and `record_abort` (line 145) exist\n9. `ClaudeConfig.timeout=7200` hardcoded, no `agent_timeout_seconds` in PipelineConfig \u2014 CONFIRMED\n10. `asyncio.timeout()` returns `returncode=-1` \u2014 CONFIRMED at `client.py:765`, `client.py:903-921`\n11. `_run_runtime_tick_checks()` called from both `_check_pod` (line 219) and `_reconciliation_sweep` (line 621) \u2014 CONFIRMED\n12. Both `_check_convergence_stall()` and `_has_recent_peer_progress()` use `get_latest_progress_timestamp()` but different gate windows \u2014 CONFIRMED at `_loop.py:887`, `health_monitor.py:458`, `models/_config.py:336` and `:178`\n13. No `detect_tool_input_loop()` exists, no `loop_detection.py` in tier1/ \u2014 CONFIRMED\n14. `midturn_messages` field never populated \u2014 CONFIRMED at `detection_plane.py:126`\n15. `read_job_log_snapshot()` truncates at ~100 chars \u2014 CONFIRMED at `kubernetes_client.py:455`\n16. `agent_log_store.py:51` MAX_LOG_BYTES=1MB, captures at pod removal \u2014 CONFIRMED\n17. `_broadcast_alert()` sends minimal payload \u2014 CONFIRMED at `_alerting.py:56`\n18. `detect_loop()` and `classify_activity_pattern()` use LLM \u2014 CONFIRMED at `classifier.py:224` and `:298`\n\n**Non-blocking architectural refinements noted:**\n1. Double-evaluation guard should be per-pipeline, not global lock \u2014 valid point\n2. midturn_messages population depends on truncated log parsing \u2014 valid concern, BRC tracker records could be alternative\n3. Timeout detection via error message is fragile \u2014 valid concern, pod active_deadline_seconds could be more robust\n4. Timestamp source already unified \u2014 correct observation, fix should unify gate window not source\n\n**Key invariants to defend (all reasonable):**\n1. Detection plane wiring must be exception-isolated\n2. Double-evaluation guard must prevent duplicate findings\n3. Timeout classification must distinguish asyncio.timeout from other failures\n4. Loop detector must be deterministic (no LLM) and handle variable cycle shapes\n5. Scope discipline: Tier 3-5 are input to gate only\n6. Non-goals must be respected\n\n**Minor discrepancy:** The architect's slices YAML shows slice-4 and slice-5 depending on slice-1 (not slice-3/slice-4), while the task_planner's plan v2 has a strict linear chain. This is a valid architectural observation \u2014 slice-4 (timeout) and slice-5 (alerts) don't have hard dependencies on slice-3 (loop detector). However, the task_planner chose linear ordering due to shared file overlap per #3046. This doesn't affect the assessment's validity.\n\nThe architect's assessment is accurate, well-grounded, and properly scoped. ACK.",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:45:35.092602+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c28fe695-9713-44",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:45:37.111405+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8cf00736-7404-45",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "task_planner v3: plan draft for issue #3665 supervision second pass \u2014 five linear slices (snapshot population with midturn_messages first, detection plane wiring + consensus-stall double-fire guard, loop detector, timeout classification, alert evidence) with 22 tasks (17 coder, 5 tester). Two Tier 3 items included with registered scope decisions (cq-1, cq-2): TASK-3-2 (log fidelity, hard dependency) and TASK-2-3 (alert routing, core to issue). The 4 excluded fields remain empty by decision.",
     "metadata": {
       "payload": {
-        "artifact_references": [
-          "orchestrator/health_checks/detection_plane.py",
-          "orchestrator/health_checks/runner.py",
-          "orchestrator/health_checks/tier1/__init__.py",
-          "orchestrator/health_checks/tier1/consensus_stall.py",
-          "orchestrator/routes/pipelines/_overseer.py",
-          "orchestrator/routes/pipelines/__init__.py",
-          "orchestrator/kubernetes_monitor.py",
-          "sandbox/llm/claude/config.py",
-          "shared/egg_agent/client.py",
-          "orchestrator/event_loop/_supervisor.py",
-          "orchestrator/event_loop/_loop.py",
-          "orchestrator/event_loop/__init__.py",
-          "orchestrator/health_monitor.py",
-          "orchestrator/overseer/monitor/_alerting.py",
-          "orchestrator/overseer/classifier.py",
-          "orchestrator/models/_config.py",
-          "orchestrator/kubernetes_client.py",
-          "orchestrator/agent_log_store.py",
+        "summary": "task_planner v3: plan draft for issue #3665 supervision second pass \u2014 five linear slices (snapshot population with midturn_messages first, detection plane wiring + consensus-stall double-fire guard, loop detector, timeout classification, alert evidence) with 22 tasks (17 coder, 5 tester). Two Tier 3 items included with registered scope decisions (cq-1, cq-2): TASK-3-2 (log fidelity, hard dependency) and TASK-2-3 (alert routing, core to issue). The 4 excluded fields remain empty by decision.",
+        "attestation": {
+          "no_decisions_rationale": "This plan phase produces a plan artifact, not a code change. No HITL decisions are required \u2014 the four areas and the task decomposition are the deliverable, and the gate (implement phase) will decide what to build. The scope discipline (Tier 1-2 only, Tier 3-5 as input) was established by the refine phase gate and carried forward, with two Tier 3 items explicitly registered as scope decisions (cq-1 for log fidelity, cq-2 for alert routing).",
+          "candidates_considered": [
+            {
+              "question": "Should the four areas be split into more or fewer slices?",
+              "disposition": "not_operator_grade",
+              "why": "Originally planned as four independent slices, but they share overlapping files (kubernetes_monitor.py, detection_plane.py, health_monitor.py) which violates #3046's overlap validator for independent slices. Restructured as a linear chain of five slices to satisfy the overlap constraint while preserving the logical decomposition."
+            },
+            {
+              "question": "Should the detection plane wiring (slice-2) and loop detector (slice-3) be merged?",
+              "disposition": "not_operator_grade",
+              "why": "The loop detector depends on midturn_messages being populated (slice-1 TASK-1-1) and the detection plane being wired (slice-2 TASK-2-1). Keeping them as separate sequential slices preserves the ability to review the wiring independently of the detector logic, and the linear chain handles the shared-file constraint."
+            },
+            {
+              "question": "Should the timeout classification (TASK-4-3) use a new exit code like EX_TIMEOUT?",
+              "disposition": "not_operator_grade",
+              "why": "The timeout-killed pod exits with code -1 (from asyncio.timeout in client.py), not a custom exit code. The agent CLI returns -1 on timeout. Adding a new exit code would require changing the agent CLI's timeout handling, which is a larger change. Instead, the classification should detect the timeout via the agent result's error message ('Timed out after {timeout} seconds') and classify it as a clean timeout in the event loop's outcome mapping."
+            },
+            {
+              "question": "Should TASK-3-2 (log fidelity, candidate #20, Tier 3) be included?",
+              "disposition": "not_operator_grade",
+              "why": "This is a hard dependency for the loop detector. The k8s log API truncates tool-call log lines at ~100 characters, which is exactly why the loop detector cannot distinguish distinct tool calls sharing a prefix. Without full-length tool inputs, the unique-tool-input counter is unimplementable. Including it as a prerequisite, not scope creep."
+            },
+            {
+              "question": "Should TASK-2-3 (alert routing, candidate #19, Tier 3) be included?",
+              "disposition": "not_operator_grade",
+              "why": "The issue explicitly identifies 'alerts an operator cannot act on' as a core problem. Detection-plane findings without routing to the OVERSEER_ALERT surface are useless \u2014 the operator would never see them. This is the same class of concern as the issue's 'signals that exist and are not consulted.'"
+            }
+          ]
+        },
+        "artifacts": [
           ".egg-state/drafts/issue-3665-v3-plan.md",
-          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json",
-          ".egg-state/agent-outputs/issue-3665-v3-architect-output.json",
-          ".egg-state/agent-outputs/issue-3665-v3-architect-slices.yaml"
+          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json"
         ],
-        "reason": "Reviewed the architect's proposal (v1, commit d2a9f8e77). The architectural assessment is thorough and accurate:\n\n**Verified claims:**\n1. `snapshot_from_health_context()` populates only 5 of 13 EventStreamSnapshot fields \u2014 CONFIRMED at `detection_plane.py:511-546`\n2. `RunningAgent(role=str(cid))` uses container ID as role (bug) \u2014 CONFIRMED at `detection_plane.py:536`\n3. `_run_overseer_detection_plane()` has zero call sites \u2014 CONFIRMED at `_overseer.py:309` (def only), `__init__.py:1277` (import, not call)\n4. `run_detection_plane()` exists but never invoked \u2014 CONFIRMED at `runner.py:159`\n5. `detect_heartbeat_stall()` is unregistered \u2014 CONFIRMED: not in `tier1/__init__.py` exports, not in `_register_coverage_gap_detectors()` (lines 410-465). `ConsensusStallCheck` class IS registered at `tier1/__init__.py:16`\n6. `_classify_exit()` treats exit -1 as FAILED \u2014 CONFIRMED at `kubernetes_monitor.py:1148-1170`\n7. No `JOB_OUTCOME_TIMEOUT` constant \u2014 CONFIRMED at `event_loop/__init__.py:172-177`\n8. No `record_timeout` function \u2014 CONFIRMED: only `record_success` (line 37) and `record_abort` (line 145) exist\n9. `ClaudeConfig.timeout=7200` hardcoded, no `agent_timeout_seconds` in PipelineConfig \u2014 CONFIRMED\n10. `asyncio.timeout()` returns `returncode=-1` \u2014 CONFIRMED at `client.py:765`, `client.py:903-921`\n11. `_run_runtime_tick_checks()` called from both `_check_pod` (line 219) and `_reconciliation_sweep` (line 621) \u2014 CONFIRMED\n12. Both `_check_convergence_stall()` and `_has_recent_peer_progress()` use `get_latest_progress_timestamp()` but different gate windows \u2014 CONFIRMED at `_loop.py:887`, `health_monitor.py:458`, `models/_config.py:336` and `:178`\n13. No `detect_tool_input_loop()` exists, no `loop_detection.py` in tier1/ \u2014 CONFIRMED\n14. `midturn_messages` field never populated \u2014 CONFIRMED at `detection_plane.py:126`\n15. `read_job_log_snapshot()` truncates at ~100 chars \u2014 CONFIRMED at `kubernetes_client.py:455`\n16. `agent_log_store.py:51` MAX_LOG_BYTES=1MB, captures at pod removal \u2014 CONFIRMED\n17. `_broadcast_alert()` sends minimal payload \u2014 CONFIRMED at `_alerting.py:56`\n18. `detect_loop()` and `classify_activity_pattern()` use LLM \u2014 CONFIRMED at `classifier.py:224` and `:298`\n\n**Non-blocking architectural refinements noted:**\n1. Double-evaluation guard should be per-pipeline, not global lock \u2014 valid point\n2. midturn_messages population depends on truncated log parsing \u2014 valid concern, BRC tracker records could be alternative\n3. Timeout detection via error message is fragile \u2014 valid concern, pod active_deadline_seconds could be more robust\n4. Timestamp source already unified \u2014 correct observation, fix should unify gate window not source\n\n**Key invariants to defend (all reasonable):**\n1. Detection plane wiring must be exception-isolated\n2. Double-evaluation guard must prevent duplicate findings\n3. Timeout classification must distinguish asyncio.timeout from other failures\n4. Loop detector must be deterministic (no LLM) and handle variable cycle shapes\n5. Scope discipline: Tier 3-5 are input to gate only\n6. Non-goals must be respected\n\n**Minor discrepancy:** The architect's slices YAML shows slice-4 and slice-5 depending on slice-1 (not slice-3/slice-4), while the task_planner's plan v2 has a strict linear chain. This is a valid architectural observation \u2014 slice-4 (timeout) and slice-5 (alerts) don't have hard dependencies on slice-3 (loop detector). However, the task_planner chose linear ordering due to shared file overlap per #3046. This doesn't affect the assessment's validity.\n\nThe architect's assessment is accurate, well-grounded, and properly scoped. ACK.",
-        "ack_version": 1
+        "risk_considered": "Five linear slices share overlapping files (kubernetes_monitor.py, detection_plane.py, health_monitor.py) so they are ordered as a chain per #3046. slice-1 populates 5 in-scope EventStreamSnapshot fields (midturn_messages first per refine gate). slice-2 wires the detection plane into RUNTIME_TICK with double-evaluation guard + consensus-stall double-fire guard. slice-3 implements the deterministic unique-tool-input loop detector. slice-4 classifies timeout-killed pods (exit -1 from asyncio.timeout) as clean timeouts. slice-5 enriches alert payloads and fixes the convergence-stall false positive. Two Tier 3 items included with explicit scope decisions (cq-1, cq-2): TASK-3-2 (log fidelity, hard dependency for loop detector) and TASK-2-3 (alert routing, core to the issue's 'alerts an operator cannot act on' problem).",
+        "commit_sha": "ef0f06645d673edc5a5dc8b820cf2c0787748f5f",
+        "files_changed": [
+          ".egg-state/drafts/issue-3665-v3-plan.md",
+          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "TASK-1-1",
+          "TASK-1-2",
+          "TASK-1-3",
+          "TASK-1-4",
+          "TASK-1-5",
+          "TASK-1-6",
+          "TASK-2-1",
+          "TASK-2-2",
+          "TASK-2-3",
+          "TASK-2-4",
+          "TASK-3-1",
+          "TASK-3-2",
+          "TASK-3-3",
+          "TASK-4-1",
+          "TASK-4-2",
+          "TASK-4-3",
+          "TASK-4-4",
+          "TASK-4-5",
+          "TASK-5-1",
+          "TASK-5-2",
+          "TASK-5-3",
+          "TASK-5-4"
+        ],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
       },
-      "version": 1
+      "version": 1,
+      "commit_sha": "ef0f06645d673edc5a5dc8b820cf2c0787748f5f"
     },
-    "timestamp": "2026-07-27T23:11:02.094759+00:00",
+    "timestamp": "2026-07-27T23:45:52.211947+00:00",
     "phase": "plan"
   },
   {
-    "id": "0797b68e-97b7-4a",
+    "id": "15dbf21c-0efe-46",
     "pipeline_id": "issue-3665-v3",
-    "from_role": "orchestrator",
-    "to_role": "risk_analyst",
-    "message_type": "STATUS",
-    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
-    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
-    "metadata": {
-      "ready_to_confirm": true,
-      "version": 1
-    },
-    "timestamp": "2026-07-27T23:11:02.096770+00:00",
-    "phase": "plan"
-  },
-  {
-    "id": "f8b8a464-cf0f-41",
-    "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
+    "from_role": "task_planner",
     "to_role": "all",
-    "message_type": "CONSENSUS_CONFIRMED",
-    "subject": "Consensus confirmed by risk_analyst",
-    "body": "orchestrator-side confirm (#3064 event loop)",
-    "metadata": {},
-    "timestamp": "2026-07-27T23:11:03.630793+00:00",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:45:52.679630+00:00",
     "phase": "plan"
   },
   {
-    "id": "ce657768-728d-4d",
+    "id": "7ef3268c-354b-42",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:45:57.631218+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "863fe1fa-7789-4d",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:45:58.226514+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cd40fee1-3871-41",
     "pipeline_id": "issue-3665-v3",
     "from_role": "reviewer_plan",
     "to_role": "all",
@@ -2253,37 +475,43 @@
     "metadata": {
       "state": "WORKING"
     },
-    "timestamp": "2026-07-27T23:11:32.668871+00:00",
+    "timestamp": "2026-07-27T23:46:11.849131+00:00",
     "phase": "plan"
   },
   {
-    "id": "5f009139-8489-4e",
+    "id": "3b8eb287-ded4-4f",
     "pipeline_id": "issue-3665-v3",
-    "from_role": "risk_analyst",
+    "from_role": "task_planner",
     "to_role": "all",
     "message_type": "HEARTBEAT",
     "subject": "heartbeat: WORKING",
-    "body": "in-tool-loop liveness (slice=none)",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
     "metadata": {
       "state": "WORKING"
     },
-    "timestamp": "2026-07-27T23:11:33.062261+00:00",
+    "timestamp": "2026-07-27T23:46:25.069734+00:00",
     "phase": "plan"
   },
   {
-    "id": "8bdbda6c-a401-4a",
+    "id": "f0b3e81d-0300-40",
     "pipeline_id": "issue-3665-v3",
     "from_role": "reviewer_plan",
     "to_role": "architect",
     "message_type": "CONSENSUS_ACK",
     "subject": "ACK from reviewer_plan for architect",
-    "body": "Plan proposal ACK. All 17 grounding claims verified against live tree at main @ 1cd0c8ad7: EventStreamSnapshot has 13 fields with only 5 populated; RunningAgent uses container ID as role; _run_overseer_detection_plane() has zero call sites; detect_heartbeat_stall() is unregistered (not in _register_coverage_gap_detectors, not exported from tier1/__init__.py); _classify_exit() treats -1 as FAILED; no JOB_OUTCOME_TIMEOUT or record_timeout exist; ClaudeConfig.timeout=7200; asyncio.timeout returns returncode=-1; _run_runtime_tick_checks() called from two sites; convergence-stall and peer-progress use same tracker but different gate windows; no detect_tool_input_loop exists; midturn_messages never populated; log truncation at ~100 chars; _broadcast_alert sends minimal payload. Linear chain is justified by #3046 (shared files across slices). Slice ordering is correct (snapshot population prerequisite for all detectors). Non-goals respected (no overseer rebuild, no HealthMonitor removal, no LLM on hot path, no timeout default change). 4 non-blocking architectural refinements noted: (1) per-pipeline double-eval guard not global lock, (2) BRC tracker tool-call records as alternative midturn_messages source, (3) pod active_deadline_seconds as timeout detection alternative, (4) unify gate window not timestamp source. Key invariants to defend: exception isolation on hot loop, double-evaluation guard, timeout crash disambiguation, deterministic loop detector with variable cycle shapes, scope discipline (Tier 1+2 only).",
+    "body": "Architect v2 proposal ACK. All four iteration feedback items addressed: (1) AC-1/TASK-1-6 fixed to scope 5 in-scope fields, 4 excluded fields remain empty by decision (Tier 3-4); (2) consensus-stall double-fire guard added as TASK-2-2 in slice 2, correctly identifying that ConsensusStallCheck (registered, runs every tick) and the detection plane's consensus-stall detector could both fire on the same condition; (3) Tier 3 scope decisions registered for TASK-2-3 (#19, alert routing \u2014 minimal integration for Tier 1 observability) and TASK-3-2 (#20, log fidelity \u2014 hard dependency for loop detector); (4) midturn_messages moved to TASK-1-1 (first) per refine gate instruction. All 17 grounding claims re-verified against live tree at main @ 1cd0c8ad7. Minor YAML DAG inconsistency (slices 4/5 show slice-1 dependency in architect YAML but linear chain in plan draft and task_planner JSON) \u2014 the linear chain is the authoritative interpretation per the architect's own rationale (\"linear chain required per #3046\"). No blocking issues remain.",
     "metadata": {
       "payload": {
         "artifact_references": [
+          ".egg-state/agent-outputs/architect/brc-memory-issue-3665-v3.md",
+          ".egg-state/agent-outputs/issue-3665-v3-architect-output.json",
+          ".egg-state/agent-outputs/issue-3665-v3-architect-slices.yaml",
+          ".egg-state/agent-outputs/issue-3665-v3-task_planner-output.json",
+          ".egg-state/drafts/issue-3665-v3-plan.md",
           "orchestrator/health_checks/detection_plane.py",
           "orchestrator/health_checks/tier1/consensus_stall.py",
           "orchestrator/health_checks/tier1/__init__.py",
+          "orchestrator/health_checks/tier1/brc_thrashing.py",
           "orchestrator/health_checks/runner.py",
           "orchestrator/kubernetes_monitor.py",
           "orchestrator/routes/pipelines/_overseer.py",
@@ -2300,24 +528,661 @@
           "orchestrator/peer_consensus/_queries.py",
           "orchestrator/driver_heartbeat.py",
           "orchestrator/kubernetes_client.py",
-          "sandbox/egg_lib/orch_cli/_message.py",
-          "orchestrator/propose_check_gate.py",
-          ".egg-state/agent-outputs/issue-3665-v3-architect-output.json",
-          ".egg-state/agent-outputs/issue-3665-v3-architect-slices.yaml",
-          ".egg-state/agent-outputs/issue-3665-v3-risk_analyst-output.json",
-          ".egg-state/drafts/issue-3665-v3-plan.md",
-          ".egg-state/contracts/issue-3665-v3.json"
+          "sandbox/egg_lib/orch_cli/_message.py"
         ],
-        "reason": "Plan proposal ACK. All 17 grounding claims verified against live tree at main @ 1cd0c8ad7: EventStreamSnapshot has 13 fields with only 5 populated; RunningAgent uses container ID as role; _run_overseer_detection_plane() has zero call sites; detect_heartbeat_stall() is unregistered (not in _register_coverage_gap_detectors, not exported from tier1/__init__.py); _classify_exit() treats -1 as FAILED; no JOB_OUTCOME_TIMEOUT or record_timeout exist; ClaudeConfig.timeout=7200; asyncio.timeout returns returncode=-1; _run_runtime_tick_checks() called from two sites; convergence-stall and peer-progress use same tracker but different gate windows; no detect_tool_input_loop exists; midturn_messages never populated; log truncation at ~100 chars; _broadcast_alert sends minimal payload. Linear chain is justified by #3046 (shared files across slices). Slice ordering is correct (snapshot population prerequisite for all detectors). Non-goals respected (no overseer rebuild, no HealthMonitor removal, no LLM on hot path, no timeout default change). 4 non-blocking architectural refinements noted: (1) per-pipeline double-eval guard not global lock, (2) BRC tracker tool-call records as alternative midturn_messages source, (3) pod active_deadline_seconds as timeout detection alternative, (4) unify gate window not timestamp source. Key invariants to defend: exception isolation on hot loop, double-evaluation guard, timeout crash disambiguation, deterministic loop detector with variable cycle shapes, scope discipline (Tier 1+2 only).",
+        "reason": "Architect v2 proposal ACK. All four iteration feedback items addressed: (1) AC-1/TASK-1-6 fixed to scope 5 in-scope fields, 4 excluded fields remain empty by decision (Tier 3-4); (2) consensus-stall double-fire guard added as TASK-2-2 in slice 2, correctly identifying that ConsensusStallCheck (registered, runs every tick) and the detection plane's consensus-stall detector could both fire on the same condition; (3) Tier 3 scope decisions registered for TASK-2-3 (#19, alert routing \u2014 minimal integration for Tier 1 observability) and TASK-3-2 (#20, log fidelity \u2014 hard dependency for loop detector); (4) midturn_messages moved to TASK-1-1 (first) per refine gate instruction. All 17 grounding claims re-verified against live tree at main @ 1cd0c8ad7. Minor YAML DAG inconsistency (slices 4/5 show slice-1 dependency in architect YAML but linear chain in plan draft and task_planner JSON) \u2014 the linear chain is the authoritative interpretation per the architect's own rationale (\"linear chain required per #3046\"). No blocking issues remain.",
         "ack_version": 1
       },
       "version": 1
     },
-    "timestamp": "2026-07-27T23:12:14.573215+00:00",
+    "timestamp": "2026-07-27T23:47:23.901771+00:00",
     "phase": "plan"
   },
   {
-    "id": "7abcdbbe-4c89-4c",
+    "id": "07ace054-e099-4d",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "Task_planner v3 plan ACK. All four iteration feedback items correctly incorporated: (1) AC-1 scoped to 5 in-scope fields, 4 excluded fields remain empty by decision; (2) TASK-2-2 added for consensus-stall double-fire guard; (3) scope_notes documents Tier 3 exceptions for TASK-3-2 (#20, log fidelity hard dependency) and TASK-2-3 (#19, alert routing); (4) TASK-1-1 is midturn_messages (first task). Linear chain 1\u21922\u21923\u21924\u21925 correctly implemented. All grounding claims verified against live tree. No blocking issues.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/issue-3665-v3-task_planner-output.json",
+          ".egg-state/drafts/issue-3665-v3-plan.md",
+          ".egg-state/agent-outputs/architect/brc-memory-issue-3665-v3.md",
+          ".egg-state/agent-outputs/issue-3665-v3-architect-output.json",
+          ".egg-state/agent-outputs/issue-3665-v3-architect-slices.yaml",
+          "orchestrator/health_checks/detection_plane.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/health_checks/tier1/__init__.py",
+          "orchestrator/health_checks/tier1/brc_thrashing.py",
+          "orchestrator/health_checks/runner.py",
+          "orchestrator/kubernetes_monitor.py",
+          "orchestrator/routes/pipelines/_overseer.py",
+          "orchestrator/event_loop/__init__.py",
+          "orchestrator/event_loop/_supervisor.py",
+          "orchestrator/event_loop/_loop.py",
+          "orchestrator/health_monitor.py",
+          "orchestrator/models/_config.py",
+          "orchestrator/overseer/monitor/_alerting.py",
+          "shared/egg_agent/client.py",
+          "sandbox/llm/claude/config.py",
+          "orchestrator/agent_log_store.py",
+          "orchestrator/peer_consensus/__init__.py",
+          "orchestrator/peer_consensus/_queries.py",
+          "orchestrator/driver_heartbeat.py",
+          "orchestrator/kubernetes_client.py",
+          "sandbox/egg_lib/orch_cli/_message.py"
+        ],
+        "reason": "Task_planner v3 plan ACK. All four iteration feedback items correctly incorporated: (1) AC-1 scoped to 5 in-scope fields, 4 excluded fields remain empty by decision; (2) TASK-2-2 added for consensus-stall double-fire guard; (3) scope_notes documents Tier 3 exceptions for TASK-3-2 (#20, log fidelity hard dependency) and TASK-2-3 (#19, alert routing); (4) TASK-1-1 is midturn_messages (first task). Linear chain 1\u21922\u21923\u21924\u21925 correctly implemented. All grounding claims verified against live tree. No blocking issues.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-27T23:47:28.374965+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7205db25-4c10-47",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:47:30.664381+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "55606227-1908-49",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:47:37.419156+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "be3037fc-9188-4a",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:47:48.890743+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "20f3f1aa-c342-4d",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:48:29.769443+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b879d890-6687-44",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:49:45.319364+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "993fffb4-7f11-4d",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Risk analyst assessment for issue #3665 plan (v3): PROCEED. All 4 iteration feedback items addressed by task_planner v3: (1) AC-1 fixed to scope 5 in-scope fields only, 4 Tier 3-4 fields excluded by decision; (2) consensus-stall double-fire guard added as TASK-2-2 in slice-2; (3) Tier 3 scope decisions registered for TASK-3-2 (log fidelity) and TASK-2-3 (alert routing) with explicit justification; (4) midturn_messages moved to TASK-1-1 per refine gate carry-into-plan note. Risk assessment unchanged: slice-2 high-risk (hot-loop, double-evaluation guard, exception isolation), all other slices medium risk. All technical claims re-verified against live tree at main @ 1cd0c8ad7.",
+    "metadata": {
+      "payload": {
+        "summary": "Risk analyst assessment for issue #3665 plan (v3): PROCEED. All 4 iteration feedback items addressed by task_planner v3: (1) AC-1 fixed to scope 5 in-scope fields only, 4 Tier 3-4 fields excluded by decision; (2) consensus-stall double-fire guard added as TASK-2-2 in slice-2; (3) Tier 3 scope decisions registered for TASK-3-2 (log fidelity) and TASK-2-3 (alert routing) with explicit justification; (4) midturn_messages moved to TASK-1-1 per refine gate carry-into-plan note. Risk assessment unchanged: slice-2 high-risk (hot-loop, double-evaluation guard, exception isolation), all other slices medium risk. All technical claims re-verified against live tree at main @ 1cd0c8ad7.",
+        "attestation": {
+          "no_decisions_rationale": "This plan phase produces a risk assessment artifact, not a code change. No HITL decisions are required \u2014 the assessment verifies the plan and recommends PROCEED. The iteration feedback items were addressed by the task_planner's v3 commit, not by decisions requiring operator input.",
+          "candidates_considered": [
+            {
+              "question": "Should the consensus-stall double-fire guard suppress the detection plane's detector or the registered ConsensusStallCheck?",
+              "disposition": "not_operator_grade",
+              "why": "The guard should suppress the detection plane's detector (the newer layer), not the registered ConsensusStallCheck (which is already wired and working). The refine gate explicitly stated ConsensusStallCheck IS registered and runs every tick \u2014 it is the established layer."
+            },
+            {
+              "question": "Should TASK-3-2 (log fidelity, Tier 3) be included in scope?",
+              "disposition": "not_operator_grade",
+              "why": "The task_planner registered this as a scope decision with justification: the ~100-char k8s log truncation is a hard dependency for the Tier 1 loop detector. Without full-length tool inputs, detect_tool_input_loop() cannot distinguish distinct tool calls sharing a prefix. This is a prerequisite, not scope creep."
+            },
+            {
+              "question": "Should TASK-2-3 (alert routing, Tier 3) be included in scope?",
+              "disposition": "not_operator_grade",
+              "why": "The task_planner registered this as a scope decision with justification: the issue explicitly states 'alerts an operator cannot act on' as a core problem. Routing detection-plane findings to the OVERSEER_ALERT surface is the minimal wiring needed to make the Tier 1 detection plane observable. This is the same class of concern as the issue's 'signals that exist and are not consulted.'"
+            }
+          ]
+        },
+        "artifacts": [
+          ".egg-state/agent-outputs/risk_analyst/brc-memory-issue-3665-v3.md"
+        ],
+        "risk_considered": "Slice-2 remains high-risk: new code path on hot loop (_run_runtime_tick_checks), double-evaluation from two call sites (_check_pod line 219, _reconciliation_sweep line 621), must be exception-isolated. TASK-2-2 consensus-stall double-fire guard must suppress detection plane's detector, not the registered ConsensusStallCheck. TASK-4-3 timeout classification must distinguish asyncio.timeout exit -1 from crash exit -1 via error message. TASK-3-2 log fidelity increase may increase memory usage for long-running pods.",
+        "commit_sha": "f0be3fe54",
+        "files_changed": [
+          ".egg-state/agent-outputs/risk_analyst/brc-memory-issue-3665-v3.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "f0be3fe54"
+    },
+    "timestamp": "2026-07-27T23:50:16.215796+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5c0a8dcf-9f61-45",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:50:25.384991+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "33af75f3-ce77-48",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:50:25.403331+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f30518be-1f83-4b",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:50:31.380389+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2cc2c3b5-feba-45",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:50:33.256667+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "956e5ba8-40ee-4c",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:50:34.896226+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a95cd7ba-83f0-4a",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "simplifier",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from simplifier for task_planner",
+    "body": "task_planner v1 plan (commit ef0f06645) incorporates all 4 iteration-0 corrections: AC-1 scope fixed to 5 in-scope fields, consensus-stall double-fire guard added to slice 2, Tier 3 exceptions registered for TASK-2-2 (#19) and TASK-3-2 (#20), midturn_messages moved to TASK-1-1. The plan is sound and grounded. ACK for simplifier's reviewer edge.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/issue-3665-v3-plan.md"
+        ],
+        "reason": "task_planner v1 plan (commit ef0f06645) incorporates all 4 iteration-0 corrections: AC-1 scope fixed to 5 in-scope fields, consensus-stall double-fire guard added to slice 2, Tier 3 exceptions registered for TASK-2-2 (#19) and TASK-3-2 (#20), midturn_messages moved to TASK-1-1. The plan is sound and grounded. ACK for simplifier's reviewer edge.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-27T23:50:43.124636+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "47ae6b87-6df5-47",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "Risk_analyst proposal ACK. The v2 BRC memory (commit f0be3fe54) correctly acknowledges all 4 iteration feedback corrections: (1) AC-1 fixed to scope 5 in-scope fields; (2) consensus-stall double-fire guard added as TASK-2-2; (3) Tier 3 scope decisions registered for TASK-2-3 (#19) and TASK-3-2 (#20); (4) midturn_messages moved to TASK-1-1. The risk assessment is accurate: slice-2 correctly identified as high-risk (hot-loop path) with double-evaluation guard and exception isolation mitigations; tracker-None handling noted for TASK-1-2; log truncation correctly identified as prerequisite for loop detector; exit code -1 disambiguation correctly assessed. All 15 verified claims in the JSON output were previously confirmed against the live tree at main @ 1cd0c8ad7. The PROCEED verdict is appropriate. Note: the JSON output file is from the v1 assessment (commit b3a9efcbb) and does not reflect the AC-1 fix, but the BRC memory (v2, commit f0be3fe54) is current and correct.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/risk_analyst/brc-memory-issue-3665-v3.md",
+          ".egg-state/agent-outputs/issue-3665-v3-risk_analyst-output.json",
+          ".egg-state/drafts/issue-3665-v3-plan.md",
+          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json",
+          ".egg-state/agent-outputs/architect/brc-memory-issue-3665-v3.md",
+          ".egg-state/agent-outputs/issue-3665-v3-architect-output.json",
+          ".egg-state/agent-outputs/issue-3665-v3-architect-slices.yaml",
+          "orchestrator/health_checks/detection_plane.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/health_checks/tier1/__init__.py",
+          "orchestrator/health_checks/runner.py",
+          "orchestrator/kubernetes_monitor.py",
+          "orchestrator/routes/pipelines/_overseer.py",
+          "orchestrator/event_loop/__init__.py",
+          "orchestrator/event_loop/_supervisor.py",
+          "orchestrator/event_loop/_loop.py",
+          "orchestrator/health_monitor.py",
+          "orchestrator/models/_config.py",
+          "orchestrator/overseer/monitor/_alerting.py",
+          "shared/egg_agent/client.py",
+          "sandbox/llm/claude/config.py",
+          "orchestrator/agent_log_store.py",
+          "orchestrator/peer_consensus/_queries.py",
+          "orchestrator/driver_heartbeat.py",
+          "orchestrator/kubernetes_client.py",
+          "sandbox/egg_lib/orch_cli/_message.py"
+        ],
+        "reason": "Risk_analyst proposal ACK. The v2 BRC memory (commit f0be3fe54) correctly acknowledges all 4 iteration feedback corrections: (1) AC-1 fixed to scope 5 in-scope fields; (2) consensus-stall double-fire guard added as TASK-2-2; (3) Tier 3 scope decisions registered for TASK-2-3 (#19) and TASK-3-2 (#20); (4) midturn_messages moved to TASK-1-1. The risk assessment is accurate: slice-2 correctly identified as high-risk (hot-loop path) with double-evaluation guard and exception isolation mitigations; tracker-None handling noted for TASK-1-2; log truncation correctly identified as prerequisite for loop detector; exit code -1 disambiguation correctly assessed. All 15 verified claims in the JSON output were previously confirmed against the live tree at main @ 1cd0c8ad7. The PROCEED verdict is appropriate. Note: the JSON output file is from the v1 assessment (commit b3a9efcbb) and does not reflect the AC-1 fix, but the BRC memory (v2, commit f0be3fe54) is current and correct.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-27T23:51:44.814636+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ebff4c95-9f77-4c",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:52:04.704896+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8e0f4b24-dde1-40",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from simplifier",
+    "body": "simplifier: plan-draft-human v2 for issue #3665 \u2014 faithful rendering of task_planner v1 plan with 4 iteration-0 corrections applied",
+    "metadata": {
+      "payload": {
+        "summary": "simplifier: plan-draft-human v2 for issue #3665 \u2014 faithful rendering of task_planner v1 plan with 4 iteration-0 corrections applied",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/issue-3665-v3-plan-human.md"
+        ],
+        "risk_considered": "Low risk \u2014 plan-draft-human is a human-readable companion artifact gated by reviewer_plan on existence-only. No code changes. The plan-human faithfully renders the task_planner's v1 plan (commit ef0f06645) with all 4 iteration-0 corrections applied inline.",
+        "commit_sha": "4b3a8e670",
+        "files_changed": [
+          ".egg-state/drafts/issue-3665-v3-plan-human.md",
+          ".egg-state/agent-outputs/simplifier/brc-memory-issue-3665-v3.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "4b3a8e670"
+    },
+    "timestamp": "2026-07-27T23:52:26.437819+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c2a1b946-e90d-4e",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:52:30.698015+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b6afdcc1-4a86-44",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:52:33.098184+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cf96ee5f-ac9b-4a",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: IDLE",
+    "body": "simplifier: re-proposed plan-draft-human v2 (commit 4b3a8e670) after plan phase restart. ACKed task_planner v1 (ef0f06645). Waiting on reviewer_plan to ACK.",
+    "metadata": {
+      "state": "IDLE"
+    },
+    "timestamp": "2026-07-27T23:52:33.303185+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "903ad9d0-9b3b-45",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:52:33.763445+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7f791130-4217-49",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=below_threshold",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:52:42.267317+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e5d3d0db-5368-4a",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:52:49.843925+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4c11c1c3-180b-41",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "risk_analyst",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for task_planner",
+    "body": "Re-reviewed task_planner v3 (commit b898df973, merged into ef0f06645). All four iteration feedback items are addressed:\n\n1. **AC-1 scope fix** \u2014 AC-1 now correctly states \"populates the 5 in-scope EventStreamSnapshot fields (runtime, consensus, container_transitions, midturn_messages, RunningAgent role+age)\" and explicitly notes the 4 excluded fields (decision_state, gateway_error_counters, cost_counters, git_state) \"remain empty by decision.\" TASK-1-6 updated to match. This resolves the unsatisfiable AC-1 that would have failed the green gate.\n\n2. **Consensus-stall double-fire guard** \u2014 TASK-2-2 added: \"Prevent consensus-stall double-firing. health_checks/tier1/consensus_stall.py contains both the dormant detect_heartbeat_stall function (line 217) and a registered ConsensusStallCheck class (line 51) that already runs every tick. Guard against duplicate reporting.\" Verified: both functions exist in the same file, detect_heartbeat_stall is NOT registered in _register_coverage_gap_detectors (lines 410-465), ConsensusStallCheck IS registered at tier1/__init__.py:16.\n\n3. **Tier 3 scope decisions registered** \u2014 TASK-2-3 (alert routing, candidate #19) and TASK-3-2 (log fidelity, candidate #20) are now explicitly registered with justification in the \"Scope decisions\" section. TASK-3-2 is correctly identified as a hard dependency (log truncation at ~100 chars prevents the loop detector from distinguishing distinct tool calls sharing a prefix). TASK-2-3 is justified as minimal integration needed for Tier 1 findings to be observable.\n\n4. **midturn_messages moved to TASK-1-1** \u2014 Confirmed: TASK-1-1 is now \"Populate midturn_messages in snapshot\" and is the first task in slice-1. This correctly sequences the prerequisite for the primary deliverable (loop detector in slice-3).\n\nThe plan's linear slice structure, risk assessment, and non-goals are all correct. The acceptance criteria are now satisfiable. ACK v3.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/health_checks/detection_plane.py",
+          "orchestrator/health_checks/runner.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/health_checks/tier1/__init__.py",
+          "orchestrator/routes/pipelines/_overseer.py",
+          "orchestrator/kubernetes_monitor.py",
+          "sandbox/llm/claude/config.py",
+          "shared/egg_agent/client.py",
+          "orchestrator/event_loop/_supervisor.py",
+          "orchestrator/event_loop/_loop.py",
+          "orchestrator/event_loop/__init__.py",
+          "orchestrator/health_monitor.py",
+          "orchestrator/overseer/monitor/_alerting.py",
+          "orchestrator/overseer/classifier.py",
+          "orchestrator/models/_config.py",
+          "orchestrator/kubernetes_client.py",
+          "orchestrator/agent_log_store.py",
+          "sandbox/egg_lib/orch_cli/_message.py",
+          ".egg-state/drafts/issue-3665-v3-plan.md",
+          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json"
+        ],
+        "reason": "Re-reviewed task_planner v3 (commit b898df973, merged into ef0f06645). All four iteration feedback items are addressed:\n\n1. **AC-1 scope fix** \u2014 AC-1 now correctly states \"populates the 5 in-scope EventStreamSnapshot fields (runtime, consensus, container_transitions, midturn_messages, RunningAgent role+age)\" and explicitly notes the 4 excluded fields (decision_state, gateway_error_counters, cost_counters, git_state) \"remain empty by decision.\" TASK-1-6 updated to match. This resolves the unsatisfiable AC-1 that would have failed the green gate.\n\n2. **Consensus-stall double-fire guard** \u2014 TASK-2-2 added: \"Prevent consensus-stall double-firing. health_checks/tier1/consensus_stall.py contains both the dormant detect_heartbeat_stall function (line 217) and a registered ConsensusStallCheck class (line 51) that already runs every tick. Guard against duplicate reporting.\" Verified: both functions exist in the same file, detect_heartbeat_stall is NOT registered in _register_coverage_gap_detectors (lines 410-465), ConsensusStallCheck IS registered at tier1/__init__.py:16.\n\n3. **Tier 3 scope decisions registered** \u2014 TASK-2-3 (alert routing, candidate #19) and TASK-3-2 (log fidelity, candidate #20) are now explicitly registered with justification in the \"Scope decisions\" section. TASK-3-2 is correctly identified as a hard dependency (log truncation at ~100 chars prevents the loop detector from distinguishing distinct tool calls sharing a prefix). TASK-2-3 is justified as minimal integration needed for Tier 1 findings to be observable.\n\n4. **midturn_messages moved to TASK-1-1** \u2014 Confirmed: TASK-1-1 is now \"Populate midturn_messages in snapshot\" and is the first task in slice-1. This correctly sequences the prerequisite for the primary deliverable (loop detector in slice-3).\n\nThe plan's linear slice structure, risk assessment, and non-goals are all correct. The acceptance criteria are now satisfiable. ACK v3.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-27T23:53:15.305373+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "48db7263-cc2f-4c",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-27T23:53:15.309988+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cb75ac9c-1105-48",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by task_planner",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-27T23:53:16.981020+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c3b7a2de-9cd8-45",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T23:53:22.666674+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7940ebdf-9f30-4a",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "reviewer_plan",
+    "to_role": "simplifier",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for simplifier",
+    "body": "Simplifier plan-human draft ACK. The v2 plan-draft-human.md (commit 4b3a8e670) is a faithful plain-English rendering of the task_planner's v3 plan. All 4 iteration feedback corrections correctly incorporated: (1) AC-1 scoped to 5 in-scope fields with 4 excluded fields stated as empty by decision (lines 23-28, 45-48, 197-198); (2) consensus-stall double-fire guard included in TASK-2-1 (lines 66-69, 199); (3) Tier 3 scope decisions registered for TASK-2-2 (#19) and TASK-3-2 (#20) with explicit justifications (lines 175-191); (4) midturn_messages moved to TASK-1-1 (lines 32-34). Linear chain correctly justified by #3046. All task descriptions, file lists, and non-goals match the task_planner JSON. The simplifier also correctly ACKed the task_planner's v1 proposal as their reviewer edge.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/issue-3665-v3-plan-human.md",
+          ".egg-state/agent-outputs/simplifier/brc-memory-issue-3665-v3.md",
+          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json",
+          ".egg-state/drafts/issue-3665-v3-plan.md",
+          ".egg-state/agent-outputs/architect/brc-memory-issue-3665-v3.md",
+          ".egg-state/agent-outputs/issue-3665-v3-architect-output.json",
+          ".egg-state/agent-outputs/issue-3665-v3-architect-slices.yaml",
+          ".egg-state/agent-outputs/risk_analyst/brc-memory-issue-3665-v3.md",
+          ".egg-state/agent-outputs/issue-3665-v3-risk_analyst-output.json",
+          "orchestrator/health_checks/detection_plane.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/health_checks/tier1/__init__.py",
+          "orchestrator/health_checks/runner.py",
+          "orchestrator/kubernetes_monitor.py",
+          "orchestrator/routes/pipelines/_overseer.py",
+          "orchestrator/event_loop/__init__.py",
+          "orchestrator/event_loop/_supervisor.py",
+          "orchestrator/event_loop/_loop.py",
+          "orchestrator/health_monitor.py",
+          "orchestrator/models/_config.py",
+          "orchestrator/overseer/monitor/_alerting.py",
+          "shared/egg_agent/client.py",
+          "sandbox/llm/claude/config.py",
+          "orchestrator/agent_log_store.py",
+          "orchestrator/peer_consensus/_queries.py",
+          "orchestrator/driver_heartbeat.py",
+          "orchestrator/kubernetes_client.py",
+          "sandbox/egg_lib/orch_cli/_message.py"
+        ],
+        "reason": "Simplifier plan-human draft ACK. The v2 plan-draft-human.md (commit 4b3a8e670) is a faithful plain-English rendering of the task_planner's v3 plan. All 4 iteration feedback corrections correctly incorporated: (1) AC-1 scoped to 5 in-scope fields with 4 excluded fields stated as empty by decision (lines 23-28, 45-48, 197-198); (2) consensus-stall double-fire guard included in TASK-2-1 (lines 66-69, 199); (3) Tier 3 scope decisions registered for TASK-2-2 (#19) and TASK-3-2 (#20) with explicit justifications (lines 175-191); (4) midturn_messages moved to TASK-1-1 (lines 32-34). Linear chain correctly justified by #3046. All task descriptions, file lists, and non-goals match the task_planner JSON. The simplifier also correctly ACKed the task_planner's v1 proposal as their reviewer edge.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-27T23:53:23.054298+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f6ba667f-28d5-4c",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "orchestrator",
+    "to_role": "simplifier",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-27T23:53:23.059990+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "45b57f3f-bacd-4d",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by simplifier",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-27T23:53:26.591342+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d5635f51-2ebe-4d",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_plan",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-27T23:53:26.593255+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7d14f453-9624-4d",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "risk_analyst",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from risk_analyst for architect",
+    "body": "Re-reviewed architect v2 (commit a3499d890). The v2 assessment correctly acknowledges all four iteration feedback corrections:\n\n1. **AC-1 scope fix** \u2014 The architect's v2 summary correctly states \"AC-1/TASK-1-6 fixed to scope 5 in-scope fields, not all 13 (4 remaining fields are Tier 3/4, explicitly out of scope).\" Verified against the updated plan draft.\n\n2. **Consensus-stall double-fire guard** \u2014 The architect's v2 risks now include: \"slice-2: detect_heartbeat_stall (unregistered) and ConsensusStallCheck (registered) both in consensus_stall.py could double-fire once the detection plane is live \u2014 must suppress one or ensure detect_brc_thrash does not duplicate coverage.\" This correctly identifies the risk. Verified: both functions exist in consensus_stall.py (detect_heartbeat_stall at line 217, ConsensusStallCheck at line 51).\n\n3. **Tier 3 scope decisions** \u2014 The architect's v2 non-goals now state: \"Tier 3-5 from the candidate list (input to the gate, not a work queue) \u2014 except TASK-2-2 (#19) and TASK-3-2 (#20) which are registered as hard dependencies for Tier 1 deliverables.\" Note: there's a minor numbering inconsistency \u2014 the architect references \"TASK-2-2 (#19)\" but in the task_planner's v3, the alert routing is TASK-2-3 (not TASK-2-2). TASK-2-2 is the consensus-stall double-fire guard. This is a cosmetic numbering error in the architect's output, not a substantive issue.\n\n4. **midturn_messages moved to TASK-1-1** \u2014 The architect's v2 slices YAML correctly shows midturn_messages as the first item in slice-1's goal: \"midturn_messages (agent tool-call logs for loop detection \u2014 FIRST because it is the prerequisite for the primary deliverable, slice 3).\"\n\nThe architect's v2 evidence list (21 items) remains accurate and verified. The risks are properly updated. The ACK verdict is unchanged. Minor note: the architect's slice DAG dependencies in the JSON output still show slice-4 and slice-5 depending on slice-1 (not slice-3/slice-4), but the slices YAML correctly shows the linear chain. This is a cosmetic inconsistency in the JSON output, not a substantive issue.\n\nACK v2.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/health_checks/detection_plane.py",
+          "orchestrator/health_checks/runner.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/health_checks/tier1/__init__.py",
+          "orchestrator/routes/pipelines/_overseer.py",
+          "orchestrator/kubernetes_monitor.py",
+          "sandbox/llm/claude/config.py",
+          "shared/egg_agent/client.py",
+          "orchestrator/event_loop/_supervisor.py",
+          "orchestrator/event_loop/_loop.py",
+          "orchestrator/event_loop/__init__.py",
+          "orchestrator/health_monitor.py",
+          "orchestrator/overseer/monitor/_alerting.py",
+          "orchestrator/overseer/classifier.py",
+          "orchestrator/models/_config.py",
+          "orchestrator/kubernetes_client.py",
+          "orchestrator/agent_log_store.py",
+          "sandbox/egg_lib/orch_cli/_message.py",
+          ".egg-state/drafts/issue-3665-v3-plan.md",
+          ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json",
+          ".egg-state/agent-outputs/issue-3665-v3-architect-output.json",
+          ".egg-state/agent-outputs/issue-3665-v3-architect-slices.yaml"
+        ],
+        "reason": "Re-reviewed architect v2 (commit a3499d890). The v2 assessment correctly acknowledges all four iteration feedback corrections:\n\n1. **AC-1 scope fix** \u2014 The architect's v2 summary correctly states \"AC-1/TASK-1-6 fixed to scope 5 in-scope fields, not all 13 (4 remaining fields are Tier 3/4, explicitly out of scope).\" Verified against the updated plan draft.\n\n2. **Consensus-stall double-fire guard** \u2014 The architect's v2 risks now include: \"slice-2: detect_heartbeat_stall (unregistered) and ConsensusStallCheck (registered) both in consensus_stall.py could double-fire once the detection plane is live \u2014 must suppress one or ensure detect_brc_thrash does not duplicate coverage.\" This correctly identifies the risk. Verified: both functions exist in consensus_stall.py (detect_heartbeat_stall at line 217, ConsensusStallCheck at line 51).\n\n3. **Tier 3 scope decisions** \u2014 The architect's v2 non-goals now state: \"Tier 3-5 from the candidate list (input to the gate, not a work queue) \u2014 except TASK-2-2 (#19) and TASK-3-2 (#20) which are registered as hard dependencies for Tier 1 deliverables.\" Note: there's a minor numbering inconsistency \u2014 the architect references \"TASK-2-2 (#19)\" but in the task_planner's v3, the alert routing is TASK-2-3 (not TASK-2-2). TASK-2-2 is the consensus-stall double-fire guard. This is a cosmetic numbering error in the architect's output, not a substantive issue.\n\n4. **midturn_messages moved to TASK-1-1** \u2014 The architect's v2 slices YAML correctly shows midturn_messages as the first item in slice-1's goal: \"midturn_messages (agent tool-call logs for loop detection \u2014 FIRST because it is the prerequisite for the primary deliverable, slice 3).\"\n\nThe architect's v2 evidence list (21 items) remains accurate and verified. The risks are properly updated. The ACK verdict is unchanged. Minor note: the architect's slice DAG dependencies in the JSON output still show slice-4 and slice-5 depending on slice-1 (not slice-3/slice-4), but the slices YAML correctly shows the linear chain. This is a cosmetic inconsistency in the JSON output, not a substantive issue.\n\nACK v2.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-27T23:53:30.079989+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9bf1f136-5f9a-44",
     "pipeline_id": "issue-3665-v3",
     "from_role": "orchestrator",
     "to_role": "architect",
@@ -2328,11 +1193,26 @@
       "ready_to_confirm": true,
       "version": 1
     },
-    "timestamp": "2026-07-27T23:12:14.574902+00:00",
+    "timestamp": "2026-07-27T23:53:30.081598+00:00",
     "phase": "plan"
   },
   {
-    "id": "eccd597c-13c5-42",
+    "id": "9e523dce-1f52-45",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-27T23:53:30.082113+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "85804931-aa59-4e",
     "pipeline_id": "issue-3665-v3",
     "from_role": "architect",
     "to_role": "all",
@@ -2340,11 +1220,35 @@
     "subject": "Consensus confirmed by architect",
     "body": "orchestrator-side confirm (#3064 event loop)",
     "metadata": {},
-    "timestamp": "2026-07-27T23:12:14.629333+00:00",
+    "timestamp": "2026-07-27T23:53:31.623111+00:00",
     "phase": "plan"
   },
   {
-    "id": "91c52e6c-0414-47",
+    "id": "ba43f444-12bb-44",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by risk_analyst",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-27T23:53:31.627604+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d6de9de4-3747-4f",
+    "pipeline_id": "issue-3665-v3",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by simplifier",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-27T23:53:31.628197+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "22c4946b-92a8-4d",
     "pipeline_id": "issue-3665-v3",
     "from_role": "reviewer_plan",
     "to_role": "all",
@@ -2352,7 +1256,7 @@
     "subject": "Consensus confirmed by reviewer_plan",
     "body": "orchestrator-side confirm (#3064 event loop)",
     "metadata": {},
-    "timestamp": "2026-07-27T23:12:14.630495+00:00",
+    "timestamp": "2026-07-27T23:53:31.628618+00:00",
     "phase": "plan"
   }
 ]
