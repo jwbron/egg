@@ -1,0 +1,162 @@
+{
+    "issue": 3665,
+    "phase": "plan",
+    "agent": "architect",
+    "title": "Supervision layer second pass: integrate existing fix commit + complete remaining gaps",
+    "summary": "Architecture for #3665 supervision layer second pass. CRITICAL FINDING: commit 6ffe97c8e on branch issue-3665-supervision-gaps already implements three of the four priorities (livelock detection, timeout visibility, convergence-stall suppression + snapshot enrichment). The current working tree does NOT include this commit. The architect proposes INTEGRATING the fix commit rather than reimplementing, then completing the remaining gap (alert evidence bundling, priority 4). The plan is grounded against the live tree: all key claims verified against both the working tree and the fix commit. Three slices serialize on file overlap; the test slice is parallel.",
+    "problem_statement": {
+        "description": "The supervision layer was silent on seven livelocks and loud at healthy agents. Four problem areas: (1) signals that exist but are not consulted — the convergence-stall check fires without consulting health-monitor alive-signal gates; (2) session boundaries read as failures — timeouts and clean exits without verdicts are indistinguishable from crashes; (3) loops that nothing detects — no mechanism counts unique tool inputs over a trailing window; (4) alerts an operator cannot act on — alerts fire without structured evidence. The issue asks for two deliverables: the work to build, and a ranked candidate list with file-and-symbol citations.",
+        "grounded_against_tree": "2026-07-27; live issue #3665 body fetched via gh; all key claims verified against the working tree AND the fix commit 6ffe97c8e on branch issue-3665-supervision-gaps."
+    },
+    "current_architecture": {
+        "detection_plane": {
+            "file": "orchestrator/health_checks/detection_plane.py",
+            "snapshot_builder": "snapshot_from_health_context (line 511) creates RunningAgent entries from context.live_container_ids (a set of container ID strings), setting only role, state='running', and lifecycle_owner. The last_tool_call_age_s and last_heartbeat_age_s fields on RunningAgent (line 89-90) are NEVER populated — they default to None.",
+            "detect_heartbeat_stall": "Defined at consensus_stall.py:217 but NOT registered in _register_coverage_gap_detectors (line 410). The detector is unreachable in the live path because snapshot_from_health_context never populates its inputs.",
+            "registration": "_register_coverage_gap_detectors (line 410) registers 25 coverage-gap detectors but NOT detect_heartbeat_stall or detect_agent_livelock. Both are dead code in the live path."
+        },
+        "convergence_stall": {
+            "file": "orchestrator/event_loop/_loop.py",
+            "check": "_check_convergence_stall (line 836) fires stuck-phase-transition anomaly at high priority. It checks bus_timestamp (BRC bus activity) and _live_keys (in-flight Jobs) but does NOT consult: _orchestrator_skip_tripwire (health_monitor.py:507), _is_brc_idle (health_monitor.py:524), or the WAITING_ON_ROLE self-report probe (_supervisor.py:824).",
+            "notifier": "convergence_stall_notifier is wired at concurrent_executor.py:634 as self._emit_supervision_alert, which broadcasts an OVERSEER_ALERT with only {anomaly, priority, summary, detail} — no structured evidence (heartbeat age, tool-call age, consensus state)."
+        },
+        "timeout_handling": {
+            "agent_timeout": "shared/egg_agent/__main__.py:47 — parser.add_argument('--timeout', type=int, default=7200). The agent is killed by asyncio.timeout(7200) in client.py:765 with no pre-warning to the agent.",
+            "k8s_deadline": "kubernetes_client.py:350 — active_deadline_seconds=14400 (4h), hardcoded. This is the K8s-level safety net, separate from the agent-level timeout.",
+            "agent_timeout_exit": "shared/egg_agent/client.py:765 — asyncio.timeout(7200) raises TimeoutError, caught at line 900, returns AgentResult(returncode=-1). __main__.py:164 returns result.returncode, then sys.exit(-1) at line 168 exits with code 255 on Unix. The K8s Job shows as FAILED.",
+            "k8s_deadline_exit": "kubernetes_client.py:350 — active_deadline_seconds=14400 (4h) sends SIGTERM to the pod, resulting in exit code 143. kubernetes_monitor.py:535 treats 143 as clean ONLY during phase transitions (not RUNNING). _classify_exit (line 1164) treats 143 as clean unconditionally, but this is the K8s monitor path, not the event loop's outcome_for path.",
+            "outcome_classification": "kubernetes_spawner/_models.py:45 — outcome_for() maps all FAILED jobs to JOB_OUTCOME_ABNORMAL unless they exit EX_AUTH_FATAL (77) or EX_RATE_LIMITED (69). There is NO JOB_OUTCOME_TIMEOUT constant. A timeout exit (code 255 from sys.exit(-1)) maps to ABNORMAL, incrementing the failure streak. The event loop's _observe_jobs (_loop.py:88-157) routes ABNORMAL to supervisor.record_abort which increments the streak."
+        },
+        "agent_log_store": {
+            "file": "orchestrator/agent_log_store.py",
+            "ttl": "AGENT_LOG_TTL_SECONDS = 24h (line 46)",
+            "max_bytes": "MAX_LOG_BYTES = 1 MiB (line 51) — tail-truncated",
+            "usage": "Captures pod stdout before reaping. Used by the overseer for log fetching (_poll.py:78-85)."
+        },
+        "health_monitor_alive_signals": {
+            "file": "orchestrator/health_monitor.py",
+            "orchestrator_skip_tripwire": "line 507 — returns True if agent has no active one-shot Job (podless-between-events). NOT consulted by _check_convergence_stall.",
+            "is_brc_idle": "line 524 — returns True if a reviewer-only agent's upstream producers are still in WORKING phase. NOT consulted by _check_convergence_stall.",
+            "has_recent_activity": "line 346 — defers heartbeat/progress alerts when container activity is recent. Consulted by check_heartbeats and check_progress but NOT by _check_convergence_stall.",
+            "has_recent_peer_progress": "line 388 — defers alerts when peer agents have recent progress. Same gap.",
+            "waiting_on_probe": "line 824 (_supervisor.py) — _probe_waiting_on returns the role's latest WAITING_ON_ROLE self-report. Only consulted in _emit_noop_alert, NOT in _check_convergence_stall.",
+            "get_agent_activity_ages": "Does NOT exist as a public method. The health monitor tracks per-agent activity internally (_agents dict with last_heartbeat, last_activity fields) but does not expose a public accessor."
+        }
+    },
+    "findings": [
+        {
+            "id": "F1",
+            "severity": "CRITICAL",
+            "title": "Commit 6ffe97c8e on issue-3665-supervision-gaps already implements priorities 1-3 — must integrate, not reimplement",
+            "description": "The risk_analyst (commit f866dab4e) identified that commit 6ffe97c8e on branch issue-3665-supervision-gaps implements all three of the first priorities: (1) AgentLivelockCheck + detect_agent_livelock in a new loop_detection.py module, registered in the detection plane; (2) agent_timeout_seconds config, EGG_AGENT_TIMEOUT_SECONDS env wiring, _failed_with_timeout_sigterm in outcome_for, exit 143 as JOB_OUTCOME_LEGITIMATE; (3) get_agent_activity_ages() on HealthMonitor, _has_recent_agent_activity in _loop.py, snapshot_from_health_context enrichment to populate last_tool_call_age_s/last_heartbeat_age_s, detect_heartbeat_stall registration. The current working tree does NOT include this commit. The plan must propose INTEGRATION, not reimplementation.",
+            "evidence": "git log --oneline --all | grep 6ffe97c8e (commit exists); git show 6ffe97c8e0 --stat (17 files, 1072 insertions, 13 deletions); git diff 6ffe97c8e0 -- orchestrator/health_checks/detection_plane.py (shows the fix commit's changes are NOT in the current branch).",
+            "risk": "Duplicate implementation — 1072 lines of code that already exist would be rebuilt.",
+            "recommendation": "Add a slice to integrate commit 6ffe97c8e from the issue-3665-supervision-gaps branch. Change task descriptions from CREATE/MODIFY to VERIFY/INTEGRATE for items already implemented. Only priority 4 (alert evidence bundling) remains as new work."
+        },
+        {
+            "id": "F2",
+            "severity": "HIGH",
+            "title": "Priority 4 (alert evidence bundling) is NOT implemented in commit 6ffe97c8e — remains as new work",
+            "description": "The fix commit 6ffe97c8e implements priorities 1-3 but does NOT enrich OVERSEER_ALERT payloads with structured evidence. The _emit_supervision_alert method (concurrent_executor.py:1064-1095) still broadcasts only {anomaly, priority, summary, detail} in metadata. No heartbeat age, tool-call age, consensus state, or container logs tail are included. This is the remaining gap that the plan must address.",
+            "evidence": "git show 6ffe97c8e0 -- concurrent_executor.py (no changes to _emit_supervision_alert); concurrent_executor.py:1064-1095 (current _emit_supervision_alert with minimal metadata).",
+            "risk": "The issue states: 'That alert was then read — by me — as the cause of a 110-minute work loss it had nothing to do with.' Without evidence bundling, misdiagnosis continues.",
+            "recommendation": "Add a new slice to enrich _emit_supervision_alert with structured evidence: latest_heartbeat_age_s, latest_tool_call_age_s, last_progress_event, blocking_agents, consensus_state, and container_logs_tail."
+        },
+        {
+            "id": "F3",
+            "severity": "MEDIUM",
+            "title": "HITL decisions cq-1, cq-2, cq-3 are still unresolved — integration must account for operator choices",
+            "description": "Three HITL decisions are registered on the contract and remain unresolved. The fix commit 6ffe97c8e made specific choices (parse existing logs, pipeline-level timeout, nudge recovery) that match the plan's defaults. If the operator chooses different options, the integrated code will need modification.",
+            "evidence": "Contract decisions: cq-1 (log parsing), cq-2 (timeout config scope), cq-3 (recovery action) — all resolved=false.",
+            "risk": "If the operator chooses different options from what the fix commit implemented, the integration will need modification, potentially invalidating tests.",
+            "recommendation": "Resolve cq-1, cq-2, cq-3 before or during integration. The fix commit's choices are reasonable defaults; if the operator accepts them, integration is clean."
+        }
+    ],
+    "proposed_work": {
+        "slice_dag": {
+            "spine": "Two slices: (1) integrate fix commit 6ffe97c8e (priorities 1-3), (2) implement alert evidence bundling (priority 4). The test slice is parallel.",
+            "slices": [
+                {
+                    "id": 1,
+                    "name": "Integrate fix commit 6ffe97c8e (priorities 1-3)",
+                    "serializes_after": "none (root)",
+                    "rationale": "Commit 6ffe97c8e on branch issue-3665-supervision-gaps already implements: (a) AgentLivelockCheck + detect_agent_livelock in loop_detection.py, registered in the detection plane; (b) agent_timeout_seconds config, EGG_AGENT_TIMEOUT_SECONDS env, _failed_with_timeout_sigterm, exit 143 as JOB_OUTCOME_LEGITIMATE; (c) get_agent_activity_ages() on HealthMonitor, _has_recent_agent_activity in _loop.py, snapshot_from_health_context enrichment, detect_heartbeat_stall registration. Integrate via merge, then verify all tests pass. Touches detection_plane.py, _loop.py, _models.py, _config.py, concurrent_executor.py, health_monitor.py, kubernetes_monitor.py, kubernetes_spawner/_spawn.py, cli.py, tier1/__init__.py, and new loop_detection.py + 4 test files."
+                },
+                {
+                    "id": 2,
+                    "name": "Alert evidence bundling (priority 4)",
+                    "serializes_after": "1",
+                    "rationale": "Enrich _emit_supervision_alert in concurrent_executor.py to include structured evidence in OVERSEER_ALERT metadata: latest_heartbeat_age_s, latest_tool_call_age_s, last_progress_event, blocking_agents, consensus_state, and container_logs_tail. This is the only priority NOT covered by the fix commit."
+                },
+                {
+                    "id": 3,
+                    "name": "Tests + corpus rows",
+                    "serializes_after": "none (parallel root)",
+                    "rationale": "Verify integrated tests pass; add corpus rows for agent_livelock detector if not already present in the fix commit."
+                }
+            ]
+        }
+    },
+    "risk_assessment": [
+        {
+            "risk": "The fix commit 6ffe97c8e may have merge conflicts with the current working tree if other changes have landed since it was authored.",
+            "severity": "MEDIUM",
+            "mitigation": "The fix commit was authored on 2026-07-27, the same day as the current pipeline. The working tree is based on egg/issue-3665-v2/work which diverged before the fix commit. A merge should be clean or require minimal conflict resolution."
+        },
+        {
+            "risk": "The fix commit's choices for cq-1, cq-2, cq-3 may differ from the operator's eventual decisions.",
+            "severity": "MEDIUM",
+            "mitigation": "The fix commit's choices match the plan's defaults (parse existing logs, pipeline-level timeout, nudge recovery). If the operator accepts the defaults, integration is clean. If not, the integrated code will need modification."
+        },
+        {
+            "risk": "The fix commit may not include all the files listed in the task planner's plan (e.g., sandbox/llm/claude/config.py).",
+            "severity": "LOW",
+            "mitigation": "The fix commit's --stat shows 17 files including sandbox/llm/claude/config.py. The task planner's plan listed 11 files. The fix commit covers all planned files plus additional ones."
+        },
+        {
+            "risk": "The alert evidence bundling (priority 4) requires enriching the OVERSEER_ALERT payload structure, which may affect downstream consumers.",
+            "severity": "LOW",
+            "mitigation": "The enrichment is additive — new metadata fields in the OVERSEER_ALERT message. Existing consumers that read only the existing fields will continue to work. The metadata dict is already extensible."
+        }
+    ],
+    "open_questions": [
+        {
+            "id": "OQ1",
+            "severity": "HIGH",
+            "question": "Should we integrate commit 6ffe97c8e from issue-3665-supervision-gaps, or reimplement from scratch?",
+            "recommendation": "INTEGRATE. The commit implements 3 of 4 priorities correctly, with tests. Reimplementing would duplicate 1072 lines of work. The integration slice should merge the commit and verify all tests pass.",
+            "owner": "architect"
+        },
+        {
+            "id": "OQ2",
+            "severity": "MEDIUM",
+            "question": "cq-1: The fix commit chose 'parse existing log format' for the livelock detector. Confirm this is acceptable, or do we need a structured tool-call event emitter?",
+            "recommendation": "The fix commit parses Claude Code's '> tool_name args' emission lines from agent_log_store transcripts. This matches the issue's empirical finding. Accept the fix commit's approach unless the operator prefers the structured emitter (which would require SDK changes).",
+            "owner": "operator"
+        },
+        {
+            "id": "OQ3",
+            "severity": "MEDIUM",
+            "question": "cq-2: The fix commit chose 'pipeline-level only' for agent_timeout_seconds. Confirm this is acceptable, or do we need per-role overrides?",
+            "recommendation": "The fix commit adds agent_timeout_seconds as a PipelineConfig field with default 7200. This matches the issue's description of a uniform 2-hour timeout. Accept unless the operator needs per-role overrides.",
+            "owner": "operator"
+        },
+        {
+            "id": "OQ4",
+            "severity": "LOW",
+            "question": "cq-3: The fix commit chose 'nudge' (requires_adjudication=False) for livelock recovery. Confirm this is acceptable, or should the corrective vocabulary respawn the agent?",
+            "recommendation": "The fix commit's detector fires requires_adjudication=False, so the bounded corrective vocabulary handles it. The specific action (nudge vs. respawn) is a policy choice. Accept the fix commit's approach unless the operator prefers respawn.",
+            "owner": "operator"
+        }
+    ],
+    "metrics": {
+        "files_to_create": 0,
+        "files_to_modify": 1,
+        "files_to_integrate": 17,
+        "slices": 3,
+        "findings": 3,
+        "critical_findings": 1,
+        "high_findings": 1,
+        "open_questions": 4
+    }
+}
