@@ -1,0 +1,121 @@
+{
+    "issue": 3665,
+    "phase": "plan",
+    "role": "architect",
+    "schema_version": "2",
+    "title": "Architecture assessment: supervision second pass — wire detection plane + loop detector + timeout classification + alert evidence",
+    "summary": "Architectural assessment of the task_planner's plan (commit 6092b5a7a, v1) for issue #3665. Verdict: ACK. All technical claims verified against the live tree at main @ 1cd0c8ad7. The plan correctly identifies four areas of work (signals not consulted, session boundaries as failures, undetectable loops, unactionable alerts) decomposed into 5 linear slices (snapshot population → detection plane wiring → loop detector → timeout classification → alert evidence). The detection plane (#2270) is fully built but completely unwired: snapshot_from_health_context() populates only 5 of 13 EventStreamSnapshot fields, and _run_overseer_detection_plane() has zero call sites. The timeout classification bug is confirmed: _classify_exit() treats exit code -1 as FAILED, consuming retry budget. The loop detector is absent — no detect_tool_input_loop() exists, midturn_messages is never populated. The convergence-stall false positive is confirmed: both _check_convergence_stall() and _has_recent_peer_progress() use get_latest_progress_timestamp() but with different gate windows. The linear slice structure is correct (shared files per #3046). Four non-blocking architectural refinements are noted: (1) double-evaluation guard should be per-pipeline not global lock; (2) midturn_messages population depends on truncated log parsing — consider BRC tracker records; (3) timeout detection via error message is fragile — consider pod active_deadline_seconds; (4) timestamp source is already unified — fix should unify the gate window, not the source. Scope is correctly limited to Tier 1+2 items from the 30-item candidate list.",
+    "hitl_bindings": {},
+    "evidence": [
+        {
+            "claim": "snapshot_from_health_context() populates only 5 of 13 EventStreamSnapshot fields",
+            "ref": "orchestrator/health_checks/detection_plane.py:511-546 (snapshot_from_health_context returns only snapshot_id, pipeline_id, phase, running_agents, phase_state; consensus, container_transitions, gateway_error_counters, cost_counters, midturn_messages, git_state, raw all empty)"
+        },
+        {
+            "claim": "RunningAgent uses container ID as role (bug)",
+            "ref": "orchestrator/health_checks/detection_plane.py:536 (RunningAgent(role=str(cid), ...))"
+        },
+        {
+            "claim": "_run_overseer_detection_plane() has zero call sites",
+            "ref": "orchestrator/routes/pipelines/_overseer.py:309 (def only); orchestrator/routes/pipelines/__init__.py:1277 (import, not a call)"
+        },
+        {
+            "claim": "run_detection_plane() exists but is never invoked",
+            "ref": "orchestrator/health_checks/runner.py:159 (def only; grep for run_detection_plane call sites returns no results)"
+        },
+        {
+            "claim": "detect_heartbeat_stall() is unregistered (bare function, not in tier1 __init__ or _register_coverage_gap_detectors)",
+            "ref": "orchestrator/health_checks/tier1/consensus_stall.py:217 (def); orchestrator/health_checks/tier1/__init__.py (not exported); orchestrator/health_checks/detection_plane.py:410-465 (_register_coverage_gap_detectors does not import it)"
+        },
+        {
+            "claim": "ConsensusStallCheck class in same file IS registered and runs every tick",
+            "ref": "orchestrator/health_checks/tier1/__init__.py:16 (from health_checks.tier1.consensus_stall import ConsensusStallCheck); orchestrator/health_checks/tier1/consensus_stall.py:51 (class ConsensusStallCheck)"
+        },
+        {
+            "claim": "_classify_exit() treats exit code -1 as FAILED",
+            "ref": "orchestrator/kubernetes_monitor.py:1148-1170 (_classify_exit returns (False, ...) for any exit code not in (0, 143))"
+        },
+        {
+            "claim": "No JOB_OUTCOME_TIMEOUT constant exists",
+            "ref": "orchestrator/event_loop/__init__.py:172-177 (JOB_OUTCOME_RUNNING, SUCCESS, LEGITIMATE, ABNORMAL, FATAL, RATE_LIMITED — no TIMEOUT)"
+        },
+        {
+            "claim": "No record_timeout function exists",
+            "ref": "orchestrator/event_loop/_supervisor.py (record_success at line 37, record_abort at line 145 — no record_timeout)"
+        },
+        {
+            "claim": "ClaudeConfig.timeout=7200 is hardcoded, no agent_timeout_seconds in PipelineConfig",
+            "ref": "sandbox/llm/claude/config.py:23 (timeout: int = 7200); orchestrator/models/_config.py (no agent_timeout_seconds field)"
+        },
+        {
+            "claim": "asyncio.timeout() returns returncode=-1 on timeout",
+            "ref": "shared/egg_agent/client.py:765 (async with asyncio.timeout(timeout)); client.py:903-921 (except TimeoutError returns returncode=-1, error='Timed out after {timeout} seconds')"
+        },
+        {
+            "claim": "record_abort() increments failure streak",
+            "ref": "orchestrator/event_loop/_supervisor.py:145 (def record_abort); _supervisor.py:145-160 (increments _streaks)"
+        },
+        {
+            "claim": "_run_runtime_tick_checks() called from both _check_pod and _reconciliation_sweep (double-evaluation risk)",
+            "ref": "orchestrator/kubernetes_monitor.py:219 (self._run_runtime_tick_checks() in _check_pod); kubernetes_monitor.py:621 (self._run_runtime_tick_checks() in _reconciliation_sweep)"
+        },
+        {
+            "claim": "_check_convergence_stall() and _has_recent_peer_progress() use same timestamp source but different gate windows",
+            "ref": "orchestrator/event_loop/_loop.py:887 (bus_ts = self.tracker.get_latest_progress_timestamp()); orchestrator/health_monitor.py:458 (ts = tracker.get_latest_progress_timestamp()); models/_config.py:336 (orchestrator_alert_progress_gate_seconds=300); models/_config.py:178 (brc_consensus_progress_gate_seconds=300)"
+        },
+        {
+            "claim": "No detect_tool_input_loop() exists; no loop_detection.py in tier1/",
+            "ref": "ls orchestrator/health_checks/tier1/ (no loop_detection.py); grep -rn detect_tool_input_loop orchestrator/ (no results)"
+        },
+        {
+            "claim": "midturn_messages field never populated",
+            "ref": "orchestrator/health_checks/detection_plane.py:126 (midturn_messages: tuple[dict[str, Any], ...] = ()); detection_plane.py:540-546 (snapshot_from_health_context does not populate it)"
+        },
+        {
+            "claim": "read_job_log_snapshot truncates at ~100 chars per line",
+            "ref": "orchestrator/kubernetes_client.py:455 (read_job_log_snapshot with tail_lines=2000; k8s log API truncates)"
+        },
+        {
+            "claim": "agent_log_store captures only at pod removal",
+            "ref": "orchestrator/agent_log_store.py:51 (MAX_LOG_BYTES=1MB; captures at pod removal)"
+        },
+        {
+            "claim": "_broadcast_alert() sends minimal payload",
+            "ref": "orchestrator/overseer/monitor/_alerting.py:56 (def _broadcast_alert)"
+        },
+        {
+            "claim": "detect_loop() and classify_activity_pattern() use LLM (Haiku)",
+            "ref": "orchestrator/overseer/classifier.py:224 (async def detect_loop); classifier.py:298 (async def classify_activity_pattern)"
+        },
+        {
+            "claim": "Slices share overlapping files requiring linear chain per #3046",
+            "ref": "orchestrator/health_checks/detection_plane.py, orchestrator/kubernetes_monitor.py, orchestrator/health_monitor.py (all touched by multiple slices)"
+        }
+    ],
+    "risks": [
+        "slice-2 TASK-2-1 (hot-loop wiring): double-evaluation guard must be per-pipeline, not a global lock, to avoid cross-pipeline contention",
+        "slice-2 TASK-2-1: detection plane must be exception-isolated — must not crash the runtime tick loop",
+        "slice-4 TASK-4-3: timeout classification must distinguish exit -1 from asyncio.timeout vs exit -1 from other failures via error message",
+        "slice-3 TASK-3-1: loop detector must be deterministic (no LLM) and handle variable cycle shapes (1-, 2-, 3-, 8-cycles)",
+        "slice-1 TASK-1-5: midturn_messages population depends on log parsing fidelity (truncated at ~100 chars)"
+    ],
+    "non_goals": [
+        "Rebuilding the overseer agent (working; problem is input pipeline)",
+        "Removing the HealthMonitor tripwires (wired and working)",
+        "Adding LLM classification to the hot path (expensive Haiku calls)",
+        "Changing the 2-hour timeout default (7200s is reasonable)",
+        "Tier 3-5 from the candidate list (input to the gate, not a work queue)"
+    ],
+    "slice_dag": {
+        "structure": "linear_chain",
+        "slices": ["slice-1", "slice-2", "slice-3", "slice-4", "slice-5"],
+        "dependencies": {
+            "slice-1": null,
+            "slice-2": "slice-1",
+            "slice-3": "slice-2",
+            "slice-4": "slice-1",
+            "slice-5": "slice-1"
+        },
+        "rationale": "Slices share overlapping files (kubernetes_monitor.py, detection_plane.py, health_monitor.py) so they must be a linear chain per #3046. The plan's ordering is correct: snapshot population first (prerequisite for all detectors), then detection plane wiring (enables loop detector and alert routing), then loop detector (depends on midturn_messages), then timeout classification (shares kubernetes_monitor.py), then alert evidence (depends on detection plane findings)."
+    }
+}

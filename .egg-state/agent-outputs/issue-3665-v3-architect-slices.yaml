@@ -1,0 +1,74 @@
+slices:
+  - id: 1
+    name: |-
+      Populate EventStreamSnapshot fields in snapshot_from_health_context()
+    goal: |-
+      Fill in all 8 currently-empty fields in EventStreamSnapshot so the
+      detection plane's detectors can read the data they need. Populates:
+      runtime (driver heartbeat ages), consensus (peer consensus tracker
+      evaluation), container_transitions (pod-state log), running_agents
+      (fix role field from container ID to agent role, populate age fields),
+      midturn_messages (agent tool-call logs for loop detection). Tests
+      verify all 13 fields populated. Prerequisite for all subsequent slices.
+      Files: orchestrator/health_checks/detection_plane.py,
+      orchestrator/driver_heartbeat.py, orchestrator/peer_consensus/__init__.py,
+      orchestrator/kubernetes_monitor.py, orchestrator/health_monitor.py,
+      orchestrator/agent_log_store.py.
+    dependencies: null
+  - id: 2
+    name: |-
+      Wire _run_overseer_detection_plane() into RUNTIME_TICK path
+    goal: |-
+      Call _run_overseer_detection_plane() from _run_runtime_tick_checks()
+      after building the snapshot, routing requires_adjudication findings to
+      the overseer agent and routine findings to the corrective executor.
+      Guard against double-evaluation (two call sites: _check_pod and
+      _reconciliation_sweep). Route findings to OVERSEER_ALERT / HITL / Slack
+      surfaces for operator visibility.
+      Files: orchestrator/kubernetes_monitor.py,
+      orchestrator/routes/pipelines/_overseer.py,
+      orchestrator/health_checks/runner.py.
+    dependencies: slice-1
+  - id: 3
+    name: |-
+      Deterministic unique-tool-input loop detector
+    goal: |-
+      Implement detect_tool_input_loop() in health_checks/tier1/ that reads
+      midturn_messages from the snapshot and counts distinct tool-input strings
+      over a trailing window. If zero for N consecutive polls, fires
+      tool_input_loop / high with requires_adjudication=False. Handles variable
+      cycle shapes (1-, 2-, 3-, 8-cycles). Also increases log capture fidelity
+      for one-shot event pods (beyond 100-char truncation).
+      Files: orchestrator/health_checks/tier1/loop_detection.py (new),
+      orchestrator/kubernetes_client.py, orchestrator/agent_log_store.py.
+    dependencies: slice-2
+  - id: 4
+    name: |-
+      Timeout visibility and classification
+    goal: |-
+      Add agent_timeout_seconds to PipelineConfig (default 7200). Pass
+      EGG_AGENT_TIMEOUT env through the spawner. Classify timeout-killed pods
+      (exit -1 from asyncio.timeout) as clean timeouts, not crashes — add
+      JOB_OUTCOME_TIMEOUT and route to record_timeout (not record_abort).
+      Surface the 2h timeout to agents via heartbeat at 90-minute intervals.
+      Files: orchestrator/models/_config.py,
+      orchestrator/kubernetes_spawner/_spawn.py,
+      sandbox/llm/claude/config.py, orchestrator/kubernetes_monitor.py,
+      orchestrator/kubernetes_spawner/_models.py, orchestrator/event_loop/__init__.py,
+      orchestrator/event_loop/_supervisor.py,
+      sandbox/egg_lib/orch_cli/_message.py.
+    dependencies: slice-1
+  - id: 5
+    name: |-
+      Alert evidence + convergence-stall false-positive fix
+    goal: |-
+      Enrich OVERSEER_ALERT payloads with structured evidence (container logs,
+      BRC state, tracker evaluation). Fix convergence-stall false positive by
+      unifying the gate window between _check_convergence_stall() and
+      _has_recent_peer_progress() (both already use get_latest_progress_timestamp()
+      but with different gate windows). Name the 2h timeout explicitly in exit
+      classification.
+      Files: orchestrator/overseer/monitor/_alerting.py,
+      orchestrator/event_loop/_loop.py, orchestrator/health_monitor.py,
+      orchestrator/kubernetes_monitor.py.
+    dependencies: slice-1
