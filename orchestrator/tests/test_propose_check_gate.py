@@ -58,6 +58,7 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 import propose_check_gate as gate  # noqa: E402
+import propose_check_runner as runner  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -69,7 +70,7 @@ def _clean_ledger_and_env(monkeypatch):
         gate.SKIP_CHECKS_ENV_VAR,
         gate.PHASES_ENV_VAR,
         gate.INFRA_FAIL_OPEN_ENV_VAR,
-        gate.TIMEOUT_ENV_VAR,
+        runner.TIMEOUT_ENV_VAR,
     ):
         monkeypatch.delenv(var, raising=False)
     yield
@@ -159,16 +160,16 @@ class TestInfraFailOpenSwitch:
 
 class TestGateTimeout:
     def test_default(self):
-        assert gate._gate_timeout_seconds() == gate._DEFAULT_TIMEOUT_SECONDS
+        assert runner._gate_timeout_seconds() == runner._DEFAULT_TIMEOUT_SECONDS
 
     @pytest.mark.parametrize("value", ["nonsense", "0", "-5"])
     def test_invalid_falls_back(self, monkeypatch, value):
-        monkeypatch.setenv(gate.TIMEOUT_ENV_VAR, value)
-        assert gate._gate_timeout_seconds() == gate._DEFAULT_TIMEOUT_SECONDS
+        monkeypatch.setenv(runner.TIMEOUT_ENV_VAR, value)
+        assert runner._gate_timeout_seconds() == runner._DEFAULT_TIMEOUT_SECONDS
 
     def test_explicit(self, monkeypatch):
-        monkeypatch.setenv(gate.TIMEOUT_ENV_VAR, "900")
-        assert gate._gate_timeout_seconds() == 900
+        monkeypatch.setenv(runner.TIMEOUT_ENV_VAR, "900")
+        assert runner._gate_timeout_seconds() == 900
 
 
 # ==========================================================================
@@ -244,16 +245,16 @@ class TestValidateChecksFullCommand:
 
 class TestParseVerdict:
     def test_extracts_sentinel_line(self):
-        log = "noise\n" + gate.VERDICT_SENTINEL + json.dumps({"checks": [_check()]}) + "\nmore\n"
-        parsed = gate.parse_verdict(log)
+        log = "noise\n" + runner.VERDICT_SENTINEL + json.dumps({"checks": [_check()]}) + "\nmore\n"
+        parsed = runner.parse_verdict(log)
         assert parsed is not None
         assert parsed["checks"][0]["name"] == "test"
 
     def test_scans_from_the_end(self):
         """Check output that mimics the sentinel cannot shadow the verdict."""
-        fake = gate.VERDICT_SENTINEL + json.dumps({"checks": [_check(name="fake")]})
-        real = gate.VERDICT_SENTINEL + json.dumps({"checks": [_check(name="real")]})
-        parsed = gate.parse_verdict(f"{fake}\n{real}\n")
+        fake = runner.VERDICT_SENTINEL + json.dumps({"checks": [_check(name="fake")]})
+        real = runner.VERDICT_SENTINEL + json.dumps({"checks": [_check(name="real")]})
+        parsed = runner.parse_verdict(f"{fake}\n{real}\n")
         assert parsed["checks"][0]["name"] == "real"
 
     @pytest.mark.parametrize(
@@ -261,13 +262,13 @@ class TestParseVerdict:
         [
             "",
             "no sentinel at all",
-            gate.VERDICT_SENTINEL + "{not json",
-            gate.VERDICT_SENTINEL + json.dumps({"checks": "not a list"}),
-            gate.VERDICT_SENTINEL + json.dumps(["not", "a", "dict"]),
+            runner.VERDICT_SENTINEL + "{not json",
+            runner.VERDICT_SENTINEL + json.dumps({"checks": "not a list"}),
+            runner.VERDICT_SENTINEL + json.dumps(["not", "a", "dict"]),
         ],
     )
     def test_unparseable_returns_none(self, log):
-        assert gate.parse_verdict(log) is None
+        assert runner.parse_verdict(log) is None
 
 
 # ==========================================================================
@@ -314,15 +315,15 @@ def _run_runner(repo_dir: Path, sha: str, checks: list[dict[str, str]], **env_ex
             "EGG_PROPOSE_CHECK_REQUIRE_PREBUILT": "0",
             "EGG_PROPOSE_CHECK_INFRA_SIGNATURES": json.dumps(
                 {
-                    "line": list(gate._INFRA_LINE_SIGNATURES),
-                    "substring": list(gate._INFRA_SUBSTRING_SIGNATURES),
+                    "line": list(runner._INFRA_LINE_SIGNATURES),
+                    "substring": list(runner._INFRA_SUBSTRING_SIGNATURES),
                 }
             ),
         }
     )
     env.update(env_extra)
     return subprocess.run(
-        [sys.executable, "-c", gate._RUNNER_PROGRAM],
+        [sys.executable, "-c", runner._RUNNER_PROGRAM],
         capture_output=True,
         text=True,
         env=env,
@@ -339,7 +340,7 @@ class TestRunnerProgram:
             [{"name": "marker", "command": "cat marker.txt"}],
         )
         assert proc.returncode == 0, proc.stderr
-        verdict = gate.parse_verdict(proc.stdout)
+        verdict = runner.parse_verdict(proc.stdout)
         assert verdict is not None
         assert verdict["commit_sha"] == runner_repo.first
         assert verdict["checks"][0]["ok"] is True
@@ -352,7 +353,7 @@ class TestRunnerProgram:
             runner_repo.second,
             [{"name": "test", "command": "echo make-test-all-would-run-here"}],
         )
-        verdict = gate.parse_verdict(proc.stdout)
+        verdict = runner.parse_verdict(proc.stdout)
         assert verdict["checks"][0]["command"] == "echo make-test-all-would-run-here"
 
     def test_red_check_reported_with_exit_code_and_output(self, runner_repo):
@@ -362,7 +363,7 @@ class TestRunnerProgram:
             [{"name": "test", "command": "echo 'FAILED test_x' && exit 3"}],
         )
         assert proc.returncode == 0, "the harness worked; the verdict carries the red"
-        verdict = gate.parse_verdict(proc.stdout)
+        verdict = runner.parse_verdict(proc.stdout)
         entry = verdict["checks"][0]
         assert entry["ok"] is False
         assert entry["exit_code"] == 3
@@ -370,34 +371,34 @@ class TestRunnerProgram:
         assert entry["infra"] is None
 
     def test_infra_signature_tags_the_red(self, runner_repo):
-        sig = gate._INFRA_LINE_SIGNATURES[0]
+        sig = runner._INFRA_LINE_SIGNATURES[0]
         proc = _run_runner(
             runner_repo.path,
             runner_repo.second,
             [{"name": "test", "command": f"echo '{sig}' && exit 1"}],
         )
-        verdict = gate.parse_verdict(proc.stdout)
+        verdict = runner.parse_verdict(proc.stdout)
         assert verdict["checks"][0]["infra"] == sig
 
     def test_signature_printed_mid_line_does_not_tag(self, runner_repo):
         """Whole-line matching: the gate must not fail its own red open."""
-        sig = gate._INFRA_LINE_SIGNATURES[0]
+        sig = runner._INFRA_LINE_SIGNATURES[0]
         proc = _run_runner(
             runner_repo.path,
             runner_repo.second,
             [{"name": "test", "command": f"echo \"E  assert x == '{sig}'\" && exit 1"}],
         )
-        verdict = gate.parse_verdict(proc.stdout)
+        verdict = runner.parse_verdict(proc.stdout)
         assert verdict["checks"][0]["infra"] is None
 
     def test_green_check_is_never_tagged_infra(self, runner_repo):
-        sig = gate._INFRA_SUBSTRING_SIGNATURES[0]
+        sig = runner._INFRA_SUBSTRING_SIGNATURES[0]
         proc = _run_runner(
             runner_repo.path,
             runner_repo.second,
             [{"name": "test", "command": f"echo '{sig}'"}],
         )
-        verdict = gate.parse_verdict(proc.stdout)
+        verdict = runner.parse_verdict(proc.stdout)
         assert verdict["checks"][0]["ok"] is True
         assert verdict["checks"][0]["infra"] is None
 
@@ -425,7 +426,7 @@ class TestRunnerProgram:
             [{"name": "test", "command": "true"}],
         )
         assert proc.returncode != 0
-        assert gate.parse_verdict(proc.stdout) is None
+        assert runner.parse_verdict(proc.stdout) is None
         assert "could not check out proposed sha" in proc.stderr
 
     def test_missing_required_prebuilt_exits_nonzero(self, runner_repo):
@@ -436,7 +437,7 @@ class TestRunnerProgram:
             EGG_PROPOSE_CHECK_REQUIRE_PREBUILT="1",
         )
         assert proc.returncode != 0
-        assert gate.parse_verdict(proc.stdout) is None
+        assert runner.parse_verdict(proc.stdout) is None
         assert "prebuilt" in proc.stderr
 
     def test_checks_run_sequentially_and_all_are_reported(self, runner_repo):
@@ -448,7 +449,7 @@ class TestRunnerProgram:
                 {"name": "test", "command": "false"},
             ],
         )
-        verdict = gate.parse_verdict(proc.stdout)
+        verdict = runner.parse_verdict(proc.stdout)
         assert [c["name"] for c in verdict["checks"]] == ["lint", "test"]
         assert [c["ok"] for c in verdict["checks"]] == [True, False]
 
@@ -473,7 +474,7 @@ def _manifest(**overrides):
         "host_gid": 1000,
     }
     kwargs.update(overrides)
-    return gate.build_runner_job_manifest(**kwargs)
+    return runner.build_runner_job_manifest(**kwargs)
 
 
 class TestRunnerJobManifest:
@@ -488,7 +489,7 @@ class TestRunnerJobManifest:
         manifest = _manifest(timeout_seconds=1800)
         assert manifest["spec"]["activeDeadlineSeconds"] > 1800
         assert (
-            manifest["spec"]["activeDeadlineSeconds"] >= 1800 + gate._POD_SCHEDULING_GRACE_SECONDS
+            manifest["spec"]["activeDeadlineSeconds"] >= 1800 + runner._POD_SCHEDULING_GRACE_SECONDS
         )
 
     def test_network_policy_label_present_supervision_labels_absent(self):
@@ -509,8 +510,8 @@ class TestRunnerJobManifest:
         ]
         assert env["EGG_PROPOSE_CHECK_COMMIT_SHA"] == "deadbeef"
         signatures = json.loads(env["EGG_PROPOSE_CHECK_INFRA_SIGNATURES"])
-        assert signatures["line"] == list(gate._INFRA_LINE_SIGNATURES)
-        assert signatures["substring"] == list(gate._INFRA_SUBSTRING_SIGNATURES)
+        assert signatures["line"] == list(runner._INFRA_LINE_SIGNATURES)
+        assert signatures["substring"] == list(runner._INFRA_SUBSTRING_SIGNATURES)
 
     def test_mounts_map_container_path_to_host_worktree(self):
         manifest = _manifest()
@@ -524,7 +525,7 @@ class TestSubmitRunnerJob:
     def test_pod_level_deadline_reaches_the_submitted_body(self):
         """The exact drop #3622 documents on the green gate's submitter."""
         k8s = MagicMock()
-        gate._submit_runner_job(k8s, "egg-agents", _manifest(timeout_seconds=1234))
+        runner._submit_runner_job(k8s, "egg-agents", _manifest(timeout_seconds=1234))
         body = k8s.batch_api.create_namespaced_job.call_args.kwargs["body"]
         assert body.spec.template.spec.active_deadline_seconds == 1234
         assert body.spec.active_deadline_seconds > 1234
@@ -538,7 +539,7 @@ class TestSubmitRunnerJob:
         """
         k8s = MagicMock()
         manifest = _manifest()
-        gate._submit_runner_job(k8s, "egg-agents", manifest)
+        runner._submit_runner_job(k8s, "egg-agents", manifest)
         body = k8s.batch_api.create_namespaced_job.call_args.kwargs["body"]
         rendered = repr(body.to_dict() if hasattr(body, "to_dict") else body)
 
@@ -681,7 +682,9 @@ class TestRecordVerdict:
     def test_run_and_record_never_leaves_a_record_running(self):
         """A thread dying with an exception would wedge every propose for that tree."""
         rec = _record(state="running")
-        with patch.object(gate, "run_propose_checks", side_effect=RuntimeError("spawner exploded")):
+        with patch.object(
+            gate._runner, "run_propose_checks", side_effect=RuntimeError("spawner exploded")
+        ):
             gate._run_and_record(rec)
         assert rec.state == "infra"
         assert "spawner exploded" in (rec.infra_reason or "")
@@ -703,7 +706,7 @@ def _spawner_ok(tmp_path):
 
 class TestRunProposeChecks:
     def _call(self, spawner):
-        return gate.run_propose_checks(
+        return runner.run_propose_checks(
             pipeline_id="issue-42",
             commit_sha="abc1234",
             base_branch="egg/issue-42",
@@ -738,7 +741,7 @@ class TestRunProposeChecks:
 
     def test_submit_failure_is_infra(self, tmp_path):
         spawner = _spawner_ok(tmp_path)
-        with patch.object(gate, "_submit_runner_job", side_effect=RuntimeError("apiserver")):
+        with patch.object(runner, "_submit_runner_job", side_effect=RuntimeError("apiserver")):
             verdict, reason = self._call(spawner)
         assert verdict is None
         assert "job submit failed" in reason
@@ -746,8 +749,8 @@ class TestRunProposeChecks:
     def test_pod_never_terminal_is_infra(self, tmp_path):
         spawner = _spawner_ok(tmp_path)
         with (
-            patch.object(gate, "_submit_runner_job"),
-            patch.object(gate, "_wait_for_runner_pod", return_value=None),
+            patch.object(runner, "_submit_runner_job"),
+            patch.object(runner, "_wait_for_runner_pod", return_value=None),
         ):
             verdict, reason = self._call(spawner)
         assert verdict is None
@@ -757,9 +760,9 @@ class TestRunProposeChecks:
         spawner = _spawner_ok(tmp_path)
         pod = SimpleNamespace(metadata=SimpleNamespace(name="pod-1"))
         with (
-            patch.object(gate, "_submit_runner_job"),
-            patch.object(gate, "_wait_for_runner_pod", return_value=pod),
-            patch.object(gate, "_read_runner_log", return_value="garbage"),
+            patch.object(runner, "_submit_runner_job"),
+            patch.object(runner, "_wait_for_runner_pod", return_value=pod),
+            patch.object(runner, "_read_runner_log", return_value="garbage"),
         ):
             verdict, reason = self._call(spawner)
         assert verdict is None
@@ -768,11 +771,11 @@ class TestRunProposeChecks:
     def test_verdict_carries_gate_id_and_pod_for_output_reachability(self, tmp_path):
         spawner = _spawner_ok(tmp_path)
         pod = SimpleNamespace(metadata=SimpleNamespace(name="pod-1"))
-        log = gate.VERDICT_SENTINEL + json.dumps({"commit_sha": "abc1234", "checks": [_check()]})
+        log = runner.VERDICT_SENTINEL + json.dumps({"commit_sha": "abc1234", "checks": [_check()]})
         with (
-            patch.object(gate, "_submit_runner_job"),
-            patch.object(gate, "_wait_for_runner_pod", return_value=pod),
-            patch.object(gate, "_read_runner_log", return_value=log),
+            patch.object(runner, "_submit_runner_job"),
+            patch.object(runner, "_wait_for_runner_pod", return_value=pod),
+            patch.object(runner, "_read_runner_log", return_value=log),
         ):
             verdict, reason = self._call(spawner)
         assert reason is None
@@ -782,12 +785,12 @@ class TestRunProposeChecks:
     def test_job_and_session_cleaned_up_after_a_verdict(self, tmp_path):
         spawner = _spawner_ok(tmp_path)
         pod = SimpleNamespace(metadata=SimpleNamespace(name="pod-1"))
-        log = gate.VERDICT_SENTINEL + json.dumps({"checks": [_check()]})
+        log = runner.VERDICT_SENTINEL + json.dumps({"checks": [_check()]})
         with (
-            patch.object(gate, "_submit_runner_job"),
-            patch.object(gate, "_wait_for_runner_pod", return_value=pod),
-            patch.object(gate, "_read_runner_log", return_value=log),
-            patch.object(gate, "_delete_runner_job") as delete_job,
+            patch.object(runner, "_submit_runner_job"),
+            patch.object(runner, "_wait_for_runner_pod", return_value=pod),
+            patch.object(runner, "_read_runner_log", return_value=log),
+            patch.object(runner, "_delete_runner_job") as delete_job,
         ):
             self._call(spawner)
         delete_job.assert_called_once()
@@ -1369,8 +1372,8 @@ class TestSharedInfraVocabulary:
         """Two gates, one definition of "this could not run"."""
         import slice_green_gate
 
-        assert gate._INFRA_LINE_SIGNATURES is slice_green_gate._INFRA_LINE_SIGNATURES
-        assert gate._INFRA_SUBSTRING_SIGNATURES is slice_green_gate._INFRA_SUBSTRING_SIGNATURES
+        assert runner._INFRA_LINE_SIGNATURES is slice_green_gate._INFRA_LINE_SIGNATURES
+        assert runner._INFRA_SUBSTRING_SIGNATURES is slice_green_gate._INFRA_SUBSTRING_SIGNATURES
 
     def test_green_gate_default_is_untouched(self):
         """This change must not weaken or bypass the #3398 green gate."""
