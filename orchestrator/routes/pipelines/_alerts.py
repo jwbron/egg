@@ -237,30 +237,56 @@ def _sync_worktree_reconciling_divergence(
         # Persist the reconcile HITL and flip to AWAITING_HUMAN under the
         # (reentrant) state lock so a reader never sees AWAITING_HUMAN
         # without the pending decision.
+        #
+        # The status is re-read from inside that lock and a cancel short-
+        # circuits both writes. Two things go wrong otherwise: the park
+        # clobbers the operator's CANCELLED (so the post-wait check below
+        # reads back our own AWAITING_HUMAN and resumes the run), and the HITL
+        # is minted after the cancel route's one-time pending sweep, leaving
+        # ``wait_for_decision`` — an unbounded poll — blocking for the process
+        # lifetime (#3633 review round 3). The state lock is what makes this
+        # airtight: ``StateStore.update_pipeline``, the cancel route's
+        # persistence path, takes the same one.
+        _park_cancelled = False
+        decision = None
         with _pkg.get_pipeline_state_lock(pipeline_id):
             pipeline = store.load_pipeline(pipeline_id)
-            pipeline.status = PipelineStatus.AWAITING_HUMAN
-            if phase is not None:
-                phase_execution = pipeline.get_phase_execution(phase)
-                if phase_execution is not None:
-                    phase_execution.status = PipelineStatus.AWAITING_HUMAN
-            store.save_pipeline(pipeline)
-            decision = _pkg._persist_hitl_decision(
-                pipeline_id,
-                pipeline,
-                store,
-                question=_pkg._divergence_reconcile_hitl_question(
-                    pipeline_id=pipeline_id,
+            if pipeline.status == PipelineStatus.CANCELLED:
+                _park_cancelled = True
+            else:
+                pipeline.status = PipelineStatus.AWAITING_HUMAN
+                if phase is not None:
+                    phase_execution = pipeline.get_phase_execution(phase)
+                    if phase_execution is not None:
+                        phase_execution.status = PipelineStatus.AWAITING_HUMAN
+                store.save_pipeline(pipeline)
+                decision = _pkg._persist_hitl_decision(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    question=_pkg._divergence_reconcile_hitl_question(
+                        pipeline_id=pipeline_id,
+                        phase=phase,
+                        backup_ref=outcome.backup_ref,
+                        local_only_commit_shas=outcome.local_only_commit_shas,
+                        rebase_category=outcome.rebase_category,
+                        rebase_detail=outcome.rebase_detail,
+                    ),
+                    options=list(_pkg._DIVERGENCE_RECONCILE_HITL_OPTIONS),
                     phase=phase,
-                    backup_ref=outcome.backup_ref,
-                    local_only_commit_shas=outcome.local_only_commit_shas,
-                    rebase_category=outcome.rebase_category,
-                    rebase_detail=outcome.rebase_detail,
-                ),
-                options=list(_pkg._DIVERGENCE_RECONCILE_HITL_OPTIONS),
-                phase=phase,
-                context=_pkg._DIVERGENCE_RECONCILE_HITL_CONTEXT,
+                    context=_pkg._DIVERGENCE_RECONCILE_HITL_CONTEXT,
+                )
+        if _park_cancelled:
+            # Checked before the ``decision is None`` arm below: nothing was
+            # persisted on this path, and a cancel is not a persist failure.
+            _pkg.logger.info(
+                "Divergence reconcile pause: pipeline cancelled before the "
+                "pause was persisted — leaving the persisted CANCELLED "
+                "intact (#3633)",
+                pipeline_id=pipeline_id,
+                phase=phase_label,
             )
+            return outcome, True
         if decision is None:
             # Could not persist the HITL — fail closed rather than spin on
             # a pause the operator can never see.
@@ -314,6 +340,18 @@ def _sync_worktree_reconciling_divergence(
             # spell "stop driving this phase"; the FAILED pin they route to
             # is suppressed on a cancelled pipeline in
             # ``_fail_pipeline_after_divergence_abort``.
+            #
+            # The phase box is deliberately left at AWAITING_HUMAN. Once the
+            # park above has landed, restoring it would mean a second write to
+            # a pipeline the operator has already stopped, and the only status
+            # that would be honest to write is the one already on the pipeline
+            # record. Leaving it records *where* the run stopped — parked at
+            # the reconcile gate — which is what an operator reading the phase
+            # timeline of a cancelled pipeline wants. This is uniform with
+            # every other gate: ``_gate_wait_cancelled`` and the gap /
+            # attestation gates all break without restoring their phase box
+            # either, so a cancelled pipeline consistently renders the gate it
+            # was sitting at (#3633 review round 4).
             if _pkg._pipeline_cancelled(store, pipeline_id):
                 _pkg.logger.info(
                     "Divergence reconcile pause: pipeline cancelled while "

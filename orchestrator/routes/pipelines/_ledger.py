@@ -242,8 +242,10 @@ def _handle_explicit_none_attestation_gate(
     - ``rerun_requested`` — True when the operator rejected the attestation
       and the phase has already been re-run here; the caller must ``continue``
       its poll loop. False when the attestation was confirmed (or fail-open on
-      a cancelled/non-RESOLVED terminal state); the caller proceeds to the
-      phase gate.
+      a cancelled/non-RESOLVED terminal state, or on an operator cancel
+      detected *before* the decision was queued or parked); the caller
+      proceeds to the phase gate — where its own ``_gate_wait_cancelled``
+      check turns the cancelled case into a driver break.
     - ``ledger_note`` — the note to thread into the phase_gate question,
       annotated with the confirmation outcome.
     - ``pipeline`` — the (possibly reloaded) pipeline the caller must rebind,
@@ -288,6 +290,20 @@ def _handle_explicit_none_attestation_gate(
         attest_decision = pending_attest
         newly_created = False
     else:
+        # Never mint a decision for a cancelled run: the cancel route's
+        # pending-decision sweep is a one-time snapshot, so a decision created
+        # after it has nobody to cancel it and ``wait_for_decision`` below —
+        # an unbounded poll — would block for the process lifetime (#3633
+        # review round 3). Fail open to the caller, which re-checks the cancel
+        # immediately on return and breaks the driver loop.
+        if _pkg._pipeline_cancelled(store, pipeline_id):
+            _pkg.logger.info(
+                "Pipeline cancelled before the explicit-none attestation was "
+                "queued — skipping the gate (#3633)",
+                pipeline_id=pipeline_id,
+                phase=current_phase.value,
+            )
+            return False, ledger_note, pipeline
         attest_decision = dq.queue_decision(
             question=attest_question,
             context=ledger_note,
@@ -299,12 +315,21 @@ def _handle_explicit_none_attestation_gate(
             phase=current_phase,
         )
         newly_created = True
-    with _pkg.get_pipeline_state_lock(pipeline_id):
-        pipeline = store.load_pipeline(pipeline_id)
-        pipeline.status = _pkg.PipelineStatus.AWAITING_HUMAN
-        phase_execution = pipeline.get_phase_execution(current_phase)
-        phase_execution.status = _pkg.PipelineStatus.AWAITING_HUMAN
-        store.save_pipeline(pipeline)
+    # Park under the state lock, re-reading the status from inside it — the
+    # cancel route persists CANCELLED under the same lock, so an unconditional
+    # write here would lose it and the caller's post-return check would read
+    # back this gate's own AWAITING_HUMAN (#3633 review round 3).
+    pipeline, _park_cancelled = _pkg._park_at_gate_unless_cancelled(
+        store, pipeline_id, current_phase
+    )
+    if _park_cancelled:
+        _pkg.logger.info(
+            "Pipeline cancelled before parking at the explicit-none "
+            "attestation — skipping the gate (#3633)",
+            pipeline_id=pipeline_id,
+            phase=current_phase.value,
+        )
+        return False, ledger_note, pipeline
     # Only announce a freshly-created decision. Reusing a pending decision
     # across polls must not re-emit ``decision.created`` — a duplicate event
     # for a decision the operator is already looking at (#3462 review).
@@ -549,264 +574,6 @@ def _collect_decision_ledger_status(
     )
 
 
-def _queue_and_await_contract_decisions(
-    dq: _pkg.Any,
-    worktree_repo_path: _pkg.Path,
-    pipeline_id: str,
-    pipeline_identifier: int | str,
-    phase: _pkg.PipelinePhase,
-    cancelled: _pkg.Callable[[], bool] | None = None,
-) -> int:
-    """Promote unresolved contract decisions/feedback into the orchestrator queue.
-
-    ``cancelled`` is an optional predicate the caller supplies to answer "has
-    the operator cancelled this pipeline?". It is consulted after each
-    blocking wait and stops the remaining waits when it returns True. A cancel
-    sweeps only the decisions already *in* the queue, so a cancel that lands
-    while pass 1 is still queueing this batch leaves the later entries PENDING
-    with nobody to cancel them — without this, the next
-    ``wait_for_decision`` would block for the process lifetime (#3633
-    review). Callers must still re-check the cancel themselves once this
-    returns: the early return is deliberately indistinguishable from a
-    zero-resolution round.
-
-    Returns the number of contract decisions/feedback this call surfaced and
-    the operator *resolved* this round — the converge-before-advance signal
-    (#3392). Decisions that were surfaced but came back non-RESOLVED (e.g. the
-    operator cancelled them) are **not** counted: the contract ``cq-N`` stays
-    open, and counting it would re-run the phase, re-surface the still-open
-    question (carry-forward only adopts *resolved* questions), and loop with no
-    termination now that the force-advance backstop is gone. A non-zero count
-    means the operator just answered something, so the caller re-runs the
-    phase to fold the resolutions into the documents; a zero count means the
-    round resolved nothing new and the caller may advance.
-
-
-    Agents register architectural questions via ``egg-contract add-decision``
-    and ``add-feedback``.  Those writes only touch ``.egg-state/contracts/
-    {identifier}.json`` — the orchestrator's decision queue never sees them,
-    so approving the phase_gate silently drops the questions and the next
-    phase's agents have to guess (issue #1889).
-
-    This helper bridges contract-scoped questions for the current phase into
-    the orchestrator queue after phase_gate approval, so HTTP/MCP callers
-    (e.g. the ``/sdlc`` skill's Phase 4 handler) surface them as individual
-    ``choice`` / ``feedback`` decisions.  Resolutions are written back to
-    the contract so implement-phase agents see the human's answers.
-
-    All pending decisions (plus the feedback entry, if any) are queued up
-    front before any ``wait_for_decision`` call, so ``get_status`` surfaces
-    them as a single batch.  Callers can then prompt for up to 4 at a time
-    and submit answers in parallel, collapsing what was previously N prompts
-    and N polling cycles into ~⌈N/4⌉ prompts and one cycle (issue #1956).
-
-    Once the batch is queued, a single ``decision.created`` event is
-    published to the EventBus so event-driven watchers (the ``wait-status``
-    monitor long-polling ``/status/wait``) wake immediately.
-    ``DecisionQueue.queue_decision`` itself emits no event, so without this
-    the bridged decisions are created silently and the operator only
-    discovers them via a manual ``get_status`` (issue #2770).
-    """
-    try:
-        from egg_contracts.loader import load_contract, save_contract
-    except ImportError:
-        _pkg.logger.warning(
-            "egg_contracts not available, skipping contract decision bridge",
-            pipeline_id=pipeline_id,
-        )
-        return 0
-
-    try:
-        contract = load_contract(pipeline_identifier, worktree_repo_path)
-    except Exception as e:
-        _pkg.logger.debug(
-            "Contract not loadable, skipping contract decision bridge",
-            pipeline_id=pipeline_id,
-            error=str(e),
-        )
-        return 0
-
-    phase_value = phase.value
-    pending_decisions = [
-        d
-        for d in contract.decisions
-        if not d.resolved
-        and getattr(d.type, "value", d.type) == "hitl"
-        and (d.phase is None or getattr(d.phase, "value", d.phase) == phase_value)
-    ]
-    fb = contract.feedback
-    pending_feedback = None
-    if fb is not None and not fb.submitted:
-        fb_phase_val = getattr(fb.phase, "value", fb.phase) if fb.phase is not None else None
-        if fb_phase_val is None or fb_phase_val == phase_value:
-            pending_feedback = fb
-
-    if not pending_decisions and pending_feedback is None:
-        return 0
-
-    _pkg.logger.info(
-        "Bridging contract decisions/feedback into orchestrator queue",
-        pipeline_id=pipeline_id,
-        phase=phase_value,
-        decision_count=len(pending_decisions),
-        has_feedback=pending_feedback is not None,
-    )
-
-    def _save_contract_update(mutator: _pkg.Callable[[_pkg.Any], bool]) -> None:
-        try:
-            latest = load_contract(pipeline_identifier, worktree_repo_path)
-        except Exception as e:
-            _pkg.logger.warning(
-                "Could not reload contract to persist bridged resolution",
-                pipeline_id=pipeline_id,
-                error=str(e),
-            )
-            return
-        if not mutator(latest):
-            return
-        try:
-            save_contract(latest, worktree_repo_path)
-        except Exception as e:
-            _pkg.logger.warning(
-                "Failed to save contract after bridged resolution",
-                pipeline_id=pipeline_id,
-                error=str(e),
-            )
-
-    # Pass 1: queue every pending decision + feedback up front.
-    queued_decisions: list[tuple[str, _pkg.Any]] = []
-    for contract_decision in pending_decisions:
-        options_labels = [opt.label for opt in contract_decision.options]
-        queued = dq.queue_decision(
-            question=contract_decision.question,
-            context=(
-                f"Open contract question {contract_decision.id}, "
-                f"registered by an agent during the {phase_value} phase."
-            ),
-            options=options_labels,
-            decision_type="choice",
-            phase=phase,
-        )
-        queued_decisions.append((contract_decision.id, queued))
-
-    queued_feedback: _pkg.HITLDecision | None = None
-    if pending_feedback is not None:
-        questions_payload = [
-            {"id": q.id, "question": q.question, "answer": ""} for q in pending_feedback.questions
-        ]
-        queued_feedback = dq.queue_decision(
-            question=f"Open feedback request {pending_feedback.id}",
-            context=(
-                f"Open contract feedback {pending_feedback.id}, "
-                f"registered by an agent during the {phase_value} phase."
-            ),
-            options=[],
-            decision_type="feedback",
-            questions=questions_payload,
-            phase=phase,
-        )
-
-    # Surface the freshly-queued batch to event-driven watchers before
-    # blocking on resolution. ``DecisionQueue.queue_decision`` emits no
-    # EventBus event, so without this the bridged decisions are created
-    # silently — the operator's ``wait-status`` monitor never wakes and
-    # only finds them via a manual ``get_status`` (#2770). The phase_gate
-    # decision emits ``decision.created`` the same way.
-    if _pkg._emit_event is not None:
-        _pkg._emit_event(
-            _pkg.EventType.DECISION_CREATED,
-            pipeline_id,
-            data={"phase": phase_value},
-        )
-
-    # Pass 2: wait for each to resolve and persist back to the contract.
-    # Count only decisions whose queue resolution was RESOLVED — a
-    # CANCELLED / non-resolved outcome leaves the contract ``cq-N`` open and
-    # must NOT count toward the convergence signal, or the caller would re-run
-    # the phase, re-surface the still-open question (carry-forward only adopts
-    # *resolved* questions), and loop without the operator ever being able to
-    # break out (#3392 review).
-    resolved_count = 0
-    for contract_id, queued in queued_decisions:
-        resolved = dq.wait_for_decision(queued.id)
-        if cancelled is not None and cancelled():
-            _pkg.logger.info(
-                "Contract decision bridge abandoned: pipeline cancelled (#3633)",
-                pipeline_id=pipeline_id,
-                phase=phase_value,
-                resolved_count=resolved_count,
-            )
-            return resolved_count
-        if resolved.status != _pkg.DecisionStatus.RESOLVED:
-            continue
-        resolved_count += 1
-        resolution_str = (resolved.resolution or "").strip()
-
-        def _apply(latest: _pkg.Any, _cd_id: str = contract_id, _res: str = resolution_str) -> bool:
-            for d in latest.decisions:
-                if d.id == _cd_id:
-                    d.resolved = True
-                    d.resolution = _res
-                    d.resolved_by = "human"
-                    d.resolved_at = _pkg.datetime.now(_pkg.UTC)
-                    return True
-            return False
-
-        _save_contract_update(_apply)
-
-    feedback_resolved = False
-    if queued_feedback is not None and pending_feedback is not None:
-        resolved = dq.wait_for_decision(queued_feedback.id)
-        if cancelled is not None and cancelled():
-            _pkg.logger.info(
-                "Contract feedback bridge abandoned: pipeline cancelled (#3633)",
-                pipeline_id=pipeline_id,
-                phase=phase_value,
-                resolved_count=resolved_count,
-            )
-            return resolved_count
-        if resolved.status == _pkg.DecisionStatus.RESOLVED:
-            feedback_resolved = True
-            answers: dict[str, str] = {}
-            try:
-                payload = _pkg.json.loads(resolved.resolution or "")
-                if isinstance(payload, dict):
-                    raw_answers = payload.get("answers")
-                    if isinstance(raw_answers, dict):
-                        answers = {str(k): str(v) for k, v in raw_answers.items()}
-            except _pkg.json.JSONDecodeError, TypeError:
-                pass
-
-            fb_id = pending_feedback.id
-
-            def _apply_fb(
-                latest: _pkg.Any, _fb_id: str = fb_id, _answers: dict[str, str] = answers
-            ) -> bool:
-                if latest.feedback is None or latest.feedback.id != _fb_id:
-                    return False
-                for q in latest.feedback.questions:
-                    if q.id in _answers:
-                        q.answer = _answers[q.id]
-                # Always mark submitted after resolution — even if
-                # individual answers didn't parse, the human responded
-                # and shouldn't be asked again.
-                latest.feedback.submitted = True
-                latest.feedback.submitted_by = "human"
-                latest.feedback.submitted_at = _pkg.datetime.now(_pkg.UTC)
-                return True
-
-            _save_contract_update(_apply_fb)
-
-    # Convergence signal (#3392): the number of decisions + feedback this
-    # round the operator actually *resolved* (not merely surfaced). Non-zero ⇒
-    # the operator answered something ⇒ caller re-runs the phase to fold the
-    # resolutions in. A surfaced-but-cancelled decision is deliberately
-    # excluded: counting it would re-run the phase, re-surface the still-open
-    # question, and loop indefinitely now that the force-advance backstop is
-    # gone.
-    return resolved_count + (1 if feedback_resolved else 0)
-
-
 def _await_unresolved_gap_gate(
     store: _pkg.Any,
     pipeline_id: str,
@@ -897,6 +664,12 @@ def _await_unresolved_gap_gate(
         # Mirror the phase_gate block: drive both pipeline and the phase
         # box so the DAG visualization renders the gate on the right
         # phase, and the operator's wait-status monitor wakes.
+        #
+        # Only the RUNNING restore goes through here, and only after the
+        # post-wait cancel check has cleared. The AWAITING_HUMAN park uses
+        # ``_park_at_gate_unless_cancelled`` instead, which re-reads the
+        # status from inside this same lock so it cannot overwrite an
+        # operator cancel (#3633 review round 3).
         with _pkg.get_pipeline_state_lock(pipeline_id):
             pipeline = store.load_pipeline(pipeline_id)
             pipeline.status = status
@@ -928,6 +701,22 @@ def _await_unresolved_gap_gate(
             "and fails CI (test_models_gaps.py) red on the PR.\n\n"
             f"{gap_lines}"
         )
+        # Never mint a decision for a cancelled run. The cancel route sweeps
+        # the pending queue once; a decision created after that sweep has
+        # nobody to cancel it, and ``wait_for_decision`` below is an unbounded
+        # poll — the driver thread would block for the process lifetime and
+        # ``_run_pipeline``'s ``finally`` would never run (#3633 review round
+        # 3). ``gated`` is already True here, which is the same value an
+        # ordinary gating returns, so ``_run_implement_advance``'s own cancel
+        # re-check is what stops the driver.
+        if _pkg._pipeline_cancelled(store, pipeline_id):
+            _pkg.logger.info(
+                "Unresolved-gap gate: pipeline cancelled before the gate was "
+                "queued — leaving the persisted CANCELLED intact (#3633)",
+                pipeline_id=pipeline_id,
+                phase=phase.value,
+            )
+            return gated
         decision = dq.queue_decision(
             question=question,
             context=context,
@@ -937,8 +726,20 @@ def _await_unresolved_gap_gate(
         )
 
         # Mark AWAITING_HUMAN + surface to event watchers, mirroring the
-        # phase_gate block so the operator's wait-status monitor wakes.
-        pipeline = _set_status(_pkg.PipelineStatus.AWAITING_HUMAN)
+        # phase_gate block so the operator's wait-status monitor wakes — but
+        # only if the operator has not cancelled since the check above. The
+        # re-read happens inside the same state lock as the write (the cancel
+        # route persists CANCELLED under it), so the park cannot clobber the
+        # cancel that the post-wait check below is trying to read.
+        pipeline, _park_cancelled = _pkg._park_at_gate_unless_cancelled(store, pipeline_id, phase)
+        if _park_cancelled:
+            _pkg.logger.info(
+                "Unresolved-gap gate: pipeline cancelled before parking at "
+                "the gate — leaving the persisted CANCELLED intact (#3633)",
+                pipeline_id=pipeline_id,
+                phase=phase.value,
+            )
+            return gated
         _pkg.report_pipeline_status(
             pipeline,
             event_type="phase.gap_gate",

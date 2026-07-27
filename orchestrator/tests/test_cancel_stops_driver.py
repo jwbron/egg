@@ -710,6 +710,8 @@ def _run_gate(
     attestation=None,
     bridge=None,
     on_wait=None,
+    on_draft=None,
+    dq=None,
 ):
     """Drive ``_run_hitl_gate_converge`` to its phase-gate wait and back.
 
@@ -718,18 +720,38 @@ def _run_gate(
     would let its own ``AWAITING_HUMAN`` write mask the persisted status the
     bail re-reads.
 
+    ``save_pipeline`` writes the status back into the cell, which is what makes
+    the lost-update mode testable at all: in the real store a park write
+    *becomes* the persisted status, so a gate that parks AWAITING_HUMAN over a
+    cancel and then re-reads would read back its own write and sail on. A fake
+    that only records saves without applying them can never reproduce that.
+
     The hooks steer the gate onto whichever branch's bail is under test:
     ``ledger_status`` is the ``_collect_decision_ledger_status`` 4-tuple (set
     ``missing=True`` for the backstop, ``explicit_none`` for the attestation
     gate), ``attestation`` / ``bridge`` stand in for the two helpers that block
     on their own waits, and ``on_wait`` fires on every ``wait_for_decision``.
     Each receives the ``_StatusCell`` so it can cancel from inside the wait.
+
+    ``on_draft`` fires from ``_read_phase_draft``, which is the *pre*-wait
+    window: it sits after the phase's own cancel bail and before both the
+    create arm's ``queue_decision`` and the park write, so it models a cancel
+    landing during the seconds-to-minutes of git IO the gate does before it
+    ever blocks — the window the post-wait checks cannot see.
+
+    Pass ``dq`` to supply your own decision-queue mock when a test needs to
+    assert on what the gate did — or did not — queue.
     """
     cell = cell if cell is not None else _StatusCell(persisted_status)
     saved: list[PipelineStatus] = []
     store = MagicMock()
     store.load_pipeline.side_effect = lambda _pid: _gate_pipeline(status=cell.status)
-    store.save_pipeline.side_effect = lambda p, *a, **k: saved.append(p.status)
+
+    def _save(p, *_args, **_kwargs):
+        saved.append(p.status)
+        cell.status = p.status
+
+    store.save_pipeline.side_effect = _save
 
     waits: list[str] = []
 
@@ -739,7 +761,7 @@ def _run_gate(
             on_wait(len(waits), cell)
         return resolved_decision
 
-    dq = MagicMock()
+    dq = dq if dq is not None else MagicMock()
     dq.wait_for_decision.side_effect = _wait
     dq.get_decision.return_value = resolved_decision
 
@@ -752,6 +774,11 @@ def _run_gate(
         if bridge is not None:
             return bridge(cell)
         return 0
+
+    def _draft(*_args, **_kwargs):
+        if on_draft is not None:
+            on_draft(cell)
+        return "draft body"
 
     with (
         patch.object(
@@ -769,7 +796,7 @@ def _run_gate(
         patch.object(pipelines_pkg, "get_pipeline_state_lock"),
         patch.object(pipelines_pkg, "report_pipeline_status"),
         patch.object(pipelines_pkg, "_emit_pipeline_event"),
-        patch.object(pipelines_pkg, "_read_phase_draft", return_value="draft body"),
+        patch.object(pipelines_pkg, "_read_phase_draft", side_effect=_draft),
         patch.object(pipelines_pkg, "_read_human_phase_draft", return_value=None),
         patch.object(pipelines_pkg, "_queue_and_await_contract_decisions", side_effect=_bridge),
         patch.object(pipelines_pkg, "_persist_phase_gate_resolution"),
@@ -801,6 +828,12 @@ def test_gate_bails_when_the_cancel_route_cancels_its_decision():
     assert PipelineStatus.RUNNING not in saved, (
         "the gate rewrote the operator's CANCELLED back to RUNNING"
     )
+    # Stronger than "no RUNNING": the gate must not persist *any* non-terminal
+    # status over CANCELLED. The park write is a status write too, and because
+    # the fake now applies saves back onto the cell, an AWAITING_HUMAN park here
+    # would be read back by the post-wait check as "not cancelled" and the gate
+    # would advance — the lost-update mode the in-lock park check closes.
+    assert saved == [], f"the gate persisted {saved} over the operator's CANCELLED"
 
 
 def test_gate_bails_on_a_cancelled_pipeline_even_if_the_decision_resolved():
@@ -909,6 +942,123 @@ def test_gate_bails_when_cancelled_bridging_contract_decisions():
     assert PipelineStatus.RUNNING not in saved, (
         "the gate advanced the phase after the operator cancelled mid-bridge"
     )
+
+
+def _gate_pipeline_without_a_pending_gate() -> Pipeline:
+    """A pipeline at the plan gate with no pending decision — the *create* arm.
+
+    The reuse arm waits on a decision the cancel route's sweep already reached;
+    the create arm mints a new one, which is the arm that can leave an orphan.
+    """
+    pipeline = _gate_pipeline()
+    pipeline.decisions = []
+    return pipeline
+
+
+def test_gate_never_mints_a_decision_for_a_cancelled_pipeline():
+    """The create arm must not queue a gate for a run the operator stopped.
+
+    The cancel route's sweep of pending decisions is a one-time snapshot, so a
+    decision minted after it runs is never cancelled — and
+    ``DecisionQueue.wait_for_decision`` is a ``while True`` poll with no
+    timeout. Queueing here parks the driver thread for the lifetime of the
+    process: ``_run_pipeline``'s ``finally`` never runs, so there is no
+    container cleanup and no ``skip_cleanup`` worktree preservation, and the
+    operator's PATCH already returned 200. That is strictly worse than the
+    pre-#3633 behaviour on the same input, where the gate at least fell
+    through — which is why the check goes *before* ``queue_decision``.
+    """
+    dq = MagicMock()
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.CANCELLED),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+        pipeline=_gate_pipeline_without_a_pending_gate(),
+        # The cancel lands while the gate is reading the draft — after the
+        # phase's own bail, before the queue.
+        on_draft=lambda cell: cell.cancel(),
+        dq=dq,
+    )
+
+    assert action == "break"
+    assert dq.queue_decision.call_args_list == [], (
+        "the gate minted a decision nothing will ever cancel"
+    )
+    dq.wait_for_decision.assert_not_called()
+    assert saved == []
+
+
+def test_gate_park_does_not_overwrite_a_cancel_that_lands_before_it():
+    """The reuse arm's park write must not clobber the operator's CANCELLED.
+
+    This is #3633 verbatim, through the half of the window the post-wait checks
+    cannot see. The park write is unconditional on both arms, so a cancel
+    landing before it is overwritten with ``AWAITING_HUMAN``; the decision was
+    pending at sweep time so the wait returns at once with no resolution; the
+    post-wait check re-reads the store and sees the gate's *own* write, not the
+    cancel; and ``"" in _APPROVE_KEYWORDS`` sends the run down "Approved —
+    resume and advance". Hence the in-lock check in
+    ``_park_at_gate_unless_cancelled``: ``StateStore.update_pipeline`` takes
+    the same per-pipeline lock, so checking inside it is what makes the read
+    and the write atomic against the cancel route.
+    """
+    dq = MagicMock()
+    action, saved = _run_gate(
+        # A resolution that *would* advance the phase if the bail were missed.
+        _gate_decision(DecisionStatus.RESOLVED, "approve"),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+        on_draft=lambda cell: cell.cancel(),
+        dq=dq,
+    )
+
+    assert action == "break"
+    assert saved == [], f"the park wrote {saved} over the operator's CANCELLED"
+    assert dq.wait_for_decision.call_args_list == [], (
+        "the gate blocked on a decision belonging to a cancelled run"
+    )
+
+
+def test_park_at_gate_unless_cancelled_checks_inside_the_lock():
+    """Unit coverage for the shared park helper.
+
+    The ordering assertion is the point: a check that merely runs *just before*
+    the write still races ``update_pipeline``, which holds the same
+    per-pipeline lock. Only a check taken after the lock is acquired and before
+    the save is atomic against the cancel route.
+    """
+    events: list[str] = []
+
+    lock = MagicMock()
+    lock.__enter__.side_effect = lambda: events.append("enter")
+    lock.__exit__.side_effect = lambda *_a: events.append("exit")
+
+    def _store_for(pipeline):
+        store = MagicMock()
+        store.load_pipeline.side_effect = lambda _pid: (events.append("load"), pipeline)[1]
+        store.save_pipeline.side_effect = lambda *_a, **_k: events.append("save")
+        return store
+
+    live = _store_for(_cancellable_pipeline())
+    with patch.object(pipelines_pkg, "get_pipeline_state_lock", return_value=lock):
+        pipeline, cancelled = pipelines_pkg._park_at_gate_unless_cancelled(
+            live, PIPELINE_ID, PipelinePhase.PLAN
+        )
+
+    assert cancelled is False
+    assert pipeline.status == PipelineStatus.AWAITING_HUMAN
+    assert events == ["enter", "load", "save", "exit"], (
+        "the status read must sit inside the lock that performs the write"
+    )
+
+    events.clear()
+    dead = _store_for(_cancellable_pipeline(status=PipelineStatus.CANCELLED))
+    with patch.object(pipelines_pkg, "get_pipeline_state_lock", return_value=lock):
+        pipeline, cancelled = pipelines_pkg._park_at_gate_unless_cancelled(
+            dead, PIPELINE_ID, PipelinePhase.PLAN
+        )
+
+    assert cancelled is True
+    assert pipeline.status == PipelineStatus.CANCELLED
+    assert events == ["enter", "load", "exit"], "a cancelled run must not be written to"
 
 
 def test_bare_request_changes_on_a_reused_gate_reaches_the_followup():
