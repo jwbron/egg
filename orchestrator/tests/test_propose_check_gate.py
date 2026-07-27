@@ -53,6 +53,7 @@ Covers:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -753,15 +754,31 @@ class TestLedger:
 
         Dropping a running entry would orphan its thread's verdict; the
         only honest options are to exceed the cap and say so.
+
+        ``EggLogger`` disables propagation to the root logger, so the
+        default ``caplog`` root-attachment never observes records from
+        ``orchestrator.propose_check_gate``. Attach ``caplog.handler``
+        to the underlying Python logger directly (the pattern already
+        used in ``test_contract_completeness_gate``).
         """
         for i in range(gate._LEDGER_MAX_ENTRIES + 5):
             gate._LEDGER[("p", "", f"sha{i}")] = _record(state="running", commit_sha=f"sha{i}")
 
-        with caplog.at_level("WARNING"), gate._LEDGER_LOCK:
-            gate._evict_locked()
+        gate_logger = logging.getLogger("orchestrator.propose_check_gate")
+        gate_logger.addHandler(caplog.handler)
+        prior_level = gate_logger.level
+        gate_logger.setLevel(logging.WARNING)
+        try:
+            with gate._LEDGER_LOCK:
+                gate._evict_locked()
+        finally:
+            gate_logger.removeHandler(caplog.handler)
+            gate_logger.setLevel(prior_level)
 
         assert len(gate._LEDGER) == gate._LEDGER_MAX_ENTRIES + 5
-        assert "no finished entries to evict" in caplog.text
+        assert any(
+            "no finished entries to evict" in record.getMessage() for record in caplog.records
+        ), caplog.text
 
     def test_a_green_record_is_never_expired(self):
         rec = _record(state="passed")
