@@ -4,72 +4,88 @@
 # CONTEXT: This pipeline implements supervision-layer improvements in a SINGLE-repo
 # (egg) pipeline. Standard #3046 FILE-LEVEL overlap rules apply.
 #
-# CRITICAL FINDING: Commit 6ffe97c8e on branch issue-3665-supervision-gaps already
-# implements priorities 1-3 (livelock detection, timeout visibility, convergence-stall
-# suppression + snapshot enrichment). The current working tree does NOT include this
-# commit. The plan proposes INTEGRATION, not reimplementation.
+# CRITICAL FINDING: Commit 6ffe97c8e (tip: 68b185ca) on branch
+# issue-3665-supervision-gaps already implements priorities 1-3 (livelock
+# detection, timeout visibility, convergence-stall suppression + snapshot
+# enrichment). The current working tree does NOT include this commit. The plan
+# proposes INTEGRATION with CORRECTIONS, not reimplementation.
 #
-# Slice 1 integrates the fix commit (17 files, 1072 insertions, 13 deletions).
-# Slice 2 implements the remaining gap (alert evidence bundling, priority 4).
-# Slice 3 (tests) is parallel — verifies the integrated code and adds corpus rows.
+# The fix commit's livelock detector contradicts resolved HITL decisions:
+# - cq-1: must read live session transcript, NOT agent_log_store; must NOT
+#   truncate signatures to 80 chars
+# - cq-3: recovery must be terminating message + fresh-session respawn, NOT nudge
+# - The detector computes a ratio metric but the docstring promises novelty counting
+#
+# The fix commit's timeout and convergence-stall changes are correct and should
+# be integrated as-is.
+#
+# Slice 1 integrates the fix commit with livelock detector corrections.
+# Slice 2 implements alert evidence bundling (priority 4 — NOT in fix commit).
+# Slice 3 (tests) is parallel.
 slices:
   - id: 1
     name: |-
-      Integrate fix commit 6ffe97c8e (priorities 1-3: livelock detection, timeout visibility, convergence-stall suppression)
+      Integrate fix commit 6ffe97c8e with livelock detector corrections (priorities 1-3)
     goal: |-
-      MERGE commit 6ffe97c8e from branch issue-3665-supervision-gaps into the current
-      work branch. This commit already implements:
+      MERGE commit 6ffe97c8e (tip: 68b185ca) from branch issue-3665-supervision-gaps.
+      This commit implements:
 
-      1. Agent livelock / repetition-loop detection:
-         - CREATE orchestrator/health_checks/tier1/loop_detection.py (317 lines)
-           with detect_agent_livelock() function and AgentLivelockCheck class.
-           Parses Claude Code tool-call lines from agent_log_store transcripts.
-           Fires when unique tool-input ratio drops below 10% with >=10 total calls.
-           requires_adjudication=False (deterministic, no LLM needed).
-         - MODIFY orchestrator/health_checks/detection_plane.py: register
-           detect_agent_livelock in _register_coverage_gap_detectors.
-         - MODIFY orchestrator/health_checks/tier1/__init__.py: export
-           detect_agent_livelock and AgentLivelockCheck.
-         - MODIFY orchestrator/cli.py: register AgentLivelockCheck in health
-           check runner.
+      1. Agent livelock / repetition-loop detection (NEEDS CORRECTIONS per cq-1, cq-3):
+         - The fix commit's loop_detection.py reads from agent_log_store (pod stdout)
+           and truncates signatures to 80 chars. cq-1 rules this out: must read the
+           live session transcript at $HOME/.claude/projects/<cwd>/<session>.jsonl
+           and key on the full untruncated (tool_name, input) pair.
+         - The fix commit computes unique_ratio = len(unique)/len(total) and fires
+           at ratio < 0.1. The docstring promises "count of new signatures in the
+           trailing window is zero". Must implement novelty counting instead.
+         - The fix commit defaults to nudge (requires_adjudication=False). cq-3 rules
+           this out: recovery must be terminating message + fresh-session respawn,
+           escalating to HITL with the looping input quoted verbatim.
+         CORRECTIONS:
+         - Replace _get_agent_logs to read live session transcript, not agent_log_store
+         - Remove 80-char truncation; key on full (tool_name, input) pair
+         - Replace ratio metric with novelty counting (fire at zero new inputs)
+         - Change requires_adjudication to True; escalate to HITL with looping input
+         - Add WARN tier for monotonic decay below zero threshold
 
-      2. Two-hour timeout visibility:
-         - MODIFY orchestrator/models/_config.py: add agent_timeout_seconds
-           field (default 7200, ge=60).
+      2. Two-hour timeout visibility (INTEGRATE AS-IS — correct):
+         - MODIFY orchestrator/models/_config.py: agent_timeout_seconds field
+           (default 7200, ge=60)
          - MODIFY orchestrator/concurrent_executor.py: pass EGG_AGENT_TIMEOUT_SECONDS
-           env to the sandbox.
+           env to the sandbox
          - MODIFY orchestrator/kubernetes_spawner/_spawn.py: pass
-           active_deadline_seconds from EGG_AGENT_TIMEOUT_SECONDS to K8s Job.
+           active_deadline_seconds from EGG_AGENT_TIMEOUT_SECONDS to K8s Job
          - MODIFY orchestrator/kubernetes_spawner/_models.py: add
            _failed_with_timeout_sigterm method; classify exit 143 as
-           JOB_OUTCOME_LEGITIMATE (not ABNORMAL).
+           JOB_OUTCOME_LEGITIMATE (not ABNORMAL)
          - MODIFY orchestrator/kubernetes_monitor.py: treat exit 143 as clean
-           during RUNNING phase (not just phase transitions).
+           during RUNNING phase (not just phase transitions)
+         - MODIFY sandbox/llm/claude/config.py: read timeout from env var
 
-      3. False convergence-stall suppression + snapshot enrichment:
+      3. False convergence-stall suppression + snapshot enrichment (INTEGRATE AS-IS):
          - MODIFY orchestrator/health_monitor.py: add get_agent_activity_ages()
-           returning per-agent heartbeat/progress/activity ages.
+           returning per-agent heartbeat/progress/activity ages
          - MODIFY orchestrator/event_loop/_loop.py: add _has_recent_agent_activity()
-           to convergence-stall check; consult alive-signal gates before firing.
+           function; call it in _check_convergence_stall before firing to
+           suppress alerts for agents with recent activity
+         - MODIFY orchestrator/event_loop/__init__.py: bind _has_recent_agent_activity
+           onto OrchestratorEventLoop class
          - MODIFY orchestrator/health_checks/detection_plane.py: enrich
            snapshot_from_health_context to populate last_tool_call_age_s and
            last_heartbeat_age_s on RunningAgent entries; register
-           detect_heartbeat_stall in _register_coverage_gap_detectors.
+           detect_heartbeat_stall in _register_coverage_gap_detectors
 
-      4. Tests (included in fix commit):
-         - CREATE orchestrator/tests/test_loop_detection.py (210 lines)
-         - CREATE orchestrator/tests/test_agent_timeout_config.py (36 lines)
-         - CREATE orchestrator/tests/test_convergence_stall_suppression.py (127 lines)
-         - CREATE orchestrator/tests/test_timeout_sigterm.py (148 lines)
+      4. Tests (included in fix commit, verify pass):
+         - orchestrator/tests/test_loop_detection.py (210 lines)
+         - orchestrator/tests/test_agent_timeout_config.py (36 lines)
+         - orchestrator/tests/test_convergence_stall_suppression.py (127 lines)
+         - orchestrator/tests/test_timeout_sigterm.py (148 lines)
 
-      5. Sandbox config (included in fix commit):
-         - MODIFY sandbox/llm/claude/config.py: read timeout from env var.
-
-      Acceptance: Merge commit 6ffe97c8e applies cleanly; all 4 test files pass;
-      livelock detector fires on known-bad fixtures and returns None on normal;
-      exit 143 classified as LEGITIMATE not ABNORMAL; convergence-stall consults
-      alive-signal gates; snapshot builder populates age fields; detect_heartbeat_stall
-      registered and fires in live path.
+      Acceptance: Merge commit 6ffe97c8e applies cleanly; livelock detector
+      corrected per cq-1 and cq-3; all 4 test files pass; timeout exit 143
+      classified as LEGITIMATE not ABNORMAL; convergence-stall consults
+      alive-signal gates; snapshot builder populates age fields;
+      detect_heartbeat_stall registered and fires in live path.
     dependencies: none
 
   - id: 2
@@ -84,13 +100,14 @@ slices:
         - last_progress_event: the agent's last progress event data
         - blocking_agents: current BRC blocking set
         - consensus_state: the BRC consensus status dict
-        - container_logs_tail: last N lines of container logs (already fetched
-          by _query_container_logs in the overseer, but not included in the alert)
+        - container_logs_tail: last N lines of container logs (already
+          fetched by _query_container_logs in the overseer, just include
+          in payload)
       - The enrichment is additive — new metadata fields. Existing consumers
         that read only the existing fields continue to work.
 
-      Acceptance: OVERSEER_ALERT payloads carry structured evidence; unit tests
-      verify the metadata enrichment; existing consumers unaffected.
+      Acceptance: OVERSEER_ALERT payloads carry structured evidence; unit
+      tests verify the metadata enrichment; existing consumers unaffected.
     dependencies:
       - 1
 
@@ -98,18 +115,20 @@ slices:
     name: |-
       Verify integrated tests + add corpus rows
     goal: |-
-      VERIFY: All 4 test files from the fix commit pass:
-      - test_loop_detection.py: livelock detector unit tests
+      VERIFY: All 4 test files from the fix commit pass with the corrected
+      livelock detector:
+      - test_loop_detection.py: livelock detector unit tests (must pass
+        with novelty-counting detector, not ratio-based)
       - test_agent_timeout_config.py: config field tests
       - test_convergence_stall_suppression.py: suppression tests
       - test_timeout_sigterm.py: SIGTERM classification tests
 
       ADD: Corpus rows to orchestrator/tests/overseer_calibration/fixtures.json
-      for the agent_livelock detector (both polarities: livelock detected +
+      for agent_livelock detector (both polarities: livelock detected +
       normal activity not flagged). Check if the fix commit already includes
-      these; if not, add them.
+      these; if not, add them with the corrected novelty-counting semantics.
 
-      Acceptance: All tests pass; corpus rows follow existing format; livelock
-      detector has both polarities in corpus.
+      Acceptance: All tests pass; corpus rows follow existing format;
+      livelock detector has both polarities in corpus.
     dependencies: none
     parallel: true
