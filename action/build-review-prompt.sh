@@ -143,18 +143,57 @@ This is a **re-review** — you previously reviewed this PR at commit \`${LAST_R
 
 ## Your Task
 
-Perform a **thorough review of all new changes**. Find ALL issues in the new code—do not stop after identifying a few problems.
+Review the delta **for blocking issues only**. A re-review is a convergence
+step, not a fresh review: the expected outcome is approval, and you should
+reach it as soon as the blocking items are genuinely fixed.
 
 1. **Review the delta**: First run \`git fetch origin ${base_ref}\` to ensure the base branch ref is available, then use \`git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${base_ref} -p\` to see what changed since your last review. This excludes any commits from \`${base_ref}\` that were merged into the PR branch since your last review, so you see only PR-authored changes.
 2. **Check previous feedback**: Use \`gh pr view ${PR_NUMBER} --comments\` to see previous review comments.
-3. **Verify issues addressed**: Confirm that concerns from your previous review have been properly fixed, not just superficially addressed.
-4. **Examine new code thoroughly**: Apply the same rigorous scrutiny to new changes as you would to an initial review. Read surrounding context, trace data flow, research when uncertain.
+3. **Verify issues addressed**: Confirm that the blocking concerns from your previous review have been properly fixed, not just superficially addressed.
+4. **Examine the new code**: Read enough surrounding context to judge whether the delta is correct. Trace data flow and research when uncertain.
 
-For full PR context if needed: \`gh pr diff ${PR_NUMBER}\`
+### Blocking issues only
+
+Raise **only blocking issues**: defects, incorrect claims, broken behavior,
+regressions, and prior blocking items that were not actually fixed.
+
+Do **not** raise advisory items on a re-review — no style preferences, no
+wording refinements, no \"consider also\" suggestions, no polish. The initial
+review is where advisory feedback belongs. If you notice a non-blocking nit
+now, **omit it**. Do not mention it, and do not append it as a footnote.
+
+### Previously approved work is closed
+
+Anything you already signed off on in an earlier round of **this** PR is
+settled. Do not re-open it, and do not raise new items — at any severity — on
+lines you have already accepted. Re-open a closed item only if the current
+delta made it factually wrong.
+
+This applies with particular force to text that exists **because you asked for
+it**. If a line traces back to your own request in an earlier round, it is not
+a fresh finding. Refining your own requested wording across successive rounds
+is the failure mode this rule exists to prevent.
+
+### Scope
+
+Review the delta. You may pull wider context (\`gh pr diff ${PR_NUMBER}\`) when
+the delta alone cannot be judged — for example when it plausibly breaks an
+integration point outside the changed lines. If you do, **state in your review
+why the delta alone was insufficient**. Do not re-verify files the delta does
+not touch as a matter of routine.
 
 ### Be Direct
 
-Do not soften feedback. State issues clearly and explain why they matter. This is infrastructure review.
+Do not soften feedback. State blocking issues clearly and explain why they
+matter. This is infrastructure review.
+
+### Verdict
+
+If the delta introduces no blocking issue and the prior blocking items are
+fixed, **approve cleanly** — use \`verdict=approve\`, not
+\`verdict=approve-with-suggestions\`. A clean approval is what lets the PR
+merge; \`approve-with-suggestions\` re-triggers another feedback round, so
+reserve it for the initial review.
 
 ## Review Rules
 

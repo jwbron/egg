@@ -248,7 +248,12 @@ class TestReReview:
             assert "changed since your last review" in prompt
 
     def test_includes_full_pr_context_fallback(self) -> None:
-        """Re-review includes fallback to full PR diff if needed."""
+        """Re-review keeps the wider-context escape hatch, but requires justification.
+
+        The reviewer may still pull the full diff when the delta alone cannot be
+        judged; it must say why. Routine re-verification of untouched files is
+        what drove the runaway re-review rounds (#3648, #3653).
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             returncode, stdout, stderr = run_build_review_prompt(
                 pr_number="123",
@@ -260,10 +265,18 @@ class TestReReview:
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "123")
             assert "gh pr diff 123" in prompt
-            assert "full pr context" in prompt.lower()
+            # The prompt is hard-wrapped, so match against unwrapped text.
+            unwrapped = " ".join(prompt.split())
+            assert "why the delta alone was insufficient" in unwrapped
+            assert "Do not re-verify files the delta does not touch" in unwrapped
 
-    def test_rereview_emphasizes_thoroughness(self) -> None:
-        """Re-review also emphasizes thorough review of new changes."""
+    def test_rereview_is_blocking_only(self) -> None:
+        """Re-review raises blocking issues only — advisory nits are out of scope.
+
+        Advisory items on a re-review keep the feedback loop from converging:
+        every round's fix supplies the next round's nit, so the loop runs to its
+        round cap instead of merging.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             returncode, stdout, stderr = run_build_review_prompt(
                 pr_number="123",
@@ -274,9 +287,59 @@ class TestReReview:
 
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "123")
-            # Check for thoroughness emphasis
-            assert "thorough" in prompt.lower()
-            assert "ALL issues" in prompt or "all issues" in prompt.lower()
+            assert "blocking issues only" in prompt.lower()
+            assert "Do **not** raise advisory items on a re-review" in prompt
+            # The re-review must not re-arm initial-review "find everything" framing.
+            assert "Find ALL issues in the new code" not in prompt
+
+    def test_rereview_closes_previously_approved_work(self) -> None:
+        """Re-review must not re-open lines it already signed off on."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            assert "Previously approved work is closed" in prompt
+            assert "because you asked for" in prompt
+
+    def test_rereview_directs_clean_approval(self) -> None:
+        """A re-review with no blocking issue must approve cleanly.
+
+        `verdict=approve-with-suggestions` re-triggers the feedback-addressing
+        workflow (on-review-feedback.yml), so only a clean `verdict=approve`
+        terminates the loop and lets the PR merge.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            assert "approve cleanly" in prompt
+            assert "`verdict=approve`" in prompt
+
+    def test_initial_review_still_allows_advisory_items(self) -> None:
+        """The blocking-only floor applies to re-reviews, not the initial review."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            assert "Find ALL issues" in prompt
+            assert "Do **not** raise advisory items on a re-review" not in prompt
 
     def test_rereview_instructs_direct_feedback(self) -> None:
         """Re-review instructs direct, unsoftened feedback."""
