@@ -557,21 +557,76 @@ def test_slice_loop_admits_nothing_after_a_cancel():
             worktree_repo_path=pipelines_pkg.Path("/tmp/does-not-matter"),
             # Production (``_run_phase.py``) always threads the owning
             # thread's epoch through, so pass it rather than leaning on the
-            # ``None`` default. It is not what this test exercises: layer 4
-            # keys on ``_pipeline_cancelled`` alone and bails before
-            # ``_run_concurrent_phase_with_impasse_retry``, where the epoch
-            # arm lives. Supersession is covered by
-            # ``test_phase_bail_reason_still_reports_supersession``.
+            # ``None`` default. Matching epoch here isolates the cancel arm;
+            # the supersession arm of the same guard is exercised by
+            # ``test_slice_loop_stops_when_a_restart_supersedes_it``.
             run_epoch=cancelled.run_epoch or cancelled.created_at,
         )
 
     assert exit_code == 1
-    assert "pipeline cancelled" in logs
+    assert "pipeline_cancelled" in logs
     assert scheduler.iter_ready_calls == 0, "a cancelled pipeline read the ready set"
     assert scheduler.spawned == [], "a cancelled pipeline admitted a slice"
     assert spawner.gateway.create_slice_integration_branch.call_count == 0
     assert spawner.spawn_agent_job.call_count == 0
     assert reconciler_stop.is_set(), "the stacked-PR reconciler must be torn down"
+
+
+def test_slice_loop_stops_when_a_restart_supersedes_it():
+    """The other arm of layer 4's guard (#3315). A restart bumps ``run_epoch``
+    and starts a new ``_run_pipeline`` thread; the old slice loop must stop
+    rather than race it — admitting a slice, creating its integration branch,
+    calling the phase runner, having that bail on supersession, and recording
+    a spurious slice failure, once per tick."""
+    scheduler = _StubScheduler()
+    contract = SimpleNamespace(slices=[_pending_slice()])
+    pipeline = SimpleNamespace(
+        repo=None,
+        branch=f"egg/{PIPELINE_ID}/work",
+        issue_number=3633,
+        current_phase=PipelinePhase.IMPLEMENT,
+        config=SimpleNamespace(max_parallel_slices=2),
+    )
+    restarted = _cancellable_pipeline()
+    restarted.run_epoch = datetime.now(UTC)
+    store = MagicMock()
+    store.load_pipeline.return_value = restarted
+
+    spawner = MagicMock()
+
+    with (
+        patch("orchestrator.slice_scheduler.SliceScheduler", lambda *a, **kw: scheduler),
+        patch("slice_scheduler.SliceScheduler", lambda *a, **kw: scheduler),
+        patch("egg_contracts.loader.load_contract", return_value=contract),
+        patch("egg_contracts.loader.save_contract"),
+        patch.object(pipelines_pkg, "_open_context_pr_safety_net_impl", return_value=None),
+        patch.object(pipelines_pkg, "_classify_non_complete_slice", return_value="fresh"),
+        patch.object(
+            pipelines_pkg,
+            "_start_stacked_pr_reconciler",
+            return_value=(MagicMock(), threading.Event()),
+        ),
+    ):
+        exit_code, logs = pipelines_pkg._run_implement_phase_slices(
+            PIPELINE_ID,
+            pipeline,
+            spawner=spawner,
+            repo_volumes={},
+            gateway_mode="public",
+            repos=[],
+            sandbox_env={},
+            store=store,
+            certs_volume=None,
+            worktree_repo_path=pipelines_pkg.Path("/tmp/does-not-matter"),
+            # The stale thread's epoch — one restart behind the persisted one.
+            run_epoch=restarted.run_epoch - timedelta(hours=1),
+        )
+
+    assert exit_code == 1
+    assert "superseded_by_restart" in logs
+    assert scheduler.iter_ready_calls == 0, "a superseded slice loop read the ready set"
+    assert scheduler.spawned == [], "a superseded slice loop admitted a slice"
+    assert spawner.gateway.create_slice_integration_branch.call_count == 0
 
 
 def test_slice_loop_keeps_running_while_the_pipeline_is_running():

@@ -532,27 +532,38 @@ def _run_implement_phase_slices(
         while not scheduler.all_done():
             driver_heartbeat.record_tick(pipeline_id)  # #3540 liveness tick
 
-            # 0. Stop walking the DAG once the operator cancels (#3633).
-            #    ``cancel_task`` tears down the pipeline's containers and
-            #    stops its live BRC event loops, but nothing used to stop
-            #    THIS loop: the next tick admitted the next ready slice,
-            #    created its integration branch, and spawned a fresh agent
-            #    cohort — observed opening slice-3 two hours after a cancel.
-            #    Re-read the persisted status here so an in-flight wave is
-            #    the last one, and bail before admitting another.
-            #    ``_run_phase_execution`` maps the non-zero exit onto a clean
-            #    thread return rather than a phase FAILURE.
-            if _pkg._pipeline_cancelled(store, pipeline_id):
+            # 0. Stop walking the DAG once this loop no longer owns the phase.
+            #    Nothing used to stop it: the next tick admitted the next ready
+            #    slice, created its integration branch, and spawned a fresh
+            #    agent cohort. Two ways that goes wrong, both caught by the
+            #    same re-read — see ``_phase_bail_reason_impl``:
+            #
+            #    * the operator cancelled the run (#3633) — observed opening
+            #      slice-3 two hours after the cancel;
+            #    * a restart bumped ``run_epoch`` (#3315), so a new
+            #      ``_run_pipeline`` thread owns the pipeline. The stale loop
+            #      would otherwise race it: admit a slice, create its
+            #      integration branch, call the phase runner, have that bail on
+            #      supersession, record a spurious slice failure, repeat.
+            #
+            #    Bail before admitting another wave, so an in-flight one is the
+            #    last. ``_run_phase_execution`` maps the non-zero exit onto a
+            #    clean thread return rather than a phase FAILURE.
+            _loop_bail = _pkg._phase_bail_reason_impl(
+                store=store, pipeline_id=pipeline_id, run_epoch=run_epoch
+            )
+            if _loop_bail is not None:
                 _pkg.logger.info(
-                    "Pipeline cancelled — stopping the slice loop without admitting further slices",
+                    "Stopping the slice loop without admitting further slices",
                     pipeline_id=pipeline_id,
+                    reason=_loop_bail,
                     unfinished=[
                         rt.slice_id
                         for rt in scheduler.list_slices()
                         if rt.state != SchedulerSliceState.COMPLETE
                     ],
                 )
-                aggregate_logs.append("--- slice loop stopped: pipeline cancelled ---")
+                aggregate_logs.append(f"--- slice loop stopped: {_loop_bail} ---")
                 overall_exit = 1
                 break
 
