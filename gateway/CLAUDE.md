@@ -101,4 +101,4 @@ Pure refactor: every symbol is AST-identical to the pre-split file — no behavi
 
 Pure refactor: every implementation body is AST-identical to the pre-split file — no behavior change. **Container packaging + launch (R3):** `gateway/Dockerfile` gains `COPY gateway/gateway/ ./gateway/` (the non-recursive `COPY gateway/*.py ./` no longer matches the package dir), and because a package cannot be run as `python3 gateway.py`, the launch becomes `python3 -m gateway` (via `gateway/gateway/__main__.py` → barrel `main()`) in `gateway/entrypoint.sh`; the Flask server still binds port 9848 unchanged.
 
-`git_client/` was the first `gateway/` decomposition; `gateway/gateway/` (this slice) completes the gateway-package split.
+`git_client/` was the first `gateway/` decomposition; `gateway/gateway/` (this slice) completes the gateway-package split. The barrel is allowlisted again ([#3674](https://github.com/jwbron/egg/issues/3674)) only because the #3671 re-baseline onto code lines put it at 1013 code lines, over the 1,000 cap.
