@@ -128,6 +128,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "d2a9f8e77315f19ea142c78f5267b823bb7036d9": {
+      "branch": "egg/issue-3665-v3/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3665-v3",
+      "registered_at": "2026-07-27T23:08:52.462261+00:00",
+      "repo": null,
+      "role": "architect"
+    },
     "d638cecad8c8da87b651eda40d793f1b2051f0ce": {
       "branch": "egg/issue-3665-v3/work",
       "patch_id": "34b48acebde22ea39add37c113ee9c9b1a6ed7a5",
