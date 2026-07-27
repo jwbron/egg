@@ -732,7 +732,25 @@ def spawn_agent_job(
                 }
             )
 
-        # Create the Kubernetes Job
+        # Create the Kubernetes Job.
+        #
+        # The agent timeout (default 7200s = 2h, configurable via
+        # PipelineConfig.agent_timeout_seconds) is passed as
+        # active_deadline_seconds so the K8s Job deadline matches the
+        # sandbox-side ClaudeConfig.timeout. Without this alignment, the
+        # sandbox kills the agent at 2h (exit 143) while the K8s Job
+        # deadline sits at 4h, and the reconciler misclassifies the
+        # timeout-kill as a crash (#3665).
+        timeout_seconds = environment.get("EGG_AGENT_TIMEOUT_SECONDS")
+        create_kwargs: dict[str, Any] = {}
+        if timeout_seconds is not None:
+            try:
+                create_kwargs["active_deadline_seconds"] = int(timeout_seconds)
+            except ValueError, TypeError:
+                logger.debug(
+                    "EGG_AGENT_TIMEOUT_SECONDS is not an integer, using K8s default",
+                    timeout_seconds=timeout_seconds,
+                )
         container_info = self.k8s.create_container(
             name=job_name,
             image=image or self.DEFAULT_SANDBOX_IMAGE,
@@ -740,6 +758,7 @@ def spawn_agent_job(
             labels=labels,
             command=command,
             host_path_mounts=host_path_mounts or None,
+            **create_kwargs,
         )
 
         spawn_ms = (self._clock() - _spawn_start) * 1000.0

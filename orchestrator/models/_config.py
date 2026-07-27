@@ -175,6 +175,17 @@ class PipelineConfig(BaseModel):
             "consensus never converges. Default 4 hours."
         ),
     )
+    agent_timeout_seconds: int = Field(
+        default=7200,
+        ge=60,
+        description=(
+            "Maximum runtime for a single agent container, in seconds. "
+            "Passed as ``active_deadline_seconds`` to the Kubernetes Job "
+            "spec and as ``EGG_AGENT_TIMEOUT_SECONDS`` to the sandbox "
+            "container so the agent can surface the deadline. "
+            "Default 7200 (2 hours). (#3665)"
+        ),
+    )
     brc_consensus_progress_gate_seconds: int = Field(
         default=300,
         ge=0,
