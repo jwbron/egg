@@ -1414,9 +1414,15 @@ class _NotifierSpy:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    def __call__(self, *, anomaly, priority, summary, detail) -> None:
+    def __call__(self, *, anomaly, priority, summary, detail, evidence=None) -> None:
         self.calls.append(
-            {"anomaly": anomaly, "priority": priority, "summary": summary, "detail": detail}
+            {
+                "anomaly": anomaly,
+                "priority": priority,
+                "summary": summary,
+                "detail": detail,
+                "evidence": evidence,
+            }
         )
 
 

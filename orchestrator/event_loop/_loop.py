@@ -926,6 +926,22 @@ def _check_convergence_stall(self) -> None:
 
         elapsed = now - self._stall_first_seen[role]
         if elapsed > budget_sec and not self._stall_alerted.get(role, False):
+            # #3665: Before firing a convergence-stall alert, check whether the
+            # role has recent agent activity (heartbeat, progress, or container
+            # activity). A busy agent that hasn't entered the BRC protocol yet
+            # (or is between BRC rounds) can trigger a false positive here.
+            # The health monitor tracks per-agent activity ages; if any signal
+            # is recent, suppress the alert for this poll cycle.
+            if self._has_recent_agent_activity(role):
+                logger.debug(
+                    "Convergence-stall: suppressing alert for role=%s — "
+                    "recent agent activity detected",
+                    role,
+                    pipeline_id=self.pipeline_id,
+                    slice_id=self.slice_id,
+                )
+                continue
+
             self._stall_alerted[role] = True
             logger.warning(
                 "Convergence-stall detected: role=%s actionable event '%s' "
@@ -939,6 +955,49 @@ def _check_convergence_stall(self) -> None:
                 slice_id=self.slice_id,
                 phase=self.phase,
             )
+            # #3665 priority 4: bundle structured evidence so operators can
+            # act without hand-investigation.
+            evidence: dict[str, Any] = {
+                "agent_role": role,
+                "derived_action": action,
+                "elapsed_seconds": int(elapsed),
+                "budget_seconds": budget_sec,
+            }
+            try:
+                from health_monitor import get_health_monitor
+
+                hm = get_health_monitor()
+                if hm is not None:
+                    activity = hm.get_agent_activity_ages()
+                    agent_info = activity.get(role)
+                    if agent_info is not None:
+                        evidence["latest_heartbeat_age_s"] = agent_info.get(
+                            "last_heartbeat_age_s"
+                        )
+                        evidence["latest_tool_call_age_s"] = agent_info.get(
+                            "last_activity_age_s"
+                        )
+                        evidence["latest_progress_age_s"] = agent_info.get(
+                            "last_progress_age_s"
+                        )
+            except Exception:
+                pass
+
+            try:
+                from peer_consensus import get_peer_consensus_tracker
+
+                tracker = get_peer_consensus_tracker(self.pipeline_id)
+                if tracker is not None:
+                    consensus = tracker.evaluate()
+                    evidence["blocking_agents"] = consensus.get("blocking_agents", [])
+                    evidence["consensus_state"] = {
+                        "is_complete": consensus.get("is_complete", False),
+                        "producer_phases": dict(tracker._producer_phases),
+                        "reviewer_phases": dict(tracker._reviewer_phases),
+                    }
+            except Exception:
+                pass
+
             self._convergence_stall_notifier(
                 anomaly=_pkg._idle_budget_anomaly_name(),
                 priority="high",
@@ -954,7 +1013,52 @@ def _check_convergence_stall(self) -> None:
                     f"without BRC-bus progress (budget={budget_min}m). "
                     f"No in-flight Job exists for this event."
                 ),
+                evidence=evidence,
             )
+
+
+def _has_recent_agent_activity(self, role: str) -> bool:
+    """Check if an agent role has recent activity that suppresses stall alerts (#3665).
+
+    Queries the HealthMonitor's per-agent activity ages. If the role has a
+    recent heartbeat, progress event, or CONTAINER_ACTIVITY within the
+    ``orchestrator_activity_quiet_seconds`` threshold, returns True so the
+    convergence-stall check suppresses its alert for this poll cycle.
+
+    A busy agent that hasn't entered the BRC protocol yet (or is between BRC
+    rounds) can trigger a false convergence-stall alert; this check prevents
+    that by consulting the health monitor's independent view of agent liveness.
+    """
+    try:
+        from health_monitor import get_health_monitor
+
+        hm = get_health_monitor()
+        if hm is None:
+            return False
+        activity = hm.get_agent_activity_ages()
+        # The role in the event loop maps to agent_id in the health monitor.
+        # In orchestrator mode, agent_id is typically the role name.
+        agent_info = activity.get(role)
+        if agent_info is None:
+            # Try with the role as-is — health monitor keys by agent_id
+            # which is typically the role value in orchestrator mode
+            return False
+        quiet_s = getattr(hm._config, "orchestrator_activity_quiet_seconds", 120)
+        if quiet_s <= 0:
+            return False
+        for age_key in ("last_heartbeat_age_s", "last_progress_age_s", "last_activity_age_s"):
+            age = agent_info.get(age_key)
+            if age is not None and age < quiet_s:
+                return True
+        return False
+    except Exception:
+        logger.debug(
+            "Failed to check agent activity for convergence-stall suppression",
+            pipeline_id=self.pipeline_id,
+            role=role,
+            exc_info=True,
+        )
+        return False
 
 
 def run(self) -> None:

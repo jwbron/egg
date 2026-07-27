@@ -500,6 +500,12 @@ class ConcurrentPhaseExecutor:
             "EGG_CONCURRENT_MODE": "true",
             "EGG_MESSAGE_POLL_INTERVAL": str(poll_interval),
         }
+        # Surface the agent timeout to the sandbox so the agent can warn
+        # before the deadline and so the K8s Job active_deadline_seconds
+        # matches the sandbox-side ClaudeConfig.timeout (#3665).
+        agent_timeout = getattr(config, "agent_timeout_seconds", None)
+        if agent_timeout is not None:
+            env["EGG_AGENT_TIMEOUT_SECONDS"] = str(agent_timeout)
         # Add review graph info for BRC protocol
         graph = self._get_review_graph()
         if graph.is_producer(role.value):
@@ -1062,7 +1068,13 @@ class ConcurrentPhaseExecutor:
     # Event-loop supervision side effects (#3064 slice-3)
     # ------------------------------------------------------------------
     def _emit_supervision_alert(
-        self, *, anomaly: str, priority: str, summary: str, detail: str
+        self,
+        *,
+        anomaly: str,
+        priority: str,
+        summary: str,
+        detail: str,
+        evidence: dict[str, Any] | None = None,
     ) -> None:
         """Broadcast a sticky OVERSEER_ALERT for a failure-streak exhaustion.
 
@@ -1070,8 +1082,20 @@ class ConcurrentPhaseExecutor:
         ``OVERSEER_ALERT`` message to the ``all`` target with the anomaly name
         encoded in the subject (so ``/sdlc`` and any listener pick it up).
         Best-effort — a message-store hiccup must not wedge the loop.
+
+        #3665 priority 4: ``evidence`` is an optional dict of structured
+        evidence (agent activity ages, blocking agents, consensus state)
+        that is merged into the message metadata so operators can act
+        without hand-investigation.
         """
         try:
+            metadata: dict[str, Any] = {
+                "anomaly": anomaly,
+                "priority": priority,
+                "summary": summary,
+            }
+            if evidence:
+                metadata["evidence"] = evidence
             get_message_store().add_message(
                 Message(
                     pipeline_id=self.pipeline.id,
@@ -1081,11 +1105,7 @@ class ConcurrentPhaseExecutor:
                     subject=f"{anomaly}: event-loop [{priority}]",
                     body=detail or summary,
                     phase=self.pipeline.current_phase.value,
-                    metadata={
-                        "anomaly": anomaly,
-                        "priority": priority,
-                        "summary": summary,
-                    },
+                    metadata=metadata,
                 )
             )
         except Exception as exc:  # noqa: BLE001 — alert emission is best-effort

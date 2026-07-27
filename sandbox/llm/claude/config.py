@@ -6,7 +6,8 @@ Claude Code supports two authentication methods:
 - OAuth: Set ANTHROPIC_AUTH_METHOD=oauth (uses Claude's built-in OAuth flow)
 """
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -20,7 +21,9 @@ class ClaudeConfig:
     """
 
     cwd: Path | str | None = None
-    timeout: int = 7200  # 2 hours
+    timeout: int = field(
+        default_factory=lambda: int(os.environ.get("EGG_AGENT_TIMEOUT_SECONDS", "7200"))
+    )
 
 
 # Backward compatibility alias

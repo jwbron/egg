@@ -532,17 +532,24 @@ class KubernetesMonitor:
                             self._clean_exit_skipped.add(agent.container_id)
                         continue
 
-                    if actual_exit_code == 143 and (
-                        phase_execution.status != PipelineStatus.RUNNING
-                    ):
+                    # #3665: exit 143 (SIGTERM) is clean in two cases:
+                    # 1. During phase transition (non-RUNNING phase) — the
+                    #    orchestrator is tearing down the phase.
+                    # 2. During a RUNNING phase — the sandbox's agent timeout
+                    #    (default 7200s = 2h) fired, or the orchestrator sent
+                    #    SIGTERM during a phase reset. Both are legitimate
+                    #    lifecycle terminations, not crashes. Without this,
+                    #    timeout kills are counted as FAILED, consuming the
+                    #    fail-streak budget against a timeout the agent
+                    #    couldn't see coming.
+                    if actual_exit_code == 143:
                         if agent.container_id not in self._clean_exit_skipped:
                             logger.info(
-                                "Pod received SIGTERM during phase "
-                                "transition (exit 143), skipping FAILED "
-                                "reconciliation",
+                                "Pod received SIGTERM (exit 143), skipping FAILED reconciliation",
                                 pipeline_id=pipeline_id,
                                 container_id=agent.container_id,
                                 agent_role=str(agent.role),
+                                phase_status=phase_execution.status.value,
                             )
                             self._clean_exit_skipped.add(agent.container_id)
                         continue
@@ -1151,8 +1158,9 @@ def _classify_exit(exit_code: int | None) -> tuple[bool, str]:
     Returns ``(is_clean, error_message)``.
 
     - exit_code 0 (normal exit) and 143 (SIGTERM, orchestrator-initiated
-      stop) are treated as clean — these are the post-BRC and
-      teardown-shutdown cases respectively.
+      stop or sandbox timeout) are treated as clean — these are the
+      post-BRC, teardown-shutdown, and agent-timeout cases respectively
+      (#3665).
     - Anything else is a failure; the error string includes the actual
       exit code so observers can distinguish OOM, crash, etc.
 
