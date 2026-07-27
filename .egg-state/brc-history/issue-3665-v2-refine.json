@@ -1,0 +1,801 @@
+[
+  {
+    "id": "e399fee8-586d-4a",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T05:51:42.918715+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "4636ebc6-1f1a-4c",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T05:51:44.035067+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "972637c7-0e09-47",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T05:51:49.050730+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "526fb786-7b04-40",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T05:53:51.064332+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c6514de4-9dd1-41",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T05:55:51.732226+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "97d3b56b-d9ac-42",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T05:57:55.905873+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "88516e77-820e-41",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:00:33.140826+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "17a62920-027f-43",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from refiner",
+    "body": "Refiner proposal for #3665: supervision layer second pass \u2014 loop detection, false-positive fixes, timeout distinction, alert evidence",
+    "metadata": {
+      "payload": {
+        "summary": "Refiner proposal for #3665: supervision layer second pass \u2014 loop detection, false-positive fixes, timeout distinction, alert evidence",
+        "attestation": {
+          "decisions_registered": [],
+          "no_decisions_rationale": "This is the refine phase producing a proposal. The four problem areas and their solutions are deterministic engineering decisions based on codebase verification, not open questions requiring operator input. No HITL decisions are needed at this stage.",
+          "candidates_considered": [
+            {
+              "question": "Should the tool-input loop detector use the agent SDK's tool interceptor or a separate log capture mechanism?",
+              "disposition": "not_operator_grade",
+              "why": "This is an implementation detail for the implement phase to decide. The refiner's job is to identify the gap and propose the approach, not to resolve the specific mechanism."
+            },
+            {
+              "question": "Should the timeout outcome category replace or supplement the existing abnormal outcome?",
+              "disposition": "not_operator_grade",
+              "why": "This is an engineering decision about outcome classification. The issue explicitly states timeouts should not count as crashes, so a separate category is the right approach. The implementer will decide the exact integration."
+            },
+            {
+              "question": "Should the convergence-stall check be modified to consult alive-signal gates, or should a new detector be added?",
+              "disposition": "not_operator_grade",
+              "why": "Modifying the existing check is the most direct fix and avoids duplicate detection. The implementer will determine the exact integration point."
+            },
+            {
+              "question": "Should alert evidence be bundled in the OVERSEER_ALERT payload or fetched separately by the overseer?",
+              "disposition": "not_operator_grade",
+              "why": "Bundling in the payload is more operator-friendly but increases message size. The implementer will balance this trade-off."
+            }
+          ]
+        },
+        "artifacts": [
+          ".egg-state/agent-outputs/refiner/refiner-proposal-issue-3665.md",
+          ".egg-state/agent-outputs/refiner/brc-memory-issue-3665-v2.md",
+          ".egg-state/drafts/issue-3665-v2-analysis.md"
+        ],
+        "risk_considered": "Low risk \u2014 this is a refinement proposal that identifies gaps and proposes work. No code changes are made in this phase. The proposal is based on thorough codebase exploration and verification of existing implementations.",
+        "commit_sha": "bf91f0843b5c4f323f4ee09b8a1c01ec19eacd58",
+        "files_changed": [
+          ".egg-state/agent-outputs/refiner/refiner-proposal-issue-3665.md",
+          ".egg-state/agent-outputs/refiner/brc-memory-issue-3665-v2.md",
+          ".egg-state/drafts/issue-3665-v2-analysis.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "bf91f0843b5c4f323f4ee09b8a1c01ec19eacd58"
+    },
+    "timestamp": "2026-07-27T06:01:57.383857+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "b4027c14-8ee7-4a",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:02:05.182513+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0e13f605-1d15-48",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=propose (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:02:05.189918+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2aa002a8-ec87-45",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:02:05.506814+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5fd1188f-125d-41",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "first_principles_reviewer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:02:05.982758+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "caef244a-7d28-44",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:02:15.613140+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "989c7285-7c2e-4d",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:02:16.449615+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e5422e21-156a-44",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:02:18.193522+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c895f927-5c0f-42",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "first_principles_reviewer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:02:19.838638+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "07795d14-2b1d-48",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:02:23.245075+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c2f9b72c-6c48-44",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:02:43.142696+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1d55d50b-af59-4c",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=58052 util=n/a cache_hit=0.98 decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:03:40.920615+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "b09bad14-7df4-4b",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:04:18.986833+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "45a890fa-4788-4e",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "first_principles_reviewer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:04:22.545261+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "38b4d149-f6f2-4b",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:04:24.072213+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "47e8c383-97b9-44",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:04:33.553329+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "76b7e737-680f-4a",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from simplifier",
+    "body": "simplifier: analysis-draft-human for #3665 supervision layer second pass \u2014 faithful jargon-free rendering of refiner's analysis covering four problem areas (unconsulted signals, session boundaries as failures, undetected loops, unactionable alerts) plus four proposed priorities and what was left out",
+    "metadata": {
+      "payload": {
+        "summary": "simplifier: analysis-draft-human for #3665 supervision layer second pass \u2014 faithful jargon-free rendering of refiner's analysis covering four problem areas (unconsulted signals, session boundaries as failures, undetected loops, unactionable alerts) plus four proposed priorities and what was left out",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/issue-3665-v2-analysis-human.md"
+        ],
+        "risk_considered": "Risk of unfaithfulness to the refiner's analysis: verified all key claims against the live tree (snapshot_from_health_context does not populate last_tool_call_age_s/last_heartbeat_age_s; detect_heartbeat_stall is not registered in the detection plane; _check_convergence_stall does not consult WAITING_ON_ROLE or health monitor alive-signal gates; timeout exit code -1 maps to JOB_OUTCOME_ABNORMAL with no TIMEOUT category; 2-hour timeout is invisible to the agent). No invented commitments \u2014 the summary is a plain-English rendering of the refiner's analysis and proposal.",
+        "commit_sha": "8e474c354d7c8b62770fc5d54fa7e5fc3280c97b",
+        "files_changed": [
+          ".egg-state/drafts/issue-3665-v2-analysis-human.md"
+        ],
+        "tests_run": [
+          "verification: grep snapshot_from_health_context RunningAgent live_container_ids last_tool_call_age_s",
+          "verification: grep detect_heartbeat_stall detection_plane.py registration",
+          "verification: grep _check_convergence_stall WAITING_ON_ROLE _is_brc_idle _orchestrator_skip_tripwire",
+          "verification: grep JOB_OUTCOME_TIMEOUT event_loop/__init__.py",
+          "verification: grep timeout 7200 __main__.py client.py",
+          "verification: git show bf91f0843 --stat (refiner proposal commit)"
+        ],
+        "tasks_satisfied": [],
+        "no_changes_needed": false,
+        "no_changes_reason": ""
+      },
+      "version": 1,
+      "commit_sha": "8e474c354d7c8b62770fc5d54fa7e5fc3280c97b"
+    },
+    "timestamp": "2026-07-27T06:04:56.722628+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "29a9ad69-99af-41",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "one-shot event handler action=ack (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:05:02.548773+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "993020f6-5a88-49",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:05:09.804427+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "3cd62ad5-29ca-44",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "first_principles_reviewer",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from first_principles_reviewer for refiner",
+    "body": "Proposal is thorough, accurate, and well-structured. All key claims verified against the codebase: (1) detect_heartbeat_stall exists but is NOT registered in the production detection plane \u2014 confirmed via grep; (2) snapshot_from_health_context does NOT populate last_tool_call_age_s/last_heartbeat_age_s \u2014 confirmed at detection_plane.py:534-538; (3) _check_convergence_stall does NOT consult the WAITING_ON_ROLE probe \u2014 confirmed via grep (no references to _probe_waiting_on in _loop.py); (4) No JOB_OUTCOME_TIMEOUT constant exists \u2014 confirmed at event_loop/__init__.py:172-177; (5) Timeouts map to JOB_OUTCOME_ABNORMAL \u2014 confirmed in _observe_jobs and _models.py:80; (6) Alert payloads lack structured evidence \u2014 confirmed at _loop.py:942-957. The four priorities are correctly ordered: loop detection (core gap), false-positive fix, timeout distinction, evidence bundling. The candidate list with file-and-symbol citations is comprehensive. One minor citation error: line 27 cites detection_plane.py:454-458 as where detect_heartbeat_stall is registered, but those lines are actually the runtime_liveness imports \u2014 the detector is NOT registered in the production plane. This does not affect the proposal's accuracy. Ready for implementation.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/refiner/refiner-proposal-issue-3665.md",
+          ".egg-state/agent-outputs/refiner/brc-memory-issue-3665-v2.md",
+          ".egg-state/drafts/issue-3665-v2-analysis.md"
+        ],
+        "reason": "Proposal is thorough, accurate, and well-structured. All key claims verified against the codebase: (1) detect_heartbeat_stall exists but is NOT registered in the production detection plane \u2014 confirmed via grep; (2) snapshot_from_health_context does NOT populate last_tool_call_age_s/last_heartbeat_age_s \u2014 confirmed at detection_plane.py:534-538; (3) _check_convergence_stall does NOT consult the WAITING_ON_ROLE probe \u2014 confirmed via grep (no references to _probe_waiting_on in _loop.py); (4) No JOB_OUTCOME_TIMEOUT constant exists \u2014 confirmed at event_loop/__init__.py:172-177; (5) Timeouts map to JOB_OUTCOME_ABNORMAL \u2014 confirmed in _observe_jobs and _models.py:80; (6) Alert payloads lack structured evidence \u2014 confirmed at _loop.py:942-957. The four priorities are correctly ordered: loop detection (core gap), false-positive fix, timeout distinction, evidence bundling. The candidate list with file-and-symbol citations is comprehensive. One minor citation error: line 27 cites detection_plane.py:454-458 as where detect_heartbeat_stall is registered, but those lines are actually the runtime_liveness imports \u2014 the detector is NOT registered in the production plane. This does not affect the proposal's accuracy. Ready for implementation.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-27T06:05:19.025682+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d2d6284f-4274-47",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "first_principles_reviewer",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by first_principles_reviewer",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-27T06:05:21.703629+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "86b69e29-2495-4a",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "first_principles_reviewer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:05:26.091579+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "de8a58ab-f489-44",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_agent_design",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_agent_design for refiner",
+    "body": "Comprehensive and accurate analysis of the supervision layer. Verified all key claims against the live codebase: detect_heartbeat_stall is unwired (snapshot_from_health_context doesn't populate last_tool_call_age_s/last_heartbeat_age_s, and the detector is not registered in _register_coverage_gap_detectors); _check_convergence_stall does NOT consult WAITING_ON_ROLE self-reports or health monitor alive-signal gates; no JOB_OUTCOME_TIMEOUT exists; the 2-hour timeout is invisible to the agent and counted as abnormal; no structured tool-call history exists. All nine \"already landed\" items verified with accurate file citations. The four priorities and 20-item candidate list are well-reasoned and actionable. Ready for implementation.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "orchestrator/health_checks/detection_plane.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/event_loop/_loop.py",
+          "orchestrator/event_loop/_supervisor.py",
+          "orchestrator/event_loop/__init__.py",
+          "orchestrator/kubernetes_spawner/_models.py",
+          "shared/egg_agent/__main__.py",
+          "shared/egg_agent/client.py",
+          "shared/egg_agent/tool_interceptor.py"
+        ],
+        "reason": "Comprehensive and accurate analysis of the supervision layer. Verified all key claims against the live codebase: detect_heartbeat_stall is unwired (snapshot_from_health_context doesn't populate last_tool_call_age_s/last_heartbeat_age_s, and the detector is not registered in _register_coverage_gap_detectors); _check_convergence_stall does NOT consult WAITING_ON_ROLE self-reports or health monitor alive-signal gates; no JOB_OUTCOME_TIMEOUT exists; the 2-hour timeout is invisible to the agent and counted as abnormal; no structured tool-call history exists. All nine \"already landed\" items verified with accurate file citations. The four priorities and 20-item candidate list are well-reasoned and actionable. Ready for implementation.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-27T06:05:34.679053+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "ac53dc8c-8352-41",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_agent_design",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-27T06:05:36.898330+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1f80f8d8-6859-4d",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "simplifier",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from simplifier for refiner",
+    "body": "Verified all key claims against the live tree: (1) snapshot_from_health_context does not populate last_tool_call_age_s/last_heartbeat_age_s \u2014 RunningAgent entries are created from live_container_ids with only role/state/lifecycle_owner; (2) detect_heartbeat_stall is defined but not registered in the detection plane; (3) _check_convergence_stall does not consult WAITING_ON_ROLE or health monitor alive-signal gates; (4) timeout exit code -1 maps to JOB_OUTCOME_ABNORMAL with no TIMEOUT category; (5) 2-hour timeout is invisible to the agent. All nine \"already landed\" items verified present. Analysis is faithful and complete.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/issue-3665-v2-analysis.md",
+          ".egg-state/agent-outputs/refiner/refiner-proposal-issue-3665.md",
+          ".egg-state/agent-outputs/refiner/brc-memory-issue-3665-v2.md",
+          "orchestrator/health_checks/detection_plane.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/event_loop/_loop.py",
+          "orchestrator/event_loop/_supervisor.py",
+          "orchestrator/event_loop/__init__.py",
+          "orchestrator/kubernetes_spawner/_models.py",
+          "orchestrator/health_monitor.py",
+          "shared/egg_agent/__main__.py",
+          "shared/egg_agent/client.py"
+        ],
+        "reason": "Verified all key claims against the live tree: (1) snapshot_from_health_context does not populate last_tool_call_age_s/last_heartbeat_age_s \u2014 RunningAgent entries are created from live_container_ids with only role/state/lifecycle_owner; (2) detect_heartbeat_stall is defined but not registered in the detection plane; (3) _check_convergence_stall does not consult WAITING_ON_ROLE or health monitor alive-signal gates; (4) timeout exit code -1 maps to JOB_OUTCOME_ABNORMAL with no TIMEOUT category; (5) 2-hour timeout is invisible to the agent. All nine \"already landed\" items verified present. Analysis is faithful and complete.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-27T06:05:37.764132+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "ac572984-5d70-44",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:05:39.258364+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5b0776c0-4361-44",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:06:34.060245+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "36edee2a-d86f-4b",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: PROPOSED",
+    "body": "simplifier v1 proposed (commit 8e474c354). analysis-draft-human artifact created and pushed. ACKed refiner v1 (simplifier\u2192refiner edge). Waiting for reviewer_refine to ACK both proposals. BRC memory written to .egg-state/agent-outputs/simplifier/brc-memory-issue-3665-v2.md.",
+    "metadata": {
+      "state": "PROPOSED",
+      "since": "2026-07-27T06:04:56.722628+00:00"
+    },
+    "timestamp": "2026-07-27T06:06:38.856532+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2bafadb6-fd88-49",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "context-measure occ=0 util=0.00 cache_hit=n/a decision=no_warm_session",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:06:44.653929+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0867156f-2ab8-46",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:07:23.441312+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "58bcc648-0422-4b",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "in-tool-loop liveness (slice=none)",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-07-27T06:09:26.524336+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "b01ba50d-ee5a-4f",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_refine",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_refine for refiner",
+    "body": "Proposal is thorough, accurate, and well-structured. All key claims verified against the codebase: (1) detect_heartbeat_stall exists but is NOT registered in the production detection plane \u2014 confirmed via grep; (2) snapshot_from_health_context does NOT populate last_tool_call_age_s/last_heartbeat_age_s \u2014 confirmed at detection_plane.py:534-538; (3) _check_convergence_stall does NOT consult WAITING_ON_ROLE self-reports or health monitor alive-signal gates \u2014 confirmed via grep (no references to _probe_waiting_on in _loop.py); (4) No JOB_OUTCOME_TIMEOUT constant exists \u2014 confirmed at event_loop/__init__.py:172-177; (5) Timeouts map to JOB_OUTCOME_ABNORMAL \u2014 confirmed in _observe_jobs and _models.py:80; (6) Alert payloads lack structured evidence \u2014 confirmed at _loop.py:942-957. All nine \"already landed\" items verified present with accurate file citations. The four priorities are correctly ordered: loop detection (core gap), false-positive fix, timeout distinction, evidence bundling. The 20-item candidate list with file-and-symbol citations is comprehensive. One minor citation error: candidate #1 line 27 cites detection_plane.py:454-458 as where detect_heartbeat_stall is registered, but those lines are actually the runtime_liveness imports \u2014 the detector is NOT registered in the production plane. This does not affect the proposal's accuracy. Ready for implementation.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/refiner/refiner-proposal-issue-3665.md",
+          ".egg-state/agent-outputs/refiner/brc-memory-issue-3665-v2.md",
+          ".egg-state/drafts/issue-3665-v2-analysis.md",
+          "orchestrator/health_checks/detection_plane.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/health_checks/tier1/__init__.py",
+          "orchestrator/event_loop/_loop.py",
+          "orchestrator/event_loop/_supervisor.py",
+          "orchestrator/event_loop/__init__.py",
+          "orchestrator/kubernetes_spawner/_models.py",
+          "orchestrator/health_monitor.py",
+          "shared/egg_agent/__main__.py",
+          "shared/egg_agent/client.py",
+          "orchestrator/concurrent_executor.py",
+          "orchestrator/cli.py"
+        ],
+        "reason": "Proposal is thorough, accurate, and well-structured. All key claims verified against the codebase: (1) detect_heartbeat_stall exists but is NOT registered in the production detection plane \u2014 confirmed via grep; (2) snapshot_from_health_context does NOT populate last_tool_call_age_s/last_heartbeat_age_s \u2014 confirmed at detection_plane.py:534-538; (3) _check_convergence_stall does NOT consult WAITING_ON_ROLE self-reports or health monitor alive-signal gates \u2014 confirmed via grep (no references to _probe_waiting_on in _loop.py); (4) No JOB_OUTCOME_TIMEOUT constant exists \u2014 confirmed at event_loop/__init__.py:172-177; (5) Timeouts map to JOB_OUTCOME_ABNORMAL \u2014 confirmed in _observe_jobs and _models.py:80; (6) Alert payloads lack structured evidence \u2014 confirmed at _loop.py:942-957. All nine \"already landed\" items verified present with accurate file citations. The four priorities are correctly ordered: loop detection (core gap), false-positive fix, timeout distinction, evidence bundling. The 20-item candidate list with file-and-symbol citations is comprehensive. One minor citation error: candidate #1 line 27 cites detection_plane.py:454-458 as where detect_heartbeat_stall is registered, but those lines are actually the runtime_liveness imports \u2014 the detector is NOT registered in the production plane. This does not affect the proposal's accuracy. Ready for implementation.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-27T06:10:50.601689+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5d1bfc6e-f12f-43",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "orchestrator",
+    "to_role": "refiner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-27T06:10:50.604337+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "41fe58fb-e4dc-42",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_refine",
+    "to_role": "simplifier",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_refine for simplifier",
+    "body": "Faithful, jargon-free rendering of the refiner's analysis draft. All key claims verified against the live tree: (1) snapshot_from_health_context does not populate last_tool_call_age_s/last_heartbeat_age_s \u2014 RunningAgent entries are created from live_container_ids with only role/state/lifecycle_owner; (2) detect_heartbeat_stall is defined but not registered in the detection plane; (3) _check_convergence_stall does not consult WAITING_ON_ROLE or health monitor alive-signal gates; (4) timeout exit code -1 maps to JOB_OUTCOME_ABNORMAL with no TIMEOUT category; (5) 2-hour timeout is invisible to the agent. All nine \"already landed\" items verified present. Analysis is faithful and complete.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/issue-3665-v2-analysis-human.md",
+          ".egg-state/agent-outputs/refiner/refiner-proposal-issue-3665.md",
+          ".egg-state/agent-outputs/refiner/brc-memory-issue-3665-v2.md",
+          ".egg-state/drafts/issue-3665-v2-analysis.md",
+          "orchestrator/health_checks/detection_plane.py",
+          "orchestrator/health_checks/tier1/consensus_stall.py",
+          "orchestrator/event_loop/_loop.py",
+          "orchestrator/event_loop/_supervisor.py",
+          "orchestrator/event_loop/__init__.py",
+          "orchestrator/kubernetes_spawner/_models.py",
+          "orchestrator/health_monitor.py",
+          "shared/egg_agent/__main__.py",
+          "shared/egg_agent/client.py"
+        ],
+        "reason": "Faithful, jargon-free rendering of the refiner's analysis draft. All key claims verified against the live tree: (1) snapshot_from_health_context does not populate last_tool_call_age_s/last_heartbeat_age_s \u2014 RunningAgent entries are created from live_container_ids with only role/state/lifecycle_owner; (2) detect_heartbeat_stall is defined but not registered in the detection plane; (3) _check_convergence_stall does not consult WAITING_ON_ROLE or health monitor alive-signal gates; (4) timeout exit code -1 maps to JOB_OUTCOME_ABNORMAL with no TIMEOUT category; (5) 2-hour timeout is invisible to the agent. All nine \"already landed\" items verified present. Analysis is faithful and complete.",
+        "ack_version": 1
+      },
+      "version": 1
+    },
+    "timestamp": "2026-07-27T06:10:51.723970+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "59834049-58e2-4f",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "orchestrator",
+    "to_role": "simplifier",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-07-27T06:10:51.725562+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "987b8b03-1912-44",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by refiner",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-27T06:10:54.550943+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "df0c83d1-4e1c-4f",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "simplifier",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by simplifier",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-27T06:10:54.554727+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c9b47e72-7d6b-48",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_refine",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-27T06:10:54.555455+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9095a803-52d6-44",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by reviewer_agent_design",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-27T06:10:54.556357+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c4798d17-8fb3-42",
+    "pipeline_id": "issue-3665-v2",
+    "from_role": "first_principles_reviewer",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Consensus confirmed by first_principles_reviewer",
+    "body": "orchestrator-side confirm (#3064 event loop)",
+    "metadata": {},
+    "timestamp": "2026-07-27T06:10:54.557190+00:00",
+    "phase": "refine"
+  }
+]
