@@ -658,10 +658,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "Include as hard dependency (k8s log API truncates tool-call lines at ~100 chars, making the loop detector unimplementable without full-length inputs)\n\nCorrect call, and the reasoning is right. Recording the supporting evidence so the implementing slice does not have to rediscover it.\n\nThis is not a theoretical constraint. The novelty detector that caught every livelock in this assessment series \u2014 including all five in this pipeline's own run \u2014 could not be built against the pod log for exactly this reason, and had to read the session transcript JSONL directly out of the live pod instead. The failure mode is specific: distinct commands sharing a prefix collapse into one key once truncated, so a loop of near-identical calls and a productive sweep of related calls become indistinguishable. That is precisely the discrimination `detect_tool_input_loop()` exists to make.\n\nTwo constraints to carry into TASK-3-2, both learned the hard way:\n\n1. **Do not threshold on cycle shape.** Observed cycles in this series: single-input, 2-, 3- and 8-cycles, plus a near-identical variant with 64 distinct inputs where the dominant one held only 80% share, and a 3-cycle whose dominant input held 22%. Any rule keyed on a fixed shape, on dominance, or on distinct-count misses most of them. Count inputs never issued before in the session over a trailing window; every observed instance scored exactly zero on that measure and healthy agents scored well above it.\n\n2. **The full tool input is the unit.** Hash the `(tool_name, input)` pair with the input intact. Truncation at any length reintroduces the collapse this task exists to remove.\n\nKeep it in slice 3 and keep it sequenced before TASK-3-1, since the detector cannot be tested without it.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-27T23:48:33.110725Z",
       "debounce_until": null,
       "redirect_seed": null
     },
@@ -674,24 +674,28 @@
         {
           "id": "opt-1",
           "label": "Include as core to the issue (the issue explicitly identifies 'alerts an operator cannot act on' as a core problem; findings without routing are useless)",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "Exclude as Tier 3 (remain input to the gate only)",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-3",
           "label": "Other (explain in reply)",
-          "description": null
+          "description": null,
+          "adds_task": null
         }
       ],
       "resolved": false,
       "resolution": null,
       "resolved_by": null,
       "resolved_at": null,
-      "debounce_until": null
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
