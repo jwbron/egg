@@ -86,12 +86,33 @@ def _run_git(
     check: bool = True,
     timeout: int = 30,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a git command with hooks disabled. Mirrors agent_salvage._run_git."""
-    cmd = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(cwd), *args]
+    """Run a git command with hooks disabled.
+
+    Mirrors :func:`agent_salvage._run_git` — including its ``quotePath`` pin
+    and its non-strict decode, which this helper drifted away from when they
+    landed there (#3639 re-review R9 NB-6). The exposure is smaller here (the
+    two call sites format ``%cI`` and ``%(refname)``, not paths), but
+    ``%(refname)`` is raw ref bytes that ``quotePath`` does not cover, so a
+    single non-UTF-8 recovery ref would otherwise raise ``UnicodeDecodeError``
+    out of the sweep. (``commit.gpgsign=false`` is the one setting not
+    mirrored: this helper never commits.) Keeping the two aligned is cheaper
+    than keeping a claim about them accurate.
+    """
+    cmd = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "core.quotePath=true",
+        "-C",
+        str(cwd),
+        *args,
+    ]
     return subprocess.run(
         cmd,
         capture_output=True,
         text=True,
+        errors="replace",
         check=check,
         timeout=timeout,
     )

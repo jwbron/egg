@@ -4604,6 +4604,87 @@ class TestDirtyTreePreservedBeforeReset:
         assert snapshot.paths[0].startswith("caf") and snapshot.paths[0].endswith(".md")
         assert "�" in snapshot.paths[0]
 
+    def test_add_decode_is_non_strict(self, tmp_path):
+        """The ``add`` arm must not decode strictly either (R9 NB-2).
+
+        Sibling pin for the ``diff`` arm above, which had none: every fake
+        ``git`` closure in this class takes ``**_kwargs`` and swallows the
+        keyword, so the production call site could lose it and stay green.
+
+        ``git add``'s stderr echoes the path **raw** in three messages
+        ``core.quotePath`` does not cover, so a strict decode raises inside
+        ``run`` on a non-UTF-8 name. ``git`` is a *parameter* of
+        :func:`_preserve_dirty_tree`, so what pins the decode is the keyword
+        at the call site, not the caller closure's default — hence an
+        assertion on the argv rather than on the closure.
+        """
+        from kubernetes_spawner._worktree import _preserve_dirty_tree
+
+        seen: dict[str, object] = {}
+
+        def _recording_git(_repo_dir, *args, **kwargs):
+            seen[args[0]] = kwargs.get("errors")
+            if args[0] == "diff":
+                return SimpleNamespace(stdout="seed.txt\0", returncode=0)
+            return SimpleNamespace(stdout="deadbeefcafe\n", returncode=0)
+
+        snapshot = _preserve_dirty_tree(
+            _recording_git, tmp_path, agent_worktree_id=_WT_ID, repo="repo", n_entries=1
+        )
+
+        assert snapshot is not None
+        assert snapshot.partial is False
+        assert seen["add"] == "replace", "git add's stderr echoes raw paths"
+        assert seen["diff"] == "replace"
+
+    def test_embedded_repo_warning_does_not_forge_a_partial_snapshot(
+        self, spawner, mock_gateway, tmp_path
+    ):
+        """A raw-path message on a *successful* add must not stamp INCOMPLETE (R9 NB-2).
+
+        Real git, and deliberately not either of the two messages the
+        docstrings above cite: ``unable to index file`` and ``does not have a
+        commit checked out`` both accompany a **non-zero** exit, so a snapshot
+        that trips them is honestly partial under a strict decode too. The
+        message that manufactures a *false* ``INCOMPLETE:`` is the third
+        (``check_embedded_repo`` in git's ``builtin/add.c``)::
+
+            warning: adding embedded git repository: <raw path>
+
+        It echoes the path unquoted and exits **0**. So a nested repo that
+        *does* have a commit checked out, under a latin-1 directory name,
+        gives a complete capture that a strict decode would nonetheless turn
+        into an ``UnicodeDecodeError`` → ``partial=True`` → an
+        ``INCOMPLETE:``-stamped commit and a soft branch disqualified, over a
+        filename git only mentioned in passing.
+        """
+        repo, _origin_head = self._seed_dirty(tmp_path)
+        nested = repo / os.fsdecode(b"nested-caf\xe9")
+        nested.mkdir()
+        _git(nested, "init", "-b", "main")
+        (nested / "inner.txt").write_text("inner\n")
+        _git(nested, "add", "-A")
+        _git(nested, "commit", "-m", "inner")
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            assert spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX) is True
+
+        msg = get_store.return_value.add_message.call_args.args[0]
+        wip = msg.metadata["wip_commit"]
+        assert wip is not None, "the tree was lost to a warning"
+        # The work is in the snapshot, and the add really did succeed...
+        assert _git(repo, "show", f"{wip}:seed.txt").stdout == "hours of uncommitted edits\n"
+        assert "def added():" in _git(repo, "show", f"{wip}:new_module.py").stdout
+        # ...so nothing may claim otherwise: not the metadata, not the commit
+        # message, not the bus body.
+        assert msg.metadata["wip_partial"] is False
+        assert "INCOMPLETE" not in _git(repo, "log", "-1", "--format=%B", wip).stdout
+        assert "may be INCOMPLETE" not in msg.body
+
     def test_undecodable_filename_is_salvaged_end_to_end(self, spawner, mock_gateway, tmp_path):
         """Real git, real non-UTF-8 filename: the 33 files still survive.
 
@@ -5150,8 +5231,31 @@ class TestDiscardedTipMessageWording:
         (bytes >= 0x80), so a literal position can neither gain nor lose a
         match and ``*`` regions are length-agnostic. Segment count survives
         for the same reason: ``/`` is 0x2F and never appears inside an
-        invalid sequence. Keep the globs ASCII and a new entry inherits this.
+        invalid sequence.
+
+        The rule a new entry inherits is "ASCII **literals and ``*``**", not
+        "ASCII" (R9 NB-1). Replacement is not length-preserving — a truncated
+        multi-byte sequence collapses to a *single* U+FFFD — and ``?`` /
+        ``[...]`` are ASCII but length-sensitive, so ``brc-memory-??.md``
+        would satisfy a bare "keep it ASCII" and still lose a match its raw
+        bytes had::
+
+            fnmatchcase("x\\udcf0\\udc9f\\udc98.md", "x???.md")  -> True
+            fnmatchcase("x\\ufffd.md",               "x???.md")  -> False
+
+        So this asserts the glob set holds to literals-and-``*`` rather than
+        leaving it to a comment.
         """
+        from kubernetes_spawner._worktree import _MACHINE_STATE_FILE_GLOBS
+
+        for glob in _MACHINE_STATE_FILE_GLOBS:
+            assert "?" not in glob and "[" not in glob, (
+                f"{glob!r} uses a length-sensitive wildcard; replacement collapses a "
+                "truncated multi-byte sequence to one U+FFFD, so this glob can lose a "
+                "match the raw bytes had (see this test's docstring)"
+            )
+            assert glob.replace("*", "").isascii(), glob
+
         replaced_memory = b".egg-state/agent-outputs/coder/brc-memory-caf\xe9.md".decode(
             "utf-8", errors="replace"
         )

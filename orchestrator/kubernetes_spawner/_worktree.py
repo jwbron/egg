@@ -423,7 +423,7 @@ def _clean_reused_worktree(
         *args: str,
         timeout: int = 30,
         check: bool = True,
-        errors: str | None = None,
+        errors: str | None = "replace",
     ):
         return _sp.run(
             [
@@ -440,22 +440,29 @@ def _clean_reused_worktree(
                 # work the snapshot exists to save.
                 "-c",
                 "commit.gpgsign=false",
-                # Pinned, not inherited (#3639 re-review NB-3). Every command
-                # here that does not opt into ``errors="replace"`` runs under
-                # a strict UTF-8 decode, so any git output that echoes a
-                # filename verbatim raises ``UnicodeDecodeError`` from inside
-                # ``run`` the moment a path in this tree is not valid UTF-8.
-                # (The two calls that *do* opt in are the ones git leaves
-                # unquoted regardless of this setting: the ``-z`` staged read,
-                # and ``add``, whose stderr echoes raw paths.) The default
-                # ``core.quotePath=true`` C-quote-encodes those bytes to ASCII
-                # and is what keeps ``status --porcelain`` and ``clean -fd``
-                # decodable; a worktree that inherited ``quotePath=false``
-                # would break them — ``clean -fd`` failing *after* the snapshot
-                # commit but *before* the salvage push loses the commit
-                # entirely. ``-z`` reads are unaffected either way (git never
-                # quotes NUL-terminated output), so this costs nothing and
-                # turns an inherited default into an invariant.
+                # Pinned, not inherited (#3639 re-review NB-3). The default
+                # ``core.quotePath=true`` C-quote-encodes non-ASCII bytes in
+                # the paths git echoes, which is what keeps ``status
+                # --porcelain`` and ``clean -fd`` output ASCII when a name in
+                # this tree is not valid UTF-8; a worktree that inherited
+                # ``quotePath=false`` would break them — ``clean -fd`` failing
+                # *after* the snapshot commit but *before* the salvage push
+                # loses the commit entirely. ``-z`` reads are unaffected either
+                # way (git never quotes NUL-terminated output), so this costs
+                # nothing and turns an inherited default into an invariant.
+                #
+                # It is NOT what makes the decode safe, and must not be read
+                # that way (#3639 re-review R9 NB-3). ``quotePath`` governs
+                # *path* quoting and nothing else, so it says nothing about
+                # the non-path bytes git also echoes: ``git add``'s stderr
+                # prints the path raw, ``reset --hard`` prints ``HEAD is now
+                # at <abbrev> <subject>`` straight from the commit object, and
+                # ``fetch`` relays the remote's sideband verbatim. That is why
+                # ``errors`` *defaults* to ``"replace"`` above rather than
+                # being opted into per call: enumerating "which calls are
+                # safe" has been wrong twice already, and being wrong at the
+                # ``fetch`` below would land between the snapshot commit and
+                # the salvage push — #3639's exact shape.
                 "-c",
                 "core.quotePath=true",
                 *args,
@@ -926,15 +933,30 @@ def _preserve_dirty_tree(
     try:
         try:
             # ``errors="replace"`` for the same reason the staged read below
-            # uses it, one layer earlier (#3639 re-review NB-3): ``git add``
-            # echoes the raw path in stderr messages that ``core.quotePath``
-            # does not cover (``unable to index file '<path>'``, ``'<path>/'
-            # does not have a commit checked out``), so a non-UTF-8 name in
-            # the tree raises ``UnicodeDecodeError`` inside ``run``. Under a
-            # strict decode that lands in the handler below and stamps
-            # ``INCOMPLETE:`` on a snapshot that may be perfectly complete —
-            # and disqualifies the soft branch — over a filename git only
-            # mentioned in passing.
+            # uses it (#3639 re-review NB-3): ``git add`` echoes the raw path
+            # in three stderr messages ``core.quotePath`` does not cover, so a
+            # non-UTF-8 name in the tree raises ``UnicodeDecodeError`` inside
+            # ``run`` under a strict decode. Two of them exit non-zero, so the
+            # snapshot would have been ``partial`` anyway::
+            #
+            #     error: unable to index file '<path>'
+            #     error: '<path>/' does not have a commit checked out
+            #
+            # The third is the one that turns a *complete* capture into a
+            # lie — it exits **0** (``check_embedded_repo`` in git's
+            # ``builtin/add.c``)::
+            #
+            #     warning: adding embedded git repository: <path>
+            #
+            # A strict decode raises on it all the same, and the handler below
+            # then stamps ``INCOMPLETE:`` on a snapshot nothing was missing
+            # from — and disqualifies the soft branch — over a filename git
+            # only mentioned in passing.
+            #
+            # Stated at the call site rather than left to the closure's
+            # default (R9 NB-3): ``git`` is a *parameter* here, so this
+            # function's contract is what pins the decode, not whatever
+            # ``_clean_reused_worktree``'s closure happens to default to.
             git(repo_dir, "add", "-A", "--ignore-errors", timeout=120, errors="replace")
         except Exception as add_error:  # partial index beats no index
             partial = True
@@ -990,8 +1012,17 @@ def _preserve_dirty_tree(
         # character in ``_MACHINE_STATE_FILE_GLOBS`` is ASCII — so a literal
         # position can neither gain nor lose a match, and ``*`` regions are
         # length-agnostic. Segment count is preserved for the same reason:
-        # ``/`` is 0x2F and never appears inside an invalid sequence. Keep the
-        # globs ASCII and this stays true of a new entry.
+        # ``/`` is 0x2F and never appears inside an invalid sequence.
+        #
+        # The forward-looking rule is "ASCII literals and ``*``", not merely
+        # "ASCII" (R9 NB-1): replacement is *not* length-preserving — a
+        # truncated multi-byte sequence collapses to a single U+FFFD — and
+        # ``?`` / ``[...]`` are ASCII but length-sensitive, so an entry like
+        # ``brc-memory-??.md`` would be ASCII and still lose a match its raw
+        # bytes had. Only ``*`` regions are length-agnostic.
+        # ``test_replacement_does_not_move_the_softening_decision`` asserts
+        # the glob set holds to that, so the rule is enforced rather than
+        # requested.
         #
         # The handler is deliberately ``Exception`` and not
         # ``UnicodeDecodeError`` (#3639 re-review B1). This read is *metadata

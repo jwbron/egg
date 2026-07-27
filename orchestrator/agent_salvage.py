@@ -85,7 +85,8 @@ _SLICE_WORKTREE_RE = re.compile(r"^(slice-[0-9]+)-(.+)$")
 # without a configured user, so an explicit identity is required for the
 # commit to succeed.
 _UNCOMMITTED_SALVAGE_MESSAGE = "[salvage] pre-crash working-tree state (#2807)"
-# Appended when ``git add -A`` reported errors, mirroring the re-attach path's
+# Appended when ``git add -A`` did not complete cleanly, mirroring the
+# re-attach path's
 # ``kubernetes_spawner._worktree._WIP_COMMIT_PARTIAL_SUFFIX`` (#3639). A
 # truncated snapshot is otherwise indistinguishable downstream from a complete
 # one — same subject, same ``egg/recovered/...`` ref. This path is the worse of
@@ -253,21 +254,31 @@ def _run_git(
 
     ``core.quotePath=true`` is pinned rather than inherited (#3639 re-review
     NB-3) and ``errors="replace"`` is passed to the decode. The two are
-    complementary, not redundant: the pin keeps *most* of git's output ASCII
-    for the ``commit`` / ``status`` / ``diff`` calls here, and costs nothing
-    because this path has no ``-z`` read to make quoting a problem. It does
-    **not** cover ``git add``, which echoes the raw path in at least two of
-    its stderr messages regardless of ``quotePath`` (#3639 re-review B1)::
+    complementary, not redundant, and the division between them is a *rule*,
+    not a list of calls (#3639 re-review R9 NB-4 — enumerating the safe calls
+    is what let B1 hide): ``quotePath`` governs **path** quoting and nothing
+    else, so it keeps the paths git echoes ASCII and costs nothing here (no
+    ``-z`` read to make quoting a problem), while every non-path byte git
+    emits is outside its reach and needs the non-strict decode:
 
-        error: unable to index file 'caf\\xe9.txt'
-        error: 'nested-caf\\xe9/' does not have a commit checked out
+    * ``git add`` echoes the raw path in stderr regardless of the setting
+      (#3639 re-review B1) — ``error: unable to index file 'caf\\xe9.txt'``,
+      ``error: 'nested-caf\\xe9/' does not have a commit checked out``, and
+      ``warning: adding embedded git repository: nested-caf\\xe9`` (that last
+      one exits **0**, so a strict decode fails an add that succeeded).
+    * :func:`list_unpushed_commits` formats ``%s`` and ``%an`` — commit
+      subjects and author names are raw object bytes, never quoted. Before
+      the non-strict decode, one non-UTF-8 subject in the salvage range
+      raised past *both* of that function's handlers (``UnicodeDecodeError``
+      is a ``ValueError``, not a ``SubprocessError``) and out of
+      :func:`salvage_worktree` entirely.
 
     Under a strict decode those bytes raise ``UnicodeDecodeError`` from
     inside :func:`subprocess.run` — before this function returns — which
     :func:`commit_working_tree` would swallow into "continuing", losing the
     whole working tree over one filename. That is #3639 itself. The
     non-strict decode is why it cannot happen; since no call here reads
-    ``-z`` output, replacement can only touch names that would otherwise
+    ``-z`` output, replacement can only touch bytes that would otherwise
     crash.
     """
     cmd = [
@@ -663,7 +674,7 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
     state. Staging and committing it onto the local work branch *before*
     salvage lets the recovery-ref push capture it.
 
-    A commit whose ``git add -A`` reported errors carries
+    A commit whose ``git add -A`` did not complete cleanly carries
     ``_UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX``: this path pushes to
     ``egg/recovered/...`` for manual triage but records nothing on the
     message bus, so the commit message is the only place a human or agent
@@ -674,11 +685,20 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
     failure here must not stop the committed-but-unpushed salvage that
     follows.
     """
-    if not _is_git_worktree(worktree.repo_path):
-        return None
-    if not _has_uncommitted_changes(worktree.repo_path):
-        return None
     try:
+        # Inside the ``try``, not before it (#3639 re-review R9 NB-5). Both
+        # guards run git, and ``_has_uncommitted_changes`` catches only
+        # ``(OSError, subprocess.SubprocessError)`` — so anything else raised
+        # there used to propagate out of a function whose docstring promises
+        # it never raises, past the handler below, and abort the
+        # committed-but-unpushed salvage in :func:`salvage_worktree` that has
+        # no guard of its own. Latent rather than live (``errors="replace"``
+        # closed the ``UnicodeDecodeError`` route through it), but the
+        # handler's coverage should match the promise it backs.
+        if not _is_git_worktree(worktree.repo_path):
+            return None
+        if not _has_uncommitted_changes(worktree.repo_path):
+            return None
         add = _run_git("add", "-A", "--ignore-errors", cwd=worktree.repo_path, check=False)
         partial = add.returncode != 0
         if partial:
@@ -741,7 +761,9 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
     # ``errors="replace"`` and the raise cannot happen there. This handler is
     # the second layer: catching it here rather than letting it escape keeps
     # a future decode gap from aborting the committed-but-unpushed salvage
-    # that follows. Note what it costs when it *does* fire — the caller reads
+    # that follows. It spans every git call in the body, the two entry guards
+    # included (R9 NB-5) — a "second layer" that skipped the first two calls
+    # would not be one. Note what it costs when it *does* fire — the caller reads
     # a WARNING about a hostile worktree, not about lost work — which is why
     # the non-strict decode, not this handler, is the fix for the case above.
     except Exception as e:
