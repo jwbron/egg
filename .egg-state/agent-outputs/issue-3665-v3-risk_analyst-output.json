@@ -1,0 +1,168 @@
+{
+  "pipeline_id": "issue-3665-v3",
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk assessment for issue #3665 supervision second pass plan",
+  "version": 1,
+  "summary": "PROCEED with all 5 slices. All technical claims verified against tree at main @ 1cd0c8ad7. Key risks: slice-2 high-risk hot-loop wiring (double-evaluation guard needed), tracker-None handling in TASK-1-2, log truncation prerequisite for loop detector. Plan is well-grounded, properly scoped (Tier 1&2 only), linear chain correct per #3046.",
+  "risk_assessment": {
+    "verdict": "PROCEED",
+    "overall_risk": "medium",
+    "slices": [
+      {
+        "id": "slice-1",
+        "name": "Populate EventStreamSnapshot fields",
+        "risk": "medium",
+        "verdict": "accept",
+        "notes": "Prerequisite for all downstream work. Exception-isolation documented in snapshot_from_health_context() docstring."
+      },
+      {
+        "id": "slice-2",
+        "name": "Wire detection plane into RUNTIME_TICK",
+        "risk": "high",
+        "verdict": "accept_with_mitigation",
+        "notes": "New code path on hot loop. Double-evaluation guard critical — _run_runtime_tick_checks() called from both _check_pod (line 219) and _reconciliation_sweep (line 621). Must be exception-isolated."
+      },
+      {
+        "id": "slice-3",
+        "name": "Deterministic loop detector",
+        "risk": "medium",
+        "verdict": "accept",
+        "notes": "Depends on slice-1's midturn_messages population. Log truncation fix (TASK-3-2) correctly sequenced."
+      },
+      {
+        "id": "slice-4",
+        "name": "Timeout visibility and classification",
+        "risk": "medium",
+        "verdict": "accept",
+        "notes": "Exit code -1 disambiguation via error message is correct. JOB_OUTCOME_TIMEOUT does not exist yet — confirmed."
+      },
+      {
+        "id": "slice-5",
+        "name": "Alert evidence + false-positive fixes",
+        "risk": "medium",
+        "verdict": "accept",
+        "notes": "TASK-5-3 depends on TASK-4-3 (soft dependency, correctly noted)."
+      }
+    ]
+  },
+  "verified_claims": [
+    {
+      "claim": "snapshot_from_health_context() populates only 5 of 13 EventStreamSnapshot fields",
+      "verified": true,
+      "evidence": "detection_plane.py:511-546 — only snapshot_id, pipeline_id, phase, running_agents, phase_state are set in the return statement"
+    },
+    {
+      "claim": "RunningAgent(role=str(cid)) uses container ID as role (bug)",
+      "verified": true,
+      "evidence": "detection_plane.py:536 — RunningAgent(role=str(cid), state='running', lifecycle_owner=lifecycle_owner)"
+    },
+    {
+      "claim": "_run_overseer_detection_plane() has zero call sites",
+      "verified": true,
+      "evidence": "_overseer.py:309 defines it; __init__.py:1277 imports it but never calls it"
+    },
+    {
+      "claim": "run_detection_plane() at runner.py:159 is never invoked",
+      "verified": true,
+      "evidence": "runner.py:159 defines it; grep shows no call sites in production code"
+    },
+    {
+      "claim": "_run_runtime_tick_checks() called from two sites (_check_pod and _reconciliation_sweep)",
+      "verified": true,
+      "evidence": "kubernetes_monitor.py:219 (in _check_pod) and :621 (in _reconciliation_sweep)"
+    },
+    {
+      "claim": "ClaudeConfig.timeout = 7200",
+      "verified": true,
+      "evidence": "sandbox/llm/claude/config.py:23"
+    },
+    {
+      "claim": "TimeoutError returns returncode=-1",
+      "verified": true,
+      "evidence": "shared/egg_agent/client.py:903-921"
+    },
+    {
+      "claim": "_classify_exit() treats -1 as FAILED",
+      "verified": true,
+      "evidence": "kubernetes_monitor.py:1148-1170 — only 0 and 143 are clean"
+    },
+    {
+      "claim": "agent_timeout_seconds does not exist in PipelineConfig",
+      "verified": true,
+      "evidence": "grep for agent_timeout in models/_config.py returns no results"
+    },
+    {
+      "claim": "JOB_OUTCOME_TIMEOUT does not exist",
+      "verified": true,
+      "evidence": "event_loop/__init__.py:172-177 — only RUNNING, SUCCESS, LEGITIMATE, ABNORMAL, FATAL, RATE_LIMITED"
+    },
+    {
+      "claim": "midturn_messages field never populated",
+      "verified": true,
+      "evidence": "detection_plane.py:126 defines it; snapshot_from_health_context() at :540-546 does not set it"
+    },
+    {
+      "claim": "read_job_log_snapshot truncates at ~100 chars",
+      "verified": true,
+      "evidence": "kubernetes_client.py:455 — tail_lines=2000, k8s log API truncates per-line"
+    },
+    {
+      "claim": "_broadcast_alert() sends minimal payload",
+      "verified": true,
+      "evidence": "overseer/monitor/_alerting.py:56-90 — only anomaly_type, agent_role, message, priority"
+    },
+    {
+      "claim": "Both _check_convergence_stall and _has_recent_peer_progress use get_latest_progress_timestamp",
+      "verified": true,
+      "evidence": "_loop.py:887 and health_monitor.py:458 both call tracker.get_latest_progress_timestamp()"
+    },
+    {
+      "claim": "Both use different gate windows",
+      "verified": true,
+      "evidence": "_loop.py:880 uses _pkg.get_idle_budget_minutes(); health_monitor.py:444 uses orchestrator_alert_progress_gate_seconds"
+    }
+  ],
+  "exclusions_verified": [
+    "No LLM classification on hot path — confirmed detect_loop/classify_activity_pattern use Haiku",
+    "No change to 2-hour timeout default — 7200s is reasonable per issue",
+    "No rebuild of overseer agent — input pipeline is the problem",
+    "No removal of HealthMonitor tripwires — wired and working via RUNTIME_TICK",
+    "Tier 3-5 are input to gate, not work queue — correctly excluded from plan"
+  ],
+  "acceptance_criteria_verified": [
+    "All 13 snapshot fields populated — TASK-1-6 tests this",
+    "Detection plane called from RUNTIME_TICK with double-eval guard — TASK-2-1, TASK-2-3",
+    "Deterministic unique-tool-input counter — TASK-3-1, TASK-3-3",
+    "Timeout-killed pods don't increment failure streak — TASK-4-3, TASK-4-5",
+    "Agent receives heartbeat warning — TASK-4-4, TASK-4-5",
+    "PipelineConfig.agent_timeout_seconds field — TASK-4-1",
+    "OVERSEER_ALERT payloads carry evidence — TASK-5-1, TASK-5-4",
+    "Unified timestamp source — TASK-5-2, TASK-5-4",
+    "Timeout alert says 'killed by 2h agent timeout' — TASK-5-3, TASK-5-4",
+    "Findings routed to alert surface — TASK-2-2, TASK-2-3"
+  ],
+  "grounding": {
+    "base": "main @ 1cd0c8ad7 (2026-07-27)",
+    "files_reviewed": [
+      "orchestrator/health_checks/detection_plane.py",
+      "orchestrator/health_checks/runner.py",
+      "orchestrator/routes/pipelines/_overseer.py",
+      "orchestrator/kubernetes_monitor.py",
+      "sandbox/llm/claude/config.py",
+      "shared/egg_agent/client.py",
+      "orchestrator/event_loop/_supervisor.py",
+      "orchestrator/event_loop/_loop.py",
+      "orchestrator/health_monitor.py",
+      "orchestrator/overseer/monitor/_alerting.py",
+      "orchestrator/models/_config.py",
+      "orchestrator/kubernetes_client.py",
+      "orchestrator/agent_log_store.py",
+      "sandbox/egg_lib/orch_cli/_message.py",
+      "orchestrator/event_loop/__init__.py",
+      "orchestrator/peer_consensus/_queries.py",
+      ".egg-state/drafts/issue-3665-v3-plan.md",
+      ".egg-state/agent-outputs/task_planner/issue-3665-v3-plan-task-planner.json"
+    ]
+  }
+}
