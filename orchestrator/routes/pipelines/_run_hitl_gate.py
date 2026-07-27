@@ -43,6 +43,17 @@ def _gate_wait_cancelled(store, pipeline_id: str) -> bool:
       deliberately carves out of ``_pipeline_cancelled`` — would bail here
       anyway, bypassing that carve-out.
 
+    Not bailing on ``FAILED`` is not the same as ignoring it, and the cost is
+    worth stating plainly: a ``FAILED`` PATCH sweeps the gate's decision, the
+    wait returns a decision with no ``resolution``, and the empty string is in
+    ``_APPROVE_KEYWORDS`` — so the gate reads it as an approval and advances
+    the phase. That is the lesser of the two evils (a false-positive
+    ``FAILED`` recovers to RUNNING under #1273, and stopping the driver on one
+    would strand a live pipeline), and no writer PATCHing ``status=FAILED``
+    through that route is known today. If one ever appears, the fix belongs in
+    the resolution parsing — an unset ``resolution`` on a swept decision is not
+    an approval — not in a ``FAILED`` bail here.
+
     Both *real* cancel paths (the PATCH route in ``_routes_crud.py`` and
     ``_cancel_pipeline_in_process`` in ``routes/decisions/_handlers.py``)
     persist ``CANCELLED`` **before** sweeping the queue, so by the time a
@@ -325,6 +336,17 @@ def _run_hitl_gate_converge(
                 )
                 return pipeline, "break"
 
+        # Check for an existing pending phase_gate decision for this
+        # phase.  A prior agent-exit event may
+        # have already created one — creating a duplicate confuses the
+        # human reviewer.  See #1152.
+        existing_pending_gate = any(
+            d.decision_type == "phase_gate"
+            and d.phase == current_phase
+            and d.status == _pkg.DecisionStatus.PENDING
+            for d in pipeline.decisions
+        )
+
         # Read the draft up front, before the reuse-vs-create branch below.
         # Both ``draft_content`` and ``phase_label`` are read unconditionally
         # further down — the follow-up decision in the "bare request changes"
@@ -345,30 +367,34 @@ def _run_hitl_gate_converge(
             branch=pipeline.branch,
         )
         # Warn if draft is missing — the agent may not have written
-        # it to the expected path.  See #1016.
+        # it to the expected path.  See #1016.  The warning stays scoped to
+        # the create arm, which is the arm that renders the draft into a new
+        # gate comment: the reuse arm never read the draft before the hoist
+        # above, so warning there would be new operator-facing noise about a
+        # draft nothing is about to show (#3633 review round 2). The
+        # placeholder is still bound on both arms — the follow-up prompt uses
+        # it as decision context regardless of which arm queued the gate.
         if draft_content is None:
-            _pkg.logger.warning(
-                "HITL gate: draft not found on work branch",
-                pipeline_id=pipeline_id,
-                phase=current_phase.value,
-                worktree_path=str(worktree_repo_path),
-            )
+            if existing_pending_gate:
+                _pkg.logger.debug(
+                    "HITL gate: draft not found on work branch (reusing an "
+                    "existing pending gate; not rendering a draft)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                    worktree_path=str(worktree_repo_path),
+                )
+            else:
+                _pkg.logger.warning(
+                    "HITL gate: draft not found on work branch",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                    worktree_path=str(worktree_repo_path),
+                )
             draft_content = (
                 f"**Warning**: No {phase_label} draft was found on the "
                 f"work branch. The agent may not have written the output "
                 f"to the expected path."
             )
-
-        # Check for an existing pending phase_gate decision for this
-        # phase.  A prior agent-exit event may
-        # have already created one — creating a duplicate confuses the
-        # human reviewer.  See #1152.
-        existing_pending_gate = any(
-            d.decision_type == "phase_gate"
-            and d.phase == current_phase
-            and d.status == _pkg.DecisionStatus.PENDING
-            for d in pipeline.decisions
-        )
 
         if existing_pending_gate:
             _pkg.logger.info(

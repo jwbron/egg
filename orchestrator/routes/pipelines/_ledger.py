@@ -957,6 +957,13 @@ def _await_unresolved_gap_gate(
         # here would overwrite the persisted CANCELLED that every driver work
         # loop keys on, re-admitting the run the operator just stopped
         # (#3633 review). Bail before the status write, not after it.
+        #
+        # Skipping the write is necessary but not sufficient: ``gated`` is the
+        # same value an ordinary gating returns, so the *caller* has to re-read
+        # the cancel and stop the driver. ``_run_implement_advance`` does, and
+        # must keep doing so — IMPLEMENT is terminal, so a driver that merely
+        # falls through here writes COMPLETE over the CANCELLED this bail just
+        # preserved (#3633 review round 2).
         if _pkg._pipeline_cancelled(store, pipeline_id):
             _pkg.logger.info(
                 "Unresolved-gap gate: pipeline cancelled while awaiting the "

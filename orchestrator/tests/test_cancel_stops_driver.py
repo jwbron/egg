@@ -1003,3 +1003,156 @@ def test_pre_spawn_guard_runs_before_spawn_all():
     # The executor owns a live event loop the moment it is constructed, so
     # bailing without stopping it would leak the very thing layer 2 stops.
     executor.stop_event_loop.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Layer 6 — the unresolved-gap gate's bail has to reach the driver
+# ---------------------------------------------------------------------------
+#
+# The gap gate is the one park-and-resume block whose caller, not the block
+# itself, decides the pipeline's fate. Skipping the RUNNING write leaves the
+# operator's CANCELLED intact for exactly as long as it takes control to
+# return to ``_run_pipeline``: IMPLEMENT is terminal
+# (``PHASE_TRANSITIONS[IMPLEMENT] == []``), so an unstopped driver walks
+# straight into its "pipeline complete" branch, writes COMPLETE over the
+# cancel, broadcasts "Pipeline completed successfully", and — now that the
+# ``finally`` no longer sees CANCELLED — deletes the worktrees ``restart_phase``
+# resumes from. The gate returning ``gated=True`` cannot be told apart from an
+# ordinary gating, so the stop has to be propagated explicitly (#3633 review
+# round 2). These tests drive the containing functions, not the gate alone.
+
+
+def _gap_contract(*, resolved: bool):
+    """A contract carrying one tester→coder gap, resolved or not."""
+    from egg_contracts.models import Contract
+
+    return Contract(
+        pipeline_id=PIPELINE_ID,
+        slices=[
+            {
+                "id": "slice-1",
+                "name": "n",
+                "tasks": [
+                    {
+                        "id": "task-1-2",
+                        "description": "d",
+                        "gaps": [
+                            {
+                                "id": "gap-1",
+                                "from_role": "tester",
+                                "to_role": "coder",
+                                "description": "no error-path test",
+                                "resolved": resolved,
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    )
+
+
+def _implement_pipeline(status=PipelineStatus.RUNNING) -> Pipeline:
+    pipeline = Pipeline(
+        id=PIPELINE_ID,
+        issue_number=3633,
+        repo="owner/repo",
+        branch=f"egg/{PIPELINE_ID}/work",
+        base_branch="main",
+        status=status,
+        current_phase=PipelinePhase.IMPLEMENT,
+    )
+    return pipeline
+
+
+def _run_implement_advance(*, cancel_during_wait: bool, resolution: str | None):
+    """Drive ``_run_implement_advance`` over the *real* gap gate.
+
+    ``cancel_during_wait`` models the operator's cancel as a store write that
+    lands while the gate is parked in ``wait_for_decision`` — the shape the
+    PATCH route produces (persist CANCELLED, then sweep the queue).
+    """
+    cell = _StatusCell(PipelineStatus.RUNNING)
+    saved: list[PipelineStatus] = []
+
+    decision = HITLDecision(
+        id="gap-gate-1",
+        question="Resolve the gap?",
+        decision_type="phase_gate",
+        phase=PipelinePhase.IMPLEMENT,
+        status=(DecisionStatus.CANCELLED if resolution is None else DecisionStatus.RESOLVED),
+        resolution=resolution,
+    )
+
+    def _wait(_decision_id):
+        if cancel_during_wait:
+            cell.cancel()
+        return decision
+
+    dq = MagicMock()
+    dq.queue_decision.return_value = decision
+    dq.wait_for_decision.side_effect = _wait
+
+    def _load(_pipeline_id):
+        # A fresh object per load, as the real store does — a shared one would
+        # let the gate's own AWAITING_HUMAN write mask the persisted cancel.
+        return _implement_pipeline(status=cell.status)
+
+    store = MagicMock()
+    store.load_pipeline.side_effect = _load
+    store.save_pipeline.side_effect = lambda p, *a, **k: saved.append(p.status)
+
+    spawner = MagicMock()
+
+    with (
+        patch.object(pipelines_pkg, "get_decision_queue", return_value=dq),
+        patch.object(pipelines_pkg, "get_pipeline_state_lock"),
+        patch.object(pipelines_pkg, "report_pipeline_status"),
+        patch.object(pipelines_pkg, "_emit_event", None),
+        patch.object(pipelines_pkg, "_commit_statefiles_to_worktree", return_value=True),
+        patch(
+            "egg_contracts.loader.load_contract",
+            side_effect=[_gap_contract(resolved=False), _gap_contract(resolved=True)],
+        ),
+    ):
+        pipeline, action = pipelines_pkg._run_implement_advance(
+            _implement_pipeline(),
+            current_phase=PipelinePhase.IMPLEMENT,
+            gateway_mode="public",
+            pipeline_id=PIPELINE_ID,
+            repo_path=Path("/repo"),
+            spawner=spawner,
+            store=store,
+            worktree_repo_path=Path("/tmp/egg-worktree"),
+        )
+    return action, saved, spawner
+
+
+def test_implement_advance_stops_the_driver_on_a_cancel_at_the_gap_gate():
+    """The gate's bail is only half the fix — its caller has to stop the driver.
+
+    Returning ``gated`` alone is indistinguishable from an ordinary gating, so
+    ``_run_pipeline`` fell through to the terminal-phase branch and overwrote
+    the operator's CANCELLED with COMPLETE.
+    """
+    action, saved, spawner = _run_implement_advance(cancel_during_wait=True, resolution=None)
+
+    assert action == "break", (
+        "a cancel inside the gap gate must stop the driver, not just skip the "
+        "gate's own RUNNING write"
+    )
+    assert PipelineStatus.RUNNING not in saved, (
+        "the gap gate rewrote the operator's CANCELLED back to RUNNING"
+    )
+    # A cancelled pipeline must not keep mutating the remote work branch.
+    spawner.gateway.push_worktree_branch.assert_not_called()
+
+
+def test_implement_advance_still_advances_after_a_genuine_gap_resolution():
+    """The bail must not swallow the ordinary path: an operator who resolves
+    the gap and approves gets the post-gate commit+push and a fall-through."""
+    action, saved, spawner = _run_implement_advance(cancel_during_wait=False, resolution="approve")
+
+    assert action is None, "a resolved gap gate must let the driver advance"
+    assert PipelineStatus.RUNNING in saved
+    spawner.gateway.push_worktree_branch.assert_called_once()
