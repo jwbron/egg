@@ -552,6 +552,69 @@ class HealthMonitor:
                 }
         return result
 
+    def _build_agent_evidence(self, agent_id: str) -> dict[str, Any]:
+        """Build structured evidence for an escalation about ``agent_id``.
+
+        Per #3665 priority 4: enriches OVERSEER_ALERT payloads with
+        per-agent activity ages so operators can act without hand-investigation.
+        Returns a dict with:
+
+        * ``latest_heartbeat_age_s`` — seconds since last heartbeat
+        * ``latest_progress_age_s`` — seconds since last progress event
+        * ``latest_tool_call_age_s`` — seconds since last CONTAINER_ACTIVITY
+        * ``last_progress_event`` — the most recent progress event data
+        * ``blocking_agents`` — the BRC consensus blocking set (if tracker
+          is available)
+
+        NOTE: This method does NOT acquire ``self._lock``. Callers that are
+        already inside a ``with self._lock:`` block (the escalation sites in
+        ``check_heartbeats``, ``check_progress``, etc.) must use
+        ``_build_agent_evidence_locked`` instead. Callers outside a lock
+        should use this method, which acquires the lock internally.
+        """
+        with self._lock:
+            return self._build_agent_evidence_locked(agent_id)
+
+    def _build_agent_evidence_locked(self, agent_id: str) -> dict[str, Any]:
+        """Build evidence for ``agent_id`` — caller MUST hold ``self._lock``.
+
+        Split from :meth:`_build_agent_evidence` to avoid deadlock: the
+        escalation sites in ``check_heartbeats`` / ``check_progress`` / etc.
+        already hold ``self._lock`` (a non-reentrant ``threading.Lock``), so
+        calling ``_build_agent_evidence`` (which re-acquires the lock) would
+        deadlock.
+        """
+        now = time.time()
+        evidence: dict[str, Any] = {}
+
+        agent = self._agents.get(agent_id)
+        if agent is not None:
+            evidence["latest_heartbeat_age_s"] = now - agent.last_heartbeat
+            evidence["latest_progress_age_s"] = now - agent.last_progress
+            if agent.last_activity > _NEVER_SEEN_ACTIVITY:
+                evidence["latest_tool_call_age_s"] = now - agent.last_activity
+            else:
+                evidence["latest_tool_call_age_s"] = None
+            evidence["last_progress_event"] = dict(agent.last_progress_data)
+
+        # BRC blocking set (best-effort — does not need the lock)
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+
+            tracker = get_peer_consensus_tracker(self._pipeline_id)
+            if tracker is not None:
+                consensus = tracker.evaluate()
+                evidence["blocking_agents"] = consensus.get("blocking_agents", [])
+                evidence["consensus_state"] = {
+                    "is_complete": consensus.get("is_complete", False),
+                    "producer_phases": dict(tracker._producer_phases),
+                    "reviewer_phases": dict(tracker._reviewer_phases),
+                }
+        except Exception:
+            pass
+
+        return evidence
+
     def _is_brc_idle(self, agent_id: str) -> bool:
         """Check if an agent is idle waiting for BRC upstream producers.
 
@@ -764,6 +827,8 @@ class HealthMonitor:
             "reason": f"Container exited unexpectedly (exit code {exit_code})",
             "exit_code": exit_code,
             "timestamp": datetime.now(UTC).isoformat(),
+            # #3665 priority 4: bundle structured evidence
+            "evidence": self._build_agent_evidence(agent_id),
         }
 
         with self._lock:
@@ -982,6 +1047,9 @@ class HealthMonitor:
                 "agent_id": agent_id,
                 "reason": action["reason"],
                 "timestamp": datetime.now(UTC).isoformat(),
+                # #3665 priority 4: bundle structured evidence so operators
+                # can act without hand-investigation.
+                "evidence": self._build_agent_evidence(agent_id),
             }
 
             with self._lock:
@@ -1002,6 +1070,8 @@ class HealthMonitor:
                         "message": action["reason"],
                         "severity": "warning",
                         "timestamp": datetime.now(UTC).isoformat(),
+                        # #3665 priority 4: include evidence in the alert record
+                        "evidence": self._build_agent_evidence_locked(agent_id),
                     }
                 )
 
@@ -1106,6 +1176,8 @@ class HealthMonitor:
                 "agent_id": agent_id,
                 "reason": action["reason"],
                 "timestamp": datetime.now(UTC).isoformat(),
+                # #3665 priority 4: bundle structured evidence
+                "evidence": self._build_agent_evidence(agent_id),
             }
 
             with self._lock:
@@ -1121,6 +1193,8 @@ class HealthMonitor:
                         "message": action["reason"],
                         "severity": "warning",
                         "timestamp": datetime.now(UTC).isoformat(),
+                        # #3665 priority 4: include evidence in the alert record
+                        "evidence": self._build_agent_evidence_locked(agent_id),
                     }
                 )
 
@@ -1158,6 +1232,8 @@ class HealthMonitor:
             "error_message": error_msg,
             "count": count,
             "timestamp": datetime.now(UTC).isoformat(),
+            # #3665 priority 4: bundle structured evidence
+            "evidence": self._build_agent_evidence(agent_id),
         }
 
         with self._lock:
@@ -1279,6 +1355,8 @@ class HealthMonitor:
                 "reason": action["reason"],
                 "blocker": blocker,
                 "timestamp": datetime.now(UTC).isoformat(),
+                # #3665 priority 4: bundle structured evidence
+                "evidence": self._build_agent_evidence(agent_id),
             }
 
             with self._lock:
@@ -1419,6 +1497,8 @@ class HealthMonitor:
                     "alert_type": "brc_confirmation_timeout",
                     "elapsed_seconds": int(elapsed),
                     "timestamp": datetime.now(UTC).isoformat(),
+                    # #3665 priority 4: bundle structured evidence
+                    "evidence": self._build_agent_evidence_locked(producer),
                 }
                 escalations.append(escalation)
 
@@ -1432,6 +1512,8 @@ class HealthMonitor:
                         "message": action["reason"],
                         "severity": "warning",
                         "timestamp": datetime.now(UTC).isoformat(),
+                        # #3665 priority 4: include evidence in the alert record
+                        "evidence": self._build_agent_evidence_locked(producer),
                     }
                 )
 

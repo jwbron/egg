@@ -955,6 +955,49 @@ def _check_convergence_stall(self) -> None:
                 slice_id=self.slice_id,
                 phase=self.phase,
             )
+            # #3665 priority 4: bundle structured evidence so operators can
+            # act without hand-investigation.
+            evidence: dict[str, Any] = {
+                "agent_role": role,
+                "derived_action": action,
+                "elapsed_seconds": int(elapsed),
+                "budget_seconds": budget_sec,
+            }
+            try:
+                from health_monitor import get_health_monitor
+
+                hm = get_health_monitor()
+                if hm is not None:
+                    activity = hm.get_agent_activity_ages()
+                    agent_info = activity.get(role)
+                    if agent_info is not None:
+                        evidence["latest_heartbeat_age_s"] = agent_info.get(
+                            "last_heartbeat_age_s"
+                        )
+                        evidence["latest_tool_call_age_s"] = agent_info.get(
+                            "last_activity_age_s"
+                        )
+                        evidence["latest_progress_age_s"] = agent_info.get(
+                            "last_progress_age_s"
+                        )
+            except Exception:
+                pass
+
+            try:
+                from peer_consensus import get_peer_consensus_tracker
+
+                tracker = get_peer_consensus_tracker(self.pipeline_id)
+                if tracker is not None:
+                    consensus = tracker.evaluate()
+                    evidence["blocking_agents"] = consensus.get("blocking_agents", [])
+                    evidence["consensus_state"] = {
+                        "is_complete": consensus.get("is_complete", False),
+                        "producer_phases": dict(tracker._producer_phases),
+                        "reviewer_phases": dict(tracker._reviewer_phases),
+                    }
+            except Exception:
+                pass
+
             self._convergence_stall_notifier(
                 anomaly=_pkg._idle_budget_anomaly_name(),
                 priority="high",
@@ -970,6 +1013,7 @@ def _check_convergence_stall(self) -> None:
                     f"without BRC-bus progress (budget={budget_min}m). "
                     f"No in-flight Job exists for this event."
                 ),
+                evidence=evidence,
             )
 
 
