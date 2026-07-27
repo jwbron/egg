@@ -237,8 +237,11 @@ Under orchestrator ownership the worktree becomes a hot path.
    `core.quotePath` C-quoted tokens, which means a filename that is not
    valid UTF-8 would be undecodable under `subprocess`'s strict `text=True`
    decode; the read passes `errors="replace"`, so one bad name costs one
-   name (a U+FFFD in `wip_paths`, which matches no softening glob) rather
-   than the whole path set. Anything that still defeats that read — a
+   name (a U+FFFD in `wip_paths`) rather than the whole path set. That
+   replacement does not move the softening decision in either direction:
+   every non-`*` character in the softening globs is ASCII and replacement
+   only substitutes non-ASCII for non-ASCII, so a replaced path matches
+   exactly the globs its raw bytes would. Anything that still defeats that read — a
    timeout on a large staged set, a non-zero `diff` against a locked index
    — logs a WARNING and commits blind (`wip_paths`/`wip_files` become
    `null`, so the record takes the imperative) rather than letting a

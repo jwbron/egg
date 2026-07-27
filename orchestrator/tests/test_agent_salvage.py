@@ -640,6 +640,69 @@ class TestSalvageUncommitted:
         # complete one.
         assert "INCOMPLETE" in _git("log", "-1", "--format=%B", cwd=wt.repo_path).stdout
 
+    def test_add_stderr_decode_is_non_strict(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``_run_git`` must never decode git's output strictly (R9 B1).
+
+        The ``core.quotePath=true`` pin keeps the ``commit``/``status``/
+        ``diff`` output ASCII, but it does **not** cover ``git add``: two of
+        its stderr messages echo the path raw regardless of the setting. A
+        strict decode therefore raises ``UnicodeDecodeError`` from inside
+        ``subprocess.run`` on a worktree holding a non-UTF-8 name, and
+        :func:`commit_working_tree`'s ``except Exception`` turns the whole
+        lost working tree into a "continuing" WARNING — #3639 on the #2807
+        path. Pinned at the argv level as well as end-to-end below, because
+        the end-to-end fixture needs a filesystem that accepts raw bytes.
+        """
+        import agent_salvage
+
+        seen: dict[str, object] = {}
+
+        def _capture(cmd, **kwargs):
+            seen.update(kwargs)
+            seen["cmd"] = cmd
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(agent_salvage.subprocess, "run", _capture)
+        agent_salvage._run_git("add", "-A", cwd=Path("/tmp"), check=False)
+
+        assert seen["errors"] == "replace"
+        # The pin is complementary, not superseded: it still keeps the
+        # quoted-output calls ASCII.
+        assert "core.quotePath=true" in seen["cmd"]
+
+    def test_hostile_filename_does_not_cost_the_whole_working_tree(self, tmp_path: Path) -> None:
+        """One undecodable name must not discard hours of uncommitted work (R9 B1).
+
+        The seed is a nested repo with no commit checked out whose directory
+        name is latin-1: ``git add -A --ignore-errors`` reports ``error:
+        '<name>/' does not have a commit checked out`` with the path echoed
+        **raw** — a message ``core.quotePath`` does not quote — and keeps
+        going, so the real work still reaches the index. The only thing that
+        decides whether it is committed or handed to the gateway's reset is
+        whether ``_run_git`` can decode that stderr.
+
+        A latin-1 name is not exotic here: extracted archives (CP437/latin-1
+        entry names), fixtures written with raw bytes, and agent-cloned
+        nested repos all produce them.
+        """
+        import os
+
+        wt = self._clean_worktree(tmp_path)
+        (wt.repo_path / "work.py").write_text("def hours_of_work():\n    return 1\n")
+        nested = wt.repo_path / os.fsdecode(b"nested-caf\xe9")
+        nested.mkdir()
+        _git("init", "-q", cwd=nested)
+
+        sha = commit_working_tree(wt)
+
+        assert sha is not None, "the tree was lost to one filename"
+        assert (
+            _git("show", f"{sha}:work.py", cwd=wt.repo_path).stdout
+            == "def hours_of_work():\n    return 1\n"
+        )
+        # The add did report an error, so the snapshot is honestly labelled.
+        assert "INCOMPLETE" in _git("log", "-1", "--format=%B", cwd=wt.repo_path).stdout
+
     def test_complete_salvage_commit_is_not_marked_incomplete(self, tmp_path: Path) -> None:
         """The clean path must not carry the truncation marker."""
         wt = self._clean_worktree(tmp_path)

@@ -252,12 +252,23 @@ def _run_git(
     and lose the working tree it exists to save.
 
     ``core.quotePath=true`` is pinned rather than inherited (#3639 re-review
-    NB-3). Every call here decodes with ``text=True`` and no ``errors=``, so
-    git output that echoes a filename verbatim raises ``UnicodeDecodeError``
-    the moment a path in the worktree is not valid UTF-8. The default
-    C-quote-encodes those bytes to ASCII and is what keeps that from
-    happening; a worktree that inherited ``quotePath=false`` would break it.
-    Costs nothing — this path has no ``-z`` read to make quoting a problem.
+    NB-3) and ``errors="replace"`` is passed to the decode. The two are
+    complementary, not redundant: the pin keeps *most* of git's output ASCII
+    for the ``commit`` / ``status`` / ``diff`` calls here, and costs nothing
+    because this path has no ``-z`` read to make quoting a problem. It does
+    **not** cover ``git add``, which echoes the raw path in at least two of
+    its stderr messages regardless of ``quotePath`` (#3639 re-review B1)::
+
+        error: unable to index file 'caf\\xe9.txt'
+        error: 'nested-caf\\xe9/' does not have a commit checked out
+
+    Under a strict decode those bytes raise ``UnicodeDecodeError`` from
+    inside :func:`subprocess.run` — before this function returns — which
+    :func:`commit_working_tree` would swallow into "continuing", losing the
+    whole working tree over one filename. That is #3639 itself. The
+    non-strict decode is why it cannot happen; since no call here reads
+    ``-z`` output, replacement can only touch names that would otherwise
+    crash.
     """
     cmd = [
         "git",
@@ -275,6 +286,7 @@ def _run_git(
         cmd,
         capture_output=True,
         text=True,
+        errors="replace",
         check=check,
         timeout=timeout,
     )
@@ -720,14 +732,18 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
     # Deliberately broader than the ``(OSError, subprocess.SubprocessError)``
     # the read helpers above use, and broader than it needs to be today. The
     # docstring promises this never raises, and the class that would break
-    # that promise is not a subprocess error: ``_run_git`` decodes with
-    # ``text=True`` and no ``errors=``, so a git command that echoes a
+    # that promise is not a subprocess error: a git command that echoes a
     # filename whose bytes are not valid UTF-8 raises ``UnicodeDecodeError``
-    # (a ``ValueError``) from inside ``subprocess.run``. Unreachable on this
-    # path today — it has no ``-z`` call and the default ``core.quotePath``
-    # keeps git's output ASCII — but the re-attach path shipped exactly that
-    # bug by adding ``-z`` (#3639 re-review B1), and letting it escape here
-    # would abort the committed-but-unpushed salvage that follows.
+    # (a ``ValueError``) from inside ``subprocess.run``, before ``_run_git``
+    # returns. That is a live input class on this path — ``git add``'s
+    # stderr echoes the raw path in messages ``core.quotePath`` does not
+    # cover (#3639 re-review B1) — so ``_run_git`` decodes with
+    # ``errors="replace"`` and the raise cannot happen there. This handler is
+    # the second layer: catching it here rather than letting it escape keeps
+    # a future decode gap from aborting the committed-but-unpushed salvage
+    # that follows. Note what it costs when it *does* fire — the caller reads
+    # a WARNING about a hostile worktree, not about lost work — which is why
+    # the non-strict decode, not this handler, is the fix for the case above.
     except Exception as e:
         logger.warning(
             "Salvage: capturing uncommitted working tree raised; continuing",

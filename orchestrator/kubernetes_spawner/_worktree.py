@@ -441,10 +441,13 @@ def _clean_reused_worktree(
                 "-c",
                 "commit.gpgsign=false",
                 # Pinned, not inherited (#3639 re-review NB-3). Every command
-                # here runs under ``text=True`` with a strict UTF-8 decode, so
-                # any git output that echoes a filename verbatim raises
-                # ``UnicodeDecodeError`` from inside ``run`` the moment a path
-                # in this tree is not valid UTF-8. The default
+                # here that does not opt into ``errors="replace"`` runs under
+                # a strict UTF-8 decode, so any git output that echoes a
+                # filename verbatim raises ``UnicodeDecodeError`` from inside
+                # ``run`` the moment a path in this tree is not valid UTF-8.
+                # (The two calls that *do* opt in are the ones git leaves
+                # unquoted regardless of this setting: the ``-z`` staged read,
+                # and ``add``, whose stderr echoes raw paths.) The default
                 # ``core.quotePath=true`` C-quote-encodes those bytes to ASCII
                 # and is what keeps ``status --porcelain`` and ``clean -fd``
                 # decodable; a worktree that inherited ``quotePath=false``
@@ -922,7 +925,17 @@ def _preserve_dirty_tree(
     partial = False
     try:
         try:
-            git(repo_dir, "add", "-A", "--ignore-errors", timeout=120)
+            # ``errors="replace"`` for the same reason the staged read below
+            # uses it, one layer earlier (#3639 re-review NB-3): ``git add``
+            # echoes the raw path in stderr messages that ``core.quotePath``
+            # does not cover (``unable to index file '<path>'``, ``'<path>/'
+            # does not have a commit checked out``), so a non-UTF-8 name in
+            # the tree raises ``UnicodeDecodeError`` inside ``run``. Under a
+            # strict decode that lands in the handler below and stamps
+            # ``INCOMPLETE:`` on a snapshot that may be perfectly complete —
+            # and disqualifies the soft branch — over a filename git only
+            # mentioned in passing.
+            git(repo_dir, "add", "-A", "--ignore-errors", timeout=120, errors="replace")
         except Exception as add_error:  # partial index beats no index
             partial = True
             logger.warning(
@@ -966,9 +979,19 @@ def _preserve_dirty_tree(
         # replacing across the whole stream is equivalent to decoding each
         # path separately. ``surrogateescape`` was rejected: lone surrogates
         # are unencodable by ``json.dumps`` and by a UTF-8 DB driver, which
-        # would move the failure downstream into the message bus. A replaced
-        # name still fails every glob in :func:`_path_matches_glob`, so it can
-        # only cost the softened wording, never grant it.
+        # would move the failure downstream into the message bus.
+        #
+        # Replacement does not perturb :func:`_path_matches_glob` at all — a
+        # replaced path matches exactly the globs the raw bytes would (#3639
+        # re-review NB-2). It is NOT that a U+FFFD fails every glob: the
+        # ``*`` in ``brc-memory*.md`` swallows one happily. The property is
+        # that replacement is confined to non-ASCII: every byte in an invalid
+        # sequence is >= 0x80, U+FFFD is non-ASCII too, and every non-``*``
+        # character in ``_MACHINE_STATE_FILE_GLOBS`` is ASCII — so a literal
+        # position can neither gain nor lose a match, and ``*`` regions are
+        # length-agnostic. Segment count is preserved for the same reason:
+        # ``/`` is 0x2F and never appears inside an invalid sequence. Keep the
+        # globs ASCII and this stays true of a new entry.
         #
         # The handler is deliberately ``Exception`` and not
         # ``UnicodeDecodeError`` (#3639 re-review B1). This read is *metadata
@@ -1171,7 +1194,9 @@ def _record_discarded_tip(
     soft branch states the paths themselves, so the count is redundant
     there and is not rendered.)
 
-    ``wip_partial`` marks a snapshot whose ``git add -A`` reported errors.
+    ``wip_partial`` marks a snapshot whose ``git add -A`` did not complete
+    cleanly — a non-zero exit, or a raise (timeout, undecodable stderr) with
+    no exit status at all, so the neutral phrasing is the only checkable one.
     It is surfaced because an agent that cherry-picks a silently truncated
     snapshot fails worse than one told the snapshot is truncated, and it
     also *disqualifies* the soft branch: a truncated capture's path list
@@ -1195,8 +1220,8 @@ def _record_discarded_tip(
     # wording is an opt-in for the demonstrably trivial case, never a default.
     #
     # ``wip_partial`` disqualifies the soft branch for the same reason
-    # ``wip_paths=None`` does. When ``git add -A`` reported errors the path
-    # list is *by construction* only the subset that reached the index — the
+    # ``wip_paths=None`` does. When ``git add -A`` did not complete cleanly the
+    # path list is *by construction* only the subset that reached the index — the
     # files that failed to stage are absent from it — so "every captured path
     # is a state file" says nothing about what was in the tree. A partial
     # capture is missing evidence by another name, and softening must never
@@ -1299,9 +1324,9 @@ def _record_discarded_tip(
     else:
         wip_text = ""
     partial_text = (
-        " WARNING: `git add -A` reported errors while taking this snapshot, so "
-        "it may be INCOMPLETE — files the previous session's working tree held "
-        "may be missing from it."
+        " WARNING: `git add -A` did not complete cleanly while taking this "
+        "snapshot, so it may be INCOMPLETE — files the previous session's "
+        "working tree held may be missing from it."
         if wip_commit and wip_partial
         else ""
     )
