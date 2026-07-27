@@ -14,6 +14,8 @@ import json
 import sys
 from unittest.mock import MagicMock
 
+import pytest
+
 # Mock heavy dependencies that pipelines.py imports at module level
 _docker_mock = MagicMock()
 sys.modules.setdefault("docker", _docker_mock)
@@ -1638,7 +1640,7 @@ class TestPhaseGateResolutionPersistence:
         assert len(updated.decisions) == 0
 
     def test_phase_gate_resolution_plain_text(self, tmp_path):
-        """When resolution is a plain string (not JSON), it should be used as-is."""
+        """A free-text resolution that is not an option word is used as-is."""
         from egg_contracts.loader import load_contract, save_contract
         from egg_contracts.models import Contract
         from routes.pipelines import _persist_phase_gate_resolution
@@ -1646,7 +1648,7 @@ class TestPhaseGateResolutionPersistence:
         contract = Contract(pipeline_id="test-pipe")
         save_contract(contract, tmp_path)
 
-        decision = self._make_decision("approve")
+        decision = self._make_decision("Use the adapter pattern for the refactor")
 
         _persist_phase_gate_resolution(
             tmp_path,
@@ -1658,7 +1660,138 @@ class TestPhaseGateResolutionPersistence:
 
         updated = load_contract("test-pipe", tmp_path)
         assert len(updated.decisions) == 1
-        assert updated.decisions[0].resolution == "approve"
+        assert updated.decisions[0].resolution == "Use the adapter pattern for the refactor"
+
+    @pytest.mark.parametrize("resolution", ["approve", "LGTM", "Approved.", "yes"])
+    def test_bare_approval_without_context_is_excluded(self, tmp_path, resolution):
+        """A bare option word is process control, not human guidance.
+
+        ``docs/hitl-decisions.md``: "Plain phase gate approvals (without
+        context) are excluded from sync as they are process control." The
+        structured ``{"action": "approve"}`` form already honoured that via
+        the early return; the bare form stored the option word verbatim, so
+        the contract gained a ``decision-N`` whose entire resolution is the
+        word ``approve`` and the draft gained a ``## HITL Resolution``
+        section saying the same (#3636 review).
+        """
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines import _persist_phase_gate_resolution
+
+        contract = Contract(pipeline_id="test-pipe")
+        save_contract(contract, tmp_path)
+
+        draft_dir = tmp_path / ".egg-state" / "drafts"
+        draft_dir.mkdir(parents=True)
+        draft_path = draft_dir / "test-pipe-analysis.md"
+        draft_path.write_text("# Refine Draft\n\nSome analysis content.\n")
+
+        _persist_phase_gate_resolution(
+            tmp_path,
+            "test-pipe",
+            self._make_decision(resolution),
+            "refine",
+            None,
+        )
+
+        updated = load_contract("test-pipe", tmp_path)
+        assert updated.decisions == []
+        assert "## HITL Resolution" not in draft_path.read_text()
+
+    def test_bare_approval_with_a_note_persists_only_the_note(self, tmp_path):
+        """The option word is stripped, so one note is not spelled two ways.
+
+        The gate threads ``_bare_approve_context`` — the remainder after the
+        option word — into the re-run as ``Operator note at the gate``. Before
+        this, the contract and draft got the whole string with ``approve``
+        glued on, so the same note had two renderings in one pipeline. And
+        this shape only reaches here at all because of #3636: pre-fix it
+        failed the whole-string keyword test and returned before the persist
+        call.
+        """
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines import _persist_phase_gate_resolution
+
+        contract = Contract(pipeline_id="test-pipe")
+        save_contract(contract, tmp_path)
+
+        draft_dir = tmp_path / ".egg-state" / "drafts"
+        draft_dir.mkdir(parents=True)
+        draft_path = draft_dir / "test-pipe-analysis.md"
+        draft_path.write_text("# Refine Draft\n\nSome analysis content.\n")
+
+        _persist_phase_gate_resolution(
+            tmp_path,
+            "test-pipe",
+            self._make_decision("approve\n\nUse Postgres, not Mongo."),
+            "refine",
+            None,
+        )
+
+        updated = load_contract("test-pipe", tmp_path)
+        assert [d.resolution for d in updated.decisions] == ["Use Postgres, not Mongo."]
+        draft = draft_path.read_text()
+        assert "Use Postgres, not Mongo." in draft
+        assert "approve\n\nUse Postgres" not in draft
+
+    def test_bare_change_request_persists_only_the_specifics(self, tmp_path):
+        """``_routes_lifecycle`` persists non-approvals too, so they must land.
+
+        The classifier's non-approve arm returns the remainder as feedback;
+        dropping it would lose a change request's specifics on the
+        ``AWAITING_HUMAN`` recovery path, which calls this helper outside the
+        gate's approve-only branch.
+        """
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines import _persist_phase_gate_resolution
+
+        contract = Contract(pipeline_id="test-pipe")
+        save_contract(contract, tmp_path)
+
+        _persist_phase_gate_resolution(
+            tmp_path,
+            "test-pipe",
+            self._make_decision("request changes\n\nThe rollback path is missing."),
+            "refine",
+            None,
+        )
+
+        updated = load_contract("test-pipe", tmp_path)
+        assert [d.resolution for d in updated.decisions] == ["The rollback path is missing."]
+
+    def test_whitespace_only_context_is_skipped(self, tmp_path):
+        """A blank ``context`` must be falsy for the ledger as it is for the gate.
+
+        The gate ``.strip()``s its own read, so a whitespace-only ``context``
+        threads no operator note; without the matching strip here the ledger
+        persisted a blank contract resolution and an empty ``## HITL
+        Resolution`` section (#3636 review).
+        """
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines import _persist_phase_gate_resolution
+
+        contract = Contract(pipeline_id="test-pipe")
+        save_contract(contract, tmp_path)
+
+        draft_dir = tmp_path / ".egg-state" / "drafts"
+        draft_dir.mkdir(parents=True)
+        draft_path = draft_dir / "test-pipe-analysis.md"
+        draft_path.write_text("# Refine Draft\n\nSome analysis content.\n")
+
+        _persist_phase_gate_resolution(
+            tmp_path,
+            "test-pipe",
+            self._make_decision(json.dumps({"action": "approve", "context": "   \n  "})),
+            "refine",
+            None,
+        )
+
+        updated = load_contract("test-pipe", tmp_path)
+        assert updated.decisions == []
+        assert "## HITL Resolution" not in draft_path.read_text()
 
     def test_phase_gate_resolution_deduplication(self, tmp_path):
         """Calling twice with the same decision should not create duplicate entries."""

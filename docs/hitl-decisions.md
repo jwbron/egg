@@ -660,6 +660,15 @@ Resolutions are sent as JSON objects so the pipeline can parse the human's inten
 | Change approach | `{"action": "change_approach", "feedback": "..."}` | Re-run with different direction |
 | Submit feedback | `{"action": "submit_feedback", "answers": {...}}` | Structured answers |
 
+A falsy `context` / `feedback` — `null`, `""`, `{}`, `[]`, `false`, `0` — is
+treated as an *absent* field, not as content: an approve carries no operator
+note, and a request-changes takes the "you didn't provide specific feedback"
+follow-up rather than re-running the phase against a serialisation of the empty
+value (`_coerce_gate_resolution_text` in `_run_support.py`). A non-string value
+that *is* truthy is rendered as JSON rather than dropped or crashed on, so a
+`{"note": "ship it"}` context still reaches the producers, contract, and draft
+in one spelling.
+
 The pipeline runner parses JSON payloads first, falling back to bare-string
 first-line matching for backward compatibility. The gate lives in
 `orchestrator/routes/pipelines/_run_hitl_gate.py`; the shared bare-string
@@ -687,6 +696,14 @@ Matching is on the whole first line, so only the option-word-plus-justification
 shape is treated as a selection. Trailing sentence punctuation on the option
 word (`Approved.`, `LGTM!`) is ignored — but a first line consisting *only* of
 punctuation never approves; only a wholly empty resolution does.
+
+`_persist_phase_gate_resolution` runs the same classifier before writing to the
+contract and draft, so the bare and structured forms agree: a plain `approve`
+yields no context and is excluded from sync (the process-control rule under
+[Overview](#overview) above), and `approve` +
+justification persists the **remainder only** — the same text the gate threads
+into the re-run as `Operator note at the gate`, not the note with the option
+word glued on.
 
 **Caveat — a leading bare approve word makes the rest advisory.** `yes` on the
 first line approves, so `yes` / `but only after you fix the rollback path` on

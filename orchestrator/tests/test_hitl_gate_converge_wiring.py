@@ -408,6 +408,11 @@ class TestNonStringPayloadFields:
         "feedback": {}}`` for an empty field would skip the follow-up prompt
         and re-run the whole phase against a two-character serialisation
         (#3636 review).
+
+        Note the four container params are the ones that exercise the
+        ``if not value`` branch; ``'""'`` returns earlier, at the
+        ``isinstance(value, str)`` pass-through, and is kept only to pin that
+        the empty *string* reaches the same follow-up.
         """
         dq = FakeDecisionQueue([f'{{"action": "request_changes", "feedback": {empty}}}', "approve"])
 
@@ -446,6 +451,56 @@ class TestContractPersistenceWithoutTheStub:
         assert action is None
         updated = load_contract("issue-3636", gate_env["repo_path"])
         assert [d.resolution for d in updated.decisions] == ['{"note": "ship it"}']
+
+    def test_bare_approve_is_process_control_and_does_not_reach_the_contract(self, gate_env):
+        """``approve`` alone is what the gate's own options produce.
+
+        The structured form skips the contract write (nothing to propagate);
+        the bare form stored the option word verbatim, so plan- and
+        implement-phase agents loading ``contract.decisions`` read a
+        process-control no-op presented as human guidance (#3636 review).
+        """
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines._ledger import _persist_phase_gate_resolution
+
+        save_contract(Contract(pipeline_id="issue-3636"), gate_env["repo_path"])
+        dq = FakeDecisionQueue(["approve"])
+
+        with patch(
+            "routes.pipelines._persist_phase_gate_resolution",
+            _persist_phase_gate_resolution,
+        ):
+            _pipeline, action = _run(gate_env, dq)
+
+        assert action is None
+        updated = load_contract("issue-3636", gate_env["repo_path"])
+        assert updated.decisions == []
+
+    def test_bare_approve_with_a_note_persists_the_note_without_the_option_word(self, gate_env):
+        """One note, one spelling.
+
+        The gate strips the option word everywhere it uses the remainder
+        (``_bare_approve_context`` → the ``Operator note at the gate`` re-run
+        line, ``approve_context_preview``); only the contract and draft got
+        it with ``approve`` glued on.
+        """
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Contract
+        from routes.pipelines._ledger import _persist_phase_gate_resolution
+
+        save_contract(Contract(pipeline_id="issue-3636"), gate_env["repo_path"])
+        dq = FakeDecisionQueue(["approve\n\nUse Postgres, not Mongo."])
+
+        with patch(
+            "routes.pipelines._persist_phase_gate_resolution",
+            _persist_phase_gate_resolution,
+        ):
+            _pipeline, action = _run(gate_env, dq)
+
+        assert action is None
+        updated = load_contract("issue-3636", gate_env["repo_path"])
+        assert [d.resolution for d in updated.decisions] == ["Use Postgres, not Mongo."]
 
 
 class TestExistingPendingGateReuse:
