@@ -104,11 +104,43 @@
         {
           "id": "opt-1",
           "label": "Pipeline-level only",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "Per-role overrides",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "cq-3",
+      "question": "Livelock recovery action: When the detector fires, should the corrective vocabulary nudge the agent with a loop description, or respawn the agent?",
+      "type": "hitl",
+      "phase": "plan",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Nudge the agent",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Respawn the agent",
           "description": null
         },
         {
@@ -211,6 +243,44 @@
         "debounce_until": null
       },
       "reason": "Created HITL decision: Two-hour timeout: Should the agent_timeout_seconds...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-27T07:29:53.084638Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-3",
+        "question": "Livelock recovery action: When the detector fires, should the corrective vocabulary nudge the agent with a loop description, or respawn the agent?",
+        "type": "hitl",
+        "phase": "plan",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Nudge the agent",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Respawn the agent",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Livelock recovery action: When the detector fires,...",
       "checkpoint_id": null
     }
   ],
