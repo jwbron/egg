@@ -860,7 +860,20 @@ def _preserve_dirty_tree(
                 dirty_state_unknown=state_unknown,
                 error=str(add_error),
             )
-        staged = git(repo_dir, "diff", "--cached", "--name-only", timeout=60).stdout.strip()
+        # ``-z`` (NUL-terminated, unmunged bytes) rather than the newline
+        # form: with the default ``core.quotePath=true`` git C-quote-encodes
+        # any path holding non-ASCII or control characters, so
+        # ``.egg-state/agent-outputs/coder/brc-memory-café.md`` comes back as
+        # the literal token ``".egg-state/.../brc-memory-caf\303\251.md"``,
+        # double quotes included — and ``splitlines()`` additionally misparses
+        # a path containing a newline. Those encoded names would flow verbatim
+        # into :func:`_path_matches_glob` (harmless: the leading quote fails
+        # every glob, so the record takes the imperative — the safe default)
+        # and into the ``wip_paths`` bus metadata, which is a machine-readable
+        # field a consumer matches its own paths against. NUL separation makes
+        # the field mean what its name says.
+        staged_out = git(repo_dir, "diff", "--cached", "--name-only", "-z", timeout=60).stdout
+        staged = [p for p in staged_out.split("\0") if p]
         if not staged:
             logger.warning(
                 "Worktree re-attach: dirty tree held no committable change "
@@ -897,7 +910,7 @@ def _preserve_dirty_tree(
         )
         return None
 
-    paths = tuple(staged.splitlines())
+    paths = tuple(staged)
     logger.warning(
         "Worktree re-attach: auto-committed uncommitted work before hard reset (#3639)",
         agent_worktree_id=agent_worktree_id,
@@ -1041,8 +1054,9 @@ def _record_discarded_tip(
     trivial_snapshot = snapshot_only and not wip_partial and machine_state_only
     # ``wip_files``/``wip_paths`` are assigned together off ``_DirtySnapshot``,
     # so in production a truthy ``wip_commit`` always carries both. The ``None``
-    # arms here and in ``trivial_snapshot`` are defensive only — they exist so a
-    # future caller that knows the sha but not the contents degrades to the
+    # arms — ``_is_machine_state_only(None) is False`` above, and the
+    # ``snapshot_size`` fallback just below — are defensive only: they exist so
+    # a future caller that knows the sha but not the contents degrades to the
     # imperative rather than crashing or softening.
     snapshot_size = (
         f"{wip_files} file(s) of uncommitted work" if wip_files is not None else "uncommitted work"

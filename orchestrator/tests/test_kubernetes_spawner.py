@@ -4336,7 +4336,8 @@ class TestDirtyTreePreservedBeforeReset:
                 assert "--ignore-errors" in args
                 raise RuntimeError("error: unable to index file 'broken.sock'")
             if args[0] == "diff":
-                return SimpleNamespace(stdout="a.py\nb.py\n", returncode=0)
+                assert "-z" in args
+                return SimpleNamespace(stdout="a.py\0b.py\0", returncode=0)
             return SimpleNamespace(stdout="deadbeefcafe\n", returncode=0)
 
         snapshot = _preserve_dirty_tree(
@@ -4369,7 +4370,7 @@ class TestDirtyTreePreservedBeforeReset:
         def _fake_git(_repo_dir, *args, **_kwargs):
             seen.append(args)
             if args[0] == "diff":
-                return SimpleNamespace(stdout="a.py\nb.py\n", returncode=0)
+                return SimpleNamespace(stdout="a.py\0b.py\0", returncode=0)
             return SimpleNamespace(stdout="deadbeefcafe\n", returncode=0)
 
         snapshot = _preserve_dirty_tree(
@@ -4379,6 +4380,43 @@ class TestDirtyTreePreservedBeforeReset:
         assert snapshot.partial is False
         commit_args = next(a for a in seen if "commit" in a)
         assert not any("INCOMPLETE" in a for a in commit_args if isinstance(a, str))
+
+    def test_unusual_path_bytes_survive_the_staged_file_parse(self, tmp_path):
+        """``wip_paths`` must be real paths, not C-quoted tokens (R6 #1).
+
+        ``git diff --cached --name-only`` without ``-z`` honours
+        ``core.quotePath`` (default true), so a non-ASCII name comes back
+        double-quoted and backslash-escaped, and a name containing a newline
+        splits across two ``splitlines()`` entries. Both corruptions flow
+        into the ``wip_paths`` bus metadata, which exists so a consumer can
+        match paths structurally instead of regexing the body. ``-z`` emits
+        the bytes unmunged with NUL terminators, so the field means what its
+        name says.
+        """
+        from kubernetes_spawner._worktree import _preserve_dirty_tree
+
+        seen = []
+        raw = (
+            ".egg-state/agent-outputs/coder/brc-memory-café.md",
+            "src/we\nird.py",
+        )
+
+        def _fake_git(_repo_dir, *args, **_kwargs):
+            seen.append(args)
+            if args[0] == "diff":
+                return SimpleNamespace(stdout="\0".join(raw) + "\0", returncode=0)
+            return SimpleNamespace(stdout="deadbeefcafe\n", returncode=0)
+
+        snapshot = _preserve_dirty_tree(
+            _fake_git, tmp_path, agent_worktree_id=_WT_ID, repo="repo", n_entries=2
+        )
+        assert snapshot is not None
+        assert snapshot.paths == raw
+        assert snapshot.n_files == 2
+        # The flag has to be on the request, not just implied by the parse:
+        # dropping it would silently reintroduce the quoting.
+        diff_args = next(a for a in seen if a[0] == "diff")
+        assert "-z" in diff_args
 
     def test_ignored_only_dirt_is_discarded_without_a_commit(self, spawner, mock_gateway, tmp_path):
         """Build output is not agent work: no snapshot, nothing salvaged.
@@ -4702,6 +4740,40 @@ class TestDiscardedTipMessageWording:
             assert f"`{path}`" not in msg.body
         assert "read it if you need it" in msg.body
         assert msg.metadata["wip_paths"] == list(paths)
+        # Dropping the enumeration is a rendering choice inside the soft
+        # branch, not an exit from it: the verdict the metadata reports has
+        # to still say softened (R6 #2).
+        assert msg.metadata["wip_softened"] is True
+        assert msg.metadata["wip_machine_state_only"] is True
+
+    def test_exactly_max_named_paths_still_enumerates(self):
+        """``len(paths) == _SOFT_BRANCH_MAX_NAMED_PATHS`` is the last inlining case.
+
+        The cap is a ``<=``, so four paths enumerate and five do not. 1, 2,
+        and 5 are covered elsewhere; this pins the boundary itself so an
+        off-by-one in either direction shows up as a test failure rather than
+        as one path silently dropped from — or a wide roster silently
+        inlined into — the body (R6 #2).
+        """
+        from kubernetes_spawner._worktree import _SOFT_BRANCH_MAX_NAMED_PATHS
+
+        paths = tuple(
+            f".egg-state/agent-outputs/{role}/brc-memory-pipe-1.md"
+            for role in ("coder", "tester", "reviewer_code", "documenter")
+        )
+        assert len(paths) == _SOFT_BRANCH_MAX_NAMED_PATHS
+        msg = self._message(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=len(paths),
+            wip_paths=paths,
+        )
+        assert f"only {len(paths)} files (" in msg.body
+        for path in paths:
+            assert f"`{path}`" in msg.body
+        assert "read it if you need it" in msg.body
+        assert msg.metadata["wip_softened"] is True
 
     def test_flat_orchestrator_state_files_are_machine_state(self):
         """``agent-outputs/`` residue is not only the per-role memory file.
