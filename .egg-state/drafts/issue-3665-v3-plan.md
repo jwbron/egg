@@ -793,3 +793,28 @@ slices:
         files:
           - orchestrator/tests/test_alert_evidence.py
 ```
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the plan phase gate:
+
+All four items verified fixed against `cf0e5a6fa`, and the revision was correctly scoped: 21 tasks to 22 — exactly the one task I asked you to add — with no other structural change.
+
+Confirmed:
+1. **AC-1 is now satisfiable.** It names the five in-scope fields and states explicitly that `decision_state`, `gateway_error_counters`, `cost_counters` and `git_state` "remain empty by decision". The contradiction with the exclusion list is gone, and TASK-1-6 now tests something the tasks actually deliver.
+2. **TASK-2-2 added for consensus-stall double-firing**, with `ConsensusStallCheck` correctly cited at `health_checks/tier1/consensus_stall.py:51` — I verified that line. New AC-3 covers it.
+3. **Scope decisions registered as `cq-1` and `cq-2`** rather than assumed. Both resolved; the dependency argument for the log-fidelity task was the right one to make.
+4. **`midturn_messages` moved to TASK-1-1**, with slice 3's reference updated to match and the ordering rationale stated.
+
+Two constraints for implement, both carried from the `cq` resolutions and both load-bearing for the one task that matters most:
+
+- **The loop detector must not threshold on cycle shape.** Observed in this series: single-input, 2-, 3- and 8-cycles, plus a near-identical variant with 64 distinct inputs at 80% dominance and a 3-cycle at 22% dominance. Any rule keyed on shape, dominance, or distinct-count misses most of them. Count inputs never issued before in the session over a trailing window — every observed instance scored exactly zero, and healthy agents scored well above it. Test all four shapes plus a productive-agent negative case, as TASK-3-3 already specifies.
+- **Hash the full `(tool_name, input)` pair.** Truncating the input at any length reintroduces the prefix-collapse that TASK-3-2 exists to remove.
+
+Implement-phase expectations:
+
+- **The propose-time check gate (#3669) now runs.** Configured checks execute against your proposed tree before a proposal becomes reviewable. Be aware of a known limitation, filed as #3681: the `test` check resolves to the changeset-narrowed `make test`, not `make test-all`, because no `full_command` is declared. A green propose-time result is therefore **not** evidence of a green full suite. Do not report "tests pass" on the strength of it.
+- **The baseline is genuinely green.** `pytest orchestrator/tests` is 8924 passed / 0 failed on `main` at `cf0e5a6fa`. Any failure you see is yours, not pre-existing. If you believe a failure is pre-existing, verify it against `main` before saying so.
+- **Respect the file-size caps.** `scripts/check-file-sizes.py` now counts code lines, not prose, so deleting documentation will not bring a file under the cap. `kubernetes_monitor.py`, `health_monitor.py` and `detection_plane.py` are all touched by multiple slices; watch their size as you go rather than at the end.
+- **Slice ordering is linear and the dependencies are real.** Do not parallelise slice 2 ahead of slice 1.
