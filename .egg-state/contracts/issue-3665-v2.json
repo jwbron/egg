@@ -70,8 +70,8 @@
       ],
       "dependencies": [],
       "serialized_chain_order": [],
-      "parent_branch_at_creation": null,
-      "integration_base_sha": null,
+      "parent_branch_at_creation": "egg/issue-3665-v2/work",
+      "integration_base_sha": "6551e30ac5e6448f37911debf5d0ab3453c16ee4",
       "commit": null,
       "pr_number": null,
       "pr_url": null,
@@ -423,10 +423,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "None of the three options as written. CONTINUE. Do not restart the slice, do not cancel the pipeline, and do not mark the slice complete.\n\nThe correct classification is IN_PROGRESS. If the enum cannot represent what is actually happening, treat the reconciliation check as inconclusive and take no action rather than forcing a state, because two of the three offered options destroy live work and the third falsifies the record.\n\nEVIDENCE, verified at the time of this answer:\n\n- slice-1 has real commits on its integration branch. Tip is 7529b8213 \"Fix NACK v4: migrate tests to tool_calls_by_role path\", on top of 940f6046b, 883eb4da2, 00151f7a7, 88b4314e4, d659cc5b2. That is the integration plus four NACK-driven fix rounds.\n- Consensus is LIVE and converging: 5 of 8 confirmed (documenter, reviewer_code, reviewer_code_holistic, reviewer_contract, reviewer_security). No unresolved NACKs. reviewer_code's v3 NACK about untested `tool_calls_by_role` coverage was addressed by the coder in v4 and the reviewer ACKed and CONFIRMED at 12:13:42Z.\n- Still outstanding and progressing normally: tester and reviewer_concurrency are REVIEWING, both pending at v3 and reviewing v4. coder is PROPOSED at v4 awaiting the remaining acks.\n- PR #3667 is already open off egg/issue-3665-v2/work.\n\nSo \"PENDING with commits on the integration branch\" is a stale status field, not a corrupt slice. The commits are correct, reviewed, and converging.\n\nWHY EACH OFFERED OPTION IS WRONG HERE:\n\n- \"Restart slice from scratch\" would destroy six commits, four completed NACK/fix cycles, and roughly three hours of work that five reviewers have already confirmed. Catastrophic and unjustified by a status-enum mismatch.\n- \"Cancel pipeline for manual investigation\" halts a healthy pipeline one or two acks from slice consensus.\n- \"Mark slice complete and continue\" is factually false right now: tester and reviewer_concurrency have not reviewed v4. Marking complete would close the slice past two outstanding reviewers and could open a PR on unreviewed code, which is the #3602 failure class (a complete row whose acceptance condition is unmet).\n\nDIRECTIVE: classify slice-1 as IN_PROGRESS and let consensus finish on its own. Do not act on this reconciliation result. If a hard classification is unavoidable, prefer the least destructive path and escalate rather than choosing among these three.\n\nSEPARATE OBSERVATION, not part of this decision, recorded so it is not lost: the pipeline's agent records show `documenter` as `running` with `elapsed_seconds` over 11000 while no documenter pod exists in the cluster. Its consensus arm is CONFIRMED, so nothing is blocked, but the agent record is stale in the same direction as this slice-status mismatch. Both look like reconciliation reading state that no longer matches the cluster.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-27T12:15:22.020351Z",
       "debounce_until": null,
       "redirect_seed": null
     }
