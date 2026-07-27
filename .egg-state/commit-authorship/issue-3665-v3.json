@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "37b8944dffc9900e16f3e165944c78cece0d64a6": {
+      "branch": "egg/issue-3665-v3/work",
+      "patch_id": "92e84763b554f76d5bf8b9cbe8b246d1f2facd06",
+      "pipeline_id": "issue-3665-v3",
+      "registered_at": "2026-07-27T21:12:26.172595+00:00",
+      "repo": null,
+      "role": "refiner"
+    }
+  },
+  "version": 2
+}
