@@ -35,18 +35,37 @@
 
 - Refiner CONSENSUS_PROPOSE **version=1, commit 37b8944d** (21:12:58Z).
 - Refiner analysis draft read at proposal commit 37b8944d. Content: executive
-  summary (detection plane unwired, only 3/12 snapshot fields populated,
+  summary (detection plane unwired, 5/13 snapshot fields populated,
   `_run_overseer_detection_plane()` has zero call sites), 9 already-landed items
   verified, 4 areas of proposed work with ordering, ranked candidate list of 30 items
   across 5 tiers.
 - Wrote `.egg-state/drafts/issue-3665-v3-analysis-human.md` (plain-English operator
   rendering, faithful, nothing added/dropped). Committed as 61b157459.
-- Proposed via BRC with artifacts=[".egg-state/drafts/issue-3665-v3-analysis-human.md"].
+- Proposed via BRC v1 with artifacts=[".egg-state/drafts/issue-3665-v3-analysis-human.md"].
+- ACKed refiner v1 (37b8944d) on the simplifier→refiner review edge.
 - OBLIGATION next: (a) if reviewer_refine NACKs on faithfulness/jargon, fix & re-propose
   same version-bump; (b) if refiner re-proposes v2, re-check my render's faithfulness
   AND my file's integrity (clobber-watch from #3393 lesson); (c) my reviewer_phase edge
   (simplifier->refiner) — ACK/NACK refiner v1 37b8944d if a review event arrives, reading
   version from transcript.
+
+### 2026-07-27 21:52 UTC — event #3: iteration-0 feedback → corrected & re-proposed v2
+
+- Operator feedback (iteration_n=0) delivered 4 corrections, all ACKed by 5 reviewers
+  with zero NACKs — treated as verification failure, not writing failure.
+- **Correction 1 (field count):** Changed "3 of 12 fields" → "5 of 13 fields" everywhere.
+  Verified against `EventStreamSnapshot` class in `orchestrator/health_checks/detection_plane.py:106`
+  (13 fields) and `snapshot_from_health_context()` (lines 511-549) which populates 5:
+  snapshot_id, pipeline_id, phase, running_agents, phase_state.
+- **Correction 2 (candidate #24):** Line 633 is 429 retry-after backoff, NOT heartbeat cadence.
+  Re-anchored to `cmd_message_heartbeat` at line 588 (actual heartbeat handler).
+- **Correction 3 (line anchors):** `noop_park_report()` at line 610 (not 584);
+  `_classify_exit()` at line 1148 (consistent in both candidates #9 and #14).
+- **Correction 4 (verification method):** Changed "verified via git log" to
+  "verified via file-and-symbol citations" — per-item citations are the real evidence.
+- Committed as fab4bd795. Re-proposed via BRC.
+- BRC state: reviewer_refine now in REVIEWING (was WORKING); first_principles_reviewer
+  also in REVIEWING. Waiting on reviewer_refine to ACK my corrected proposal.
 
 ## Durability notes
 
