@@ -295,6 +295,27 @@ def _start_pipeline_body(pipeline_id: str) -> tuple[_pkg.Response, int]:
                 # request_changes, change_approach, and legacy bare strings).
                 is_approved, revision_feedback = _pkg._parse_resolution(latest_resolution)
 
+                # Same observability the live gate writes (#3636). This is
+                # the path where a divergence is hardest to reconstruct
+                # after the fact — the driver that would have logged it is
+                # gone — so record how the stored resolution was read, and
+                # log the branch. The field is stamped on the in-memory
+                # decision; the ``store.save_pipeline(pipeline)`` that ends
+                # this locked block (shared by both arms below) persists it.
+                if phase_gate_decisions:
+                    phase_gate_decisions[0].resolution_outcome = (
+                        "approved" if is_approved else "needs_revision"
+                    )
+                _pkg.logger.info(
+                    "HITL recovery: stored resolution parsed",
+                    pipeline_id=pipeline_id,
+                    phase=pipeline.current_phase.value,
+                    decision_id=(phase_gate_decisions[0].id if phase_gate_decisions else None),
+                    outcome="approved" if is_approved else "needs_revision",
+                    has_feedback=bool(revision_feedback),
+                    resolution_preview=(latest_resolution or "")[:200],
+                )
+
                 if is_approved:
                     # Mark current phase COMPLETE and advance
                     phase_execution = pipeline.get_phase_execution(pipeline.current_phase)

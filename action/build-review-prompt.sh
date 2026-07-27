@@ -143,18 +143,63 @@ This is a **re-review** — you previously reviewed this PR at commit \`${LAST_R
 
 ## Your Task
 
-Perform a **thorough review of all new changes**. Find ALL issues in the new code—do not stop after identifying a few problems.
+Review the delta **for blocking issues only**. A re-review is a convergence
+step, not a fresh review: the expected outcome is approval, and you should
+reach it as soon as the blocking items are genuinely fixed.
 
 1. **Review the delta**: First run \`git fetch origin ${base_ref}\` to ensure the base branch ref is available, then use \`git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${base_ref} -p\` to see what changed since your last review. This excludes any commits from \`${base_ref}\` that were merged into the PR branch since your last review, so you see only PR-authored changes.
 2. **Check previous feedback**: Use \`gh pr view ${PR_NUMBER} --comments\` to see previous review comments.
-3. **Verify issues addressed**: Confirm that concerns from your previous review have been properly fixed, not just superficially addressed.
-4. **Examine new code thoroughly**: Apply the same rigorous scrutiny to new changes as you would to an initial review. Read surrounding context, trace data flow, research when uncertain.
+3. **Verify issues addressed**: Confirm that the blocking concerns from your previous review have been properly fixed, not just superficially addressed.
+4. **Examine the new code**: Read enough surrounding context to judge whether the delta is correct. Trace data flow and research when uncertain.
 
-For full PR context if needed: \`gh pr diff ${PR_NUMBER}\`
+### Blocking issues only
+
+Raise **only blocking issues**: defects, incorrect claims, broken behavior,
+regressions, and prior blocking items that were not actually fixed.
+
+Do **not** raise advisory items on a re-review — no style preferences, no
+wording refinements, no \"consider also\" suggestions, no polish. The initial
+review is where advisory feedback belongs. If you notice a non-blocking nit
+now, **omit it**. Do not mention it, and do not append it as a footnote.
+
+### Previously approved work is closed
+
+Anything you already signed off on in an earlier round of **this** PR is
+settled. Do not re-open it, and do not raise new items — at any severity — on
+lines you have already accepted. Re-open a closed item only if the current
+delta made it factually wrong.
+
+This applies with particular force to text that exists **because you asked for
+it**. If a line traces back to your own request in an earlier round, it is not
+a fresh finding. Refining your own requested wording across successive rounds
+is the failure mode this rule exists to prevent.
+
+### Scope
+
+Review the delta. You may pull wider context (\`gh pr diff ${PR_NUMBER}\`) when
+the delta alone cannot be judged — for example when it plausibly breaks an
+integration point outside the changed lines. If you do, **state in your review
+why the delta alone was insufficient**. Do not re-verify files the delta does
+not touch as a matter of routine.
 
 ### Be Direct
 
-Do not soften feedback. State issues clearly and explain why they matter. This is infrastructure review.
+Do not soften feedback. State blocking issues clearly and explain why they
+matter. This is infrastructure review.
+
+### Verdict
+
+If the delta introduces no blocking issue and the prior blocking items are
+fixed, **approve cleanly**: post with \`gh pr review ${PR_NUMBER} --approve\`
+and do **not** put the suggestions marker — the \`has-suggestions\` HTML
+comment described in the Review Conventions below — anywhere in the body.
+
+Those are your only two levers. You do not write the review verdict yourself;
+the \`gh\` wrapper derives it from the review action you posted and rewrites a
+plain approval into an approval-with-suggestions whenever it finds that marker
+in the body. The suggestions form re-triggers another feedback round instead
+of letting the PR merge. A re-review has no non-blocking suggestions to flag,
+so the marker must never appear.
 
 ## Review Rules
 
@@ -163,6 +208,35 @@ ${review_rules}
 ## Review Conventions
 
 ${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\` with \`--body-file\`. Always write your review to a temp file first, then use --body-file to post it. Do NOT use --body with inline content — long reviews will fail due to shell escaping. Example: \`cat > /tmp/review-body.md << 'REVIEW_EOF'\` then \`gh pr review ${PR_NUMBER} --request-changes --body-file /tmp/review-body.md\`. Use --approve, --request-changes, or --comment as appropriate. Sign your review with: — Authored by egg}
+
+## Re-review Overrides
+
+The **Review Rules** and **Review Conventions** above are shared with the
+initial review and are reproduced here unchanged. Where they conflict with
+this section, **this section wins**. It is deliberately the last word in this
+prompt.
+
+1. **Blocking issues only.** The initial-review thoroughness mandates above —
+   \"be extremely thorough\", \"identify ALL issues in the first pass\", \"report
+   every issue you find\", \"be comprehensive\" — and the **Non-blocking
+   (suggestions)** severity category do not apply on a re-review. Here, an
+   item that is not blocking is not reported at all: not as a section, not as
+   a footnote, not as a parenthetical, not as a closing observation.
+
+2. **\"Pre-existing issues are still blocking\" is scoped.** That rule covers
+   code this PR touches which you have not yet reviewed. It does not license
+   re-opening lines you already signed off on in an earlier round of this PR.
+
+3. **Never add the suggestions marker.** The conventions above tell you to add
+   the \`has-suggestions\` HTML comment when an approval carries non-blocking
+   suggestions. A re-review carries none, so that instruction is inert here —
+   adding the marker converts your approval into another feedback round. See
+   **Verdict** above.
+
+4. **Approve when nothing is blocking.** Prior blocking items fixed and no new
+   blocking issue in the delta means \`gh pr review ${PR_NUMBER} --approve\`
+   with a clean body. That is the outcome that lets the PR merge, and reaching
+   it is the point of this pass.
 "
   else
     prompt="Review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.

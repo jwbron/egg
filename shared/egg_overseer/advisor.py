@@ -24,7 +24,9 @@ follows the ``decision-20`` opt-3 contract (distilled summary).
 
 The function returns a structured ``AdvisorVerdict`` whose ``decision``
 field drives one of three branches in the caller
-(``sandbox/overseer_monitor.py``):
+(``cmd_overseer_consult_advisor`` in
+``sandbox/egg_lib/orch_cli/_overseer.py``, behind the
+``egg-orch overseer consult-advisor`` verb):
 
 * ``"watch"`` — emit nothing this cycle.
 * ``"alert"`` — emit ``OVERSEER_ALERT`` with ``alert_summary`` /
