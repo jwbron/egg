@@ -141,78 +141,37 @@ def _extract_tool_signatures(transcript: str) -> list[str]:
     return signatures
 
 
-def _read_session_transcript(agent_role: str) -> str | None:
-    """Read the live Claude Code session transcript for an agent pod.
-
-    Claude Code writes its session transcript to
-    ``$HOME/.claude/projects/<encoded-cwd>/<session-id>.jsonl`` inside the
-    running pod. This is the authoritative, untruncated record of every
-    tool call the agent has made — unlike the pod stdout (which
-    ``agent_log_store`` captures), the transcript preserves the full
-    ``(tool_name, input)`` pair without truncation.
-
-    The transcript path is resolved from the pod's environment:
-    - ``CLAUDE_SESSION_PATH`` — set by the sandbox entrypoint to the
-      transcript file path for this pod's session.
-
-    Returns None if the transcript is not available (pod not running,
-    transcript not yet written, or file unreadable).
-    """
-    # The sandbox entrypoint sets CLAUDE_SESSION_PATH to the transcript path.
-    transcript_path = os.environ.get("CLAUDE_SESSION_PATH")
-    if transcript_path:
-        try:
-            with open(transcript_path, encoding="utf-8") as f:
-                return f.read()
-        except OSError:
-            logger.debug(
-                "Could not read session transcript at %s",
-                transcript_path,
-                agent_role=agent_role,
-            )
-            return None
-
-    # Fallback: construct the path from standard Claude Code layout.
-    # $HOME/.claude/projects/<encoded-cwd>/<session-id>.jsonl
-    home = os.environ.get("HOME", "")
-    if not home:
-        return None
-
-    claude_dir = Path(home) / ".claude" / "projects"
-    if not claude_dir.exists():
-        return None
-
-    # Find the most recent transcript file for this agent's session.
-    # In production, CLAUDE_SESSION_PATH is always set; this fallback is
-    # best-effort for test/debug scenarios.
-    try:
-        transcript_files = sorted(
-            claude_dir.rglob("*.jsonl"), key=os.path.getmtime, reverse=True
-        )
-        if transcript_files:
-            with open(transcript_files[0], encoding="utf-8") as f:
-                return f.read()
-    except OSError:
-        pass
-
-    return None
-
-
 def _get_agent_logs(
     pipeline_id: str,
     agent_role: str,
+    slice_id: str | None = None,
 ) -> str | None:
     """Fetch the live session transcript for an agent.
 
-    Per cq-1: reads the live Claude Code session transcript at
-    ``$HOME/.claude/projects/<cwd>/<session>.jsonl`` inside the running pod,
-    NOT the ``agent_log_store`` (pod stdout). The pod log truncates tool
-    inputs at ~100 chars and collapses distinct commands sharing a prefix,
-    making it unsuitable for loop detection.
+    Per cq-1: reads the live Claude Code session transcript, NOT the
+    ``agent_log_store`` (pod stdout). The pod log truncates tool inputs at
+    ~100 chars and collapses distinct commands sharing a prefix, making it
+    unsuitable for loop detection.
+
+    The transcript is retrieved from the Redis-backed session state store
+    (populated by ``session-state push`` from the sandbox), which is the
+    durable, off-pod home for the Claude Code session transcript. The
+    orchestrator cannot access the agent pod's filesystem directly, so
+    reading from the filesystem (``CLAUDE_SESSION_PATH`` /
+    ``$HOME/.claude/projects/*.jsonl``) would not work in production.
 
     Returns None if no transcript is available.
     """
-    return _read_session_transcript(agent_role)
+    try:
+        from session_state_store import get_session_state_store
+
+        store = get_session_state_store()
+        record = store.get(pipeline_id, slice_id, agent_role)
+        if record is not None and record.transcript:
+            return record.transcript
+    except Exception:
+        pass
+    return None
 
 
 def detect_agent_livelock(
