@@ -465,7 +465,20 @@ class TestQueueFull:
         mock_resolve.return_value = (MagicMock(), pipeline)
 
         def _burst() -> None:
-            time.sleep(0.05)
+            # Wait for the route to install its wildcard handler instead
+            # of sleeping a fixed interval.  The route snaps the event
+            # cursor to tip and only then calls ``event_bus.subscribe``,
+            # so every event published before that call is missed
+            # outright — the route would block for the whole ``wait``
+            # window and return the Path-B timeout envelope.  On a
+            # loaded runner the route's setup (the ``mcp_server`` import,
+            # the cursor-staleness probe) can exceed any fixed sleep, so
+            # gate the burst on the subscription actually being live.
+            deadline = time.monotonic() + 5.0
+            while not isolated_event_bus._wildcard_handlers:
+                if time.monotonic() > deadline:
+                    return
+                time.sleep(0.005)
             for _ in range(50):
                 isolated_event_bus.publish(
                     Event(
