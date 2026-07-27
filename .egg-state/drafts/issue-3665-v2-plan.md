@@ -31,14 +31,19 @@ The supervision layer was silent on seven livelocks and loud at healthy agents. 
 ### Already Implemented in Commit 68b185ca (issue-3665-supervision-gaps branch)
 Commit `68b185ca` (tip of `issue-3665-supervision-gaps` branch, verified at integration time) implements all three supervision fixes (17 files, 1072 insertions). The plan integrates this commit, with corrections to the livelock detector per operator feedback (cq-1, cq-3).
 
+**Corrections needed to the livelock detector per operator feedback:**
+- **cq-1**: The commit sources from `agent_log_store` (pod stdout) and truncates signatures to 80 chars. The issue explicitly says the pod log cannot support this signal. The detector must read the live session transcript at `$HOME/.claude/projects/<cwd>/<session>.jsonl` inside the running pod, and key on the FULL untruncated `(tool_name, input)` pair.
+- **cq-3**: The commit defaults to nudge recovery. The operator resolved cq-3 as respawn: a two-step process (1) post a terminating message to the bus, then (2) respawn with a fresh session. The detector must escalate to HITL with the looping input quoted verbatim.
+- **Metric correction**: The commit uses a ratio (unique/total) but the issue specifies counting "inputs never issued before in the session" over a trailing window, firing at zero novelty.
+
 ## Proposed Work
 
-### Task 1: Integrate Supervision-Layer Fixes (task-1-1, task-1-3)
+### Task 1: Integrate Supervision-Layer Fixes with Corrections (task-1-1, task-1-3)
 **Source:** Commit `68b185ca` on `issue-3665-supervision-gaps` branch (verified at integration time)
 
 Integrate the three supervision-layer fixes, with corrections to the livelock detector per operator feedback:
 
-1. **Agent livelock/repetition-loop detection** — `orchestrator/health_checks/tier1/loop_detection.py` (new):
+1. **Agent livelock/repetition-loop detection** — `orchestrator/health_checks/tier1/loop_detection.py` (new, 317 lines):
    - **CORRECTION per cq-1**: Read the live session transcript at `$HOME/.claude/projects/<encoded-cwd>/<session-id>.jsonl` inside the running pod, NOT `agent_log_store` (pod stdout). Key on the FULL untruncated `(tool_name, input)` pair — no character limit.
    - **CORRECTION per issue**: Implement novelty metric — count inputs never issued before IN THE SESSION over a trailing window, fire at zero. NOT a ratio (unique/total).
    - **CORRECTION per cq-3**: Recovery is a two-step process: (1) post a terminating message to the bus, then (2) respawn with a fresh session. The detector escalates to HITL with the looping input quoted verbatim, since it cannot know the answer to the agent's question.
@@ -78,10 +83,7 @@ Integrate the three supervision-layer fixes, with corrections to the livelock de
 ### Task 2: Two-Hour Timeout Visibility (task-1-2)
 Same as task 1 above — see files list.
 
-### Task 3: False Convergence-Stall Suppression (task-1-3)
-Same as task 1 above — see files list.
-
-### Task 4: Alert Evidence Bundling (task-1-4) — RESTORED
+### Task 3: Alert Evidence Bundling (task-1-4) — RESTORED
 **Priority 4 from the issue's "What to propose" section.**
 
 Enrich OVERSEER_ALERT payloads with structured evidence so operators can act without hand-investigation:
@@ -98,8 +100,8 @@ The overseer already fetches container logs separately at `_poll.py:78-85`, so m
 - `orchestrator/event_loop/_loop.py` — enrich convergence-stall anomaly payloads
 - `orchestrator/overseer/monitor/_alerting.py` — enrich OVERSEER_ALERT payloads
 
-### Task 5: Tests (task-1-5)
-Verify test coverage from commit `68b185ca` and add tests for the corrected livelock detector:
+### Task 4: Tests (task-1-5)
+Verify test coverage from commit `68b185ca` and update tests for the corrected livelock detector:
 - `orchestrator/tests/test_loop_detection.py` — update to test novelty metric (not ratio), live session transcript parsing (not agent_log_store), and HITL escalation (not nudge).
 - `orchestrator/tests/test_agent_timeout_config.py` — verify agent_timeout_seconds config.
 - `orchestrator/tests/test_convergence_stall_suppression.py` — verify activity-based suppression.
@@ -130,7 +132,7 @@ Verify test coverage from commit `68b185ca` and add tests for the corrected live
 
 ## Open Questions
 
-The following decisions are registered on the SDLC contract and have been resolved:
+The following decisions are registered on the SDLC contract (cq-1, cq-2, cq-3) and have been resolved:
 
 - **cq-1** (resolved): The livelock detector must NOT source from `agent_log_store` and must NOT truncate the signature. Read the live session transcript at `$HOME/.claude/projects/<cwd>/<session>.jsonl` inside the running pod, and key on the FULL untruncated `(tool_name, input)` pair.
 - **cq-2** (resolved): Pipeline-level only. Ship the uniform 7200s default and make it configurable; do not build per-role overrides. The agent must be able to SEE the deadline. Keep the 4h K8s `active_deadline_seconds` as the outer safety net.
@@ -139,7 +141,7 @@ The following decisions are registered on the SDLC contract and have been resolv
 ```yaml
 # yaml-tasks
 pr:
-  title: "Supervision layer second pass: integrate livelock detection, timeout visibility, false-stall suppression, alert evidence"
+  title: "Supervision layer second pass: integrate fix commit 68b185ca with livelock corrections + restore priority 4"
   description: |
     Integrates commit 68b185ca from the issue-3665-supervision-gaps branch,
     with corrections to the livelock detector per operator feedback (cq-1,
@@ -149,12 +151,12 @@ pr:
     dropped in v2.
 phases:
   - id: 1
-    name: Integrate Supervision-Layer Fixes
-    goal: Integrate commit 68b185ca which implements all three supervision fixes — livelock detection (corrected per cq-1/cq-3), two-hour timeout visibility, and false convergence-stall suppression. Verify the integration is correct and complete.
+    name: Integrate Supervision-Layer Fixes with Corrections
+    goal: Integrate commit 68b185ca which implements all three supervision fixes, with corrections to the livelock detector per cq-1/cq-3 (live session transcript, novelty metric, HITL escalation with respawn)
     tasks:
       - id: TASK-1-1
         description: "Integrate orchestrator/health_checks/tier1/loop_detection.py with CORRECTIONS per cq-1/cq-3: read live session transcript at $HOME/.claude/projects/<cwd>/<session>.jsonl (NOT agent_log_store), key on FULL untruncated (tool_name, input) pair (NOT 80-char truncation), implement novelty metric (count of inputs never issued before in session, fire at zero — NOT ratio), escalate to HITL with looping input quoted (NOT nudge). Verify registration in DetectionPlane.default(), tier1/__init__.py, and cli.py."
-        acceptance: loop_detection.py reads live session transcript; keys on full untruncated (tool_name, input); implements novelty metric (zero new inputs = livelock); escalates to HITL with looping input quoted; registered in DetectionPlane.default() and tier1/__init__.py; registered in cli.py; test_loop_detection.py passes
+        acceptance: "loop_detection.py reads live session transcript; keys on full untruncated (tool_name, input); implements novelty metric (zero new inputs = livelock); escalates to HITL with looping input quoted; registered in DetectionPlane.default() and tier1/__init__.py; registered in cli.py; test_loop_detection.py passes"
         files:
           - orchestrator/health_checks/tier1/loop_detection.py
           - orchestrator/health_checks/detection_plane.py
