@@ -930,7 +930,7 @@ class TestGatewayAllowlistCompatibility:
             f"got {repo_path!r}, expected prefix {str(fake_base)!r}"
         )
 
-    def test_production_worktree_base_dir_lies_within_gateway_allowlist(self):
+    def test_production_worktree_base_dir_lies_within_gateway_allowlist(self, monkeypatch):
         """Pin the contract between orchestrator and gateway.
 
         ``WORKTREE_BASE_DIR`` is where the slice-BRC temp worktree
@@ -941,10 +941,30 @@ class TestGatewayAllowlistCompatibility:
         (orchestrator-side path move OR gateway-side allowlist tweak)
         trips the regression instead of silently passing against a
         stale hardcoded prefix.
+
+        Hermeticity (#3670): ``validate_repo_path`` resolves the
+        candidate through ``os.path.realpath`` before prefix-matching,
+        which is a deliberate anti-traversal measure but makes the
+        result a property of the *host* filesystem rather than of the
+        two constants under test.  In the container
+        ``/home/egg/.egg-worktrees`` is a real directory; on a dev host
+        it is typically a symlink into the developer's home, so
+        realpath lands outside the allowlist and the assertion fails
+        for a reason that says nothing about drift.  Stub realpath down
+        to lexical normalization for the duration of the call: the
+        allowlist policy — the thing this test is about — still runs
+        for real, and ``abspath`` keeps collapsing ``..`` so a
+        traversal-shaped constant would still be rejected.  Same seam
+        the gateway's own allowlist tests neutralize
+        (``gateway/tests/test_git_validation.py``).
         """
+        import os
+
         from routes.pipelines import WORKTREE_BASE_DIR
 
         from gateway.git_client import validate_repo_path
+
+        monkeypatch.setattr(os.path, "realpath", os.path.abspath)
 
         candidate = str(WORKTREE_BASE_DIR / "egg-slice-brc-pipeline-x-slice-y-abc" / "wt")
         ok, error = validate_repo_path(candidate)

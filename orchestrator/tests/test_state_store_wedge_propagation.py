@@ -362,14 +362,33 @@ class TestHealthEndpointReflectsStateStoreFailure:
         assert healthy is True
         assert "probe-skipped" in status
 
-    def test_probe_skipped_when_request_context_missing(self):
-        """Calling the probe outside a Flask request context must be
-        treated as a configuration issue, not a wedge."""
+    def test_probe_skipped_when_repo_path_resolution_fails(self):
+        """A repo-path resolution failure must be treated as a
+        configuration issue, not a wedge.
+
+        Was ``test_probe_skipped_when_request_context_missing``: it
+        relied on ``get_repo_path`` raising ``RuntimeError`` when it
+        touched ``request`` with no Flask app pushed, and asserted the
+        probe swallowed it.  #2903 deliberately made ``get_repo_path``
+        safe outside a request context — it now falls back to
+        ``EGG_REPO_PATH`` / CWD — so the no-context call stopped
+        raising and the probe instead ran against whatever directory
+        pytest was invoked from.  In the container that is a non-repo
+        path and the test passed by accident; on a dev host CWD *is* a
+        git repo, so the probe reported it wedged and the test failed
+        (#3670).
+
+        The guard in ``_probe_state_store`` is still live and still
+        worth pinning, so raise from ``get_repo_path`` explicitly
+        rather than depending on a call site that no longer raises.
+        """
         from routes.health import _probe_state_store
 
-        # No Flask app pushed → get_repo_path raises RuntimeError when
-        # it touches `request`.  Probe should swallow and report skipped.
-        healthy, status = _probe_state_store()
+        with patch(
+            "routes.get_repo_path",
+            side_effect=RuntimeError("Working outside of request context."),
+        ):
+            healthy, status = _probe_state_store()
 
         assert healthy is True
         assert "probe-skipped" in status
