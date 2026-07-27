@@ -85,6 +85,36 @@ _SLICE_WORKTREE_RE = re.compile(r"^(slice-[0-9]+)-(.+)$")
 # without a configured user, so an explicit identity is required for the
 # commit to succeed.
 _UNCOMMITTED_SALVAGE_MESSAGE = "[salvage] pre-crash working-tree state (#2807)"
+# Appended when ``git add -A`` reported errors, mirroring the re-attach path's
+# ``kubernetes_spawner._worktree._WIP_COMMIT_PARTIAL_SUFFIX`` (#3639). A
+# truncated snapshot is otherwise indistinguishable downstream from a complete
+# one — same subject, same ``egg/recovered/...`` ref. This path is the worse of
+# the two: unlike the re-attach path it writes no message-bus record, so the
+# commit message is the only channel anyone triaging that recovery ref ever
+# sees.
+#
+# The near-duplication is deliberate. The two texts differ only in naming whose
+# working tree was truncated ("crashed agent's" here, "previous session's"
+# there), which is the one thing a triager reading a lone commit message cannot
+# infer. The grep token — the leading ``INCOMPLETE:`` and the ``git add -A``
+# phrase — is identical in both, so one search finds every truncated snapshot
+# regardless of which path took it, and ``docs/reference/agent-recovery.md``
+# quotes it verbatim for triagers. Change one, change the other — and the
+# runbook.
+#
+# "did not complete cleanly" rather than "reported errors" (#3639 re-review
+# NB-6): the shared wording has to hold on the re-attach path too, where a
+# ``TimeoutExpired`` sets ``partial`` without git ever reporting an exit
+# status. Here the add is run with ``check=False`` and ``partial`` really is
+# ``returncode != 0``, but a claim the commit message cannot make on both
+# paths is not one worth keeping on either.
+_UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX = (
+    "\n"
+    "\n"
+    "INCOMPLETE: `git add -A` did not complete cleanly while staging, so\n"
+    "files present in the crashed agent's working tree may be missing\n"
+    "from this commit."
+)
 _SALVAGE_COMMIT_NAME = "egg-salvage"
 _SALVAGE_COMMIT_EMAIL = "egg-salvage@localhost"
 
@@ -215,13 +245,48 @@ def _run_git(
 
     ``core.hooksPath=/dev/null`` mirrors ``StateStore._run_git`` — the
     orchestrator runs git on agent-controlled worktrees and must never
-    execute their hooks.
+    execute their hooks. ``commit.gpgsign=false`` keeps
+    :func:`commit_working_tree` working in a worktree that inherited
+    ``commit.gpgsign=true`` from the clone's config: there is no signing key
+    in the orchestrator image, so every salvage commit would otherwise fail
+    and lose the working tree it exists to save.
+
+    ``core.quotePath=true`` is pinned rather than inherited (#3639 re-review
+    NB-3) and ``errors="replace"`` is passed to the decode. The two are
+    complementary, not redundant: the pin keeps *most* of git's output ASCII
+    for the ``commit`` / ``status`` / ``diff`` calls here, and costs nothing
+    because this path has no ``-z`` read to make quoting a problem. It does
+    **not** cover ``git add``, which echoes the raw path in at least two of
+    its stderr messages regardless of ``quotePath`` (#3639 re-review B1)::
+
+        error: unable to index file 'caf\\xe9.txt'
+        error: 'nested-caf\\xe9/' does not have a commit checked out
+
+    Under a strict decode those bytes raise ``UnicodeDecodeError`` from
+    inside :func:`subprocess.run` — before this function returns — which
+    :func:`commit_working_tree` would swallow into "continuing", losing the
+    whole working tree over one filename. That is #3639 itself. The
+    non-strict decode is why it cannot happen; since no call here reads
+    ``-z`` output, replacement can only touch names that would otherwise
+    crash.
     """
-    cmd = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(cwd), *args]
+    cmd = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "core.quotePath=true",
+        "-C",
+        str(cwd),
+        *args,
+    ]
     return subprocess.run(
         cmd,
         capture_output=True,
         text=True,
+        errors="replace",
         check=check,
         timeout=timeout,
     )
@@ -598,6 +663,12 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
     state. Staging and committing it onto the local work branch *before*
     salvage lets the recovery-ref push capture it.
 
+    A commit whose ``git add -A`` reported errors carries
+    ``_UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX``: this path pushes to
+    ``egg/recovered/...`` for manual triage but records nothing on the
+    message bus, so the commit message is the only place a human or agent
+    reading that ref can learn the snapshot is truncated.
+
     Best-effort: returns the new commit SHA on success, ``None`` when
     there is nothing to commit or the commit fails. Never raises — a
     failure here must not stop the committed-but-unpushed salvage that
@@ -608,12 +679,34 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
     if not _has_uncommitted_changes(worktree.repo_path):
         return None
     try:
-        add = _run_git("add", "-A", cwd=worktree.repo_path, check=False)
-        if add.returncode != 0:
+        add = _run_git("add", "-A", "--ignore-errors", cwd=worktree.repo_path, check=False)
+        partial = add.returncode != 0
+        if partial:
+            # Not fatal, same as the re-attach path's snapshot (#3639): per
+            # ``git-add(1)`` an unindexable entry (unreadable file, fifo, a
+            # filter that is not installed in the orchestrator image) aborts
+            # the add and exits non-zero with a partially populated index, and
+            # ``--ignore-errors`` still exits non-zero after skipping it.
+            # Returning here would discard the other N-1 files this helper
+            # exists to capture; commit whatever reached the index instead.
             logger.warning(
-                "Salvage: git add -A failed; skipping uncommitted capture",
+                "Salvage: git add -A reported errors; committing whatever reached the index",
                 worktree_id=worktree.worktree_id,
                 stderr=(add.stderr or "").strip(),
+            )
+        # Distinguish "the add put nothing in the index" from "the commit
+        # itself failed" before attempting it. Without this the operator sees
+        # `commit ... failed` with a "nothing added to commit" stderr and goes
+        # looking at the commit, when the cause was the add above — the same
+        # misattribution the re-attach path's empty-index guard exists to
+        # prevent (#3639 re-review).
+        staged = _run_git("diff", "--cached", "--name-only", cwd=worktree.repo_path, check=False)
+        if staged.returncode == 0 and not (staged.stdout or "").strip():
+            logger.warning(
+                "Salvage: nothing staged to commit (ignored files, submodule-only "
+                "dirt, or a failed add); skipping the working-tree snapshot",
+                worktree_id=worktree.worktree_id,
+                add_failed=partial,
             )
             return None
         commit = _run_git(
@@ -623,7 +716,7 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
             f"user.email={_SALVAGE_COMMIT_EMAIL}",
             "commit",
             "-m",
-            _UNCOMMITTED_SALVAGE_MESSAGE,
+            _UNCOMMITTED_SALVAGE_MESSAGE + (_UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX if partial else ""),
             cwd=worktree.repo_path,
             check=False,
         )
@@ -636,10 +729,31 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
             return None
         head = _run_git("rev-parse", "HEAD", cwd=worktree.repo_path, check=False)
         head_sha = (head.stdout or "").strip() if head.returncode == 0 else None
-    except (OSError, subprocess.SubprocessError) as e:
+    # Deliberately broader than the ``(OSError, subprocess.SubprocessError)``
+    # the read helpers above use, and broader than it needs to be today. The
+    # docstring promises this never raises, and the class that would break
+    # that promise is not a subprocess error: a git command that echoes a
+    # filename whose bytes are not valid UTF-8 raises ``UnicodeDecodeError``
+    # (a ``ValueError``) from inside ``subprocess.run``, before ``_run_git``
+    # returns. That is a live input class on this path — ``git add``'s
+    # stderr echoes the raw path in messages ``core.quotePath`` does not
+    # cover (#3639 re-review B1) — so ``_run_git`` decodes with
+    # ``errors="replace"`` and the raise cannot happen there. This handler is
+    # the second layer: catching it here rather than letting it escape keeps
+    # a future decode gap from aborting the committed-but-unpushed salvage
+    # that follows. Note what it costs when it *does* fire — the caller reads
+    # a WARNING about a hostile worktree, not about lost work — which is why
+    # the non-strict decode, not this handler, is the fix for the case above.
+    except Exception as e:
         logger.warning(
             "Salvage: capturing uncommitted working tree raised; continuing",
             worktree_id=worktree.worktree_id,
+            # The breadth above is the point, but it makes an
+            # ``AttributeError`` from a future refactor render identically to
+            # a subprocess failure. The class name is the one field that
+            # separates "the worktree was hostile" from "this code is broken"
+            # (#3639 re-review NB-5).
+            error_type=type(e).__name__,
             error=str(e),
         )
         return None
@@ -650,6 +764,7 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
         worktree_id=worktree.worktree_id,
         agent_role=worktree.agent_role,
         head_sha=head_sha,
+        partial=partial,
     )
     return head_sha
 

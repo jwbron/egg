@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -589,6 +590,163 @@ class TestSalvageUncommitted:
         )
         # Working tree is clean again — everything was captured.
         assert _git("status", "--porcelain", cwd=wt.repo_path).stdout.strip() == ""
+
+    def test_commit_working_tree_survives_a_partial_add(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A non-zero ``git add`` must not discard the files that did stage.
+
+        Per ``git-add(1)`` an unindexable entry aborts the add and exits
+        non-zero with a partially populated index, and ``--ignore-errors``
+        still exits non-zero after skipping it. Bailing there would throw away
+        the other N-1 files — the same defect fixed on the #3639 re-attach
+        path, on this #2807 sibling.
+
+        What this pins is the behaviour change (a non-zero add does not abort
+        the commit), not a genuinely partial index: the closure lets the real
+        ``add`` run and stage everything, then forces the exit code. Producing
+        a truly unindexable entry needs a fifo or an unreadable file, which is
+        too environment-dependent for CI.
+        """
+        import agent_salvage
+
+        wt = self._clean_worktree(tmp_path)
+        self._dirty(wt.repo_path)
+        real_run_git = agent_salvage._run_git
+        saw_ignore_errors = False
+
+        def _flaky_run_git(*args: str, **kwargs: object):
+            nonlocal saw_ignore_errors
+            result = real_run_git(*args, **kwargs)
+            if args and args[0] == "add":
+                saw_ignore_errors = "--ignore-errors" in args
+                result.returncode = 1  # index populated, exit code still bad
+            return result
+
+        monkeypatch.setattr(agent_salvage, "_run_git", _flaky_run_git)
+        sha = commit_working_tree(wt)
+
+        assert saw_ignore_errors, "add must pass --ignore-errors to skip bad entries"
+        assert sha is not None
+        assert _git("rev-parse", "HEAD", cwd=wt.repo_path).stdout.strip() == sha
+        assert (
+            _git("show", "HEAD:new_feature.py", cwd=wt.repo_path).stdout
+            == "def added():\n    return 42\n"
+        )
+        # ...and it says so. This path pushes to egg/recovered/ for manual
+        # triage but writes no bus record, so unlike the #3639 re-attach
+        # sibling the commit message is the ONLY channel anyone reading that
+        # ref sees — an untagged truncated commit is indistinguishable from a
+        # complete one.
+        assert "INCOMPLETE" in _git("log", "-1", "--format=%B", cwd=wt.repo_path).stdout
+
+    def test_add_stderr_decode_is_non_strict(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``_run_git`` must never decode git's output strictly (R9 B1).
+
+        The ``core.quotePath=true`` pin keeps the ``commit``/``status``/
+        ``diff`` output ASCII, but it does **not** cover ``git add``: two of
+        its stderr messages echo the path raw regardless of the setting. A
+        strict decode therefore raises ``UnicodeDecodeError`` from inside
+        ``subprocess.run`` on a worktree holding a non-UTF-8 name, and
+        :func:`commit_working_tree`'s ``except Exception`` turns the whole
+        lost working tree into a "continuing" WARNING — #3639 on the #2807
+        path. Pinned at the argv level as well as end-to-end below, because
+        the end-to-end fixture needs a filesystem that accepts raw bytes.
+        """
+        import agent_salvage
+
+        seen: dict[str, object] = {}
+
+        def _capture(cmd, **kwargs):
+            seen.update(kwargs)
+            seen["cmd"] = cmd
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(agent_salvage.subprocess, "run", _capture)
+        agent_salvage._run_git("add", "-A", cwd=Path("/tmp"), check=False)
+
+        assert seen["errors"] == "replace"
+        # The pin is complementary, not superseded: it still keeps the
+        # quoted-output calls ASCII.
+        assert "core.quotePath=true" in seen["cmd"]
+
+    def test_hostile_filename_does_not_cost_the_whole_working_tree(self, tmp_path: Path) -> None:
+        """One undecodable name must not discard hours of uncommitted work (R9 B1).
+
+        The seed is a nested repo with no commit checked out whose directory
+        name is latin-1: ``git add -A --ignore-errors`` reports ``error:
+        '<name>/' does not have a commit checked out`` with the path echoed
+        **raw** — a message ``core.quotePath`` does not quote — and keeps
+        going, so the real work still reaches the index. The only thing that
+        decides whether it is committed or handed to the gateway's reset is
+        whether ``_run_git`` can decode that stderr.
+
+        A latin-1 name is not exotic here: extracted archives (CP437/latin-1
+        entry names), fixtures written with raw bytes, and agent-cloned
+        nested repos all produce them.
+        """
+        import os
+
+        wt = self._clean_worktree(tmp_path)
+        (wt.repo_path / "work.py").write_text("def hours_of_work():\n    return 1\n")
+        nested = wt.repo_path / os.fsdecode(b"nested-caf\xe9")
+        nested.mkdir()
+        _git("init", "-q", cwd=nested)
+
+        sha = commit_working_tree(wt)
+
+        assert sha is not None, "the tree was lost to one filename"
+        assert (
+            _git("show", f"{sha}:work.py", cwd=wt.repo_path).stdout
+            == "def hours_of_work():\n    return 1\n"
+        )
+        # The add did report an error, so the snapshot is honestly labelled.
+        assert "INCOMPLETE" in _git("log", "-1", "--format=%B", cwd=wt.repo_path).stdout
+
+    def test_complete_salvage_commit_is_not_marked_incomplete(self, tmp_path: Path) -> None:
+        """The clean path must not carry the truncation marker."""
+        wt = self._clean_worktree(tmp_path)
+        self._dirty(wt.repo_path)
+
+        sha = commit_working_tree(wt)
+
+        assert sha is not None
+        message = _git("log", "-1", "--format=%B", cwd=wt.repo_path).stdout
+        assert "[salvage] pre-crash working-tree state (#2807)" in message
+        assert "INCOMPLETE" not in message
+
+    def test_total_add_failure_is_reported_as_an_add_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty index must not surface as "the commit failed".
+
+        When the add stages nothing, ``git commit`` fails with "nothing added
+        to commit" — so without an explicit guard the operator reads
+        ``commit of uncommitted working tree failed`` and goes looking at the
+        commit, when the cause was the add. Mirrors the re-attach path's
+        empty-index guard (#3639 re-review).
+        """
+        import agent_salvage
+
+        wt = self._clean_worktree(tmp_path)
+        self._dirty(wt.repo_path)
+        real_run_git = agent_salvage._run_git
+        attempted = []
+
+        def _failing_add(*args: str, **kwargs: object):
+            attempted.append(args)
+            if args and args[0] == "add":
+                # Nothing reaches the index at all.
+                return SimpleNamespace(returncode=1, stdout="", stderr="fatal: unable to index")
+            return real_run_git(*args, **kwargs)
+
+        monkeypatch.setattr(agent_salvage, "_run_git", _failing_add)
+        assert commit_working_tree(wt) is None
+        # Bailed before the commit, so the misleading commit-failure log is
+        # never emitted.
+        assert not any(a and a[0] == "commit" for a in attempted)
+        # ...and the tree is left dirty for the caller's own handling.
+        assert _git("status", "--porcelain", cwd=wt.repo_path).stdout.strip() != ""
 
     def test_salvage_pushes_uncommitted_edits_when_flag_set(self, tmp_path: Path) -> None:
         """salvage_uncommitted=True: dirty edits land in the pushed HEAD."""
