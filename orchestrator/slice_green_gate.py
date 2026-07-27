@@ -1621,13 +1621,18 @@ def run_slice_green_gate(
                 f"{_format_failed_checks(genuine_failed)}{autofix_note}",
                 # Conditional phrasing on the decision: raising it is the
                 # caller's job (``_slice_close_green_gate``), not this
-                # function's, and that escalation is best-effort on every
-                # axis — it no-ops when ``egg_contracts`` will not import,
-                # adopts an existing open decision instead of minting one,
-                # and swallows load/save failures into a warning. A public
-                # module-level function must not promise an artifact its
-                # caller may never have landed, so the message degrades
-                # honestly when there is no decision to find.
+                # function's, and that escalation is best-effort — it
+                # no-ops when ``egg_contracts`` will not import, swallows
+                # contract load/save failures into a warning, and its
+                # #3427 durability push is itself best-effort, so a
+                # decision written to the contract file can still be
+                # reverted by a phase-restart worktree reset. (Adopting an
+                # existing open decision instead of minting a fresh
+                # ``cq-N`` is *not* such a path — the operator still finds
+                # a decision.) A public module-level function must not
+                # promise an artifact its caller may never have landed, so
+                # the message degrades honestly when there is no decision
+                # to find.
                 (
                     f"If this close raised a green-gate decision on the contract, "
                     f"resolve it; otherwise fix the named checks at the "

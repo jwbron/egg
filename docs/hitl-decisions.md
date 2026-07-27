@@ -1066,12 +1066,17 @@ they appear in `get_status(...)` under **`pending_contract_decisions`**, not
 for that field and the `provide_input` resolution flow.
 
 **The escalation is best-effort.** `_escalate_layer_c_hitl` no-ops when `egg_contracts`
-will not import, and downgrades contract load/save failures to a warning. A blocked close
-can therefore leave *no* decision behind; that is why `run_slice_green_gate` phrases the remedy block of its
-failure string conditionally ("If this close raised a green-gate decision on the contract,
-resolve it; otherwise fix the named checks…") rather than promising a decision its caller
-may never have landed. If the phase failed on one of these gates and nothing is pending,
-work from the phase failure message and skip to step 2 below.
+will not import, and downgrades contract load/save failures to a warning. The #3427
+durability push that follows the write (`persist_contract_statefiles`) is best-effort too:
+a decision is live on the shared worktree's contract file immediately, but until it is
+committed *and* pushed to the work branch, the `git reset --hard origin/<work>` that a
+phase (re)start runs reverts it — the same restart step 2 below prescribes. Such a
+decision returns only if the gate re-fires and goes red again. A blocked close can
+therefore leave *no* decision behind; that is why `run_slice_green_gate` phrases its
+failure string's remedy block conditionally ("If this close raised a green-gate decision
+on the contract, resolve it; otherwise fix the named checks…") rather than promising a
+decision its caller may never have landed. If the phase failed on one of these gates and
+nothing is pending, work from the phase failure message and skip to step 2 below.
 
 **Options** (the same inert triple `_escalate_layer_c_hitl` uses for the Layer-C
 BLOCKED / corrupt-state cases — see [slice-dag.md](architecture/slice-dag.md) on the
