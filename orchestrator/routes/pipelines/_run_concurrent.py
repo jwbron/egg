@@ -306,6 +306,29 @@ def _run_concurrent_phase(
         event_status_view=event_status_view,
     )
 
+    # Last chance to notice a cancel before minting a cohort (#3633 review).
+    # The slice loop's guard runs at the top of its tick; everything between
+    # there and here — contract load, per-role prompt building (draft reads,
+    # BRC history, git diffs), gateway session + worktree setup — takes tens
+    # of seconds. (Integration-branch creation is in that window too, but it
+    # happens back in ``_run_implement`` before this function is called, so
+    # this guard cannot prevent it — only the slice loop's own guard can.)
+    # A cancel landing in that window
+    # runs the route's teardown BEFORE these Jobs exist, so nothing would reap
+    # them: no reconciler acts on CANCELLED, and ``cleanup_pipeline`` only
+    # re-runs on an operator DELETE. Re-read the status here so the cohort is
+    # never minted rather than minted-and-orphaned. FAILED is excluded for the
+    # same #1273 reason as every other layer.
+    if _pkg._pipeline_cancelled(store, pipeline_id):
+        _pkg.logger.info(
+            "Pipeline cancelled before agent spawn — no cohort minted",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            slice_id=slice_id,
+        )
+        executor.stop_event_loop()
+        return 1, "Phase monitor thread exited: pipeline_cancelled."
+
     # Spawn all agents with their prompts.
     executions = executor.spawn_all(agent_prompts=agent_prompts)
 
@@ -397,21 +420,19 @@ def _run_concurrent_phase(
     start_time = _pkg.time.monotonic()
     objection_decision_created = False
 
-    # ``run_epoch`` is the authoritative epoch the owning ``_run_pipeline``
-    # thread captured at start (#1638). The poll loop uses it to detect a
-    # ``restart_phase`` (or any restart that bumps ``run_epoch``) that
-    # superseded this thread (#3315). ``start_time`` is a fresh monotonic
-    # clock per call, but a parked-then-restarted phase leaves the *old*
-    # ``_run_concurrent_phase`` thread alive in its poll loop with a
-    # ``start_time`` from the original phase start; once its ``elapsed``
-    # crosses ``consensus_timeout`` it would fire a spurious consensus-timeout
-    # OVERSEER_ALERT + HITL decision against the freshly-restarted phase. The
-    # new ``_run_pipeline`` thread owns the pipeline now, so this stale thread
-    # must bail before escalating. When ``run_epoch`` is not supplied (legacy
-    # / direct-call callers) the guard is dormant — behaviour is unchanged.
+    # Per-tick "should this thread still be here?" check. Two conditions,
+    # one pipeline load — see ``_phase_bail_reason_impl`` for the full
+    # rationale of each and for why FAILED is excluded:
+    #
+    # * a restart bumped ``run_epoch``, so a new ``_run_pipeline`` thread
+    #   owns the pipeline and this stale one must stop before it fires a
+    #   spurious consensus-timeout escalation against the fresh phase
+    #   (#3315; dormant when ``run_epoch`` is not supplied);
+    # * the operator cancelled the run, so this thread must stop driving
+    #   the slice DAG rather than keep spawning into it (#3633).
 
-    _superseded_by_restart = _pkg.functools.partial(
-        _pkg._superseded_by_restart_impl,
+    _phase_bail_reason = _pkg.functools.partial(
+        _pkg._phase_bail_reason_impl,
         store=store,
         pipeline_id=pipeline_id,
         run_epoch=run_epoch,
@@ -465,26 +486,35 @@ def _run_concurrent_phase(
         driver_heartbeat.record_tick(pipeline_id)
         elapsed = _pkg.time.monotonic() - start_time
 
-        # 0. Bail if a restart superseded this thread (#3315). A parked phase
-        #    that is restarted after the consensus-timeout budget elapsed
-        #    leaves this old thread polling with a stale ``start_time``; the
-        #    new ``_run_pipeline`` thread already owns the pipeline. Exit
-        #    cleanly — stop this executor's event loop so it stops requesting
-        #    one-shot spawns — WITHOUT firing the timeout escalation. Return a
-        #    NON-zero exit so the caller never mistakes this for success and
-        #    advances the phase; the post-return epoch check (#1638) at the
-        #    call site re-confirms the restart and exits the old thread without
-        #    marking the phase FAILED.
-        if _superseded_by_restart():
+        # 0. Bail if this thread no longer owns the phase (restart, #3315) or
+        #    the run was cancelled (#3633). Exit cleanly — stop this executor's
+        #    event loop so it stops requesting one-shot spawns — WITHOUT firing
+        #    the timeout escalation. Return a NON-zero exit so the caller never
+        #    mistakes this for success and advances the phase; the post-return
+        #    checks at the call site re-confirm the reason and exit the thread
+        #    without marking the phase FAILED.
+        _bail_reason = _phase_bail_reason()
+        if _bail_reason is not None:
             _pkg.logger.info(
-                "Phase superseded by restart (run_epoch changed) — exiting stale "
-                "_run_concurrent_phase thread without escalation",
+                "Exiting _run_concurrent_phase poll loop without escalation",
                 pipeline_id=pipeline_id,
                 phase=phase,
                 slice_id=slice_id,
+                reason=_bail_reason,
             )
             executor.stop_event_loop()
-            return 1, "Phase superseded by restart; stale monitor thread exited."
+            # On a cancel, this thread is the last owner of the cohort it
+            # spawned — reap it like every consensus exit path in this
+            # function does (#3633 review). A cohort minted after the route's
+            # ``cleanup_pipeline`` ran has nothing else to stop it: no
+            # reconciler acts on CANCELLED, and cleanup only re-runs on an
+            # operator DELETE. Deliberately NOT done on the
+            # ``superseded_by_restart`` branch — there the new
+            # ``_run_pipeline`` thread legitimately owns those containers and
+            # stopping them would kill the restarted run's agents (#3315).
+            if _bail_reason == "pipeline_cancelled":
+                _stop_running_containers()
+            return 1, f"Phase monitor thread exited: {_bail_reason}."
 
         # 1. Check consensus
         try:

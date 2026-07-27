@@ -1168,6 +1168,9 @@ from ._context_pr import (  # noqa: E402,F401
     _refresh_context_pr_body,
     _repos_with_slices,
 )
+from ._contract_bridge import (  # noqa: E402,F401
+    _queue_and_await_contract_decisions,
+)
 from ._criteria import (  # noqa: E402,F401
     _get_agent_design_criteria,
     _get_code_review_criteria,
@@ -1246,7 +1249,6 @@ from ._ledger import (  # noqa: E402,F401
     _ledger_attestation_rerun_directive,
     _next_phases_for_epic,
     _persist_phase_gate_resolution,
-    _queue_and_await_contract_decisions,
     _sync_pipeline_decisions_to_contract,
     _unwrap_choice_resolution,
     _write_apply_phase_handoff,
@@ -1258,6 +1260,7 @@ from ._lifecycle_helpers import (  # noqa: E402,F401
     _compute_gateway_mode,
     _mark_pipeline_records_terminated,
     _normalize_submission_repos,
+    _stop_pipeline_event_loops,
     _sync_contract_phase_to_pipeline,
 )
 from ._overseer import (  # noqa: E402,F401
@@ -1382,14 +1385,15 @@ from ._run_concurrent_retry import (  # noqa: E402,F401
 )
 from ._run_concurrent_support import (  # noqa: E402,F401
     _latest_proposal_ts_impl,
+    _phase_bail_reason_impl,
     _record_container_exit_impl,
     _record_spawned_agents_impl,
     _retry_transient_spawn_failures_impl,
     _stop_running_containers_impl,
-    _superseded_by_restart_impl,
     _update_agents_complete_impl,
 )
 from ._run_hitl_gate import (  # noqa: E402,F401
+    _gate_wait_cancelled,
     _run_hitl_gate_converge,
 )
 from ._run_implement import (  # noqa: E402,F401
@@ -1432,8 +1436,9 @@ from ._run_pipeline_support import (  # noqa: E402,F401
 )
 from ._run_support import (  # noqa: E402,F401
     _clear_stale_impasses_for_producers,
+    _park_at_gate_unless_cancelled,
     _parse_resolution,
-    _pipeline_superseded_by_restart,
+    _pipeline_cancelled,
     _spawn_and_wait,
 )
 from ._salvage import (  # noqa: E402,F401

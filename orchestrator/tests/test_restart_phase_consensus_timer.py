@@ -32,7 +32,7 @@ from models import (
 from routes.pipelines import (
     _CONSENSUS_TIMEOUT_HITL_CONTEXT,
     _cancel_consensus_timeout_decisions,
-    _pipeline_superseded_by_restart,
+    _phase_bail_reason_impl,
     _run_concurrent_phase,
     _run_concurrent_phase_with_impasse_retry,
 )
@@ -261,42 +261,62 @@ class TestAutoWithdrawConsensusTimeoutDecision:
 
 
 class TestPipelineSupersededHelper:
-    """The shared epoch-supersession predicate (facet a)."""
+    """The epoch-supersession arm of the shared bail predicate (facet a).
+
+    The standalone ``_pipeline_superseded_by_restart`` predicate these cases
+    used to exercise was folded into ``_phase_bail_reason_impl`` (#3633), so
+    they now pin the same #3315 semantics on the live implementation — the
+    one both the poll loop and the impasse-retry wrapper actually call.
+    """
+
+    @staticmethod
+    def _running(run_epoch, created_at=None):
+        reloaded = MagicMock()
+        reloaded.status = PipelineStatus.RUNNING
+        reloaded.run_epoch = run_epoch
+        reloaded.created_at = created_at if created_at is not None else run_epoch
+        return reloaded
 
     def test_none_run_epoch_is_never_superseded(self):
-        # Direct-call paths that don't thread an epoch must opt out entirely —
-        # the helper must not even touch the store.
+        # Direct-call paths that don't thread an epoch opt out of the epoch
+        # arm entirely — no epoch, no supersession, whatever is on disk.
         store = MagicMock()
-        assert _pipeline_superseded_by_restart(store, "issue-3315", None) is False
-        store.load_pipeline.assert_not_called()
+        store.load_pipeline.return_value = self._running(datetime(2030, 1, 1, tzinfo=UTC))
+        assert (
+            _phase_bail_reason_impl(store=store, pipeline_id="issue-3315", run_epoch=None) is None
+        )
 
     def test_newer_on_disk_epoch_means_superseded(self):
-        reloaded = MagicMock()
-        reloaded.run_epoch = datetime(2030, 1, 1, tzinfo=UTC)
-        reloaded.created_at = datetime(2030, 1, 1, tzinfo=UTC)
         store = MagicMock()
-        store.load_pipeline.return_value = reloaded
+        store.load_pipeline.return_value = self._running(datetime(2030, 1, 1, tzinfo=UTC))
         assert (
-            _pipeline_superseded_by_restart(store, "issue-3315", datetime(2020, 1, 1, tzinfo=UTC))
-            is True
+            _phase_bail_reason_impl(
+                store=store,
+                pipeline_id="issue-3315",
+                run_epoch=datetime(2020, 1, 1, tzinfo=UTC),
+            )
+            == "superseded_by_restart"
         )
 
     def test_matching_epoch_is_not_superseded(self):
         epoch = datetime(2025, 6, 1, tzinfo=UTC)
-        reloaded = MagicMock()
-        reloaded.run_epoch = epoch
-        reloaded.created_at = epoch
         store = MagicMock()
-        store.load_pipeline.return_value = reloaded
-        assert _pipeline_superseded_by_restart(store, "issue-3315", epoch) is False
+        store.load_pipeline.return_value = self._running(epoch)
+        assert (
+            _phase_bail_reason_impl(store=store, pipeline_id="issue-3315", run_epoch=epoch) is None
+        )
 
-    def test_load_failure_returns_false(self):
+    def test_load_failure_returns_no_bail(self):
         # A transient store hiccup must never tear down a running phase.
         store = MagicMock()
         store.load_pipeline.side_effect = RuntimeError("git read failed")
         assert (
-            _pipeline_superseded_by_restart(store, "issue-3315", datetime(2020, 1, 1, tzinfo=UTC))
-            is False
+            _phase_bail_reason_impl(
+                store=store,
+                pipeline_id="issue-3315",
+                run_epoch=datetime(2020, 1, 1, tzinfo=UTC),
+            )
+            is None
         )
 
 

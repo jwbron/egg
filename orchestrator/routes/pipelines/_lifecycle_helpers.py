@@ -155,6 +155,77 @@ def _assert_repo_set_uniform(repos: list[str]) -> str | None:
     return None
 
 
+def _stop_pipeline_event_loops(pipeline_id: str, *, reason: str) -> int:
+    """Stop every live orchestrator-owned BRC event loop for ``pipeline_id`` (#3633).
+
+    ``cancel_task`` used to set the status to CANCELLED, tear down the
+    pipeline's containers, and clear its runtime state — but nothing stopped
+    the thing that *creates* containers. Each slice's ``OrchestratorEventLoop``
+    kept polling on its daemon thread, so the next tick re-derived every
+    role's arm and requested fresh one-shot Jobs. Killing the pods removed
+    the symptom while the spawner ran on: ``issue-3596-v2`` was cancelled at
+    20:48Z and spawned slice-3 agents at 22:55Z, against a pipeline the
+    operator believed was stopped.
+
+    The loops are reachable through the ``event_loop`` live-loop registry
+    (#3496), which is keyed by ``(pipeline_id, slice_id)`` and populated by
+    ``start()`` — so this covers every concurrent slice of the run.
+
+    Call this BEFORE container cleanup: cleanup that races a live loop is
+    removing pods the loop is still entitled to replace.
+
+    ``stop()`` is called with ``join_timeout=0.0`` because this runs in the
+    PATCH request thread. Both effects that matter — setting the loop's stop
+    event and evicting it from the registry — are synchronous, so the daemon
+    thread winds down on its own without making the operator wait on it.
+
+    Returns the number of loops signalled (0 when none were live, which is
+    the normal case for a pipeline cancelled between phases).
+    """
+    try:
+        try:
+            from event_loop import get_live_event_loops
+        except ImportError:
+            from ..event_loop import (  # type: ignore[no-redef]
+                get_live_event_loops,
+            )
+    except ImportError as import_err:
+        # A silent 0 here would turn cancel back into #3633 with no signal at
+        # all: the operator's cancel would report success while every live
+        # loop kept spawning. Log loudly so an import regression is visible.
+        _pkg.logger.warning(
+            "Cannot reach the live event-loop registry; cancelled pipeline's "
+            "BRC event loops were NOT stopped (they will keep spawning until "
+            "the driver loops' own CANCELLED re-read catches up)",
+            pipeline_id=pipeline_id,
+            reason=reason,
+            error=str(import_err),
+        )
+        return 0
+
+    stopped = 0
+    for loop in get_live_event_loops(pipeline_id):
+        try:
+            loop.stop(join_timeout=0.0)
+            stopped += 1
+        except Exception as e:  # noqa: BLE001 — best-effort teardown
+            _pkg.logger.warning(
+                "Failed to stop BRC event loop",
+                pipeline_id=pipeline_id,
+                slice_id=getattr(loop, "slice_id", None),
+                reason=reason,
+                error=str(e),
+            )
+    if stopped:
+        _pkg.logger.info(
+            "Stopped live BRC event loops",
+            pipeline_id=pipeline_id,
+            reason=reason,
+            loops_stopped=stopped,
+        )
+    return stopped
+
+
 def _clear_pipeline_runtime_state(pipeline_id: str, *, reason: str) -> None:
     """Evict per-pipeline runtime state that is keyed by pipeline_id alone.
 

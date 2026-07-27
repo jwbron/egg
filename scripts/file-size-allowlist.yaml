@@ -38,3 +38,11 @@ files:
   # both sides.
   orchestrator/slice_green_gate.py:
     issue: "3627"
+  # Pushed over the cap by #3633 review-feedback fixes (PR #3649) — the
+  # cancel-before-spawn guard and cohort reaping in the phase monitor loop.
+  orchestrator/routes/pipelines/_run_concurrent.py:
+    issue: "3650"
+  # Pushed over the cap by #3633 review-feedback fixes (PR #3649) — the
+  # CANCELLED branch of the driver's worktree-preservation cleanup hook.
+  orchestrator/routes/pipelines/_run_pipeline.py:
+    issue: "3651"
