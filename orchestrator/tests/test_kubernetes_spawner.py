@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import shutil
 import statistics
 import subprocess
@@ -4238,6 +4239,31 @@ class TestDirtyTreePreservedBeforeReset:
         assert email == agent_salvage._SALVAGE_COMMIT_EMAIL
         assert subject.startswith("[salvage]")
 
+    def test_partial_suffixes_share_one_grep_token(self):
+        """One search must find a truncated snapshot from either path (R7 N3).
+
+        The two ``INCOMPLETE:`` suffixes are deliberate near-duplicates —
+        they differ only in naming whose working tree was truncated — and
+        both comment blocks instruct "change one, change the other". A
+        comment does not fail when someone edits one of them, and
+        ``docs/reference/agent-recovery.md`` tells triagers to grep for this
+        exact token, so pin the shared prefix instead.
+        """
+        import agent_salvage
+        from kubernetes_spawner import _worktree
+
+        shared = (
+            "\n\nINCOMPLETE: `git add -A` reported errors while staging, so files\npresent in the "
+        )
+        assert _worktree._WIP_COMMIT_PARTIAL_SUFFIX.startswith(shared)
+        assert agent_salvage._UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX.startswith(shared)
+        # Near-duplicate, not duplicate: the provenance clause is the one
+        # thing a triager reading a lone commit message cannot infer.
+        assert (
+            _worktree._WIP_COMMIT_PARTIAL_SUFFIX
+            != agent_salvage._UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX
+        )
+
     def test_no_branch_takes_no_snapshot(self, spawner, mock_gateway, tmp_path):
         """``branch is None`` ⇒ no snapshot commit, and HEAD does not move.
 
@@ -4418,6 +4444,93 @@ class TestDirtyTreePreservedBeforeReset:
         diff_args = next(a for a in seen if a[0] == "diff")
         assert "-z" in diff_args
 
+    def test_undecodable_staged_path_does_not_cost_the_commit(self, tmp_path):
+        """An undecodable filename degrades the metadata, never the snapshot.
+
+        The unit half of R7 B1. ``-z`` is what makes ``wip_paths`` mean real
+        paths, but it also hands raw bytes to the caller's
+        ``subprocess.run(..., text=True)``, which decodes as strict UTF-8 —
+        so a filename that is not valid UTF-8 raises ``UnicodeDecodeError``
+        *inside* ``run``, before the ``split("\\0")``. Letting that reach the
+        outer handler would abandon the commit and hand the whole working
+        tree to the reset: #3639 reintroduced, over a filename.
+
+        The closure below raises exactly what ``subprocess.run`` raises, so
+        the assertion is about the layer the ``-z`` change moved the failure
+        into, not about a pre-decoded fixture.
+        """
+        from kubernetes_spawner._worktree import _preserve_dirty_tree
+
+        seen = []
+
+        def _undecodable_git(_repo_dir, *args, **_kwargs):
+            seen.append(args)
+            if args[0] == "diff":
+                raise UnicodeDecodeError(
+                    "utf-8", b"src/caf\xe9.md", 7, 8, "invalid continuation byte"
+                )
+            return SimpleNamespace(stdout="deadbeefcafe\n", returncode=0)
+
+        snapshot = _preserve_dirty_tree(
+            _undecodable_git, tmp_path, agent_worktree_id=_WT_ID, repo="repo", n_entries=33
+        )
+
+        # The commit is the point: it must exist.
+        assert snapshot is not None
+        assert snapshot.sha == "deadbeefcafe"
+        assert any("commit" in a for a in seen)
+        # Only the path metadata degrades — and it degrades to "unknown",
+        # which ``_record_discarded_tip`` reads as "take the imperative".
+        assert snapshot.paths is None
+        assert snapshot.n_files is None
+        # An unreadable path list is not a truncated capture: ``partial``
+        # means ``git add -A`` reported errors, and the add succeeded here.
+        assert snapshot.partial is False
+
+    def test_undecodable_filename_is_salvaged_end_to_end(self, spawner, mock_gateway, tmp_path):
+        """Real git, real non-UTF-8 filename: the 33 files still survive.
+
+        The regression R7 B1 describes needs no exotic setup — one file whose
+        name is latin-1 (an extracted archive, a fixture written with raw
+        bytes) alongside hours of ordinary work. ``status --porcelain``
+        honours ``core.quotePath`` so the entry point still sees ASCII and
+        enters the dirty path; the ``-z`` read is where the bytes escape.
+        This is the only real-git coverage of ``-z``: both other seeds are
+        ASCII, so a fixture-level test cannot fail on this.
+        """
+        repo, origin_head = self._seed_dirty(tmp_path)
+        # ``os.fsdecode`` of invalid UTF-8 yields surrogate escapes, which the
+        # filesystem round-trips back to the original bytes on Linux.
+        (repo / os.fsdecode(b"caf\xe9.md")).write_bytes(b"latin-1 name\n")
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX)
+
+        assert cleaned is True
+        msg = get_store.return_value.add_message.call_args.args[0]
+        wip = msg.metadata["wip_commit"]
+        # The snapshot exists and holds the work, not just the odd filename.
+        assert wip is not None
+        assert _git(repo, "show", f"{wip}:seed.txt").stdout == "hours of uncommitted edits\n"
+        assert "def added():" in _git(repo, "show", f"{wip}:new_module.py").stdout
+        # ... and it was pushed to a recovery ref like any other snapshot.
+        mock_gateway.push_worktree_branch.assert_called_once()
+        # The path list is what degrades. Unknown contents ⇒ the imperative,
+        # and the size claim falls back to the unquantified phrasing.
+        assert msg.metadata["wip_paths"] is None
+        assert msg.metadata["wip_files"] is None
+        assert msg.metadata["wip_machine_state_only"] is False
+        assert msg.metadata["wip_softened"] is False
+        assert "inspect it before starting work" in msg.body
+        assert "file(s) of uncommitted work" not in msg.body
+        # R6 still holds: the successor starts clean at the origin tip.
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+
     def test_ignored_only_dirt_is_discarded_without_a_commit(self, spawner, mock_gateway, tmp_path):
         """Build output is not agent work: no snapshot, nothing salvaged.
 
@@ -4551,7 +4664,7 @@ class TestDiscardedTipMessageWording:
         assert "build on it (cherry-pick or reset)" in body
 
     def test_machine_state_only_snapshot_is_softened(self):
-        """A capture that is nothing but orchestrator-written state relaxes.
+        """A capture that is nothing but regenerated state relaxes.
 
         The softening has to hold across the *whole* body: a trailing "treat
         it as a WIP checkpoint to review" would put an imperative in the last
@@ -4604,10 +4717,13 @@ class TestDiscardedTipMessageWording:
     def test_unknown_paths_are_treated_as_substantial(self):
         """No path set ⇒ the imperative. Soft wording is opt-in, never a default.
 
-        Defensive only: ``wip_paths`` and ``wip_commit`` are assigned together
-        off ``_DirtySnapshot``, so production never reaches this. It pins that
-        a future caller that knows the sha but not the contents degrades to
-        the loud branch rather than the quiet one.
+        This is a live production path, not merely defensive (R7 B1): a
+        filename whose bytes are not valid UTF-8 makes the staged-path read
+        undecodable, and ``_preserve_dirty_tree`` commits blind rather than
+        lose the tree over a name — so the record knows the sha but not the
+        contents. It must degrade to the loud branch rather than the quiet
+        one. The end-to-end path is pinned by
+        ``TestDirtyTreePreservedBeforeReset``'s undecodable-filename cases.
         """
         body = self._body(
             n_commits=1,
@@ -4735,7 +4851,7 @@ class TestDiscardedTipMessageWording:
             wip_files=len(paths),
             wip_paths=paths,
         )
-        assert "holds only 5 files — orchestrator-written state" in msg.body
+        assert "holds only 5 files — machine-maintained coordination state" in msg.body
         for path in paths:
             assert f"`{path}`" not in msg.body
         assert "read it if you need it" in msg.body

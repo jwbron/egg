@@ -698,7 +698,18 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
             return None
         head = _run_git("rev-parse", "HEAD", cwd=worktree.repo_path, check=False)
         head_sha = (head.stdout or "").strip() if head.returncode == 0 else None
-    except (OSError, subprocess.SubprocessError) as e:
+    # Deliberately broader than the ``(OSError, subprocess.SubprocessError)``
+    # the read helpers above use, and broader than it needs to be today. The
+    # docstring promises this never raises, and the class that would break
+    # that promise is not a subprocess error: ``_run_git`` decodes with
+    # ``text=True`` and no ``errors=``, so a git command that echoes a
+    # filename whose bytes are not valid UTF-8 raises ``UnicodeDecodeError``
+    # (a ``ValueError``) from inside ``subprocess.run``. Unreachable on this
+    # path today — it has no ``-z`` call and the default ``core.quotePath``
+    # keeps git's output ASCII — but the re-attach path shipped exactly that
+    # bug by adding ``-z`` (#3639 re-review B1), and letting it escape here
+    # would abort the committed-but-unpushed salvage that follows.
+    except Exception as e:
         logger.warning(
             "Salvage: capturing uncommitted working tree raised; continuing",
             worktree_id=worktree.worktree_id,
