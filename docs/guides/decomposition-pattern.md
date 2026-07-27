@@ -10,7 +10,9 @@
 ## Why we decompose
 
 The `make lint` check added in #2250 (closing #2248) caps each Python
-source file at **1,500 lines / 100 KB**. The Read tool's soft 25k-token
+source file at **1,000 code lines** (blank lines, comment-only lines and
+module/class/function docstrings are excluded; re-baselined from
+1,500 raw lines / 100 KB in #3671). The Read tool's soft 25k-token
 budget is the floor under that cap: an agent that has to load a 16k-line
 module to understand a single function pays the same context cost on
 every BRC cycle. Decomposing a file once amortises that cost across all
@@ -251,7 +253,7 @@ multiple agents have to navigate the route surface in parallel.
 
 ## (g) When to further-split a submodule
 
-If a submodule lands at-or-over the 1,500-line / 100-KB cap, **split
+If a submodule lands at-or-over the 1,000-code-line cap, **split
 it further within the same slice**. The plan's slice descriptions
 pre-allocate the canonical further-splits expected per cluster, e.g.
 `_prompt_building/` is itself a sub-sub-package nested inside
@@ -294,7 +296,7 @@ anything more invasive is a follow-up.
 - [ ] Each cluster commit re-exports every external-referenced
       symbol through `__init__.py`.
 - [ ] `git grep` audit (section (d)) ran for every cluster.
-- [ ] No submodule lands over the 1,500-line / 100-KB cap; further
+- [ ] No submodule lands over the 1,000-code-line cap; further
       splits are in-slice (section (g)).
 - [ ] Allowlist entry for the file is removed (section (e)).
 - [ ] Module layout section in CLAUDE.md is updated with the new

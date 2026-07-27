@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lint check: cap Python source-file line and byte counts.
+"""Lint check: cap the number of *code* lines in a Python source file.
 
 Oversize source files force every BRC implement-phase agent into a
 Grep-then-paginated-Read workflow because the Read tool's hard limits
@@ -7,23 +7,59 @@ Grep-then-paginated-Read workflow because the Read tool's hard limits
 another LLM turn, and BRC cycles re-pay the cost from a cleared context.
 See issue #2248 for the operational evidence.
 
-This check walks tracked Python sources under the source roots
-(orchestrator/, gateway/, shared/, sandbox/, scripts/, config/) and rejects
-any file that exceeds the configured caps:
+What is counted
+---------------
+Only **code lines**: every physical line that is not blank, not a
+comment-only line, and not part of a module / class / function docstring.
+Docstring spans come from ``ast.get_docstring`` over ``Module``,
+``ClassDef``, ``FunctionDef`` and ``AsyncFunctionDef``; comment-only and
+blank lines fall out of ``tokenize``.
 
-- Hard cap (failure): 1500 lines OR 100,000 bytes (~25k tokens of Python).
-- Soft cap (warning): 800 lines OR 60,000 bytes (~15k tokens).
+This is deliberate. Counting raw lines made deleting prose the cheapest
+way to pass the check, which is the opposite of what the cap is for -- and
+it happened in practice (commit ``68b185ca``, "trim health_monitor.py
+docstring under file-size hard cap"). Under code-line counting, removing a
+docstring, a comment or a blank line changes the reported number by
+exactly zero, so that shortcut no longer exists. The cap bounds how much
+*logic* lives in one module; prose density is not what makes a file hard
+to change, and this repo deliberately invests in prose (see
+``orchestrator/CLAUDE.md``).
+
+Two things are still counted as code on purpose: multi-line string
+literals that are not docstrings (an embedded prompt template really does
+make a module longer to work through) and everything in a file that fails
+to parse (the fallback over-counts rather than under-counts, so a broken
+file can never measure smaller than a working one).
+
+Caps
+----
+- Hard cap (failure): 1000 code lines.
+- Soft cap (warning): 500 code lines.
+
+Both were re-baselined against code-line counts in issue #3671. At this
+repo's median code density (~0.58 code lines per raw line for files over
+200 lines) 1000 code lines is ~1700 raw lines, and at the observed 60-90
+bytes per code line it is ~60-90KB -- still inside the ~100KB / 25k-token
+Read budget the original caps were justified by. The soft cap sits at half
+the hard cap, matching the old 800/1500 shape.
+
+There is no byte cap. Raw bytes have the identical gaming property this
+check was rewritten to remove, a "code bytes" variant would be a redundant
+proxy for code lines (they correlate almost perfectly here) that no longer
+maps to the Read-tool byte limit that justified it, and the old 100,000
+byte cap was non-binding in practice: exactly one file exceeded it, and
+that file was over the line cap too.
 
 Test files are exempt -- parametrized cases legitimately push line counts
 past these caps and decomposing them mechanically would hurt readability.
 
-Files already over the hard cap on day one are listed in
-``scripts/file-size-allowlist.yaml``. The lint allows allowlisted files to
-stay over the cap regardless of size; per-file size baselines were dropped
-because every unrelated PR that touched one of these files needed a
-baseline bump in the allowlist, conflicting with every other in-flight PR.
-Removing a file from the allowlist (or letting it drop under the cap) is
-encouraged as decomposition proceeds.
+Files over the hard cap are listed in ``scripts/file-size-allowlist.yaml``.
+The lint allows allowlisted files to stay over the cap regardless of size;
+per-file size baselines were dropped because every unrelated PR that
+touched one of these files needed a baseline bump in the allowlist,
+conflicting with every other in-flight PR. Removing a file from the
+allowlist (or letting it drop under the cap) is encouraged as
+decomposition proceeds.
 
 Usage:
     scripts/check-file-sizes.py
@@ -38,7 +74,10 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import ast
+import io
 import sys
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -54,20 +93,23 @@ SOURCE_ROOTS = ("orchestrator", "gateway", "shared", "sandbox", "scripts", "conf
 # cases that legitimately exceed source-file caps.
 EXCLUDED_DIR_NAMES = frozenset({"tests", "__pycache__"})
 
+# AST nodes ast.get_docstring() accepts.
+_DOCSTRING_OWNERS = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+
 
 @dataclass(frozen=True)
 class Caps:
-    hard_lines: int
-    hard_bytes: int
-    soft_lines: int
-    soft_bytes: int
+    hard_code_lines: int
+    soft_code_lines: int
 
 
 @dataclass(frozen=True)
 class FileStats:
     path: Path
-    lines: int
-    bytes: int
+    code_lines: int
+    # Raw physical line count. Reported by --list for context only; nothing
+    # in the lint gates on it, precisely because prose moves it.
+    raw_lines: int
 
 
 @dataclass
@@ -78,6 +120,25 @@ class Config:
     allowlist: dict[str, str | None]
 
 
+def _require_cap(caps_raw: dict[str, Any], key: str) -> int:
+    """Read a cap key, failing with a rebase hint rather than a KeyError.
+
+    The keys were renamed from ``hard_lines``/``soft_lines`` (raw lines,
+    plus byte caps) to ``hard_code_lines``/``soft_code_lines`` in #3671.
+    A branch carrying the old schema should be told what to do, not handed
+    a traceback -- and must never be silently measured against a cap
+    calibrated for a different metric.
+    """
+    if key not in caps_raw:
+        raise SystemExit(
+            f"{ALLOWLIST_PATH.name}: missing caps key {key!r}. The caps were "
+            "re-baselined onto code-line counts in #3671 "
+            "(hard_code_lines / soft_code_lines; the byte caps were dropped). "
+            "Rebase this branch onto main to pick up the new allowlist schema."
+        )
+    return int(caps_raw[key])
+
+
 def load_config(path: Path | None = None) -> Config:
     # Resolve the default at call time so tests can monkey-patch ALLOWLIST_PATH.
     if path is None:
@@ -85,10 +146,8 @@ def load_config(path: Path | None = None) -> Config:
     raw = yaml.safe_load(path.read_text()) or {}
     caps_raw = raw.get("caps") or {}
     caps = Caps(
-        hard_lines=int(caps_raw["hard_lines"]),
-        hard_bytes=int(caps_raw["hard_bytes"]),
-        soft_lines=int(caps_raw["soft_lines"]),
-        soft_bytes=int(caps_raw["soft_bytes"]),
+        hard_code_lines=_require_cap(caps_raw, "hard_code_lines"),
+        soft_code_lines=_require_cap(caps_raw, "soft_code_lines"),
     )
     files_raw: dict[str, Any] = raw.get("files") or {}
     allowlist: dict[str, str | None] = {}
@@ -123,13 +182,76 @@ def iter_source_files(repo_root: Path = REPO_ROOT) -> list[Path]:
     return out
 
 
+def _comment_only_line_numbers(source: str) -> set[int]:
+    """1-based line numbers whose only content is a comment.
+
+    A trailing comment on a code line does not count -- the line still
+    carries code. ``#`` inside a string literal is not a COMMENT token, so
+    string content is never mistaken for a comment.
+    """
+    out: set[int] = set()
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+        for tok in tokens:
+            if tok.type != tokenize.COMMENT:
+                continue
+            before = tok.line[: tok.start[1]]
+            if not before.strip():
+                out.add(tok.start[0])
+    except tokenize.TokenError, SyntaxError, ValueError:
+        # Unparseable file: fall back to counting everything as code.
+        return set()
+    return out
+
+
+def _docstring_line_numbers(source: str) -> set[int]:
+    """1-based line numbers spanned by module/class/function docstrings.
+
+    Only the four node types ``ast.get_docstring`` accepts are considered.
+    A bare string expression that is *not* in docstring position (e.g. the
+    PEP 224 style ``FOO = 1`` followed by ``\"\"\"doc\"\"\"``) is counted as
+    code; extending the exclusion there would re-open a way to park
+    arbitrary text outside the count.
+    """
+    out: set[int] = set()
+    try:
+        tree = ast.parse(source)
+    except SyntaxError, ValueError:
+        # Unparseable file: fall back to counting everything as code.
+        return out
+    for node in ast.walk(tree):
+        if not isinstance(node, _DOCSTRING_OWNERS):
+            continue
+        if ast.get_docstring(node) is None:
+            continue
+        doc = node.body[0]
+        out.update(range(doc.lineno, (doc.end_lineno or doc.lineno) + 1))
+    return out
+
+
+def count_code_lines(source: str) -> int:
+    """Count physical lines that are neither blank, comment, nor docstring.
+
+    This is the number the lint gates on. Deleting a docstring, a comment
+    or a blank line leaves it unchanged by construction -- see the module
+    docstring for why that property is the point.
+    """
+    lines = source.splitlines()
+    if not lines:
+        return 0
+    excluded: set[int] = {n for n, text in enumerate(lines, start=1) if not text.strip()}
+    excluded |= _comment_only_line_numbers(source)
+    excluded |= _docstring_line_numbers(source)
+    return sum(1 for n in range(1, len(lines) + 1) if n not in excluded)
+
+
 def measure(path: Path) -> FileStats:
-    data = path.read_bytes()
-    # Count physical lines without splitting the entire file twice.
-    line_count = data.count(b"\n")
-    if data and not data.endswith(b"\n"):
-        line_count += 1
-    return FileStats(path=path, lines=line_count, bytes=len(data))
+    source = path.read_text(encoding="utf-8", errors="replace")
+    return FileStats(
+        path=path,
+        code_lines=count_code_lines(source),
+        raw_lines=len(source.splitlines()),
+    )
 
 
 def evaluate(
@@ -143,16 +265,15 @@ def evaluate(
     caps = config.caps
     in_allowlist = rel in config.allowlist
 
-    over_hard_lines = stats.lines > caps.hard_lines
-    over_hard_bytes = stats.bytes > caps.hard_bytes
-
-    if over_hard_lines or over_hard_bytes:
+    if stats.code_lines > caps.hard_code_lines:
         if not in_allowlist:
             errors.append(
-                f"{rel}: {stats.lines} lines / {stats.bytes} bytes exceeds hard cap "
-                f"({caps.hard_lines} lines / {caps.hard_bytes} bytes). "
-                "Decompose the file or, if you cannot in this PR, add it to "
-                "scripts/file-size-allowlist.yaml with a tracking issue."
+                f"{rel}: {stats.code_lines} code lines exceeds hard cap "
+                f"({caps.hard_code_lines} code lines). Code lines exclude "
+                "docstrings, comments and blank lines, so deleting documentation "
+                "will not lower this number. Decompose the file or, if you cannot "
+                "in this PR, add it to scripts/file-size-allowlist.yaml with a "
+                "tracking issue."
             )
         return errors, warnings
 
@@ -161,14 +282,10 @@ def evaluate(
     if in_allowlist:
         return errors, warnings
 
-    if stats.lines > caps.soft_lines:
+    if stats.code_lines > caps.soft_code_lines:
         warnings.append(
-            f"{rel}: {stats.lines} lines exceeds soft cap ({caps.soft_lines}). "
-            "Consider decomposing before it hits the hard cap."
-        )
-    if stats.bytes > caps.soft_bytes:
-        warnings.append(
-            f"{rel}: {stats.bytes} bytes exceeds soft cap ({caps.soft_bytes}). "
+            f"{rel}: {stats.code_lines} code lines exceeds soft cap "
+            f"({caps.soft_code_lines} code lines). "
             "Consider decomposing before it hits the hard cap."
         )
     return errors, warnings
@@ -203,10 +320,8 @@ def write_allowlist(config: Config, allowlist: dict[str, str | None]) -> None:
 
     payload: dict[str, Any] = {
         "caps": {
-            "hard_lines": config.caps.hard_lines,
-            "hard_bytes": config.caps.hard_bytes,
-            "soft_lines": config.caps.soft_lines,
-            "soft_bytes": config.caps.soft_bytes,
+            "hard_code_lines": config.caps.hard_code_lines,
+            "soft_code_lines": config.caps.soft_code_lines,
         },
         "files": {rel: _entry(issue) for rel, issue in sorted(allowlist.items())},
     }
@@ -227,7 +342,7 @@ def update_allowlist(repo_root: Path = REPO_ROOT) -> int:
     for path in iter_source_files(repo_root):
         rel = str(path.relative_to(repo_root))
         stats = measure(path)
-        if stats.lines > config.caps.hard_lines or stats.bytes > config.caps.hard_bytes:
+        if stats.code_lines > config.caps.hard_code_lines:
             new_allowlist[rel] = config.allowlist.get(rel)
     write_allowlist(config, new_allowlist)
     print(f"Wrote {len(new_allowlist)} entries to {ALLOWLIST_PATH.name}")
@@ -235,15 +350,20 @@ def update_allowlist(repo_root: Path = REPO_ROOT) -> int:
 
 
 def list_files(repo_root: Path = REPO_ROOT) -> int:
-    """Print every Python source file with its line and byte counts."""
+    """Print every Python source file with its code-line count.
+
+    Raw lines are shown alongside for context; only the code-line column
+    is what the lint gates on.
+    """
     rows = []
     for path in iter_source_files(repo_root):
         rel = str(path.relative_to(repo_root))
         stats = measure(path)
-        rows.append((stats.lines, stats.bytes, rel))
+        rows.append((stats.code_lines, stats.raw_lines, rel))
     rows.sort(reverse=True)
-    for lines, bts, rel in rows:
-        print(f"{lines:>6}  {bts:>8}  {rel}")
+    print(f"{'code':>6}  {'raw':>6}  path")
+    for code_lines, raw_lines, rel in rows:
+        print(f"{code_lines:>6}  {raw_lines:>6}  {rel}")
     return 0
 
 
@@ -257,7 +377,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--list",
         action="store_true",
-        help="List every source file with its size; takes no action.",
+        help="List every source file with its code-line count; takes no action.",
     )
     args = parser.parse_args(argv)
 

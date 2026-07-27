@@ -10,14 +10,21 @@
 # touched one of these files needed a baseline bump here, which conflicted
 # with every other in-flight PR.
 #
+# The caps count CODE lines only: blank lines, comment-only lines and
+# module/class/function docstrings are excluded (#3671). Deleting prose
+# therefore does not move a file's number at all. Re-baselined from
+# 1500/800 raw lines; at this repo's median density (~0.58 code lines per
+# raw line) 1000 code lines is ~1700 raw lines and ~60-90KB, so the
+# Read-tool budget the original caps were sized against is preserved. The
+# byte caps were dropped: raw bytes have the same prose-gaming property,
+# and the line cap subsumes them in practice.
+#
 # Schema:
-#   caps: { hard_lines, hard_bytes, soft_lines, soft_bytes }
+#   caps: { hard_code_lines, soft_code_lines }
 #   files: { <repo-relative path>: null | { issue: str } }
 caps:
-  hard_lines: 1500
-  hard_bytes: 100000
-  soft_lines: 800
-  soft_bytes: 60000
+  hard_code_lines: 1000
+  soft_code_lines: 500
 
 # The file-size decomposition program (#3312, continued by #3450/#3447) is
 # COMPLETE: every giant it targeted has been decomposed into a sub-package
@@ -25,24 +32,26 @@ caps:
 # only be added (with a tracking issue) for files awaiting their own
 # decomposition; the ratchet flags any allowlisted file that has dropped
 # back under the cap as stale.
+#
+# The #3671 re-baseline dropped five entries that fall under the code-line
+# cap now that prose is excluded (routes/pipelines/__init__.py #3587,
+# _slice_state.py #3586, slice_green_gate.py #3627, _run_concurrent.py
+# #3650, _run_pipeline.py #3651 -- all 818-997 code lines). Those issues
+# stay open as decomposition follow-ups; the files just no longer need an
+# exemption. The five entries added below are the reverse case: prose-light,
+# code-dense modules that the raw-line cap never flagged.
 files:
+  # 1013 code lines of 1343 raw: the gateway request-handling barrel.
+  gateway/gateway/__init__.py:
+  # 1184 code lines of 2089 raw. Over the cap under both metrics.
   orchestrator/concurrent_executor.py:
     issue: "3498"
-  orchestrator/routes/pipelines/__init__.py:
-    issue: "3587"
-  orchestrator/routes/pipelines/_slice_state.py:
-    issue: "3586"
-  # Went over the cap only on the #3609 x #3409 merge: main (1165) and
-  # the Stage-A autofix branch (1421) each sat under it, the union
-  # (1594) does not. Most of the growth is module-docstring prose from
-  # both sides.
-  orchestrator/slice_green_gate.py:
-    issue: "3627"
-  # Pushed over the cap by #3633 review-feedback fixes (PR #3649) — the
-  # cancel-before-spawn guard and cohort reaping in the phase monitor loop.
-  orchestrator/routes/pipelines/_run_concurrent.py:
-    issue: "3650"
-  # Pushed over the cap by #3633 review-feedback fixes (PR #3649) — the
-  # CANCELLED branch of the driver's worktree-preservation cleanup hook.
-  orchestrator/routes/pipelines/_run_pipeline.py:
-    issue: "3651"
+  # 1196 code lines of 1212 raw -- the densest file in the repo: one flat
+  # MCP tool-definition table with almost no prose to have hidden it.
+  orchestrator/mcp_tools/_tool_defs.py:
+  # 1195 code lines of 1376 raw.
+  orchestrator/routes/pipelines/_prompt_agent.py:
+  # 1285 code lines of 1478 raw -- largest code-line count in the repo.
+  orchestrator/routes/pipelines/_prompt_phase.py:
+  # 1219 code lines of 1408 raw: the orch-CLI argument-parser table.
+  sandbox/egg_lib/orch_cli/_parser.py:
