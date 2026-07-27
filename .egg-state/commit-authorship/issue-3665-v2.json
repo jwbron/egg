@@ -280,6 +280,14 @@
       "repo": null,
       "role": "coder"
     },
+    "b09e2ce2f922d48d843d4c67b29b227ea1a936bf": {
+      "branch": "egg/issue-3665-v2/slice-2",
+      "patch_id": "1e3d1b99fa6d54d18845148514f9d2cb632a44a3",
+      "pipeline_id": "issue-3665-v2",
+      "registered_at": "2026-07-27T14:26:34.525601+00:00",
+      "repo": null,
+      "role": "tester"
+    },
     "b57b1b4508115820d82ebf6ab1060efeff16d6be": {
       "branch": "egg/issue-3665-v2/work",
       "patch_id": null,
