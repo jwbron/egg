@@ -3,13 +3,17 @@ slices:
     name: |-
       Populate EventStreamSnapshot fields in snapshot_from_health_context()
     goal: |-
-      Fill in all 8 currently-empty fields in EventStreamSnapshot so the
-      detection plane's detectors can read the data they need. Populates:
-      runtime (driver heartbeat ages), consensus (peer consensus tracker
-      evaluation), container_transitions (pod-state log), running_agents
-      (fix role field from container ID to agent role, populate age fields),
-      midturn_messages (agent tool-call logs for loop detection). Tests
-      verify all 13 fields populated. Prerequisite for all subsequent slices.
+      Fill in the 5 in-scope fields in EventStreamSnapshot so the detection
+      plane's detectors can read the data they need. Populates (in order):
+      midturn_messages (agent tool-call logs for loop detection — FIRST because
+      it is the prerequisite for the primary deliverable, slice 3), runtime
+      (driver heartbeat ages), consensus (peer consensus tracker evaluation),
+      container_transitions (pod-state log), running_agents (fix role field
+      from container ID to agent role, populate age fields). The remaining 4
+      fields (decision_state, gateway_error_counters, cost_counters, git_state)
+      are Tier 3/4 and explicitly out of scope — they stay empty by decision,
+      with their detectors remaining inert. Tests verify the 5 in-scope fields
+      are populated. Prerequisite for all subsequent slices.
       Files: orchestrator/health_checks/detection_plane.py,
       orchestrator/driver_heartbeat.py, orchestrator/peer_consensus/__init__.py,
       orchestrator/kubernetes_monitor.py, orchestrator/health_monitor.py,
@@ -17,17 +21,22 @@ slices:
     dependencies: null
   - id: 2
     name: |-
-      Wire _run_overseer_detection_plane() into RUNTIME_TICK path
+      Wire _run_overseer_detection_plane() into RUNTIME_TICK path + consensus-stall double-fire guard
     goal: |-
       Call _run_overseer_detection_plane() from _run_runtime_tick_checks()
       after building the snapshot, routing requires_adjudication findings to
       the overseer agent and routine findings to the corrective executor.
       Guard against double-evaluation (two call sites: _check_pod and
       _reconciliation_sweep). Route findings to OVERSEER_ALERT / HITL / Slack
-      surfaces for operator visibility.
+      surfaces for operator visibility. Additionally: guard against
+      detect_heartbeat_stall (unregistered, in consensus_stall.py:217) and
+      ConsensusStallCheck (registered, runs every tick) both firing on the
+      same consensus stall once the detection plane is live — suppress one
+      or ensure detect_brc_thrash does not duplicate coverage.
       Files: orchestrator/kubernetes_monitor.py,
       orchestrator/routes/pipelines/_overseer.py,
-      orchestrator/health_checks/runner.py.
+      orchestrator/health_checks/runner.py,
+      orchestrator/health_checks/tier1/consensus_stall.py.
     dependencies: slice-1
   - id: 3
     name: |-
@@ -38,7 +47,8 @@ slices:
       over a trailing window. If zero for N consecutive polls, fires
       tool_input_loop / high with requires_adjudication=False. Handles variable
       cycle shapes (1-, 2-, 3-, 8-cycles). Also increases log capture fidelity
-      for one-shot event pods (beyond 100-char truncation).
+      for one-shot event pods (beyond 100-char truncation) — registered as a
+      Tier 3 exception since it is a hard dependency for the Tier 1 loop detector.
       Files: orchestrator/health_checks/tier1/loop_detection.py (new),
       orchestrator/kubernetes_client.py, orchestrator/agent_log_store.py.
     dependencies: slice-2

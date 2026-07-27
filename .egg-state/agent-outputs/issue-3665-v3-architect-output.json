@@ -4,7 +4,7 @@
     "role": "architect",
     "schema_version": "2",
     "title": "Architecture assessment: supervision second pass — wire detection plane + loop detector + timeout classification + alert evidence",
-    "summary": "Architectural assessment of the task_planner's plan (commit 6092b5a7a, v1) for issue #3665. Verdict: ACK. All technical claims verified against the live tree at main @ 1cd0c8ad7. The plan correctly identifies four areas of work (signals not consulted, session boundaries as failures, undetectable loops, unactionable alerts) decomposed into 5 linear slices (snapshot population → detection plane wiring → loop detector → timeout classification → alert evidence). The detection plane (#2270) is fully built but completely unwired: snapshot_from_health_context() populates only 5 of 13 EventStreamSnapshot fields, and _run_overseer_detection_plane() has zero call sites. The timeout classification bug is confirmed: _classify_exit() treats exit code -1 as FAILED, consuming retry budget. The loop detector is absent — no detect_tool_input_loop() exists, midturn_messages is never populated. The convergence-stall false positive is confirmed: both _check_convergence_stall() and _has_recent_peer_progress() use get_latest_progress_timestamp() but with different gate windows. The linear slice structure is correct (shared files per #3046). Four non-blocking architectural refinements are noted: (1) double-evaluation guard should be per-pipeline not global lock; (2) midturn_messages population depends on truncated log parsing — consider BRC tracker records; (3) timeout detection via error message is fragile — consider pod active_deadline_seconds; (4) timestamp source is already unified — fix should unify the gate window, not the source. Scope is correctly limited to Tier 1+2 items from the 30-item candidate list.",
+    "summary": "Architectural assessment (v2, after iteration feedback) of the task_planner's plan (commit 6092b5a7a, v1) for issue #3665. Verdict: ACK with four required corrections. All technical claims verified against the live tree at main @ 1cd0c8ad7. The plan correctly identifies four areas of work (signals not consulted, session boundaries as failures, undetectable loops, unactionable alerts) decomposed into 5 linear slices. The detection plane (#2270) is fully built but completely unwired: snapshot_from_health_context() populates only 5 of 13 EventStreamSnapshot fields, and _run_overseer_detection_plane() has zero call sites. The timeout classification bug is confirmed: _classify_exit() treats exit code -1 as FAILED, consuming retry budget. The loop detector is absent — no detect_tool_input_loop() exists, midturn_messages is never populated. The convergence-stall false positive is confirmed: both _check_convergence_stall() and _has_recent_peer_progress() use get_latest_progress_timestamp() but with different gate windows. Four corrections from reviewer feedback: (1) AC-1/TASK-1-6 fixed to scope 5 in-scope fields, not all 13 (4 remaining fields are Tier 3/4, explicitly out of scope); (2) detect_heartbeat_stall / ConsensusStallCheck double-fire guard added to slice 2 (both in consensus_stall.py, one registered one not); (3) Tier 3 exceptions registered for TASK-2-2 (#19, alert surface routing is minimal integration for Tier 1 findings) and TASK-3-2 (#20, log fidelity is hard dependency for loop detector); (4) midturn_messages moved to TASK-1-1 (prerequisite for primary deliverable).",
     "hitl_bindings": {},
     "evidence": [
         {
@@ -95,16 +95,22 @@
     "risks": [
         "slice-2 TASK-2-1 (hot-loop wiring): double-evaluation guard must be per-pipeline, not a global lock, to avoid cross-pipeline contention",
         "slice-2 TASK-2-1: detection plane must be exception-isolated — must not crash the runtime tick loop",
+        "slice-2: detect_heartbeat_stall (unregistered) and ConsensusStallCheck (registered) both in consensus_stall.py could double-fire once the detection plane is live — must suppress one or ensure detect_brc_thrash does not duplicate coverage",
         "slice-4 TASK-4-3: timeout classification must distinguish exit -1 from asyncio.timeout vs exit -1 from other failures via error message",
         "slice-3 TASK-3-1: loop detector must be deterministic (no LLM) and handle variable cycle shapes (1-, 2-, 3-, 8-cycles)",
-        "slice-1 TASK-1-5: midturn_messages population depends on log parsing fidelity (truncated at ~100 chars)"
+        "slice-1 TASK-1-1: midturn_messages population depends on log parsing fidelity (truncated at ~100 chars) — TASK-3-2 addresses this as a hard dependency"
+    ],
+    "scope_decisions": [
+        {"candidate": "#19", "tier": 3, "task": "TASK-2-2", "decision": "included", "justification": "Minimal integration point: without routing detection-plane findings to the operator alert surface, Tier 1 findings are invisible to the operator. Not a standalone improvement but a necessary wiring step for Tier 1 deliverables."},
+        {"candidate": "#20", "tier": 3, "task": "TASK-3-2", "decision": "included", "justification": "Hard dependency: the ~100-char k8s log truncation makes the loop detector (TASK-3-1, Tier 1) unimplementable on pod logs. Required for the primary deliverable."},
+        {"candidate": "#16/#17/#18/#21", "tier": "3-4", "fields": "decision_state, gateway_error_counters, cost_counters, git_state", "decision": "excluded", "justification": "Explicitly out of scope per refine gate. These 4 EventStreamSnapshot fields remain unpopulated; detectors reading them stay inert. AC-1 corrected to scope only the 5 in-scope fields."}
     ],
     "non_goals": [
         "Rebuilding the overseer agent (working; problem is input pipeline)",
         "Removing the HealthMonitor tripwires (wired and working)",
         "Adding LLM classification to the hot path (expensive Haiku calls)",
         "Changing the 2-hour timeout default (7200s is reasonable)",
-        "Tier 3-5 from the candidate list (input to the gate, not a work queue)"
+        "Tier 3-5 from the candidate list (input to the gate, not a work queue) — except TASK-2-2 (#19) and TASK-3-2 (#20) which are registered as hard dependencies for Tier 1 deliverables"
     ],
     "slice_dag": {
         "structure": "linear_chain",
