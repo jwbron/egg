@@ -278,12 +278,19 @@ def test_bridge_abandons_remaining_waits_when_the_pipeline_is_cancelled(
 ) -> None:
     """A cancel mid-bridge must stop the remaining waits (#3633).
 
-    The cancel route sweeps only the decisions already *in* the queue. Pass 1
-    queues this whole batch up front, so a cancel that lands while pass 2 is
-    part-way through has already swept them all — but a cancel arriving
-    *between* pass 1 and pass 2, or a bridge re-entered afterwards, would leave
-    later entries PENDING with nobody left to cancel them, and the next
-    ``wait_for_decision`` would block for the process lifetime.
+    This pins the interleaving the ``cancelled`` predicate actually closes: the
+    cancel lands *after* pass 1 queued the batch, so the route's one-time sweep
+    reached every entry. Each swept wait returns immediately with no resolution
+    — and an unset resolution reads as an approval — so without the predicate
+    the bridge would walk the whole remaining batch answering the operator's
+    cancel as consent. It stops after the wait that observed the cancel.
+
+    The predicate is deliberately *not* what saves the other interleaving — a
+    cancel landing entirely before pass 1, where nothing was queued to sweep
+    and the first wait would never return. Nothing after that first wait runs,
+    so no post-wait check can help; that case is closed by the pre-pass-1 check
+    covered in ``test_bridge_never_queues_for_an_already_cancelled_pipeline``
+    (#3633 review round 4).
     """
     from routes.pipelines import _queue_and_await_contract_decisions
 
@@ -337,6 +344,58 @@ def test_bridge_abandons_remaining_waits_when_the_pipeline_is_cancelled(
     data = json.loads((tmp_path / f".egg-state/contracts/{identifier}.json").read_text())
     resolved_ids = [d["id"] for d in data["decisions"] if d["resolved"]]
     assert resolved_ids == ["decision-1"]
+
+
+def test_bridge_never_queues_for_an_already_cancelled_pipeline(
+    tmp_path: Path,
+) -> None:
+    """A cancel that lands before pass 1 must stop the bridge before it queues.
+
+    This is the interleaving no post-wait check can reach (#3633 review round
+    4). The cancel route's sweep of pending decisions is a one-time snapshot,
+    so a batch minted after it runs is never cancelled — and
+    ``DecisionQueue.wait_for_decision`` is an untimed poll. Queue here and the
+    first wait blocks for the process lifetime, taking the driver thread and
+    ``_run_pipeline``'s ``finally`` (container cleanup, worktree preservation)
+    with it. The pre-pass-1 check is what keeps the batch unminted.
+    """
+    from routes.pipelines import _queue_and_await_contract_decisions
+
+    identifier = "issue-3633-precancel"
+    _make_contract_file(
+        tmp_path,
+        identifier,
+        decisions=[
+            {
+                "id": f"decision-{n}",
+                "question": f"Question {n}?",
+                "type": "hitl",
+                "phase": "refine",
+                "options": [],
+                "resolved": False,
+                "resolution": None,
+                "resolved_by": None,
+                "resolved_at": None,
+                "debounce_until": None,
+            }
+            for n in (1, 2)
+        ],
+    )
+
+    dq = _FakeQueue(resolutions=["a", "b"])
+
+    resolved_count = _queue_and_await_contract_decisions(
+        dq,
+        tmp_path,
+        "pipeline-id",
+        identifier,
+        PipelinePhase.REFINE,
+        # Already cancelled when the bridge is entered.
+        cancelled=lambda: True,
+    )
+
+    assert resolved_count == 0
+    assert dq.queued == [], "the bridge minted decisions nothing will ever cancel"
 
 
 def test_bridge_without_a_cancelled_predicate_answers_every_decision(

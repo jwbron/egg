@@ -516,6 +516,56 @@ class TestSyncWorktreeReconcilingDivergence:
         # Bailed before the resolution read, so no second sync attempt.
         mock_sync.assert_called_once()
 
+    def test_cancel_before_the_pause_is_not_overwritten_by_the_park(self):
+        """The park write is the other half of the window (#3633 review round 4).
+
+        The pause reloads inside the state lock and writes AWAITING_HUMAN to
+        the pipeline and its phase box. A cancel landing before that — during
+        the sync itself, which is git IO over the gateway — used to be
+        overwritten, and the post-wait check would then read back the pause's
+        own AWAITING_HUMAN rather than the operator's CANCELLED. Because
+        ``StateStore.update_pipeline`` takes the same per-pipeline lock, doing
+        the check inside it makes the read and the write atomic against the
+        cancel route: nothing is persisted, and no decision is minted for a run
+        that is already stopped.
+        """
+        saved: list[PipelineStatus] = []
+        store = MagicMock()
+
+        def _load(_pipeline_id):
+            loaded = MagicMock()
+            loaded.status = PipelineStatus.CANCELLED
+            return loaded
+
+        store.load_pipeline.side_effect = _load
+        store.save_pipeline.side_effect = lambda p, *a, **k: saved.append(p.status)
+        dq = MagicMock()
+        lock_p, persist_p, report_p, emit_p = self._patch_ctx()
+        with (
+            patch(
+                "routes.pipelines._sync_worktree_with_remote",
+                return_value=_diverged_outcome(),
+            ),
+            patch("routes.pipelines.get_decision_queue", return_value=dq),
+            lock_p,
+            persist_p as mock_persist,
+            report_p,
+            emit_p,
+        ):
+            _result, aborted = _sync_worktree_reconciling_divergence(
+                MagicMock(),
+                "pipe-1",
+                store,
+                Path("/repo"),
+                worktree_repo_path=Path("/wt"),
+                phase=PipelinePhase.PLAN,
+            )
+
+        assert aborted is True
+        assert saved == [], f"the pause persisted {saved} over the operator's CANCELLED"
+        mock_persist.assert_not_called()
+        dq.wait_for_decision.assert_not_called()
+
     def test_reconcile_budget_exhausted_aborts(self):
         """If every resume re-diverges, the bounded budget eventually
         aborts rather than pausing forever."""

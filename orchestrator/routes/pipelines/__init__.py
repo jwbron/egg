@@ -1168,6 +1168,9 @@ from ._context_pr import (  # noqa: E402,F401
     _refresh_context_pr_body,
     _repos_with_slices,
 )
+from ._contract_bridge import (  # noqa: E402,F401
+    _queue_and_await_contract_decisions,
+)
 from ._criteria import (  # noqa: E402,F401
     _get_agent_design_criteria,
     _get_code_review_criteria,
@@ -1246,7 +1249,6 @@ from ._ledger import (  # noqa: E402,F401
     _ledger_attestation_rerun_directive,
     _next_phases_for_epic,
     _persist_phase_gate_resolution,
-    _queue_and_await_contract_decisions,
     _sync_pipeline_decisions_to_contract,
     _unwrap_choice_resolution,
     _write_apply_phase_handoff,
@@ -1433,6 +1435,7 @@ from ._run_pipeline_support import (  # noqa: E402,F401
 )
 from ._run_support import (  # noqa: E402,F401
     _clear_stale_impasses_for_producers,
+    _park_at_gate_unless_cancelled,
     _parse_resolution,
     _pipeline_cancelled,
     _spawn_and_wait,
