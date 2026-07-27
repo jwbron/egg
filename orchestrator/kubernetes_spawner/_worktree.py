@@ -418,7 +418,20 @@ def _clean_reused_worktree(
     """
     import subprocess as _sp
 
-    def _git(repo_dir: Path, *args: str, timeout: int = 30, check: bool = True):
+    def _git(
+        repo_dir: Path,
+        *args: str,
+        timeout: int = 30,
+        check: bool = True,
+        text: bool = True,
+    ):
+        # ``text=False`` exists for exactly one caller: the ``-z`` staged-path
+        # read in :func:`_preserve_dirty_tree`. ``text=True`` decodes stdout as
+        # UTF-8 with ``errors='strict'`` and applies universal-newline
+        # translation, neither of which a raw pathname survives — see the
+        # comment at that call site. Every other call in this function reads
+        # git-generated ASCII (``status --porcelain`` C-quotes, ``rev-parse``
+        # is hex), so they keep the ergonomic default.
         return _sp.run(
             [
                 "git",
@@ -437,7 +450,7 @@ def _clean_reused_worktree(
                 *args,
             ],
             capture_output=True,
-            text=True,
+            text=text,
             timeout=timeout,
             check=check,
         )
@@ -790,6 +803,43 @@ class _DirtySnapshot(NamedTuple):
     partial: bool = False
 
 
+def _decode_nul_paths(out: bytes | str) -> list[str]:
+    """Split ``git ... -z`` output into path strings without ever raising.
+
+    ``os.fsdecode`` is the correct decoder for a pathname: it is UTF-8 with
+    ``errors='surrogateescape'``, so an undecodable byte becomes a lone
+    surrogate that ``os.fsencode`` round-trips back to the original byte,
+    rather than an exception. The alternative — letting the decode fail —
+    reaches :func:`_preserve_dirty_tree`'s outer handler and costs the
+    caller the whole working tree, so a cosmetically odd path string is
+    always the better outcome here.
+
+    ``str`` input is accepted and split on the text NUL for the same
+    reason: a caller (or a test double) that hands back text must not turn
+    a snapshot into a discard via ``TypeError``. Production passes
+    ``text=False`` and lands on the ``bytes`` arm.
+    """
+    if isinstance(out, bytes):
+        return [os.fsdecode(field) for field in out.split(b"\0") if field]
+    return [field for field in out.split("\0") if field]
+
+
+def _display_path(path: str) -> str:
+    """Render a captured path for the prose body with no unencodable chars.
+
+    :func:`_decode_nul_paths` can produce lone surrogates (``\\udce9``).
+    They are fine in ``metadata`` — ``redis_message_store`` serialises it
+    with ``json.dumps``, whose default ``ensure_ascii=True`` escapes them
+    to pure ASCII — but ``body`` is handed to redis-py as a plain ``str``
+    and encoded UTF-8, where a lone surrogate raises. That exception would
+    be swallowed by the ``except`` around ``add_message``, costing the
+    whole #3509 record. Only the soft branch inlines paths in the body, so
+    this is the one place they need to be made encodable; valid non-ASCII
+    names (``café.md``) pass through unchanged.
+    """
+    return path.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
 def _preserve_dirty_tree(
     git: Callable[..., Any],
     repo_dir: Path,
@@ -872,8 +922,24 @@ def _preserve_dirty_tree(
         # and into the ``wip_paths`` bus metadata, which is a machine-readable
         # field a consumer matches its own paths against. NUL separation makes
         # the field mean what its name says.
-        staged_out = git(repo_dir, "diff", "--cached", "--name-only", "-z", timeout=60).stdout
-        staged = [p for p in staged_out.split("\0") if p]
+        #
+        # ``text=False`` is not optional here, and is the whole reason the
+        # closure takes the keyword. ``-z`` suppresses the quoting *because*
+        # git is writing the pathname bytes verbatim, so the two things
+        # ``text=True`` does — decode UTF-8 with ``errors='strict'``, and
+        # translate ``\r``/``\r\n`` to ``\n`` — now sit directly on raw
+        # filesystem bytes. The decode raises ``UnicodeDecodeError`` on any
+        # non-UTF-8 name, which the outer handler below turns into ``return
+        # None`` and the caller turns into ``reset --hard``: an undecodable
+        # filename anywhere in the tree would cost the *entire* working set,
+        # which is the #3639 loss this function exists to prevent. The
+        # newline translation is the milder half — it would rewrite ``a\rb.py``
+        # to ``a\nb.py`` and quietly undo what ``-z`` bought. Reading bytes and
+        # decoding per-field with :func:`_decode_nul_paths` avoids both.
+        staged_out = git(
+            repo_dir, "diff", "--cached", "--name-only", "-z", timeout=60, text=False
+        ).stdout
+        staged = _decode_nul_paths(staged_out)
         if not staged:
             logger.warning(
                 "Worktree re-attach: dirty tree held no committable change "
@@ -1071,9 +1137,13 @@ def _record_discarded_tip(
         # provenance into a message keyed off a tuple designed to grow, so
         # the second entry makes the clause false.
         if len(paths) == 1:
-            named = f"only `{paths[0]}`"
+            named = f"only `{_display_path(paths[0])}`"
         elif len(paths) <= _SOFT_BRANCH_MAX_NAMED_PATHS:
-            named = f"only {len(paths)} files (" + ", ".join(f"`{p}`" for p in paths) + ")"
+            named = (
+                f"only {len(paths)} files ("
+                + ", ".join(f"`{_display_path(p)}`" for p in paths)
+                + ")"
+            )
         else:
             named = f"only {len(paths)} files"
         recovery_text = (

@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import shutil
 import statistics
 import subprocess
@@ -4171,6 +4172,44 @@ class TestDirtyTreePreservedBeforeReset:
         assert "inspect it before starting work" in msg.body
         assert repo.exists()
 
+    def test_undecodable_filename_still_snapshots(self, spawner, mock_gateway, tmp_path):
+        """A non-UTF-8 filename must not cost the whole working tree.
+
+        ``-z`` suppresses ``core.quotePath``, which is the point of it — git
+        writes the pathname bytes verbatim instead of C-quoting them to
+        ASCII. Reading that back through ``subprocess``'s ``text=True``
+        would raise ``UnicodeDecodeError`` inside ``_preserve_dirty_tree``,
+        whose outer handler returns ``None``; the caller then runs ``reset
+        --hard`` + ``clean -fd`` and every file in the tree is gone — the
+        #3639 loss itself, triggered by one oddly-named file. Cosmetically
+        odd path strings are an acceptable price; a discarded tree is not.
+
+        Drives real git deliberately: the byte-level fakes in
+        ``test_unusual_path_bytes_survive_the_staged_file_parse`` mock out
+        ``subprocess``, which is exactly the layer the decode lives in.
+        """
+        repo, origin_head = self._seed_dirty(tmp_path)
+        weird = os.fsdecode(b"caf\xe9.md")  # latin-1, not valid UTF-8
+        (repo / weird).write_bytes(b"latin-1 named, real work\n")
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            assert spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX) is True
+
+        # The load-bearing assertion: a snapshot exists at all.
+        msg = get_store.return_value.add_message.call_args.args[0]
+        wip = msg.metadata["wip_commit"]
+        assert wip
+        assert _git(repo, "rev-parse", f"{wip}^").stdout.strip() == origin_head
+        # ...and it captured the odd file alongside the ordinary ones,
+        # round-tripping back to the bytes git actually wrote.
+        assert msg.metadata["wip_files"] == 3
+        assert weird in msg.metadata["wip_paths"]
+        assert os.fsencode(weird) == b"caf\xe9.md"
+
     def test_snapshot_only_salvage_failure_escalates(self, spawner, mock_gateway, tmp_path):
         """#3639 during a gateway outage: the worst cell of the 2x2.
 
@@ -4330,14 +4369,15 @@ class TestDirtyTreePreservedBeforeReset:
 
         seen = []
 
-        def _flaky_git(_repo_dir, *args, **_kwargs):
+        def _flaky_git(_repo_dir, *args, **kwargs):
             seen.append(args)
             if args[0] == "add":
                 assert "--ignore-errors" in args
                 raise RuntimeError("error: unable to index file 'broken.sock'")
             if args[0] == "diff":
                 assert "-z" in args
-                return SimpleNamespace(stdout="a.py\0b.py\0", returncode=0)
+                assert kwargs.get("text") is False
+                return SimpleNamespace(stdout=b"a.py\0b.py\0", returncode=0)
             return SimpleNamespace(stdout="deadbeefcafe\n", returncode=0)
 
         snapshot = _preserve_dirty_tree(
@@ -4367,10 +4407,15 @@ class TestDirtyTreePreservedBeforeReset:
 
         seen = []
 
-        def _fake_git(_repo_dir, *args, **_kwargs):
+        def _fake_git(_repo_dir, *args, **kwargs):
             seen.append(args)
             if args[0] == "diff":
-                return SimpleNamespace(stdout="a.py\0b.py\0", returncode=0)
+                # Asserted here too, not just in the sibling tests: this was
+                # the one fake closure that would keep passing if ``-z`` (or
+                # the byte-mode read it requires) were dropped.
+                assert "-z" in args
+                assert kwargs.get("text") is False
+                return SimpleNamespace(stdout=b"a.py\0b.py\0", returncode=0)
             return SimpleNamespace(stdout="deadbeefcafe\n", returncode=0)
 
         snapshot = _preserve_dirty_tree(
@@ -4389,34 +4434,70 @@ class TestDirtyTreePreservedBeforeReset:
         double-quoted and backslash-escaped, and a name containing a newline
         splits across two ``splitlines()`` entries. Both corruptions flow
         into the ``wip_paths`` bus metadata, which exists so a consumer can
-        match paths structurally instead of regexing the body. ``-z`` emits
-        the bytes unmunged with NUL terminators, so the field means what its
-        name says.
+        match paths structurally instead of regexing the body.
+
+        This drives the closure at the byte level, the way ``text=False``
+        makes production behave: a ``\\r`` (which universal-newline mode
+        would rewrite to ``\\n``) and an undecodable latin-1 byte (which a
+        strict UTF-8 decode would raise on). The end-to-end guarantee — that
+        a real ``git`` writing those bytes still yields a snapshot rather
+        than a discarded tree — is pinned by
+        :meth:`TestDirtyTreePreservedBeforeReset.test_undecodable_filename_still_snapshots`,
+        which is where ``subprocess`` is real.
         """
         from kubernetes_spawner._worktree import _preserve_dirty_tree
 
         seen = []
-        raw = (
-            ".egg-state/agent-outputs/coder/brc-memory-café.md",
-            "src/we\nird.py",
+        raw_bytes = (
+            ".egg-state/agent-outputs/coder/brc-memory-café.md".encode(),
+            b"src/we\nird.py",
+            b"src/carriage\rreturn.py",
+            b"caf\xe9.md",  # latin-1: not valid UTF-8 at all
         )
 
-        def _fake_git(_repo_dir, *args, **_kwargs):
-            seen.append(args)
+        def _fake_git(_repo_dir, *args, **kwargs):
+            seen.append((args, kwargs))
             if args[0] == "diff":
-                return SimpleNamespace(stdout="\0".join(raw) + "\0", returncode=0)
+                return SimpleNamespace(stdout=b"\0".join(raw_bytes) + b"\0", returncode=0)
             return SimpleNamespace(stdout="deadbeefcafe\n", returncode=0)
 
         snapshot = _preserve_dirty_tree(
-            _fake_git, tmp_path, agent_worktree_id=_WT_ID, repo="repo", n_entries=2
+            _fake_git, tmp_path, agent_worktree_id=_WT_ID, repo="repo", n_entries=4
         )
         assert snapshot is not None
-        assert snapshot.paths == raw
-        assert snapshot.n_files == 2
-        # The flag has to be on the request, not just implied by the parse:
-        # dropping it would silently reintroduce the quoting.
-        diff_args = next(a for a in seen if a[0] == "diff")
+        # ``os.fsdecode`` round-trips every one of them back to the original
+        # bytes, which is the property ``wip_paths`` needs to be matchable.
+        assert tuple(os.fsencode(p) for p in snapshot.paths) == raw_bytes
+        assert snapshot.n_files == 4
+        # Both halves have to be on the request, not just implied by the
+        # parse: dropping ``-z`` reintroduces the quoting, and dropping
+        # ``text=False`` reintroduces the strict decode and the newline
+        # translation that ``-z`` alone does not prevent.
+        diff_args, diff_kwargs = next(c for c in seen if c[0][0] == "diff")
         assert "-z" in diff_args
+        assert diff_kwargs.get("text") is False
+
+    def test_text_mode_staged_output_is_still_parsed(self, tmp_path):
+        """A ``str``-returning closure must degrade, not raise.
+
+        ``_preserve_dirty_tree`` takes its ``git`` as a parameter, so a
+        caller that ignores ``text=False`` is reachable. Splitting ``str``
+        on ``b"\\0"`` would raise ``TypeError`` into the outer handler,
+        which returns ``None`` — and the caller then hard-resets. Every
+        failure mode in this helper has to land on "keep the tree".
+        """
+        from kubernetes_spawner._worktree import _preserve_dirty_tree
+
+        def _text_git(_repo_dir, *args, **_kwargs):
+            if args[0] == "diff":
+                return SimpleNamespace(stdout="a.py\0b.py\0", returncode=0)
+            return SimpleNamespace(stdout="deadbeefcafe\n", returncode=0)
+
+        snapshot = _preserve_dirty_tree(
+            _text_git, tmp_path, agent_worktree_id=_WT_ID, repo="repo", n_entries=2
+        )
+        assert snapshot is not None
+        assert snapshot.paths == ("a.py", "b.py")
 
     def test_ignored_only_dirt_is_discarded_without_a_commit(self, spawner, mock_gateway, tmp_path):
         """Build output is not agent work: no snapshot, nothing salvaged.
@@ -4570,6 +4651,44 @@ class TestDiscardedTipMessageWording:
         assert "Treat it as a WIP checkpoint" not in body
         # And the opening clause does not restate it a third time.
         assert "an automatic snapshot of uncommitted work" not in body
+
+    def test_surrogate_escaped_path_keeps_the_body_encodable(self):
+        """A path from an undecodable filename must not cost the record.
+
+        ``_decode_nul_paths`` maps undecodable pathname bytes to lone
+        surrogates so a snapshot is still taken. ``metadata`` carries them
+        safely (``json.dumps`` defaults to ``ensure_ascii=True``), but
+        ``body`` is handed to redis-py as a ``str`` and encoded UTF-8, where
+        a lone surrogate raises — and the ``except`` around ``add_message``
+        would swallow that, silently dropping the whole #3509 record on the
+        one branch that inlines paths. Valid non-ASCII names must still read
+        naturally.
+        """
+        weird = os.fsdecode(b".egg-state/agent-outputs/coder/brc-memory-caf\xe9.md")
+        msg = self._message(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=1,
+            wip_paths=(weird,),
+        )
+        assert "read it if you need it" in msg.body
+        msg.body.encode("utf-8")  # the invariant: no lone surrogate survives
+        assert "brc-memory-caf" in msg.body
+        # ``metadata`` keeps the round-trippable form — it is the field a
+        # consumer matches its own paths against.
+        assert msg.metadata["wip_paths"] == [weird]
+
+        # A valid non-ASCII name is passed through, not escaped.
+        cafe = ".egg-state/agent-outputs/coder/brc-memory-café.md"
+        body = self._body(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=1,
+            wip_paths=(cafe,),
+        )
+        assert f"only `{cafe}`" in body
 
     def test_one_substantial_file_keeps_the_imperative(self):
         """A single rewritten module is #3639 one file wide, not noise.
