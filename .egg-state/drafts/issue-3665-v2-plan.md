@@ -125,8 +125,8 @@ pr:
     detection-plane snapshot builder to populate tool-call/heartbeat ages.
 phases:
   - id: 1
-    name: Agent Livelock / Repetition-Loop Detector
-    goal: Create a deterministic detector that fires when an agent produces zero new unique tool inputs over a trailing window, detecting any cycle shape (single-input, 2-, 3-, 8-cycles)
+    name: Supervision Detectors and Snapshot Enrichment
+    goal: Create the agent livelock detector, register it in the detection plane, enrich the snapshot builder with tool-call/heartbeat ages, and register detect_heartbeat_stall — all touching detection_plane.py together
     tasks:
       - id: TASK-1-1
         description: Create orchestrator/health_checks/tier1/loop_detection.py with detect_agent_livelock function and AgentLivelockCheck class. Parse Claude Code tool-call lines from agent_log_store transcripts. Fire when unique tool-input ratio drops below 10% with >=10 total calls. requires_adjudication=False.
@@ -136,6 +136,14 @@ phases:
           - orchestrator/health_checks/detection_plane.py
           - orchestrator/health_checks/tier1/__init__.py
           - orchestrator/cli.py
+      - id: TASK-1-3
+        description: Add get_agent_activity_ages() to HealthMonitor returning per-agent heartbeat/progress/activity ages. Add _has_recent_agent_activity() to event_loop/_loop.py convergence-stall check. Enrich snapshot_from_health_context in detection_plane.py to populate last_tool_call_age_s and last_heartbeat_age_s on RunningAgent entries. Register detect_heartbeat_stall in DetectionPlane.default().
+        acceptance: get_agent_activity_ages returns correct ages; convergence-stall check consults activity before firing; snapshot builder populates tool-call/heartbeat ages; detect_heartbeat_stall registered and fires in live path; unit tests pass
+        files:
+          - orchestrator/health_monitor.py
+          - orchestrator/event_loop/_loop.py
+          - orchestrator/health_checks/detection_plane.py
+    dependencies: []
   - id: 2
     name: Two-Hour Timeout Visibility
     goal: Make the 2-hour agent timeout visible and non-fatal — configurable via PipelineConfig, passed to K8s Job and sandbox, and classified as a legitimate outcome rather than a crash
@@ -149,17 +157,7 @@ phases:
           - orchestrator/kubernetes_spawner/_spawn.py
           - orchestrator/kubernetes_spawner/_models.py
           - orchestrator/kubernetes_monitor.py
-  - id: 3
-    name: False Convergence-Stall Suppression
-    goal: Suppress false convergence-stall alerts against agents with recent activity by consulting health monitor data, and enable the existing detect_heartbeat_stall detector in the live path
-    tasks:
-      - id: TASK-1-3
-        description: Add get_agent_activity_ages() to HealthMonitor returning per-agent heartbeat/progress/activity ages. Add _has_recent_agent_activity() to event_loop/_loop.py convergence-stall check. Enrich snapshot_from_health_context in detection_plane.py to populate last_tool_call_age_s and last_heartbeat_age_s on RunningAgent entries. Register detect_heartbeat_stall in DetectionPlane.default().
-        acceptance: get_agent_activity_ages returns correct ages; convergence-stall check consults activity before firing; snapshot builder populates tool-call/heartbeat ages; detect_heartbeat_stall registered and fires in live path; unit tests pass
-        files:
-          - orchestrator/health_monitor.py
-          - orchestrator/event_loop/_loop.py
-          - orchestrator/health_checks/detection_plane.py
+    dependencies: []
   - id: 4
     name: Tests
     goal: Add test coverage for all three changes including corpus rows for the livelock detector
@@ -172,4 +170,5 @@ phases:
           - orchestrator/tests/test_event_loop_legitimate_outcome.py
           - orchestrator/tests/test_convergence_stall_suppression.py
           - orchestrator/tests/overseer_calibration/fixtures.json
+    dependencies: ["1", "2"]
 ```
