@@ -1,5 +1,13 @@
 {
   "entries": {
+    "01cc530fa836a26e4a25488f6a80084cc479610f": {
+      "branch": "egg/issue-3665-v2/slice-1",
+      "patch_id": "c5e60a2444decc7ca859180afe3d8a41ea654d94",
+      "pipeline_id": "issue-3665-v2",
+      "registered_at": "2026-07-27T09:35:25.035126+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "02ba2cd6b0bb42fb7a43375e8b578becf546e679": {
       "branch": "egg/issue-3665-v2/work",
       "patch_id": "294c698f51a65e08fa04719bb9fdae3c2307ce31",
