@@ -72,11 +72,43 @@
         {
           "id": "opt-1",
           "label": "Parse existing log format",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "Add structured tool-call event emitter",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null,
+      "redirect_seed": null
+    },
+    {
+      "id": "cq-2",
+      "question": "Two-hour timeout: Should the agent_timeout_seconds config be pipeline-level only (uniform 7200s default), or support per-role overrides?",
+      "type": "hitl",
+      "phase": "plan",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Pipeline-level only",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Per-role overrides",
           "description": null
         },
         {
@@ -141,6 +173,44 @@
         "debounce_until": null
       },
       "reason": "Created HITL decision: Livelock detector tool-call signature parsing: Sho...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-27T07:29:49.159706Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "cq-2",
+        "question": "Two-hour timeout: Should the agent_timeout_seconds config be pipeline-level only (uniform 7200s default), or support per-role overrides?",
+        "type": "hitl",
+        "phase": "plan",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Pipeline-level only",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Per-role overrides",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Two-hour timeout: Should the agent_timeout_seconds...",
       "checkpoint_id": null
     }
   ],
