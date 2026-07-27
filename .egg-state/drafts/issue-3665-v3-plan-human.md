@@ -20,25 +20,32 @@ along a single dependency chain per the #3046 overlap validator.
 
 ### Slice 1 — Populate the detection plane's data snapshot (Medium risk)
 
-**Goal:** Fill in all 8 currently-empty fields in `EventStreamSnapshot` so the detection
-plane's detectors can actually read the data they need. This is the prerequisite for
-everything that follows.
+**Goal:** Populate the 5 in-scope fields in `EventStreamSnapshot` so the detection
+plane's detectors can actually read the data they need. The remaining 4 fields
+(`decision_state`, `gateway_error_counters`, `cost_counters`, `git_state`) are
+Tier 3/4 candidates explicitly excluded from this plan's scope — they stay empty
+by decision and the detectors reading them remain inert. This is the prerequisite
+for everything that follows.
 
 **Tasks (6 total, coder + tester):**
 
-- **TASK-1-1** — Populate the `runtime` section with driver heartbeat ages (how long
+- **TASK-1-1** — Populate `midturn_messages` from agent tool-call logs. This is the
+  prerequisite for the loop detector in slice 3 (the primary deliverable). Sequenced
+  first per the refine gate's directive.
+- **TASK-1-2** — Populate the `runtime` section with driver heartbeat ages (how long
   since the last tick, how long since spawn). Activates the run-pipeline-thread-liveness
   detector and DriverLivenessCheck.
-- **TASK-1-2** — Populate the `consensus` section from the peer consensus tracker.
+- **TASK-1-3** — Populate the `consensus` section from the peer consensus tracker.
   Activates the BRC thrash detector and incomplete-consensus deferral detector.
-- **TASK-1-3** — Populate `container_transitions` from the kubernetes_monitor's pod-state
+- **TASK-1-4** — Populate `container_transitions` from the kubernetes_monitor's pod-state
   log. Activates container death, OOM-evicted, restart-loop, and self-injection detectors.
-- **TASK-1-4** — Fix the `RunningAgent` role field (currently uses container ID instead
+- **TASK-1-5** — Fix the `RunningAgent` role field (currently uses container ID instead
   of the agent role) and populate `last_tool_call_age_s` / `last_heartbeat_age_s`.
   Activates the heartbeat-stall detector.
-- **TASK-1-5** — Populate `midturn_messages` from agent tool-call logs. This is the
-  prerequisite for the loop detector in slice 3.
-- **TASK-1-6** — Tests verifying all 13 fields are populated.
+- **TASK-1-6** — Tests verifying the 5 in-scope fields are populated (`midturn_messages`,
+  `runtime`, `consensus`, `container_transitions`, `running_agents` with role + age fields).
+  The 4 excluded fields (`decision_state`, `gateway_error_counters`, `cost_counters`,
+  `git_state`) are asserted to remain empty by decision.
 
 **Files touched:** `orchestrator/health_checks/detection_plane.py`,
 `orchestrator/driver_heartbeat.py`, `orchestrator/peer_consensus/__init__.py`,
@@ -56,7 +63,10 @@ surface so the operator sees one consistent alert stream.
 
 - **TASK-2-1** — Wire `_run_overseer_detection_plane()` into `_run_runtime_tick_checks()`,
   guarding against double-evaluation (two call sites: `_check_pod` and
-  `_reconciliation_sweep`).
+  `_reconciliation_sweep`). Also guard against double-firing with the existing
+  `ConsensusStallCheck` class in `health_checks/tier1/consensus_stall.py` — that class
+  already runs on every runtime tick and contains a dormant `detect_heartbeat_stall`
+  function. Once the plane is live, both layers must not report the same consensus stall.
 - **TASK-2-2** — Route detection-plane findings to the OVERSEER_ALERT / HITL / Slack
   surfaces.
 - **TASK-2-3** — Tests verifying the detection plane is invoked on RUNTIME_TICK, no
@@ -162,14 +172,34 @@ slice-1 → slice-2 → slice-3 → slice-4 → slice-5
 - Do not change the 2-hour timeout default (7200s is reasonable).
 - Tier 3–5 from the candidate list are input to the gate, not a work queue.
 
+## Scope decisions (registered per refine gate directive)
+
+Two Tier 3 candidates are included in this plan with justification:
+
+- **TASK-3-2 (candidate #20, log capture fidelity):** Included because the ~100-character
+  k8s log truncation is a hard dependency — without full-length tool-call logs, the
+  `detect_tool_input_loop()` detector in slice 3 cannot distinguish distinct tool calls
+  sharing a prefix, making the primary deliverable unimplementable. This is a dependency
+  argument, not a scope expansion.
+- **TASK-2-2 (candidate #19, route findings to operator alert surface):** Included because
+  the detection plane's findings are invisible without it — the plane may detect loops
+  but the operator never sees them. This is a necessary companion to the detection plane
+  wiring in slice 2, not a standalone Tier 3 enhancement.
+
+The remaining 4 `EventStreamSnapshot` fields (`decision_state`, `gateway_error_counters`,
+`cost_counters`, `git_state`) are Tier 3/4 candidates that stay empty by decision. The
+detectors reading them remain inert until a future plan picks them up.
+
 ## Verification
 
 - `make test` narrows to reachable suites per slice; `make test-all` before phase exit.
 - `make lint` green throughout.
-- Acceptance criteria (10 total) cover: all 13 snapshot fields populated, detection plane
-  invoked on RUNTIME_TICK with double-evaluation guard, loop detector fires on zero-new-input
-  windows of any cycle shape, timeout-killed pods classified as clean timeouts (not crashes),
-  agents receive 90-minute heartbeat warning, `PipelineConfig` has `agent_timeout_seconds`,
-  OVERSEER_ALERT payloads carry structured evidence, convergence-stall and alive-signal
-  gate use the same timestamp source, timeout alerts say "killed by 2h agent timeout",
-  and detection-plane findings are routed to the operator alert surface.
+- Acceptance criteria cover: the 5 in-scope snapshot fields populated (not all 13 — the
+  remaining 4 are excluded by decision), detection plane invoked on RUNTIME_TICK with
+  double-evaluation guard and no double-firing with `ConsensusStallCheck`, loop detector
+  fires on zero-new-input windows of any cycle shape, timeout-killed pods classified as
+  clean timeouts (not crashes), agents receive 90-minute heartbeat warning,
+  `PipelineConfig` has `agent_timeout_seconds`, OVERSEER_ALERT payloads carry structured
+  evidence, convergence-stall and alive-signal gate use the same timestamp source,
+  timeout alerts say "killed by 2h agent timeout", and detection-plane findings are
+  routed to the operator alert surface.
