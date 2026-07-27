@@ -45,12 +45,16 @@ slices:
            JOB_OUTCOME_LEGITIMATE (not ABNORMAL).
          - MODIFY orchestrator/kubernetes_monitor.py: treat exit 143 as clean
            during RUNNING phase (not just phase transitions).
+         - MODIFY sandbox/llm/claude/config.py: read timeout from env var.
 
       3. False convergence-stall suppression + snapshot enrichment:
          - MODIFY orchestrator/health_monitor.py: add get_agent_activity_ages()
            returning per-agent heartbeat/progress/activity ages.
          - MODIFY orchestrator/event_loop/_loop.py: add _has_recent_agent_activity()
-           to convergence-stall check; consult alive-signal gates before firing.
+           function; call it in _check_convergence_stall before firing to
+           suppress alerts for agents with recent activity.
+         - MODIFY orchestrator/event_loop/__init__.py: bind _has_recent_agent_activity
+           onto OrchestratorEventLoop class.
          - MODIFY orchestrator/health_checks/detection_plane.py: enrich
            snapshot_from_health_context to populate last_tool_call_age_s and
            last_heartbeat_age_s on RunningAgent entries; register
