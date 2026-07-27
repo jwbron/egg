@@ -128,3 +128,60 @@ class TestHasRecentAgentActivity:
         with patch("health_monitor.get_health_monitor", return_value=hm):
             result = _has_recent_agent_activity(loop, "coder")
         assert result is False
+
+    def test_returns_true_when_brc_idle(self) -> None:
+        """#3665: a reviewer-only agent whose upstream producers are still
+        working is legitimately idle — should be suppressed from stall alerts.
+
+        When _is_brc_idle returns True, _has_recent_agent_activity must return
+        True even if all activity ages are stale.
+        """
+        from event_loop._loop import _has_recent_agent_activity
+
+        loop = MagicMock()
+        loop.pipeline_id = "issue-99"
+        loop.slice_id = None
+
+        hm = MagicMock()
+        hm.get_agent_activity_ages.return_value = {
+            "reviewer_code": {
+                "last_heartbeat_age_s": 600.0,
+                "last_progress_age_s": 600.0,
+                "last_activity_age_s": 600.0,
+            }
+        }
+        hm._config = MagicMock()
+        hm._config.orchestrator_activity_quiet_seconds = 120
+        hm._is_brc_idle.return_value = True
+
+        with patch("health_monitor.get_health_monitor", return_value=hm):
+            result = _has_recent_agent_activity(loop, "reviewer_code")
+        assert result is True
+        # Verify _is_brc_idle was consulted
+        hm._is_brc_idle.assert_called_once_with("reviewer_code")
+
+    def test_returns_false_when_not_brc_idle_and_ages_stale(self) -> None:
+        """When _is_brc_idle returns False and all ages are stale,
+        _has_recent_agent_activity must return False.
+        """
+        from event_loop._loop import _has_recent_agent_activity
+
+        loop = MagicMock()
+        loop.pipeline_id = "issue-99"
+        loop.slice_id = None
+
+        hm = MagicMock()
+        hm.get_agent_activity_ages.return_value = {
+            "reviewer_code": {
+                "last_heartbeat_age_s": 600.0,
+                "last_progress_age_s": 600.0,
+                "last_activity_age_s": 600.0,
+            }
+        }
+        hm._config = MagicMock()
+        hm._config.orchestrator_activity_quiet_seconds = 120
+        hm._is_brc_idle.return_value = False
+
+        with patch("health_monitor.get_health_monitor", return_value=hm):
+            result = _has_recent_agent_activity(loop, "reviewer_code")
+        assert result is False
