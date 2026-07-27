@@ -1043,9 +1043,10 @@ A slice can reach full consensus and still fail to close, on either of two gates
 - **The per-slice green gate** (#3398, `EGG_SLICE_GREEN_GATE`) blocks on a *genuine* red
   verdict from the repo's configured checks at the integration-branch tip. It escalates
   far more narrowly than "any red": `off` and `log` modes never block, infra-signature-tagged
-  reds fail open (#3417), and a red fully remediated by the #3409 autofix is committed to
-  the integration branch instead of blocking. Only a red that survives all of that reaches
-  the escalation.
+  reds fail open (#3417, under the default `EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=on` — set
+  that switch to `off` and every red blocks, infra-tagged or not), and a red fully remediated
+  by the #3409 autofix is committed to the integration branch instead of blocking. Only a red
+  that survives all of that reaches the escalation.
 
 Both gates land an unresolved HITL `Decision` on the contract before the phase fails
 (`_escalate_evidence_gate_to_hitl`, `_escalate_green_gate_to_hitl`, both wrapping
@@ -1067,9 +1068,11 @@ for that field and the `provide_input` resolution flow.
 **The escalation is best-effort.** `_escalate_layer_c_hitl` no-ops when `egg_contracts`
 will not import, adopts an existing open decision instead of minting a new one, and
 downgrades contract load/save failures to a warning. A blocked close can therefore leave
-*no* decision behind; `slice_green_gate.failure_headline` phrases its own remedy text
-conditionally for that reason. If the phase failed on one of these gates and nothing is
-pending, work from the phase failure message and skip to step 2 below.
+*no* decision behind; that is why `run_slice_green_gate` phrases the remedy block of its
+failure string conditionally ("If this close raised a green-gate decision on the contract,
+resolve it; otherwise fix the named checks…") rather than promising a decision its caller
+may never have landed. If the phase failed on one of these gates and nothing is pending,
+work from the phase failure message and skip to step 2 below.
 
 **Options** (the same inert triple `_escalate_layer_c_hitl` uses for the Layer-C
 BLOCKED / corrupt-state cases — see [slice-dag.md](architecture/slice-dag.md) on the
@@ -1096,8 +1099,8 @@ opts out of the resolved-question half of the #3427 dedupe guard. A retry of the
    - *Evidence gate* — the cited SHA was lost or rewritten. Either push (or cherry-pick)
      the cited commit onto the integration branch, or re-link the task record to the SHA
      that actually landed via `POST /api/v1/contracts/{pipeline_id}/tasks/<task-id>/complete`
-     (#3124) — the two remedies the gate's failure string and the decision question
-     respectively prescribe.
+     ([#3124](#executable-task-completion-resolution-3124)) — the two remedies the gate's
+     failure string and the decision question respectively prescribe.
    - *Green gate* — fix the named checks at the integration-branch tip.
    - Either gate can also be bypassed with its own kill switch if appropriate:
      `EGG_EVIDENCE_REACHABILITY_GATE=off` or `EGG_SLICE_GREEN_GATE=off` (both accept
@@ -1114,7 +1117,7 @@ opts out of the resolved-question half of the #3427 dedupe guard. A retry of the
 - `orchestrator/operator_actions.py` — Operator-grade contract mutations; `complete_task_as_operator` applies task-status mutations as `Role.HUMAN`, bypassing the implementer/reviewer field-ownership restriction (#3124); `rewrite_task_description_as_operator` rewrites `contract.task_description` as `Role.HUMAN` for the first-principles redirect accept-path (#3385); `add_task_as_operator` appends a task to a slice as `Role.HUMAN` for the executable `adds_task` decision option and the direct `POST /api/v1/contracts/<id>/tasks` route (#3428)
 - `orchestrator/mcp_tools.py` — `answer_feedback` MCP tool (`_handle_answer_feedback`) for host-side answering of pre-proposal contract feedback
 - `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing; `persist_contract_statefiles` commits and pushes a contract decision write to the work branch at write time so a phase-(re)start worktree reset cannot revert it (#3427)
-- `orchestrator/routes/pipelines/_slice_state.py` — `_escalate_layer_c_hitl` (the shared `cq-N` minter, dedupe guard, and the inert three-option set) plus its close-path wrappers `_escalate_evidence_gate_to_hitl` (#3572) and `_escalate_green_gate_to_hitl` (#3398), both passing `carry_forward=False`; also `_check_slice_evidence_reachability`, the #3125 gate whose failure text those escalations embed
+- `orchestrator/routes/pipelines/_slice_state.py` — `_escalate_layer_c_hitl` (the shared `cq-N` minter, dedupe guard, and the inert three-option set) plus its close-path wrappers `_escalate_evidence_gate_to_hitl` (#3572) and `_escalate_green_gate_to_hitl` (#3398), both passing `carry_forward=False`; also `_check_slice_evidence_reachability`, the #3125 gate whose failure text the evidence-gate escalation embeds (the green-gate escalation embeds `slice_green_gate.failure_headline` instead)
 - `orchestrator/routes/pipelines/_run_implement_support.py` — `_slice_close_evidence_gate` / `_slice_close_green_gate`, the two close-path wrappers that run each gate and fire its escalation before `_run_implement.py` calls `scheduler.record_failure`
 - `orchestrator/slice_green_gate.py` — Per-slice green gate; `failure_headline` extracts the deterministic first block (slice id + integration branch + red check names) that the green-gate escalation embeds, so retries of one unanswered incident dedupe instead of minting a fresh `cq-N` per close (#3398)
 - `shared/egg_contracts/validator.py` — `apply_mutation`'s append-only guard rejects a whole-entry write to an existing `decisions[]` index with `error_kind="conflict"` (mapped to HTTP 409 in `orchestrator/routes/contracts.py`) rather than overwriting it (#3427)
