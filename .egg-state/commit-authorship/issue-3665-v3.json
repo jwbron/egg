@@ -72,6 +72,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "b3a9efcbb0adb96b07a161f388074f4b9eb45292": {
+      "branch": "egg/issue-3665-v3/work",
+      "patch_id": "06266fec9d94edf3ba831d0548e856c8267efa6f",
+      "pipeline_id": "issue-3665-v3",
+      "registered_at": "2026-07-27T23:04:21.928209+00:00",
+      "repo": null,
+      "role": "risk_analyst"
+    },
     "cf21381ccceed41cd62fe7b888a9ad39684d86d3": {
       "branch": "egg/issue-3665-v3/work",
       "patch_id": "a65cb696758f1fa0c2b755d5a80b723deea4a7ec",
