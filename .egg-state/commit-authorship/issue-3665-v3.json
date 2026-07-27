@@ -64,6 +64,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "97ce220b2690342891695972defa0e9fb8e67e1b": {
+      "branch": "egg/issue-3665-v3/work",
+      "patch_id": "260bb9c506623e65308e2189164586620d20d1cb",
+      "pipeline_id": "issue-3665-v3",
+      "registered_at": "2026-07-27T23:04:31.222897+00:00",
+      "repo": null,
+      "role": "architect"
+    },
     "9a5c7e59b11fb04022bef6a58a41578814f26c15": {
       "branch": "egg/issue-3665-v3/work",
       "patch_id": "62c36542214be9d25c6a303015d7da3db1eadee2",
