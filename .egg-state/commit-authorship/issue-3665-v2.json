@@ -8,6 +8,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "180fa01484d74adefac91d6a53a7ac2966bd807d": {
+      "branch": "egg/issue-3665-v2/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3665-v2",
+      "registered_at": "2026-07-27T07:53:43.140167+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "1e81f342a353fa53d7477646388f47e3d83a61fe": {
       "branch": "egg/issue-3665-v2/work",
       "patch_id": null,
