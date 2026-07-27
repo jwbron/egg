@@ -11,7 +11,7 @@
     }
   ],
   "prompt": "## The problem\n\nWe ran two long pipelines over the last three days. Between them, seven agents entered\nrepetition loops — the same tool call, or a short cycle of them, repeated until something\noutside the system intervened. Five different roles, across all three phases. Not one was\ndetected by the product. Every one of them was caught by a monitor I was running by hand in a\nterminal, and cleared by me typing an answer into the bus.\n\nIn the same window, the supervision layer was noisy in the other direction. A convergence-stall\nalert fired at `[high]` priority against a coder whose peer heartbeat was seconds old, while the\nhealth monitor was concurrently logging, every 30 seconds, that the same agent was alive. That\nalert was then read — by me — as the cause of a 110-minute work loss it had nothing to do with.\nThe misdiagnosis cost more than the alert would ever have saved. Separately, two agents were\nkilled at exactly two hours by a timeout none of them could see coming, and both kills were\ncounted as crashes against the fail-streak budget.\n\nSo the layer whose job is to distinguish a working agent from a wedged one was silent for seven\nwedged agents and loud at several healthy ones. Both directions have the same consequence: an\noperator stops trusting the signal and goes back to watching by hand, which is what happened.\n\nThere is one more thing worth stating plainly, because it shaped everything above. While\nbuilding that hand-rolled monitor I rewrote the \"is this role stuck?\" rule five times. Each\nversion looked obviously correct and each produced false positives against live data — producers\nare legitimately podless between events; reviewers legitimately wait on upstream producers; a\ndeclared no-op leaves its review edges pending forever; a NACK is a verdict and discharges the\nobligation just as an ACK does. Two of those five states are not visible in the status payload at\nall. Whatever gets built here will hit all five. A detector that cries wolf gets muted, and a\nmuted detector misses the real stall.\n\n## What has already landed — do not rebuild it\n\nThe last pass over this area produced work that shipped. Verify each of these in the tree and\ntreat them as done:\n\n- Terminating-Job adoption on the event-loop respawn path (#3613); confirmed working on its\n  first real test.\n- A re-attached worktree's uncommitted work is preserved before reset (#3644, plus #3647, #3652,\n  #3654, #3656, #3660).\n- Cancel stops the driver (#3645, plus #3649, #3655, #3657).\n- Phase-gate approvals parse on their first line (#3648).\n- Never-heartbeated roles anchor at Job start (#3612).\n- The simplifier's first propose is gated on its upstream producer (#3607).\n- Green gate defaults to on (#3609) and a red escalates to HITL (#3628).\n- Every routed call records its decoding config (#3611, #3625).\n- Re-reviews are blocking-only (#3661).\n\nThat list is what shipped. It is not a statement about what remains.\n\n## Areas worth attention\n\nFour, loosely. How you cut them up, order them, or merge them is your call.\n\n- **Signals that exist and are not consulted.** In more than one place the information needed to\n  tell working from wedged is already computed, in the same process, seconds away from the code\n  that decides. It is not read. Some detectors are also unreachable because an input they require\n  is never populated.\n\n- **Session boundaries read as failures.** An agent that simply ran long, or exited cleanly\n  without emitting the verdict it owed, or whose pod vanished, is currently indistinguishable\n  from one that crashed. Some of these consume a retry budget or an arm they should not, and at\n  least one suppresses the very check that would have noticed.\n\n- **Loops that nothing detects.** This is the seven. One empirical result from the incident\n  analysis is worth handing over rather than making you rediscover: across every instance,\n  counting *tool inputs never issued before in the session* over a trailing window separates a\n  loop from work cleanly — a working agent produces new ones and a loop of any length produces\n  none. Two constraints found the hard way: the pod log cannot support this, because tool inputs\n  are truncated at about 100 characters and distinct commands sharing a prefix collapse together;\n  and the cycle shape varies (single-input, 2-, 3-, and 8-cycles were all observed), so anything\n  keyed on a fixed shape or on dominance misses most of them. What to do with that is yours to\n  decide.\n\n- **Alerts an operator cannot act on.** Some fire without the evidence that would make them\n  readable. Some name a threshold whose detector does not exist. Some outcomes are distinguishable\n  only by which log string was emitted.\n\n## What to propose\n\nTwo things, and keep them separate.\n\n**The work.** Decide what is worth doing across those areas, in what order, and what to leave\nout. Nothing above is a requirement; if you find something in the list is already handled, drop\nit and say where.\n\n**A candidate list.** Beyond whatever you propose to build, produce a ranked list of further\nimprovements to this layer that you think are worth making. Every entry must carry a\nfile-and-symbol citation and a verdict on whether the thing is present or absent in the tree\ntoday. This list is a deliverable in its own right and does not obligate anyone to implement any\nof it — it is input to the gate, and the gate decides. Do not defer chosen work into it.\n\n## Ground rules\n\n**Verify before you build.** Some of what looks missing here may already exist; this description\nis written from an operator's experience, not from the code. Check the tree before planning\nanything, and say what you checked. If something is already implemented, drop it and say so\nrather than building it twice.\n\n**Scope is yours to propose.** If a judgement call would materially change the shape of the work,\nraise it as a decision rather than guessing.\n\n**Read the prior write-ups critically, or not at all.** #3595 is the incident analysis and #3596\nwas the first pass over this area; both contain superseded plans and at least one hypothesis that\nwas later disproved. The repository is the source of truth.\n\n**This layer is watching you while you change it.** Its blind spots are the ones described above,\nso do not assume an absence of alerts means anything is fine.",
-  "status": "awaiting_human",
+  "status": "running",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -93,14 +93,14 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "awaiting_human",
+      "status": "running",
       "started_at": "2026-07-27T05:51:34.987264Z",
       "work_started_at": "2026-07-27T05:51:36.040390Z",
-      "completed_at": "2026-07-27T06:10:57.078573Z",
+      "completed_at": null,
       "containers": [],
       "agents": [],
       "review_cycles": 0,
-      "hitl_review_cycles": 0,
+      "hitl_review_cycles": 1,
       "cycle_timings": [
         {
           "cycle": 0,
@@ -111,8 +111,32 @@
       ],
       "artifacts": {},
       "error": null,
-      "operator_directives": [],
-      "iteration_history": [],
+      "operator_directives": [
+        {
+          "iteration_n": 0,
+          "created_at": "2026-07-27T06:41:17.974089Z",
+          "feedback_text": "Two changes. The four priorities are sound and correctly targeted; do not re-do them. Keep every citation you already produced (I spot-checked twelve against the tree, including exact line numbers, and all twelve were correct).\n\n=== 1. The overseer exclusion rests on a false premise. Correct it. ===\n\nYour 'What was left out' section drops the overseer poll cycle on the grounds that it is deprecated:\n\n  'The overseer poll cycle (_poll_cycle) - This is the deprecated standing-pod shape... The overseer is now on-demand (adjudication only). Changes to the overseer poll cycle are not proposed because it is deprecated (#2270 slice-4).'\n\nThat is wrong on three counts, each checkable:\n\n(a) `grep -n deprecated orchestrator/overseer/monitor/__init__.py` returns nothing. `start()` carries no deprecation marker.\n\n(b) `overseer_poll_interval_seconds` (default 30, `overseer/monitor/__init__.py:80`) is live and consumed at `overseer/monitor/_anomaly_checks.py:218` and `overseer/monitor/_consensus_stall.py:113` and `:288`. The poll cycle runs.\n\n(c) An overseer pod ran in THIS pipeline. `egg-sandbox-egg-agent-issue-3665-v2-overseer-zskjm` was Running for the whole refine phase and emitted `heartbeat: WORKING / in-tool-loop liveness` messages onto the bus you can read in the BRC transcript. Config on this pipeline has `overseer_enabled: true`.\n\nRelated misattribution in the same section: you read the issue's 'the health monitor was concurrently logging, every 30 seconds' as the old in-pod overseer. It is not. That line is the orchestrator-side health monitor's alive-signal gate, `health_monitor.py:928` ('Heartbeat alert deferred by alive-signal gate'), which is live and is the same subsystem your Priority 2 correctly proposes to consult. Your fix is right; the reason you gave for excluding its neighbour is not.\n\nWhat I want: re-examine the overseer as in-scope, and either propose work on it or exclude it for a reason that survives the tree. Two open issues are the obvious starting points, and you should reach a present/absent verdict on each rather than taking my word for it: #3577 (overseer has no phase-duration affordance; `overseer_long_running_phase_seconds` at `models/_config.py:428` names `detect_phase_long_running`, which does not exist) and #3212 (overseer crash-respawn loop on route rate limit, no backoff). If after checking you still think the overseer is out of scope, say so and give the citation that supports it. 'Deprecated' is not that citation.\n\n=== 2. The candidate list is a deliverable and it was not delivered. ===\n\nThe issue asked for two separate things, and was explicit that the second is a deliverable in its own right: the work to build, AND a ranked list of further improvements beyond what you propose to build, every entry carrying a file-and-symbol citation and a present/absent verdict.\n\nWhat the analysis draft has at `.egg-state/drafts/issue-3665-v2-analysis.md` is a pointer: 'See the full refiner proposal ... for the ranked candidate list'. What the proposal file has under that heading is a restatement of the same four areas you already chose to build. That is the first deliverable written twice, not the second one.\n\nWhat I want, in the analysis draft itself, not by reference:\n\n  - A numbered, ranked list. Rank by (operator pain x cheapness to build), and state the ranking basis in one line.\n  - Every entry: a one-line statement of the improvement, a file-and-symbol citation, and an explicit PRESENT or ABSENT verdict for the thing in the tree today.\n  - Entries must be improvements you are NOT proposing to build in priorities 1-4. If an idea is already in a priority, it does not belong in this list.\n  - Minimum eight entries. If you genuinely cannot find eight beyond your four priorities, say so and give the search you ran that came up short.\n  - This list obligates nobody. Do not defer any of your four priorities into it, and do not pad it with work you actually think should be built now.\n\nYou already surfaced material that belongs here and then dropped it. Two examples, so the shape is unambiguous: `detect_duration_drift` is registered but effectively inert because `expected_duration_s` is rarely set in the snapshot; and the K8s `active_deadline_seconds` of 14400 at `kubernetes_client.py:350` is a second, independent kill horizon at 4h that no supervision path distinguishes from the 2h agent timeout. Whether either is worth doing is your call; both are exactly the kind of entry this list is for.\n\n=== Out of role for this round ===\n\nDo not implement anything. Do not restructure the four priorities. Do not re-verify the nine 'already landed' items; that work is done and correct."
+        }
+      ],
+      "iteration_history": [
+        {
+          "iteration_n": 0,
+          "completed_at": "2026-07-27T06:41:17.974099Z",
+          "final_proposal_commit": {
+            "simplifier": "8e474c354d7c8b62770fc5d54fa7e5fc3280c97b",
+            "refiner": "bf91f0843b5c4f323f4ee09b8a1c01ec19eacd58"
+          },
+          "verdict_matrix": {
+            "reviewer_refine->refiner": "acked",
+            "reviewer_agent_design->refiner": "acked",
+            "first_principles_reviewer->refiner": "acked",
+            "reviewer_refine->simplifier": "acked",
+            "simplifier->refiner": "acked"
+          },
+          "nack_reasons": [],
+          "artifacts_snapshot": {}
+        }
+      ],
       "phase_start_sha": "2d8a11dc60bc542059ce4f09b73e7ff7eddf3b63",
       "agent_exits": [],
       "decision_ledger": {
@@ -185,7 +209,7 @@
     }
   ],
   "created_at": "2026-07-27T05:51:29.067833Z",
-  "updated_at": "2026-07-27T06:41:17.939393Z",
+  "updated_at": "2026-07-27T06:41:17.975285Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -198,7 +222,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 17,
+  "version": 18,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
