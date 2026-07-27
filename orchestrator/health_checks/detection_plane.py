@@ -575,7 +575,10 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
     slice_id = _context_slice_id(context, pipeline, phase_value)
     if slice_id:
         raw["slice_id"] = slice_id
-    tool_calls_by_role = _extract_tool_calls_by_role(pipeline_id, slice_id, live_ids)
+    # Build a set of role names from the live container roles mapping.
+    # session_state_store is keyed by role name, not container ID.
+    role_names = set(live_roles.values()) if live_roles else set()
+    tool_calls_by_role = _extract_tool_calls_by_role(pipeline_id, slice_id, role_names)
     if tool_calls_by_role:
         raw["tool_calls_by_role"] = tool_calls_by_role
 
@@ -610,7 +613,7 @@ def _context_slice_id(
 def _extract_tool_calls_by_role(
     pipeline_id: str,
     slice_id: str | None,
-    live_ids: set[str],
+    role_names: set[str],
 ) -> dict[str, list[str]]:
     """Read session transcripts from session_state_store and extract tool signatures.
 
@@ -620,17 +623,23 @@ def _extract_tool_calls_by_role(
     running agent and extracts tool-call signatures, returning a dict
     mapping role -> list of signature strings.
 
+    Args:
+        pipeline_id: The pipeline ID.
+        slice_id: The slice ID (or None for non-sliced pipelines).
+        role_names: Set of agent role names (e.g. {"coder", "tester"}) to
+            look up in the session state store.
+
     Returns an empty dict if the session state store is unavailable or no
     transcripts are found.
     """
-    if not live_ids:
+    if not role_names:
         return {}
     try:
         from session_state_store import get_session_state_store
 
         store = get_session_state_store()
         result: dict[str, list[str]] = {}
-        for role in live_ids:
+        for role in role_names:
             record = store.get(pipeline_id, slice_id, str(role))
             if record is not None and record.transcript:
                 # Lazy import to avoid circular dependency
