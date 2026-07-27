@@ -633,6 +633,24 @@ class TestSalvageUncommitted:
             _git("show", "HEAD:new_feature.py", cwd=wt.repo_path).stdout
             == "def added():\n    return 42\n"
         )
+        # ...and it says so. This path pushes to egg/recovered/ for manual
+        # triage but writes no bus record, so unlike the #3639 re-attach
+        # sibling the commit message is the ONLY channel anyone reading that
+        # ref sees — an untagged truncated commit is indistinguishable from a
+        # complete one.
+        assert "INCOMPLETE" in _git("log", "-1", "--format=%B", cwd=wt.repo_path).stdout
+
+    def test_complete_salvage_commit_is_not_marked_incomplete(self, tmp_path: Path) -> None:
+        """The clean path must not carry the truncation marker."""
+        wt = self._clean_worktree(tmp_path)
+        self._dirty(wt.repo_path)
+
+        sha = commit_working_tree(wt)
+
+        assert sha is not None
+        message = _git("log", "-1", "--format=%B", cwd=wt.repo_path).stdout
+        assert "[salvage] pre-crash working-tree state (#2807)" in message
+        assert "INCOMPLETE" not in message
 
     def test_total_add_failure_is_reported_as_an_add_failure(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -202,16 +202,28 @@ Under orchestrator ownership the worktree becomes a hot path.
    record says the snapshot was *not* pushed and asks for escalation
    rather than reassuring the successor that nothing was lost. The ask
    also scales with *what* the snapshot captured: when every captured path
-   is an orchestrator-written state file (today only
-   `.egg-state/agent-outputs/*/brc-memory*.md`, rewritten on every
-   `brc_ack`/`brc_nack`), the record softens to "read it if you need it"
-   so a routine respawn does not train the #3509 message into background
-   noise; anything else — including an unrecognised or unknown file set —
-   keeps the imperative "inspect it before starting work". The threshold
-   selects wording only; the snapshot itself is always taken. A snapshot
-   whose `git add -A` reported errors is marked incomplete in both its
-   commit message and the bus record, since a truncated snapshot is
-   otherwise indistinguishable downstream from a complete one.
+   is an **orchestrator-written** state file, the record softens to "read
+   it if you need it" so a routine respawn does not train the #3509
+   message into background noise. The allowlist is
+   `.egg-state/agent-outputs/*/brc-memory*.md` (rewritten on every
+   `brc_ack`/`brc_nack`), `.egg-state/agent-outputs/consensus-confirmed`,
+   and `.egg-state/agent-outputs/<pipeline-id>-apply-handoff.json`;
+   matching is segment-wise so `*` does not cross `/`. Files written by
+   *agents* into the same directory — `<pipeline>-wontdo.json`,
+   `<identifier>-tester-output.json` — are deliberately excluded: they are
+   agent output, and losing them warrants the imperative. Anything else —
+   including an unrecognised or unknown file set — keeps the imperative
+   "inspect it before starting work", as does a snapshot flagged partial
+   (a truncated capture's path list omits whatever failed to stage, so it
+   cannot establish that the snapshot holds nothing but state files). The
+   threshold selects wording only; the snapshot itself is always taken. A
+   snapshot whose `git add -A` reported errors is marked incomplete in
+   both its commit message and the bus record, since a truncated snapshot
+   is otherwise indistinguishable downstream from a complete one. The same
+   marker rides the #2807 crash-salvage commit
+   (`commit_working_tree`), which pushes to `egg/recovered/…` with no bus
+   record at all — there the commit message is the only channel a triager
+   ever sees.
 3. **Before handing off to spawn:** translate the validated paths from
    orchestrator-local (under `WORKTREE_BASE_DIR`) to host paths, matching
    what the create path already gets from the gateway. An untranslated

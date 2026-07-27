@@ -4348,9 +4348,13 @@ class TestDirtyTreePreservedBeforeReset:
         # reflect what actually reached the index, not the pre-add entry count.
         assert snapshot.n_files == 2
         assert snapshot.paths == ("a.py", "b.py")
-        # 3 entries were dirty, 2 reached the index: the snapshot is truncated
-        # and must say so, or an agent that cherry-picks it believes it
-        # recovered everything.
+        # ``partial`` is derived from the ``add`` raising, NOT from comparing
+        # ``len(paths)`` against ``n_entries`` — a count cross-check would be
+        # unsound anyway, since porcelain collapses an untracked directory to
+        # one entry, so ``len(paths) > n_entries`` is normal. What it pins:
+        # the failed add is carried forward, because an agent that
+        # cherry-picks a silently-truncated snapshot believes it recovered
+        # everything.
         assert snapshot.partial is True
         commit_args = next(a for a in seen if a[0] == "commit" or "commit" in a)
         assert any("INCOMPLETE" in a for a in commit_args if isinstance(a, str))
@@ -4625,6 +4629,138 @@ class TestDiscardedTipMessageWording:
         assert "INCOMPLETE" in msg.body
         assert msg.metadata["wip_partial"] is True
 
+    def test_partial_machine_state_snapshot_keeps_the_imperative(self):
+        """A truncated capture cannot earn the soft branch (R4 blocking #1).
+
+        When ``git add -A`` reports errors, ``wip_paths`` is by construction
+        only the subset that reached the index — whatever failed to stage is
+        absent from it. "Every captured path is a state file" then says
+        nothing about the working tree, so this is the same missing evidence
+        as ``wip_paths=None`` and must degrade the same way. Without this the
+        body contradicts itself: "holds only X, not agent work" followed by
+        "files may be missing from it", on the one input where the captured
+        set is least representative.
+        """
+        body = self._body(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=1,
+            wip_paths=(self._MEMORY_FILE,),
+            wip_partial=True,
+        )
+        assert "inspect it before starting work" in body
+        assert "Treat it as a WIP checkpoint" in body
+        assert "INCOMPLETE" in body
+        assert "read it if you need it" not in body
+
+    def test_plural_machine_state_snapshot_names_each_path(self):
+        """Two memory files must not read as a singular apposition (R4 #3).
+
+        The descriptor stays out of the sentence's grammar so the clause
+        survives both a plural subject and a second entry in
+        ``_MACHINE_STATE_FILE_GLOBS`` whose provenance is not BRC ack/nack.
+        """
+        paths = (
+            self._MEMORY_FILE,
+            ".egg-state/agent-outputs/tester/brc-memory-pipe-1.md",
+        )
+        body = self._body(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=2,
+            wip_paths=paths,
+        )
+        assert "only 2 files" in body
+        for path in paths:
+            assert f"`{path}`" in body
+        assert "a state file the orchestrator rewrites" not in body
+        assert "inspect it before starting work" not in body
+
+    def test_flat_orchestrator_state_files_are_machine_state(self):
+        """``agent-outputs/`` residue is not only the per-role memory file.
+
+        ``consensus-confirmed`` and the applier's *input* handoff are written
+        by orchestrator code too, so a respawn whose only dirt is a memory
+        file plus one of them is the same noise the softening exists for.
+        """
+        body = self._body(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=3,
+            wip_paths=(
+                self._MEMORY_FILE,
+                ".egg-state/agent-outputs/consensus-confirmed",
+                ".egg-state/agent-outputs/pipe-1-apply-handoff.json",
+            ),
+        )
+        assert "read it if you need it" in body
+        assert "inspect it before starting work" not in body
+
+    def test_agent_written_outputs_are_not_machine_state(self):
+        """The applier's and tester's own outputs are agent work, not residue.
+
+        They sit in the same directory and look alike, which is exactly why
+        the discriminator is an explicit allowlist rather than a prefix
+        match on ``.egg-state/agent-outputs/``.
+        """
+        for path in (
+            ".egg-state/agent-outputs/pipe-1-wontdo.json",
+            ".egg-state/agent-outputs/pipe-1-tester-output.json",
+        ):
+            body = self._body(
+                n_commits=1,
+                recovery_ref="egg/recovered/x",
+                wip_commit="aaaa1111",
+                wip_files=1,
+                wip_paths=(path,),
+            )
+            assert "inspect it before starting work" in body, path
+
+    def test_glob_star_does_not_cross_a_path_separator(self):
+        """The discriminator matches by name, so it must match precisely (R4 #5).
+
+        ``fnmatch``'s ``*`` crosses ``/`` and normalises case, so a deeper
+        path or a lookalike directory would slip onto the soft branch. Nothing
+        writes these today — the point is that the primitive cannot be the
+        thing that lets one through later.
+        """
+        for path in (
+            ".egg-state/agent-outputs/a/b/c/brc-memory-x.md",
+            ".egg-state/agent-outputs/coder/brc-memory-p1.md/evil.md",
+            ".egg-state/Agent-Outputs/coder/brc-memory-p1.md",
+        ):
+            body = self._body(
+                n_commits=1,
+                recovery_ref="egg/recovered/x",
+                wip_commit="aaaa1111",
+                wip_files=1,
+                wip_paths=(path,),
+            )
+            assert "inspect it before starting work" in body, path
+
+    def test_trivial_snapshot_with_failed_push_still_names_the_snapshot(self):
+        """The opening-clause suppression is conditional on ``recovery_ref`` (R4 #4).
+
+        It is justified by ``recovery_text`` already naming the snapshot —
+        true only on the pushed branch. With the salvage push failed,
+        ``recovery_text`` is the escalation prose, which never names it, so
+        dropping the clarifier would leave the reader with a bare commit
+        count and no statement of what was discarded.
+        """
+        body = self._body(
+            n_commits=1,
+            recovery_ref=None,
+            salvage_error="gateway down",
+            wip_commit="aaaa1111",
+            wip_files=1,
+            wip_paths=(self._MEMORY_FILE,),
+        )
+        assert "(an automatic snapshot of uncommitted work)" in body
+        assert "Escalate" in body
+
     def test_metadata_carries_the_size_and_completeness_claims(self):
         """The body makes both claims; a consumer must not have to regex prose."""
         msg = self._message(
@@ -4636,6 +4772,50 @@ class TestDiscardedTipMessageWording:
         )
         assert msg.metadata["wip_files"] == 33
         assert msg.metadata["wip_partial"] is False
+
+    def test_metadata_carries_the_softening_inputs(self):
+        """A consumer seeing a softened body must be able to reconstruct why.
+
+        ``wip_files``/``wip_partial`` describe the snapshot; ``wip_paths``
+        and ``wip_machine_state_only`` are what the wording was *decided
+        from*, and without them the softening is unauditable downstream.
+        """
+        soft = self._message(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=1,
+            wip_paths=(self._MEMORY_FILE,),
+        )
+        assert soft.metadata["wip_paths"] == [self._MEMORY_FILE]
+        assert soft.metadata["wip_paths_truncated"] is False
+        assert soft.metadata["wip_machine_state_only"] is True
+
+        loud = self._message(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=1,
+            wip_paths=("src/feature.py",),
+        )
+        assert loud.metadata["wip_machine_state_only"] is False
+
+    def test_metadata_path_list_is_capped(self):
+        """A pathological working tree must not inline itself into the bus.
+
+        ``wip_files`` still carries the untruncated count, and the truncation
+        is flagged so a consumer does not read the capped list as complete.
+        """
+        msg = self._message(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=200,
+            wip_paths=tuple(f"src/mod_{i}.py" for i in range(200)),
+        )
+        assert len(msg.metadata["wip_paths"]) == 50
+        assert msg.metadata["wip_paths_truncated"] is True
+        assert msg.metadata["wip_files"] == 200
 
     def test_no_snapshot_body_is_unchanged(self):
         """A pure commit discard says nothing about snapshots."""
