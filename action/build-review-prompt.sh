@@ -190,10 +190,16 @@ matter. This is infrastructure review.
 ### Verdict
 
 If the delta introduces no blocking issue and the prior blocking items are
-fixed, **approve cleanly** — use \`verdict=approve\`, not
-\`verdict=approve-with-suggestions\`. A clean approval is what lets the PR
-merge; \`approve-with-suggestions\` re-triggers another feedback round, so
-reserve it for the initial review.
+fixed, **approve cleanly**: post with \`gh pr review ${PR_NUMBER} --approve\`
+and do **not** put the suggestions marker — the \`has-suggestions\` HTML
+comment described in the Review Conventions below — anywhere in the body.
+
+Those are your only two levers. You do not write the review verdict yourself;
+the \`gh\` wrapper derives it from the review action you posted and rewrites a
+plain approval into an approval-with-suggestions whenever it finds that marker
+in the body. The suggestions form re-triggers another feedback round instead
+of letting the PR merge. A re-review has no non-blocking suggestions to flag,
+so the marker must never appear.
 
 ## Review Rules
 
@@ -202,6 +208,35 @@ ${review_rules}
 ## Review Conventions
 
 ${conventions:-Post your review using \`gh pr review ${PR_NUMBER}\` with \`--body-file\`. Always write your review to a temp file first, then use --body-file to post it. Do NOT use --body with inline content — long reviews will fail due to shell escaping. Example: \`cat > /tmp/review-body.md << 'REVIEW_EOF'\` then \`gh pr review ${PR_NUMBER} --request-changes --body-file /tmp/review-body.md\`. Use --approve, --request-changes, or --comment as appropriate. Sign your review with: — Authored by egg}
+
+## Re-review Overrides
+
+The **Review Rules** and **Review Conventions** above are shared with the
+initial review and are reproduced here unchanged. Where they conflict with
+this section, **this section wins**. It is deliberately the last word in this
+prompt.
+
+1. **Blocking issues only.** The initial-review thoroughness mandates above —
+   \"be extremely thorough\", \"identify ALL issues in the first pass\", \"report
+   every issue you find\", \"be comprehensive\" — and the **Non-blocking
+   (suggestions)** severity category do not apply on a re-review. Here, an
+   item that is not blocking is not reported at all: not as a section, not as
+   a footnote, not as a parenthetical, not as a closing observation.
+
+2. **\"Pre-existing issues are still blocking\" is scoped.** That rule covers
+   code this PR touches which you have not yet reviewed. It does not license
+   re-opening lines you already signed off on in an earlier round of this PR.
+
+3. **Never add the suggestions marker.** The conventions above tell you to add
+   the \`has-suggestions\` HTML comment when an approval carries non-blocking
+   suggestions. A re-review carries none, so that instruction is inert here —
+   adding the marker converts your approval into another feedback round. See
+   **Verdict** above.
+
+4. **Approve when nothing is blocking.** Prior blocking items fixed and no new
+   blocking issue in the delta means \`gh pr review ${PR_NUMBER} --approve\`
+   with a clean body. That is the outcome that lets the PR merge, and reaching
+   it is the point of this pass.
 "
   else
     prompt="Review PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.

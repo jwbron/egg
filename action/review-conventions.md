@@ -38,8 +38,6 @@ shell escaping issues. Always write to a file first, then use `--body-file`.
 
 **Pre-existing issues are still blocking**: If a PR modifies code that already has broken or inconsistent behavior, request changes to fix it — do not dismiss it as "not a regression." The PR is already in the area, making it the natural place to fix the issue. A PR that adds new code paths through already-broken logic makes the problem worse.
 
-**Scope on a re-review**: The rule above does not apply to lines you already approved in an earlier round of the same PR. Those are closed. Re-open one only if the current delta made it factually wrong. On a re-review, raise blocking issues only — advisory suggestions belong in the initial review, and a re-review that has no blocking issue should approve cleanly (`verdict=approve`) so the PR can merge.
-
 ## Self-Authored PRs
 
 When reviewing a PR authored by the same bot account, **use `--comment` instead of

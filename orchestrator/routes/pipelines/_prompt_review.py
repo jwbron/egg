@@ -795,36 +795,9 @@ def _build_review_prompt(
             f"`git log {last_reviewed_commit}..HEAD --not {_base_ref} -p` to see "
             "the delta — this excludes any base-branch commits that were merged "
             "in since your last review, so you only see PR-authored changes. "
-            "Verify prior feedback was addressed AND review the new code."
+            "Verify prior feedback was addressed AND review new code thoroughly."
         )
         lines.append("")
-        # Blocking-only floor + scope ratchet. A re-review that may raise
-        # advisory items cannot converge: each cycle's fix supplies the next
-        # cycle's nit, so the loop runs to its cycle cap instead of approving.
-        # Mirrors action/build-review-prompt.sh — keep the two in sync per
-        # shared/prompts/REVIEWER-SYNC.md.
-        lines.append("### Blocking issues only\n")
-        lines.append(
-            "Raise **only blocking issues** on a re-review: defects, incorrect "
-            "claims, broken behavior, regressions, and prior blocking items that "
-            "were not actually fixed. Do not raise advisory items — no style "
-            "preferences, no wording refinements, no polish. If you notice a "
-            "non-blocking nit now, omit it entirely.\n"
-        )
-        lines.append(
-            "Work you already approved in an earlier cycle of this review is "
-            "closed. Do not re-open it, and do not raise new items at any "
-            "severity on lines you have already accepted — re-open one only if "
-            "the current delta made it factually wrong. This applies with "
-            "particular force to text that exists because you asked for it in an "
-            "earlier cycle; refining your own requested wording across cycles is "
-            "the failure mode this rule prevents.\n"
-        )
-        lines.append(
-            "If the delta introduces no blocking issue and prior blocking items "
-            "are fixed, approve. A re-review is a convergence step, not a fresh "
-            "review.\n"
-        )
 
     # Phase iteration context: operator directives + prior iteration
     # history. Surfaced to reviewers so they cannot faithfully NACK a
