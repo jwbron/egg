@@ -692,6 +692,29 @@ def _handle_role(self, role: str) -> EventDecision:
             role=role, action=action, dedupe_key=key, spawned=False, blocked="parked"
         )
 
+    # #3669: hold the producer arm while the propose-time check gate is
+    # running the configured checks against this producer's tree. The
+    # gate answers such a propose with a 409 the agent can do nothing
+    # about; respawning into it burns a pod per poll and, after three
+    # clean no-op exits, trips the #3425 no-op park — which reports the
+    # slice as wedged on an operator-bound decision and holds it for the
+    # retry heartbeat. Blocking here costs one deferral and one
+    # re-dispatch when the verdict lands. Imported lazily: the gate
+    # imports the runner, which imports the Kubernetes spawner.
+    if action == "propose":
+        block_reason = _pkg._propose_check_block_reason(self.pipeline_id, self.slice_id, role)
+        if block_reason is not None:
+            logger.debug(
+                "event-loop: spawn deferred, propose-time checks in flight",
+                pipeline_id=self.pipeline_id,
+                slice_id=self.slice_id,
+                role=role,
+                dedupe_key=key,
+            )
+            return EventDecision(
+                role=role, action=action, dedupe_key=key, spawned=False, blocked=block_reason
+            )
+
     # #3337: serialize same-role producers. We are about to spawn a *fresh*
     # event for ``role``; any other live key for this same role belongs to
     # an older event working a now-stale tracker state, and its pod shares

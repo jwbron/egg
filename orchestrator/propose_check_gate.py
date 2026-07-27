@@ -169,8 +169,23 @@ INFRA_FAIL_OPEN_ENV_VAR = "EGG_PROPOSE_CHECK_GATE_INFRA_FAIL_OPEN"
 _INFRA_FAIL_OPEN_ENABLED_VALUES = frozenset({"on", "1", "true", "yes"})
 _INFRA_FAIL_OPEN_DISABLED_VALUES = frozenset({"off", "0", "false", "no"})
 
-# many pipelines cannot grow it without limit.
+# Ledger cap. One entry per (pipeline, slice, tree) is small, but the
+# orchestrator process is long-lived and shared by every pipeline it
+# drives, so an unbounded dict is a slow leak: a busy fleet proposing
+# many trees across many pipelines cannot grow it without limit.
 _LEDGER_MAX_ENTRIES = 256
+
+# How long a ``failed`` record keeps rejecting the same tree before the
+# gate re-runs the checks for it. Without this a red is cached for the
+# life of the orchestrator process, so a red caused by a transient the
+# infra classifier did not recognise (a flaky check, an evicted cache)
+# is unrecoverable for that tree — the producer's only move is to
+# rewrite history for a new SHA. The window is long enough that the
+# normal fix-and-repropose loop never re-runs a genuine red (the
+# producer's next propose carries a new SHA and a new ledger key), and
+# short enough that a stuck producer is not stuck for the process's
+# life. ``passed`` records are never expired: a green tree stays green.
+_FAILED_RECORD_TTL_SECONDS = 3600
 
 # A git object name and nothing else. ``ProposalPayload.commit_sha`` is
 # an unconstrained agent-supplied string; anything that is not a hex
@@ -322,18 +337,82 @@ class CheckRun:
     finished_at: float | None = None
 
 
+# The ledger is **process-local**. That is correct only because the
+# orchestrator Deployment runs ``replicas: 1`` and serves on a single
+# waitress process: every propose for a given pipeline reaches the same
+# interpreter, so "one run per tree" holds. Under more than one replica
+# or a forking WSGI worker the ledger would fragment — two replicas
+# would each start their own runner for the same tree, and a deferral
+# recorded on one would be invisible to the other's event loop. Moving
+# the gate to a shared store (Redis, like ``redis_message_store``) is
+# the prerequisite for scaling the orchestrator horizontally.
 _LEDGER: dict[tuple[str, str, str], CheckRun] = {}
 _LEDGER_LOCK = threading.Lock()
+
+# Producers whose propose was deferred on a still-running check run,
+# keyed by ``(pipeline_id, slice_id, producer_role)`` → the ledger key
+# they are waiting on. Read by the orchestrator event loop (see
+# :func:`propose_spawn_block_reason`) so it does not respawn the
+# producer arm into a 409 it can do nothing about. Guarded by
+# ``_LEDGER_LOCK``: it is only ever consistent relative to the ledger.
+_DEFERRED_PROPOSES: dict[tuple[str, str, str], tuple[str, str, str]] = {}
+
+#: ``blocked`` reason the event loop records for a deferred producer.
+PROPOSE_BLOCK_REASON = "checks_running"
 
 
 def _ledger_key(pipeline_id: str, slice_id: str | None, commit_sha: str) -> tuple[str, str, str]:
     return (pipeline_id, slice_id or "", commit_sha)
 
 
+def _deferral_key(pipeline_id: str, slice_id: str | None, role: str) -> tuple[str, str, str]:
+    return (pipeline_id, slice_id or "", role or "")
+
+
 def reset_ledger() -> None:
     """Drop every recorded run. Test seam; not called in production."""
     with _LEDGER_LOCK:
         _LEDGER.clear()
+        _DEFERRED_PROPOSES.clear()
+
+
+def propose_spawn_block_reason(pipeline_id: str, slice_id: str | None, role: str) -> str | None:
+    """Why the event loop should not spawn ``role``'s propose right now.
+
+    Returns :data:`PROPOSE_BLOCK_REASON` while the checks this producer
+    was last deferred on are still running, ``None`` otherwise.
+
+    Without this the deferral is invisible to the orchestrator's event
+    loop: the 409 unwraps into a clean agent exit, ``_derive_next_action``
+    re-derives the *identical* ``propose`` event, and the loop respawns a
+    pod that can only be deferred again. Three such rounds trip #3425's
+    no-op park, which then reports the slice as wedged on "an
+    operator-bound wedge" and holds it for the 1800s retry heartbeat —
+    a misdiagnosis of a gate that would have cleared on its own in
+    minutes. Blocking the spawn here means one deferral, then one
+    re-dispatch when the verdict lands.
+
+    Self-cleaning: a deferral whose run has finished (or been evicted)
+    is dropped on the next query, so a stale entry cannot wedge the arm
+    in the other direction.
+    """
+    key = _deferral_key(pipeline_id, slice_id, role)
+    with _LEDGER_LOCK:
+        ledger_key = _DEFERRED_PROPOSES.get(key)
+        if ledger_key is None:
+            return None
+        record = _LEDGER.get(ledger_key)
+        if record is None or record.state != "running":
+            _DEFERRED_PROPOSES.pop(key, None)
+            return None
+    return PROPOSE_BLOCK_REASON
+
+
+def _record_deferral(
+    pipeline_id: str, slice_id: str | None, role: str, ledger_key: tuple[str, str, str]
+) -> None:
+    with _LEDGER_LOCK:
+        _DEFERRED_PROPOSES[_deferral_key(pipeline_id, slice_id, role)] = ledger_key
 
 
 def _evict_locked() -> None:
@@ -349,8 +428,27 @@ def _evict_locked() -> None:
         (k for k, v in _LEDGER.items() if v.state != "running"),
         key=lambda k: _LEDGER[k].finished_at or _LEDGER[k].started_at,
     )
+    if not finished:
+        # Every record is in flight, so the cap cannot be honoured. This
+        # is a real condition, not a benign one: it means more than
+        # _LEDGER_MAX_ENTRIES runner Jobs are live at once, which is a
+        # runaway (a wedged wait loop, a fleet spawning unbounded
+        # proposes), so say so rather than growing silently.
+        logger.warning(
+            "Propose check ledger over cap with no finished entries to evict (#3669)",
+            entries=len(_LEDGER),
+            cap=_LEDGER_MAX_ENTRIES,
+        )
+        return
     for key in finished[: len(_LEDGER) - _LEDGER_MAX_ENTRIES]:
         _LEDGER.pop(key, None)
+
+
+def _failed_record_expired(record: CheckRun) -> bool:
+    """True for a ``failed`` record past :data:`_FAILED_RECORD_TTL_SECONDS`."""
+    if record.state != "failed":
+        return False
+    return (time.time() - (record.finished_at or record.started_at)) > _FAILED_RECORD_TTL_SECONDS
 
 
 def _record_verdict(
@@ -439,12 +537,25 @@ def _get_or_start_run(
     repo: str,
     checks: list[dict[str, str]],
 ) -> CheckRun:
-    """Return the ledger record for this tree, starting a run if absent."""
+    """Return the ledger record for this tree, starting a run if absent.
+
+    A ``failed`` record older than :data:`_FAILED_RECORD_TTL_SECONDS` is
+    discarded rather than replayed, so a red is re-checked instead of
+    rejecting the same tree for the life of the process.
+    """
     key = _ledger_key(pipeline_id, slice_id, commit_sha)
     with _LEDGER_LOCK:
         existing = _LEDGER.get(key)
-        if existing is not None:
+        if existing is not None and not _failed_record_expired(existing):
             return existing
+        if existing is not None:
+            logger.info(
+                "Propose check gate: red verdict expired, re-running the checks (#3669)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                commit_sha=commit_sha,
+                age_seconds=int(time.time() - (existing.finished_at or existing.started_at)),
+            )
         record = CheckRun(
             pipeline_id=pipeline_id,
             slice_id=slice_id,
@@ -531,9 +642,11 @@ def _pending_envelope(record: CheckRun) -> tuple[str, int, dict[str, Any]]:
         f"proposed tree {record.commit_sha[:12]} ({commands}). Your proposal "
         f"has NOT been recorded and no reviewer has been dispatched — the "
         f"system runs these once per tree so reviewers never spend a round on "
-        f"code that does not build (#3669). Wait and propose again with the "
-        f"same commit_sha; the answer will be an acceptance or a named failing "
-        f"check. Started {elapsed}s ago.",
+        f"code that does not build (#3669). Exit cleanly now: the orchestrator "
+        f"owns the wait and will re-dispatch this propose when the verdict "
+        f"lands, and the answer will be an acceptance or a named failing "
+        f"check. Do NOT poll, sleep, or retry the propose yourself. "
+        f"Started {elapsed}s ago.",
         409,
         {
             "status": "checks_running",
@@ -560,11 +673,11 @@ def _red_envelope(record: CheckRun) -> tuple[str, int, dict[str, Any]]:
         f"code that does not build, so this proposal is not reviewable (#3669). "
         f"Fix the named checks, commit, push, and propose again.\n\n"
         + "\n\n".join(blocks)
-        + (
-            f"\n\nFull output: runner pod {verdict.get('pod')} "
-            f"(gate {verdict.get('gate_id')}). Set "
-            f"{GATE_ENV_VAR}=off to bypass the gate entirely."
-        ),
+        # No bypass switch is named here: GATE_ENV_VAR is an
+        # orchestrator-process env var an agent cannot read or set, so
+        # offering it as a remedy in agent-facing text only invites a
+        # round spent trying. Operators find it in the gate docs.
+        + (f"\n\nFull output: runner pod {verdict.get('pod')} (gate {verdict.get('gate_id')})."),
         409,
         {
             "status": "checks_red",
@@ -675,6 +788,15 @@ def propose_check_rejection(
             # Log mode must not change the flow at all: the run is now
             # in flight for its soak signal and the propose proceeds.
             return None
+        # Make the deferral visible to the event loop before returning
+        # it, so the producer arm is not respawned into the same 409
+        # every poll (see propose_spawn_block_reason).
+        _record_deferral(
+            pipeline_id,
+            slice_id,
+            producer_role,
+            _ledger_key(pipeline_id, slice_id, commit_sha),
+        )
         return _pending_envelope(record)
 
     if record.state == "infra":

@@ -12,9 +12,17 @@ Covers:
   never evidence).
 * ``parse_verdict`` — sentinel extraction from noisy pod logs.
 * ``_RUNNER_PROGRAM`` — executed for real in a subprocess against a
-  throwaway git repo: it detaches to the *proposed* SHA (not a branch
-  tip), records the exact command per check, tags infra reds, and exits
-  non-zero with no verdict when the SHA cannot be materialised.
+  throwaway git repo: it runs the checks in the worktree exactly as the
+  orchestrator left it (invoking no git at all — the sandbox ``git`` is
+  the gateway wrapper, which refuses a detaching checkout in a
+  branch-locked session), records the exact command per check, tags
+  infra reds, and restores the matching prebuilt snapshot.
+* ``_materialise_proposed_tree`` — the orchestrator-side detach that
+  moved out of the pod: it checks out the *proposed* SHA (not a branch
+  tip), reports the resolved HEAD, falls back to a gateway fetch for an
+  object the worktree does not yet hold, never reaches a shell with the
+  agent-supplied SHA, and returns an infra reason — no Job submitted —
+  when the tree will not materialise.
 * ``build_runner_job_manifest`` / ``_submit_runner_job`` — the #3622
   precedent: the check budget is a **pod-level** ``activeDeadlineSeconds``
   counted from pod start, the Job-level one is a strictly larger outer
@@ -22,8 +30,14 @@ Covers:
   (the failure mode #3622 documents is a manifest field the submitter
   silently drops).
 * The verdict ledger — one run per proposed tree regardless of how many
-  producers propose it or how often, and eviction that never drops a
-  run still in flight.
+  producers propose it or how often, eviction that never drops a run
+  still in flight (and warns rather than growing silently when nothing
+  is evictable), and the TTL that stops a stale red rejecting the same
+  tree for the orchestrator's process life.
+* The deferral registry — a deferred propose holds that producer's
+  event-loop arm (``propose_spawn_block_reason``) so the loop does not
+  respawn it into the same 409 and misread the gate as a #3425 no-op
+  park; the hold is producer-scoped and clears itself.
 * ``_record_verdict`` — green/red/all-infra/mixed classification, and
   the strict posture under ``INFRA_FAIL_OPEN=off``.
 * ``propose_check_rejection`` — the gate itself: every fail-open path,
@@ -42,6 +56,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -287,8 +302,19 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 @pytest.fixture
 def runner_repo(tmp_path):
-    """A throwaway repo with two commits, so 'the proposed SHA' is not HEAD."""
-    repo = tmp_path / "owner--repo"
+    """A throwaway repo with two commits, so 'the proposed SHA' is not HEAD.
+
+    The directory is named for the **bare repo name**, matching
+    production: the gateway names each worktree
+    ``<worktree_base>/<container_id>/<repo_name>`` where ``repo_name``
+    is ``repo.split("/")[-1]``, and both ``run_propose_checks``' mount
+    path and the runner's ``restore_prebuilt`` derive their key from
+    that basename (``entry.endswith("--" + name)`` matches a
+    ``/opt/prebuilt-deps/<owner>--<repo>`` snapshot). A fixture named
+    ``owner--repo`` would make the prebuilt matcher unmatchable here
+    while it matches fine in production.
+    """
+    repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "main")
     _git(repo, "config", "user.email", "t@example.com")
@@ -332,19 +358,49 @@ def _run_runner(repo_dir: Path, sha: str, checks: list[dict[str, str]], **env_ex
 
 
 class TestRunnerProgram:
-    def test_checks_run_against_the_proposed_sha_not_the_branch_tip(self, runner_repo):
-        """The producer named a SHA; that is the tree that must be checked."""
+    def test_checks_run_in_the_mounted_worktree_as_the_orchestrator_left_it(self, runner_repo):
+        """The pod runs the checks; it does not move the tree.
+
+        The orchestrator has already detached the worktree to the
+        proposed SHA (``_materialise_proposed_tree``), so the runner
+        just executes against whatever is mounted — here, the second
+        commit, because nothing checked anything out.
+        """
         proc = _run_runner(
             runner_repo.path,
-            runner_repo.first,
+            runner_repo.second,
             [{"name": "marker", "command": "cat marker.txt"}],
         )
         assert proc.returncode == 0, proc.stderr
         verdict = runner.parse_verdict(proc.stdout)
         assert verdict is not None
-        assert verdict["commit_sha"] == runner_repo.first
         assert verdict["checks"][0]["ok"] is True
-        assert "first" in verdict["checks"][0]["output_tail"]
+        assert "second" in verdict["checks"][0]["output_tail"]
+
+    def test_verdict_reports_the_orchestrator_resolved_sha(self, runner_repo):
+        """The gate names the tree the orchestrator actually checked out."""
+        proc = _run_runner(
+            runner_repo.path,
+            runner_repo.first,
+            [{"name": "test", "command": "true"}],
+        )
+        verdict = runner.parse_verdict(proc.stdout)
+        assert verdict["commit_sha"] == runner_repo.first
+
+    def test_program_invokes_no_git_at_all(self):
+        """Regression guard for the blocking defect this fix closes.
+
+        The pod's ``git`` is the gateway wrapper, which cannot perform a
+        detaching checkout in a branch-locked pipeline session — it 403s
+        on the branch lock and has no ``--detach`` in the ``checkout``
+        policy's allowed-flag set. Any git the runner program grows back
+        would fail there while passing a host-git test fixture, and the
+        gate would silently degrade to checking the branch tip.
+        """
+        program = runner._RUNNER_PROGRAM
+        assert '"git"' not in program
+        assert "'git'" not in program
+        assert "def run_git" not in program
 
     def test_verdict_records_the_exact_command(self, runner_repo):
         """A narrowed run must be readable as narrowed (#3669)."""
@@ -402,33 +458,6 @@ class TestRunnerProgram:
         assert verdict["checks"][0]["ok"] is True
         assert verdict["checks"][0]["infra"] is None
 
-    def test_git_calls_never_reach_a_shell(self, runner_repo):
-        """The proposed SHA is agent-supplied; only check commands get a shell.
-
-        If the checkout went through ``bash -c`` this payload would
-        create the marker file. The orchestrator also refuses a non-hex
-        SHA before spawning, so this is the second of two guards.
-        """
-        sentinel = runner_repo.path / "pwned.txt"
-        proc = _run_runner(
-            runner_repo.path,
-            f"{runner_repo.second}; touch {sentinel}",
-            [{"name": "test", "command": "true"}],
-        )
-        assert not sentinel.exists()
-        assert proc.returncode != 0
-
-    def test_unresolvable_sha_exits_nonzero_with_no_verdict(self, runner_repo):
-        """An unmaterialisable tree is infrastructure, never a red."""
-        proc = _run_runner(
-            runner_repo.path,
-            "0" * 40,
-            [{"name": "test", "command": "true"}],
-        )
-        assert proc.returncode != 0
-        assert runner.parse_verdict(proc.stdout) is None
-        assert "could not check out proposed sha" in proc.stderr
-
     def test_missing_required_prebuilt_exits_nonzero(self, runner_repo):
         proc = _run_runner(
             runner_repo.path,
@@ -452,6 +481,102 @@ class TestRunnerProgram:
         verdict = runner.parse_verdict(proc.stdout)
         assert [c["name"] for c in verdict["checks"]] == ["lint", "test"]
         assert [c["ok"] for c in verdict["checks"]] == [True, False]
+
+    def test_prebuilt_snapshot_actually_lands_in_the_worktree(self, runner_repo, tmp_path):
+        """The matcher is only useful if a matching snapshot is restored.
+
+        ``restore_prebuilt`` keys on ``entry.endswith("--" + name)``
+        where ``name`` is the worktree's basename — so a
+        ``/opt/prebuilt-deps/owner--repo`` snapshot restores into a
+        worktree named ``repo``. Only asserting the *negative* (a
+        missing snapshot is tolerated) would leave the matcher free to
+        never match anything.
+        """
+        prebuilt = tmp_path / "prebuilt"
+        (prebuilt / "owner--repo" / ".venv" / "bin").mkdir(parents=True)
+        (prebuilt / "owner--repo" / ".venv" / "bin" / "pytest").write_text("#!/bin/sh\n")
+        # A snapshot for a *different* repo must not be restored here.
+        (prebuilt / "owner--other").mkdir()
+        (prebuilt / "owner--other" / "STRAY").write_text("no\n")
+
+        proc = _run_runner(
+            runner_repo.path,
+            runner_repo.second,
+            [{"name": "test", "command": "true"}],
+            EGG_PROPOSE_CHECK_PREBUILT_BASE=str(prebuilt),
+            EGG_PROPOSE_CHECK_REQUIRE_PREBUILT="1",
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert runner.parse_verdict(proc.stdout) is not None
+        assert (runner_repo.path / ".venv" / "bin" / "pytest").exists()
+        assert not (runner_repo.path / "STRAY").exists()
+
+
+# ==========================================================================
+# _materialise_proposed_tree — the orchestrator-side detach
+# ==========================================================================
+
+
+class TestMaterialiseProposedTree:
+    def _call(self, repo_path, sha, spawner=None):
+        return runner._materialise_proposed_tree(
+            worktree_path=str(repo_path),
+            commit_sha=sha,
+            pipeline_id="issue-42",
+            spawner=spawner or MagicMock(),
+            gateway_mode="public",
+        )
+
+    def test_detaches_to_the_proposed_sha_not_the_branch_tip(self, runner_repo):
+        """The producer named a SHA; that is the tree that must be checked."""
+        head, reason = self._call(runner_repo.path, runner_repo.first)
+        assert reason is None
+        assert head == runner_repo.first
+        assert (runner_repo.path / "marker.txt").read_text() == "first\n"
+
+    def test_returns_the_full_resolved_sha_for_an_abbreviation(self, runner_repo):
+        head, reason = self._call(runner_repo.path, runner_repo.first[:10])
+        assert reason is None
+        assert head == runner_repo.first
+
+    def test_unresolvable_sha_is_infra_not_red(self, runner_repo):
+        """An unmaterialisable tree fails the gate open, never red."""
+        head, reason = self._call(runner_repo.path, "0" * 40)
+        assert head is None
+        assert "could not materialise proposed sha" in reason
+
+    def test_missing_object_triggers_one_gateway_fetch(self, runner_repo):
+        """Only the gateway holds credentials, so the fetch goes there."""
+        spawner = MagicMock()
+        self._call(runner_repo.path, "0" * 40, spawner=spawner)
+        spawner.gateway.fetch_worktree_branch.assert_called_once_with(
+            "issue-42", str(runner_repo.path), mode="public"
+        )
+
+    def test_present_object_skips_the_fetch(self, runner_repo):
+        spawner = MagicMock()
+        self._call(runner_repo.path, runner_repo.first, spawner=spawner)
+        spawner.gateway.fetch_worktree_branch.assert_not_called()
+
+    def test_gateway_fetch_failure_is_infra(self, runner_repo):
+        spawner = MagicMock()
+        spawner.gateway.fetch_worktree_branch.side_effect = RuntimeError("gateway down")
+        head, reason = self._call(runner_repo.path, "0" * 40, spawner=spawner)
+        assert head is None
+        assert "gateway fetch" in reason and "gateway down" in reason
+
+    def test_git_calls_never_reach_a_shell(self, runner_repo):
+        """``commit_sha`` is an agent-supplied payload field.
+
+        If the checkout went through ``bash -c`` this payload would
+        create the sentinel. The gate also refuses a non-hex SHA before
+        calling this, so it is the second of two guards.
+        """
+        sentinel = runner_repo.path / "pwned.txt"
+        head, reason = self._call(runner_repo.path, f"{runner_repo.second}; touch {sentinel}")
+        assert not sentinel.exists()
+        assert head is None
+        assert reason
 
 
 # ==========================================================================
@@ -623,6 +748,124 @@ class TestLedger:
         assert running_key in gate._LEDGER
         assert len(gate._LEDGER) <= gate._LEDGER_MAX_ENTRIES + 1
 
+    def test_all_running_over_cap_warns_instead_of_silently_growing(self, caplog):
+        """Nothing is evictable, so the operator gets told rather than nothing.
+
+        Dropping a running entry would orphan its thread's verdict; the
+        only honest options are to exceed the cap and say so.
+        """
+        for i in range(gate._LEDGER_MAX_ENTRIES + 5):
+            gate._LEDGER[("p", "", f"sha{i}")] = _record(state="running", commit_sha=f"sha{i}")
+
+        with caplog.at_level("WARNING"), gate._LEDGER_LOCK:
+            gate._evict_locked()
+
+        assert len(gate._LEDGER) == gate._LEDGER_MAX_ENTRIES + 5
+        assert "no finished entries to evict" in caplog.text
+
+    def test_a_green_record_is_never_expired(self):
+        rec = _record(state="passed")
+        rec.finished_at = time.time() - (gate._FAILED_RECORD_TTL_SECONDS * 10)
+        assert gate._failed_record_expired(rec) is False
+
+    def test_a_stale_red_record_expires(self):
+        rec = _record(state="failed")
+        rec.finished_at = time.time() - (gate._FAILED_RECORD_TTL_SECONDS + 1)
+        assert gate._failed_record_expired(rec) is True
+
+    def test_a_fresh_red_record_does_not_expire(self):
+        rec = _record(state="failed")
+        rec.finished_at = time.time()
+        assert gate._failed_record_expired(rec) is False
+
+    def test_an_expired_red_is_re_run_rather_than_replayed(self):
+        """A red is a snapshot of the world, and the world moves.
+
+        A flaky check, a fixed upstream dependency, or a restored
+        network can all turn the same tree green. Replaying a
+        process-lifetime-cached red would wedge the producer against a
+        verdict that is no longer true and that they cannot invalidate.
+        """
+        args = {
+            "pipeline_id": "issue-42",
+            "slice_id": "slice-1",
+            "commit_sha": "abc1234",
+            "base_branch": "egg/issue-42/slice-1",
+            "repo": "owner/repo",
+            "checks": [{"name": "test", "command": "make test-all"}],
+        }
+        stale = _record(state="failed", slice_id="slice-1", commit_sha="abc1234")
+        stale.finished_at = time.time() - (gate._FAILED_RECORD_TTL_SECONDS + 1)
+        gate._LEDGER[gate._ledger_key("issue-42", "slice-1", "abc1234")] = stale
+
+        with patch.object(gate.threading, "Thread") as thread_cls:
+            thread_cls.return_value = SimpleNamespace(start=lambda: None)
+            fresh = gate._get_or_start_run(**args)
+
+        assert fresh is not stale
+        assert fresh.state == "running"
+
+
+# ==========================================================================
+# Deferral registry — the producer arm the event loop must hold (#3425)
+# ==========================================================================
+
+
+class TestDeferralRegistry:
+    def test_no_deferral_means_no_block(self):
+        assert gate.propose_spawn_block_reason("issue-42", "slice-1", "coder") is None
+
+    def test_a_pending_reject_blocks_the_producers_next_spawn(self, monkeypatch):
+        """Without this the event loop respawns straight into the same 409.
+
+        Three no-op spawns in a row is the #3425 park threshold, so a
+        check run longer than three polls would look like a wedged agent
+        rather than a gate doing its job.
+        """
+        monkeypatch.setenv(gate.GATE_ENV_VAR, "on")
+        with patch.object(gate, "gate_checks", return_value=_CHECKS):
+            _seed("running")
+            rejection = _reject()
+
+        assert rejection is not None
+        assert rejection[2]["status"] == "checks_running"
+        assert (
+            gate.propose_spawn_block_reason("issue-42", "slice-1", "coder")
+            == gate.PROPOSE_BLOCK_REASON
+        )
+
+    def test_the_block_is_scoped_to_the_deferred_producer(self, monkeypatch):
+        monkeypatch.setenv(gate.GATE_ENV_VAR, "on")
+        with patch.object(gate, "gate_checks", return_value=_CHECKS):
+            _seed("running")
+            _reject()
+
+        assert gate.propose_spawn_block_reason("issue-42", "slice-1", "tester") is None
+        assert gate.propose_spawn_block_reason("issue-42", "slice-2", "coder") is None
+        assert gate.propose_spawn_block_reason("issue-99", "slice-1", "coder") is None
+
+    def test_the_block_clears_itself_once_the_verdict_lands(self, monkeypatch):
+        """Self-cleaning: nothing else has to remember to release the arm."""
+        monkeypatch.setenv(gate.GATE_ENV_VAR, "on")
+        with patch.object(gate, "gate_checks", return_value=_CHECKS):
+            record = _seed("running")
+            _reject()
+
+        record.state = "passed"
+        assert gate.propose_spawn_block_reason("issue-42", "slice-1", "coder") is None
+        # …and the registry entry is dropped, not merely ignored.
+        assert not gate._DEFERRED_PROPOSES
+
+    def test_a_vanished_ledger_record_does_not_block_forever(self):
+        """Eviction must not leave the producer arm permanently held."""
+        gate._record_deferral("issue-42", "slice-1", "coder", ("issue-42", "slice-1", "gone"))
+        assert gate.propose_spawn_block_reason("issue-42", "slice-1", "coder") is None
+
+    def test_reset_ledger_clears_deferrals_too(self):
+        gate._record_deferral("issue-42", "slice-1", "coder", ("issue-42", "slice-1", "abc"))
+        gate.reset_ledger()
+        assert not gate._DEFERRED_PROPOSES
+
 
 class TestRecordVerdict:
     def test_all_green_passes(self):
@@ -697,23 +940,58 @@ class TestRecordVerdict:
 
 def _spawner_ok(tmp_path):
     spawner = MagicMock()
+    # The gateway names the worktree ``<base>/<container>/<repo_name>``
+    # with ``repo_name = repo.split("/")[-1]`` — the bare basename.
     spawner.gateway.create_worktrees.return_value = SimpleNamespace(
-        success=True, worktrees={"owner/repo": str(tmp_path / "owner--repo")}, errors=None
+        success=True, worktrees={"owner/repo": str(tmp_path / "repo")}, errors=None
     )
     spawner.gateway.register_session.return_value = SimpleNamespace(session_token="tok")
     return spawner
 
 
 class TestRunProposeChecks:
-    def _call(self, spawner):
-        return runner.run_propose_checks(
-            pipeline_id="issue-42",
-            commit_sha="abc1234",
-            base_branch="egg/issue-42",
-            repo="owner/repo",
-            checks=[{"name": "test", "command": "make test-all"}],
-            spawner=spawner,
-        )
+    def _call(self, spawner, materialise=("abc1234", None)):
+        # The orchestrator-side detach runs real git against the mounted
+        # worktree; it has its own coverage in
+        # ``TestMaterialiseProposedTree``. Stub it here so these tests
+        # stay about the Job / session / cleanup path.
+        with patch.object(runner, "_materialise_proposed_tree", return_value=materialise):
+            return runner.run_propose_checks(
+                pipeline_id="issue-42",
+                commit_sha="abc1234",
+                base_branch="egg/issue-42",
+                repo="owner/repo",
+                checks=[{"name": "test", "command": "make test-all"}],
+                spawner=spawner,
+            )
+
+    def test_unmaterialisable_sha_is_infra_and_submits_no_job(self, tmp_path):
+        """The gate fails open *before* a pod exists — never a red.
+
+        A SHA that cannot be checked out is an orchestrator-side
+        infrastructure failure. Submitting the Job anyway would run the
+        checks against whatever tree the worktree happened to hold and
+        report a verdict about the wrong code.
+        """
+        spawner = _spawner_ok(tmp_path)
+        with patch.object(runner, "_submit_runner_job") as submit:
+            verdict, reason = self._call(spawner, materialise=(None, "detach exploded"))
+        assert verdict is None
+        assert reason == "detach exploded"
+        submit.assert_not_called()
+        spawner.gateway.register_session.assert_not_called()
+        spawner.gateway.delete_worktrees.assert_called_once()
+
+    def test_job_is_pinned_to_the_resolved_head_not_the_proposed_string(self, tmp_path):
+        """An abbreviated propose SHA must not become the verdict's identity."""
+        spawner = _spawner_ok(tmp_path)
+        with (
+            patch.object(runner, "build_runner_job_manifest") as build,
+            patch.object(runner, "_submit_runner_job"),
+            patch.object(runner, "_wait_for_runner_pod", return_value=None),
+        ):
+            self._call(spawner, materialise=("f" * 40, None))
+        assert build.call_args.kwargs["commit_sha"] == "f" * 40
 
     def test_worktree_failure_is_infra(self, tmp_path):
         spawner = _spawner_ok(tmp_path)
@@ -941,7 +1219,26 @@ class TestProposeCheckRejectionVerdicts:
         assert details["pod"] == "egg-proposecheck-g1-xyz"
         assert details["failed_checks"][0]["command"] == "make test-all"
         assert details["failed_checks"][0]["exit_code"] == 1
-        assert gate.GATE_ENV_VAR in message
+
+    def test_red_message_does_not_dangle_the_operator_bypass(self, monkeypatch):
+        """The gate switch is an orchestrator env var; agents cannot set it.
+
+        Naming ``EGG_PROPOSE_CHECK_GATE`` in an agent-facing rejection
+        offers a way out that does not exist inside the pod, and invites
+        a producer to burn a turn trying to disable the gate instead of
+        fixing the red check.
+        """
+        monkeypatch.setenv(gate.GATE_ENV_VAR, "on")
+        with patch.object(gate, "gate_checks", return_value=_CHECKS):
+            _seed(
+                "failed",
+                failed=[_check(name="test", command="make test-all", ok=False, exit_code=1)],
+            )
+            rejection = _reject()
+
+        assert rejection is not None
+        message, _status, _details = rejection
+        assert gate.GATE_ENV_VAR not in message
 
     def test_pending_run_defers_without_recording_the_proposal(self, monkeypatch):
         monkeypatch.setenv(gate.GATE_ENV_VAR, "on")

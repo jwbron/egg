@@ -36,17 +36,27 @@ Two things are deliberately *not* copied from the green gate:
   anything it does not name, which is precisely how the pod-level
   deadline came to be missing there.
 
-The runner checks out the **proposed SHA**, not a branch tip: the
-producer named a tree and that is what must be verified. A SHA that
-cannot be materialised is an infrastructure failure — the runner exits
-non-zero with no verdict and the gate fails open — never a red the
-producer cannot act on.
+The checks run against the **proposed SHA**, not a branch tip: the
+producer named a tree and that is what must be verified. The detach
+happens **orchestrator-side** (``_materialise_proposed_tree``), before
+the Job is submitted — never in the pod. The sandbox image's ``git`` is
+the gateway wrapper, and the gateway refuses that checkout twice over:
+``--detach`` is not in the ``checkout`` policy's allowed-flag set
+(``gateway.git_client._policy``), and the runner registers a pipeline
+session branch-locked to ``base_branch``, so every branch-switching
+operation 403s (``gateway._git_execute``). The orchestrator holds the
+same worktree on a hostPath it can reach with real git, so it does the
+detach there — the same shape the green gate's #3409 autofix uses. A
+SHA that cannot be materialised is an infrastructure failure — no Job
+is submitted, the gate fails open — never a red the producer cannot
+act on.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 import uuid
 from typing import TYPE_CHECKING, Any, Literal
@@ -116,7 +126,14 @@ import json, os, shutil, subprocess, sys, time
 
 checks = json.loads(os.environ["EGG_PROPOSE_CHECK_CHECKS"])
 repo_dir = os.environ["EGG_PROPOSE_CHECK_REPO_DIR"]
-target_sha = os.environ["EGG_PROPOSE_CHECK_COMMIT_SHA"]
+# The SHA the orchestrator resolved from HEAD *after* detaching the
+# mounted worktree to the proposed tree. This program runs no git at
+# all: the sandbox `git` is the gateway wrapper, which refuses a
+# detaching checkout in a branch-locked pipeline session, so the detach
+# happens orchestrator-side before this Job is submitted. Reporting the
+# orchestrator-observed HEAD keeps the verdict about the tree that was
+# actually checked rather than the string the producer typed.
+head_sha = os.environ["EGG_PROPOSE_CHECK_COMMIT_SHA"]
 tail = int(os.environ.get("EGG_PROPOSE_CHECK_OUTPUT_TAIL", "4000"))
 infra_signatures = json.loads(os.environ.get("EGG_PROPOSE_CHECK_INFRA_SIGNATURES", "{}"))
 infra_line_signatures = infra_signatures.get("line", [])
@@ -191,47 +208,6 @@ def run_cmd(command, cwd=None):
         return -1, f"runner failed to execute command: {exc}"
 
 
-def run_git(*args):
-    # List form, never `bash -c`: ``target_sha`` reaches this program
-    # from an agent-supplied propose payload. The orchestrator already
-    # refuses a non-hex sha before the runner is spawned, but the shell
-    # must not be the thing standing between a payload field and
-    # execution — the configured check commands are the *only* strings
-    # that get a shell here.
-    try:
-        proc = subprocess.run(
-            ["git", *args],
-            cwd=repo_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            errors="replace",
-        )
-        return proc.returncode, proc.stdout or ""
-    except Exception as exc:
-        return -1, f"runner failed to execute git: {exc}"
-
-
-# Materialise the *proposed* tree, not a branch tip: the producer named
-# a SHA and that is what must be checked. A failure here is
-# infrastructure (the object is unreachable, the gateway git wrapper is
-# down) — exit non-zero with no verdict so the orchestrator fails open
-# rather than reporting a red the producer cannot act on.
-rc, out = run_git("rev-parse", "--verify", "--quiet", target_sha + "^{commit}")
-if rc != 0:
-    rc, out = run_git("fetch", "--quiet", "origin", target_sha)
-rc, out = run_git("checkout", "--detach", "--force", target_sha)
-if rc != 0:
-    print(
-        "propose-check runner: could not check out proposed sha %s: %s"
-        % (target_sha, out[-2000:]),
-        file=sys.stderr,
-    )
-    sys.exit(1)
-
-rc, head_out = run_git("rev-parse", "HEAD")
-head_sha = head_out.strip() if rc == 0 else ""
-
 try:
     restored = restore_prebuilt(repo_dir)
 except Exception as exc:
@@ -285,6 +261,88 @@ def _repo_requires_prebuilt(repo: str) -> bool:
         return bool((get_repo_build_commands(repo) or {}).get("persist_dirs"))
     except Exception:  # noqa: BLE001 — config load is best-effort
         return False
+
+
+# --------------------------------------------------------------------------
+# Materialising the proposed tree (orchestrator-side)
+# --------------------------------------------------------------------------
+
+# Wall-clock ceiling for a single orchestrator-side git invocation.
+_MATERIALISE_GIT_TIMEOUT_SECONDS = 120
+
+
+def _materialise_proposed_tree(
+    *,
+    worktree_path: str,
+    commit_sha: str,
+    pipeline_id: str,
+    spawner: KubernetesSpawner,
+    gateway_mode: Literal["public", "private"],
+) -> tuple[str | None, str | None]:
+    """Detach ``worktree_path`` to ``commit_sha``. Returns ``(head_sha, reason)``.
+
+    Exactly one is non-``None``: the resolved HEAD on success, or a
+    human-readable infrastructure reason on failure.
+
+    **Why this is orchestrator-side and not in the runner pod.** The
+    pod's ``git`` is the sandbox wrapper (``sandbox/scripts/git``),
+    which routes every subcommand through the gateway. The gateway
+    refuses this operation twice over: ``--detach`` is not in the
+    ``checkout`` entry's allowed-flag set, and the runner's session is
+    registered with ``assigned_branch=base_branch``, so
+    ``_git_execute`` 403s every branch-switching checkout/switch in a
+    pipeline session. A pod-side detach therefore *cannot* succeed, and
+    the gate would be a permanent no-op running the checks against the
+    branch tip it forked from. The orchestrator holds the same worktree
+    on a hostPath and can reach it with real git — the shape
+    ``slice_green_gate``'s #3409 autofix already uses: list form, hooks
+    disabled, explicit ``-C``.
+
+    The fetch fallback goes through the gateway because only the
+    gateway holds the push/fetch credentials; an orchestrator-side
+    ``git fetch origin`` would authenticate as nobody.
+    """
+
+    def _git(*args: str) -> subprocess.CompletedProcess[str]:
+        # List form, never ``bash -c``: ``commit_sha`` reaches here from
+        # an agent-supplied propose payload. The gate already refuses a
+        # non-hex sha before this is called, but the shell must not be
+        # the thing standing between a payload field and execution.
+        return subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", "-C", worktree_path, *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_MATERIALISE_GIT_TIMEOUT_SECONDS,
+        )
+
+    try:
+        probe = _git("rev-parse", "--verify", "--quiet", f"{commit_sha}^{{commit}}")
+        if probe.returncode != 0:
+            # The proposed SHA landed after this worktree was forked.
+            try:
+                spawner.gateway.fetch_worktree_branch(pipeline_id, worktree_path, mode=gateway_mode)
+            except Exception as exc:  # noqa: BLE001 — infra failure fails open
+                return None, f"gateway fetch for proposed sha {commit_sha} failed: {exc}"
+
+        checkout = _git("checkout", "--detach", "--force", commit_sha)
+        if checkout.returncode != 0:
+            detail = (checkout.stderr or checkout.stdout or "").strip()
+            return None, (
+                f"could not materialise proposed sha {commit_sha} in the runner "
+                f"worktree: {detail[-500:]}"
+            )
+
+        head = _git("rev-parse", "HEAD")
+        if head.returncode != 0 or not head.stdout.strip():
+            detail = (head.stderr or head.stdout or "").strip()
+            return None, (
+                f"could not resolve HEAD after detaching to {commit_sha}: {detail[-500:]}"
+            )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"git failed while materialising proposed sha {commit_sha}: {exc}"
+
+    return head.stdout.strip(), None
 
 
 # --------------------------------------------------------------------------
@@ -564,8 +622,11 @@ def run_propose_checks(
 
     The runner gets its own gateway worktree forked from ``base_branch``
     and its own gateway session (role ``tester``: read-side work only,
-    it never pushes), then detaches to ``commit_sha`` — the *proposed*
-    tree, not a branch tip that may have moved.
+    it never pushes). The orchestrator detaches that worktree to
+    ``commit_sha`` — the *proposed* tree, not a branch tip that may have
+    moved — before the Job is submitted; see
+    ``_materialise_proposed_tree`` for why the pod cannot do it itself.
+    A tree that will not materialise means no Job is submitted at all.
     """
     namespace = os.environ.get("EGG_AGENTS_NAMESPACE", "egg-agents")
     image = os.environ.get("EGG_SANDBOX_IMAGE", "egg:latest")
@@ -595,6 +656,29 @@ def run_propose_checks(
     session_token: str | None = None
     job_submitted = False
     try:
+        repo_mounts: dict[str, str] = {}
+        repo_dir = ""
+        worktree_host_path = ""
+        for host_path in wt_result.worktrees.values():
+            container_path = f"/home/egg/repos/{os.path.basename(host_path)}"
+            repo_mounts[container_path] = host_path
+            repo_dir = container_path
+            worktree_host_path = host_path
+
+        # Detach here, not in the pod: the sandbox git wrapper cannot do
+        # it (see _materialise_proposed_tree). On failure the worktree is
+        # still cleaned up by the ``finally`` below, but no Job, session,
+        # or pod is ever created.
+        head_sha, materialise_reason = _materialise_proposed_tree(
+            worktree_path=worktree_host_path,
+            commit_sha=commit_sha,
+            pipeline_id=pipeline_id,
+            spawner=spawner,
+            gateway_mode=gateway_mode,
+        )
+        if head_sha is None:
+            return None, materialise_reason
+
         try:
             session_info = spawner.gateway.register_session(
                 container_id=runner_id,
@@ -613,13 +697,6 @@ def run_propose_checks(
         except Exception as exc:  # noqa: BLE001 — infra failure fails open
             return None, f"runner session registration failed: {exc}"
 
-        repo_mounts: dict[str, str] = {}
-        repo_dir = ""
-        for host_path in wt_result.worktrees.values():
-            container_path = f"/home/egg/repos/{os.path.basename(host_path)}"
-            repo_mounts[container_path] = host_path
-            repo_dir = container_path
-
         from kubernetes_spawner import GATEWAY_K8S_URL
 
         env = {
@@ -632,7 +709,9 @@ def run_propose_checks(
         manifest = build_runner_job_manifest(
             gate_id=gate_id,
             pipeline_id=pipeline_id,
-            commit_sha=commit_sha,
+            # The resolved HEAD, not the proposed string: the verdict
+            # must name the tree that was actually checked out.
+            commit_sha=head_sha,
             image=image,
             checks=checks,
             repo_mounts=repo_mounts,
@@ -654,6 +733,7 @@ def run_propose_checks(
             pipeline_id=pipeline_id,
             gate_id=gate_id,
             commit_sha=commit_sha,
+            head_sha=head_sha,
             base_branch=base_branch,
             commands=[c["command"] for c in checks],
             timeout_seconds=timeout,
@@ -677,8 +757,10 @@ def run_propose_checks(
         if verdict is None:
             # The verdict is printed even when checks are red, so a
             # missing verdict is never a *check* failure: the runner
-            # harness crashed, could not materialise the SHA, or was
-            # killed by the pod deadline.
+            # harness crashed, could not restore the prebuilt toolchain,
+            # or was killed by the pod deadline. (An unmaterialisable
+            # SHA never reaches here — that is caught orchestrator-side
+            # before the Job is submitted.)
             return None, (
                 f"no parseable verdict from runner (gate {gate_id}, pod {pod_name}); "
                 f"log tail: {raw_log[-500:]}"

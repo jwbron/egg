@@ -363,6 +363,33 @@ def _derive_next_action(tracker: Any, role: str) -> tuple[str, dict[str, Any] | 
     return _impl(tracker, role)
 
 
+def _propose_check_block_reason(pipeline_id: str, slice_id: str | None, role: str) -> str | None:
+    """Module-level seam over ``propose_check_gate.propose_spawn_block_reason``.
+
+    Returns a ``blocked`` reason while the propose-time check gate
+    (#3669) is running the configured checks against ``role``'s tree,
+    ``None`` otherwise. Defined at module scope for the same reasons as
+    :func:`_derive_next_action`: tests monkeypatch it, and the lazy
+    import keeps the gate (which pulls in the Kubernetes spawner) off
+    this module's import path. Never raises — the gate must not be able
+    to stall the event loop, so an unexpected failure degrades to "not
+    blocked" and the pre-#3669 spawn behaviour.
+    """
+    try:
+        from propose_check_gate import propose_spawn_block_reason
+
+        return propose_spawn_block_reason(pipeline_id, slice_id, role)
+    except Exception as exc:  # noqa: BLE001 — the gate never blocks the loop
+        logger.warning(
+            "event-loop: propose-check block probe failed, spawning anyway",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            role=role,
+            error=str(exc),
+        )
+        return None
+
+
 @dataclass
 class EventDecision:
     """Structured per-role outcome of one :meth:`OrchestratorEventLoop.poll_once`.
@@ -373,11 +400,14 @@ class EventDecision:
     fresh spawn, ``None`` otherwise. ``blocked`` (#3496) names why a
     spawn-action decision did not spawn when the block is operator-relevant:
     ``"exhausted"`` (terminal retry-budget exhaustion), ``"parked"``
-    (#3548 — a no-op-park that only the retry heartbeat will release), or
+    (#3548 — a no-op-park that only the retry heartbeat will release),
     ``"stopped"`` (#3633 — the loop was stopped mid-tick, typically by a
-    cancel), so the all-arms wedge detections can distinguish them from the
-    benign not-spawned shapes (dedupe, backoff). Only ``"exhausted"`` and
-    ``"parked"`` count toward a wedge; ``"stopped"`` is a teardown, not a
+    cancel), or ``"checks_running"`` (#3669 — the propose-time check gate
+    is running the configured checks against this producer's tree), so the
+    all-arms wedge detections can distinguish them from the benign
+    not-spawned shapes (dedupe, backoff). Only ``"exhausted"`` and
+    ``"parked"`` count toward a wedge; ``"stopped"`` is a teardown and
+    ``"checks_running"`` is a bounded self-clearing wait, neither being a
     condition an operator can resolve.
     """
 

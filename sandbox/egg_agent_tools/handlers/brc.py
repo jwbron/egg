@@ -574,8 +574,10 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
         # meaning "this proposal was not recorded and no reviewer was
         # dispatched":
         #   * checks_running — the system is executing the repo's
-        #     configured checks against your tree. Wait, then propose
-        #     again with the same commit_sha.
+        #     configured checks against your tree. Exit cleanly; the
+        #     orchestrator holds the producer arm until the verdict
+        #     lands and then re-dispatches this propose (the agent
+        #     never waits — see docs/reference/agent-wait-patterns.md).
         #   * checks_red — a configured check failed at your commit.
         #     ``rejection.failed_checks`` carries the command, exit code
         #     and output tail per check, so the fix needs no log dig.
