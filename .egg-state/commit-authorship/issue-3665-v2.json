@@ -63,6 +63,14 @@
       "registered_at": "2026-07-27T07:01:39.977803+00:00",
       "repo": null,
       "role": "simplifier"
+    },
+    "d4dd02ea073965fecf3d19a89c514df3cc602709": {
+      "branch": "egg/issue-3665-v2/work",
+      "patch_id": "61073b80c424efdb773a98b9d701502a9075ac5a",
+      "pipeline_id": "issue-3665-v2",
+      "registered_at": "2026-07-27T07:30:16.433199+00:00",
+      "repo": null,
+      "role": "task_planner"
     }
   },
   "version": 2
