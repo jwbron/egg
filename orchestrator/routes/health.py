@@ -43,11 +43,23 @@ _health_tracker = HealthTracker()
 def _probe_state_store() -> tuple[bool, str]:
     """Request-context-aware shim around :func:`probe_state_store_at`.
 
-    Retained at this import path so callers/tests that patch
-    ``routes.health._probe_state_store`` continue to work. The
-    kubelet-probe path no longer calls this directly — the BG thread in
-    :mod:`state_store_probe` does — but several wedge-propagation tests
-    (``test_state_store_wedge_propagation.py``) exercise it as a unit.
+    **Test-only as of #3670.** This shim has no production callers and
+    nothing patches ``routes.health._probe_state_store`` (the earlier
+    docstring claimed both; a repo-wide grep finds neither). The
+    kubelet-probe path reads the cached snapshot the BG thread in
+    :mod:`state_store_probe` populates, and that thread resolves its own
+    base path via ``_resolve_base_path()`` rather than calling here. What
+    remains are the two wedge-propagation unit tests in
+    ``test_state_store_wedge_propagation.py``, which drive this entirely
+    through a patched ``routes.get_repo_path``.
+
+    Consequence for anyone restoring a production caller: ``get_repo_path``
+    is no longer request-context-bound. Since #2903 it falls back to
+    ``EGG_REPO_PATH`` / CWD instead of raising, so calling this outside a
+    request context probes whatever directory the process happens to be in
+    and can report it wedged. The ``except`` below is a real guard, but it
+    only catches resolution *failures* — it does not make a no-context call
+    correct.
 
     Returns the aggregate ``(healthy, summary)`` pair from
     :func:`probe_state_store_at`. The per-repo detail is dropped here;
