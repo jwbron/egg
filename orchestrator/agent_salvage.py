@@ -85,6 +85,27 @@ _SLICE_WORKTREE_RE = re.compile(r"^(slice-[0-9]+)-(.+)$")
 # without a configured user, so an explicit identity is required for the
 # commit to succeed.
 _UNCOMMITTED_SALVAGE_MESSAGE = "[salvage] pre-crash working-tree state (#2807)"
+# Appended when ``git add -A`` reported errors, mirroring the re-attach path's
+# ``kubernetes_spawner._worktree._WIP_COMMIT_PARTIAL_SUFFIX`` (#3639). A
+# truncated snapshot is otherwise indistinguishable downstream from a complete
+# one — same subject, same ``egg/recovered/...`` ref. This path is the worse of
+# the two: unlike the re-attach path it writes no message-bus record, so the
+# commit message is the only channel anyone triaging that recovery ref ever
+# sees.
+#
+# The near-duplication is deliberate. The two texts differ only in naming whose
+# working tree was truncated ("crashed agent's" here, "previous session's"
+# there), which is the one thing a triager reading a lone commit message cannot
+# infer. The grep token — the leading ``INCOMPLETE:`` and the ``git add -A``
+# phrase — is identical in both, so one search finds every truncated snapshot
+# regardless of which path took it. Change one, change the other.
+_UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX = (
+    "\n"
+    "\n"
+    "INCOMPLETE: `git add -A` reported errors while staging, so files\n"
+    "present in the crashed agent's working tree may be missing from\n"
+    "this commit."
+)
 _SALVAGE_COMMIT_NAME = "egg-salvage"
 _SALVAGE_COMMIT_EMAIL = "egg-salvage@localhost"
 
@@ -611,6 +632,12 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
     state. Staging and committing it onto the local work branch *before*
     salvage lets the recovery-ref push capture it.
 
+    A commit whose ``git add -A`` reported errors carries
+    ``_UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX``: this path pushes to
+    ``egg/recovered/...`` for manual triage but records nothing on the
+    message bus, so the commit message is the only place a human or agent
+    reading that ref can learn the snapshot is truncated.
+
     Best-effort: returns the new commit SHA on success, ``None`` when
     there is nothing to commit or the commit fails. Never raises — a
     failure here must not stop the committed-but-unpushed salvage that
@@ -622,7 +649,8 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
         return None
     try:
         add = _run_git("add", "-A", "--ignore-errors", cwd=worktree.repo_path, check=False)
-        if add.returncode != 0:
+        partial = add.returncode != 0
+        if partial:
             # Not fatal, same as the re-attach path's snapshot (#3639): per
             # ``git-add(1)`` an unindexable entry (unreadable file, fifo, a
             # filter that is not installed in the orchestrator image) aborts
@@ -635,6 +663,21 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
                 worktree_id=worktree.worktree_id,
                 stderr=(add.stderr or "").strip(),
             )
+        # Distinguish "the add put nothing in the index" from "the commit
+        # itself failed" before attempting it. Without this the operator sees
+        # `commit ... failed` with a "nothing added to commit" stderr and goes
+        # looking at the commit, when the cause was the add above — the same
+        # misattribution the re-attach path's empty-index guard exists to
+        # prevent (#3639 re-review).
+        staged = _run_git("diff", "--cached", "--name-only", cwd=worktree.repo_path, check=False)
+        if staged.returncode == 0 and not (staged.stdout or "").strip():
+            logger.warning(
+                "Salvage: nothing staged to commit (ignored files, submodule-only "
+                "dirt, or a failed add); skipping the working-tree snapshot",
+                worktree_id=worktree.worktree_id,
+                add_failed=partial,
+            )
+            return None
         commit = _run_git(
             "-c",
             f"user.name={_SALVAGE_COMMIT_NAME}",
@@ -642,7 +685,7 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
             f"user.email={_SALVAGE_COMMIT_EMAIL}",
             "commit",
             "-m",
-            _UNCOMMITTED_SALVAGE_MESSAGE,
+            _UNCOMMITTED_SALVAGE_MESSAGE + (_UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX if partial else ""),
             cwd=worktree.repo_path,
             check=False,
         )
@@ -669,6 +712,7 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
         worktree_id=worktree.worktree_id,
         agent_role=worktree.agent_role,
         head_sha=head_sha,
+        partial=partial,
     )
     return head_sha
 
