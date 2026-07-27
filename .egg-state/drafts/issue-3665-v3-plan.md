@@ -324,8 +324,8 @@ the alerting code can be written first and the wiring makes it live.
 
 ---
 
+```yaml
 # yaml-tasks
-
 pr:
   title: |-
     Supervision second pass: wire detection plane + loop detector + timeout classification + alert evidence
@@ -647,3 +647,4 @@ slices:
         role: tester
         files:
           - orchestrator/tests/test_alert_evidence.py
+```
