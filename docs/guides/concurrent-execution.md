@@ -401,7 +401,7 @@ Scope and posture: implement phase only (plan/refine contracts are expected to h
 
 **Consensus among agents measures coherence; only execution measures correspondence.** Run 5 of the `laguna-s-2.1` assessment ([#3595](https://github.com/jwbron/egg/issues/3595) root cause 6) reached full 8-of-8 consensus on both slices with zero unresolved NACKs while carrying three purely mechanical defects: a file 84 lines over the hard cap, a missing `FINDING_CLASS_REMEDIATIONS` key whose test already existed and named the exact failure in its own assertion message, and a SIGTERM/143 reclassification that left a contradicting test in the tree. Adding reviewers raises coherence and carries no information about correspondence.
 
-So the fix is **not** more reviewers, and **not** a mandate that each reviewer run the checks — the same run's five NACK rounds caught four genuine semantic defects no linter finds, and that attention is scarce. The seam is manned by the system instead: `orchestrator/propose_check_gate.py` runs the repo's configured checks **once per proposed tree**, before any reviewer is dispatched.
+So the fix is **not** more reviewers, and **not** a mandate that each reviewer run the checks — the same run's five NACK rounds caught four genuine semantic defects no linter finds, and that attention is scarce. The seam is manned by the system instead: `orchestrator/propose_check_gate.py` (the decision: switches, verdict ledger, rejection) and `orchestrator/propose_check_runner.py` (the execution: a sandboxed one-shot Job) run the repo's configured checks **once per proposed tree**, before any reviewer is dispatched.
 
 | | propose gate (#3669) | per-slice green gate ([#3398](https://github.com/jwbron/egg/issues/3398)) |
 |---|---|---|
