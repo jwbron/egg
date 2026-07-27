@@ -120,6 +120,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "c41392bcc25183380bd9791a72cec065a0bf5e66": {
+      "branch": "egg/issue-3665-v2/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3665-v2",
+      "registered_at": "2026-07-27T07:52:56.839110+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "c5abc9740996513d7cdcba4d776add93f3879803": {
       "branch": "egg/issue-3665-v2/work",
       "patch_id": "94f90dccdee31b2966c03dda67246ce7a5e43948",
