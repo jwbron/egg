@@ -1,0 +1,107 @@
+{
+    "issue": 3665,
+    "phase": "plan",
+    "agent": "risk_analyst",
+    "title": "Risk Assessment: Supervision Layer Second Pass — Duplicate Implementation Risk",
+    "summary": "Risk assessment for the plan proposing three supervision-layer fixes: (1) agent livelock/repetition-loop detection, (2) two-hour timeout visibility, (3) false convergence-stall suppression. The plan's design is correct, but commit 6ffe97c8e on the issue-3665-supervision-gaps branch already implements all three areas (17 files, 1072 insertions). None of these changes are in the current working tree. The primary risk is duplicate implementation — implementers rebuilding 1072 lines of code that already exist. Verdict: PROCEED_WITH_INTEGRATION. The plan should be revised to integrate the fix commit rather than reimplement, and the 3 open HITL decisions (cq-1, cq-2, cq-3) should be resolved before implementation.",
+    "overall_risk": "MEDIUM",
+    "verdict": "PROCEED_WITH_INTEGRATION",
+    "scope_basis": "The plan proposes three areas of work that map exactly to commit 6ffe97c8e. The fix commit chose: (1) parse existing Claude Code log format for livelock detection, (2) pipeline-level agent_timeout_seconds config (no per-role overrides), (3) nudge agent as livelock recovery (requires_adjudication=False). These match the plan's defaults for cq-1, cq-2, cq-3. If the operator chooses different options, the already-implemented code will need modification.",
+    "risks": [
+        {
+            "id": "R1",
+            "title": "Duplicate implementation of already-completed work",
+            "impact": "HIGH",
+            "likelihood": "HIGH",
+            "detail": "Commit 6ffe97c8e on the issue-3665-supervision-gaps branch implements all three plan areas: livelock detection (loop_detection.py, 317 lines), timeout visibility (agent_timeout_seconds config, SIGTERM classification, env var wiring), and convergence-stall suppression (get_agent_activity_ages, _has_recent_agent_activity, snapshot enrichment). The plan proposes building these from scratch. If the plan proceeds without integrating the fix commit, implementers will rebuild 1072 lines of code that already exist.",
+            "mitigations": [
+                "Revise the plan to add a task for integrating commit 6ffe97c8e from the issue-3665-supervision-gaps branch",
+                "Change task descriptions from CREATE to VERIFY/INTEGRATE for items already implemented",
+                "Verify the fix commit's design matches the plan before integration",
+                "Run the existing tests (test_loop_detection.py, test_timeout_sigterm.py, test_convergence_stall_suppression.py, test_agent_timeout_config.py) after integration"
+            ]
+        },
+        {
+            "id": "R2",
+            "title": "HITL decisions may require modifications to already-implemented code",
+            "impact": "MEDIUM",
+            "likelihood": "MEDIUM",
+            "detail": "Three decisions are open (cq-1, cq-2, cq-3). The fix commit made default choices: parse existing logs (cq-1), pipeline-level config (cq-2), nudge agent (cq-3). If the operator chooses different options (e.g., structured tool-call emitter, per-role timeouts, or respawn instead of nudge), the already-implemented code will need modification.",
+            "mitigations": [
+                "Resolve HITL decisions before integration so the correct implementation path is clear",
+                "If operator chooses different options, modify the integrated code rather than reimplementing",
+                "Document which fix-commit choices align with each HITL decision"
+            ]
+        },
+        {
+            "id": "R3",
+            "title": "Branch integration complexity",
+            "impact": "MEDIUM",
+            "likelihood": "MEDIUM",
+            "detail": "The fix commit is on the issue-3665-supervision-gaps branch, which diverged from the current work branch. Integration may require conflict resolution, especially in files like detection_plane.py and _loop.py that are touched by both branches.",
+            "mitigations": [
+                "Perform a dry-run merge to identify conflicts before integration",
+                "Verify that the fix commit's changes are compatible with the current branch's state",
+                "Run the full test suite after integration to catch regressions"
+            ]
+        },
+        {
+            "id": "R4",
+            "title": "Test naming discrepancy",
+            "impact": "LOW",
+            "likelihood": "HIGH",
+            "detail": "The plan proposes test_event_loop_legitimate_outcome.py but the fix commit has test_timeout_sigterm.py. Both cover the same exit-143 classification. No functional gap, just naming difference.",
+            "mitigations": [
+                "Use the fix commit's test files as-is after integration",
+                "No action needed — naming difference has no functional impact"
+            ]
+        }
+    ],
+    "verification": {
+        "already_shipped_verified": [
+            "Terminating-Job adoption (#3613) — verified present",
+            "Worktree preservation (#3644, #3647, #3652, #3654, #3656, #3660) — verified present",
+            "Cancel stops driver (#3645, #3649, #3655, #3657) — verified present",
+            "Phase-gate approvals (#3648) — verified present",
+            "Never-heartbeated roles (#3612) — verified present",
+            "Simplifier gating (#3607) — verified present",
+            "Green gate (#3609) — verified present",
+            "Red escalates to HITL (#3628) — verified present",
+            "Decoding config (#3611, #3625) — verified present",
+            "Re-reviews blocking-only (#3661) — verified present"
+        ],
+        "fix_commit_verified": [
+            "Commit 6ffe97c8e exists on issue-3665-supervision-gaps branch",
+            "Commit 6ffe97c8e is NOT an ancestor of current HEAD (not yet integrated)",
+            "loop_detection.py: MISSING in working tree, EXISTS in fix commit",
+            "agent_timeout_seconds: NOT FOUND in working tree, EXISTS in fix commit",
+            "get_agent_activity_ages: NOT FOUND in working tree, EXISTS in fix commit",
+            "detect_agent_livelock: NOT FOUND in working tree, EXISTS in fix commit",
+            "Fix commit includes 4 test files: test_loop_detection.py, test_timeout_sigterm.py, test_convergence_stall_suppression.py, test_agent_timeout_config.py"
+        ],
+        "open_hitl_decisions": [
+            "cq-1: Livelock detector tool-call signature parsing (parse logs vs structured emitter) — fix commit chose parse logs",
+            "cq-2: agent_timeout_seconds pipeline-level vs per-role overrides — fix commit chose pipeline-level",
+            "cq-3: Livelock recovery action (nudge vs respawn) — fix commit chose nudge (requires_adjudication=False)"
+        ]
+    },
+    "files_reviewed": [
+        ".egg-state/drafts/issue-3665-v2-plan.md",
+        ".egg-state/drafts/issue-3665-v2-analysis.md",
+        ".egg-state/drafts/issue-3665-v2-analysis-human.md",
+        ".egg-state/contracts/issue-3665-v2.json",
+        ".egg-state/brc-history/issue-3665-v2-refine.json",
+        "orchestrator/health_checks/detection_plane.py",
+        "orchestrator/health_monitor.py",
+        "orchestrator/event_loop/_loop.py",
+        "orchestrator/models/_config.py",
+        "orchestrator/kubernetes_spawner/_models.py",
+        "orchestrator/kubernetes_spawner/_spawn.py",
+        "orchestrator/concurrent_executor.py",
+        "orchestrator/kubernetes_monitor.py",
+        "sandbox/llm/claude/config.py",
+        "orchestrator/cli.py",
+        "orchestrator/health_checks/tier1/__init__.py",
+        "orchestrator/event_loop/__init__.py"
+    ]
+}
