@@ -14,7 +14,8 @@ client returns scripted Job statuses + container exit codes, and pin:
 * EX_AUTH_FATAL (77) still -> ``fatal`` (AC-C6 regression: auth-fatal precedence
   is unchanged, checked before the new branch);
 * any stray exit code -> ``abnormal`` (today's behaviour — the new branch can
-  never manufacture a spurious rate-limit);
+  never manufacture a spurious rate-limit), except SIGTERM (143), which #3665
+  maps to ``legitimate`` so a 2-hour timeout kill does not consume the streak;
 * a best-effort read failure falls back to ``abnormal``;
 * live/exited Jobs are never misclassified.
 """
@@ -98,10 +99,19 @@ class TestOutcomeForRateLimited:
         view = _view(job_status=ContainerStatus.FAILED, exit_code=EX_AUTH_FATAL)
         assert view.outcome_for("k") == event_loop.JOB_OUTCOME_FATAL
 
-    @pytest.mark.parametrize("code", [1, 2, 137, 143, 0])
+    @pytest.mark.parametrize("code", [1, 2, 137, 0])
     def test_stray_exit_code_falls_through_to_abnormal(self, code):
         view = _view(job_status=ContainerStatus.FAILED, exit_code=code)
         assert view.outcome_for("k") == event_loop.JOB_OUTCOME_ABNORMAL
+
+    def test_sigterm_is_legitimate_not_abnormal(self):
+        # #3665: exit 143 (SIGTERM) is the sandbox's 2-hour agent timeout or an
+        # orchestrator-initiated teardown — a lifecycle termination, not a crash,
+        # so it must not consume the abnormal fail-streak budget. Checked AFTER
+        # auth-fatal and rate-limited, so neither precedence above changes.
+        # Full coverage lives in ``test_timeout_sigterm.py``.
+        view = _view(job_status=ContainerStatus.FAILED, exit_code=143)
+        assert view.outcome_for("k") == event_loop.JOB_OUTCOME_LEGITIMATE
 
     def test_no_containers_falls_back_to_abnormal(self):
         # A FAILED Job with no readable container exit code is neither fatal nor

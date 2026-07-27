@@ -88,6 +88,13 @@ FINDING_CLASS_REMEDIATIONS: dict[str, str] = {
         "Confirm the container is alive (distinguish a dead pod from a stale "
         "health-DB record), then nudge or respawn the affected role."
     ),
+    "agent_livelock": (
+        "An agent is heart-beating but making no progress — it is repeating the "
+        "same tool inputs with almost no new unique calls over the trailing "
+        "window (#3665). Nudge the agent with fresh context or respawn the role "
+        "to break the repetition loop; a livelock burns the timeout budget "
+        "without ever failing, so it will not self-clear."
+    ),
     "agent_restart_propagation": (
         "An agent restart was requested but never propagated to a running "
         "container. Verify the restart endpoint and Job teardown."
