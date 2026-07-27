@@ -554,27 +554,70 @@ shape:
        repo's configured checks at the integration-branch tip; staged
        rollout via `EGG_SLICE_GREEN_GATE` — default `on` (a red verdict
        withholds the slice PR), `log` runs the checks and logs the
-       verdict without blocking; fail-open on infra errors, including
-       infra-signature-tagged reds inside check execution, #3417.
-       **The gate can also write to the integration branch**: when every
-       genuine red carries an optional `fix:` command in
-       `repositories.yaml` (e.g. `lint: {fix: make lint-fix}`), the
-       runner applies the fixes in its worktree and the orchestrator
-       commits them as `egg-green-gate` and pushes to the integration
-       branch via the launcher-authed gateway push route, #3409. This is
-       the one place the orchestrator authors commits on a slice branch;
-       it fires only in `on` mode, and only when the runner proves the
-       exact tree `git add -u` will stage is green — one full re-run of
-       *every* configured check against the all-fixes-applied tree
-       (`final_verification.all_ok`) plus a no-new-untracked-files
-       check. Any failure to commit or push blocks the slice exactly
-       like an unfixed red) — calls
+       verdict without blocking, `off` returns before the runner Job is
+       spawned at all; fail-open on infra errors, including
+       infra-signature-tagged reds inside check execution, #3417; a red
+       verdict that survives to block lands an unresolved HITL
+       `Decision` via `_escalate_green_gate_to_hitl`, #3572 parity with
+       the evidence gate above, so the block is an operator question
+       rather than a silently parked slice; the gate can also write to
+       the integration branch — see "Green-gate autofix" below) — calls
        `GatewayClient.create_slice_pr` with `base` resolved from the
        slice's DAG parent (root → latest completed chain tip, else the
        pipeline branch (#3541); child → parent's
        integration branch). On failure the worker calls
        `scheduler.record_failure(slice_id)`, which arms the cascade
        timer.
+
+       **Green-gate autofix (Stage A, #3409)** — the one place the
+       orchestrator authors commits on a slice branch. When every
+       genuine red carries an optional `fix:` command in
+       `repositories.yaml`, the runner applies the fixes in its
+       worktree and the orchestrator commits them as `egg-green-gate`
+       and pushes to the integration branch via the launcher-authed
+       gateway push route. `fix:` is a third key on a `checks:` list
+       entry — `- {name: lint, command: make lint, fix: make lint-fix}`
+       — not a name-keyed mapping; `validate_checks` drops any entry
+       missing `name`/`command` with no warning, and a repo whose
+       `checks:` all drop out gets no green gate at all, not merely no
+       autofix. Reds tagged with an infra signature are excluded from
+       "genuine" only under
+       the default `EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=on`; set it
+       `off` and every red must carry a fix that re-ran green. When
+       *every* red is infra-tagged the gate fails open and returns
+       **before** the autofix decision, so a fix that re-ran green is
+       discarded with the worktree rather than committed — deliberately,
+       since the run that proved it was already classified as
+       untrustworthy. In the mixed case the commit message names only
+       the genuine reds (`fixed_checks=genuine_failed`) even though the
+       committed tree also carries any infra-tagged check's fix.
+
+       Autofix fires only in `on` mode — which is the *default*, not an
+       opt-in: `EGG_SLICE_GREEN_GATE` is unset in the shipped
+       configuration and both an unset and an unrecognised value
+       resolve to `on`. It fires only when the runner proves the exact
+       tree `git add -u` will stage is green — one full re-run of
+       *every check the gate runs* against the all-fixes-applied tree
+       (`final_verification.all_ok`;
+       `EGG_SLICE_GREEN_GATE_SKIP_CHECKS` drops names before the
+       runner sees them, default `security`), plus a
+       no-new-*non-ignored*-untracked-files check
+       (`git ls-files --others --exclude-standard`, so gitignored
+       droppings don't count) over the runner's whole session rather
+       than the fix alone, plus at least one tracked modification for
+       `git add -u` to stage — the gate refuses when the re-runs went
+       green but staged nothing. `_autofix_ready` also refuses when the
+       runner reported no final-verification verdict at all
+       (`final_verification.ran` false) or could not determine the
+       untracked count (`new_untracked_count is None`, a best-effort
+       git failure); every refusal is logged as `autofix_block_reason`
+       on the orchestrator's `Green gate red` line — a `log`-mode
+       refusal is not one of them, it logs "autofix available but not
+       applied" with no such field — and the reason reaches the
+       operator-facing slice failure message only when every genuine
+       red's own re-run went green; otherwise it stays in the
+       structured log. Any failure to commit or push blocks the
+       slice exactly like an unfixed red, HITL escalation included.
     4. After the wave completes, `scheduler.poll_cascades()` drains any
        expired cascades and emits the orchestrator-side
        `OVERSEER_ALERT` for each (see "Failure cascade").
@@ -1072,7 +1115,7 @@ on parse failure. The green-gate knobs below are read directly via
 | `EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS` | float | 30.0 | Reconciler polling cadence for orphaned child PRs. |
 | `EGG_ORCH_CROSS_REPO_MERGE_GATE_MAX_ATTEMPTS` | int | 240 | Poll-attempt budget for the cross-repo merge-sequencing gate (#3393) before a never-merging upstream escalates to a HITL hold; ~2h at the default reconciler cadence. See [Cross-repo merge-sequencing hold](#cross-repo-merge-sequencing-hold-two-tier). |
 | `EGG_SLICE_BASE_ANCESTRY_GATE` | str | `on` | Operator kill switch for the admission-time base-ancestry gate (#3541 — see [Root linearization & the base-ancestry gate](#root-linearization--the-base-ancestry-gate-3541)): any of `off`/`0`/`false`/`no` (case-insensitive, whitespace-tolerant) disables the gate; any other value (including unset) leaves it enabled. |
-| `EGG_SLICE_GREEN_GATE` | str | `on` | Per-slice green gate rollout switch (#3398): `off` skips the gate entirely; `log` runs the repo's configured checks at the slice tip and logs a red verdict without blocking; `on` (the default) withholds the slice PR on a red verdict. Case-insensitive, with aliases — `on` also accepts `1`/`true`/`yes`, `log` also accepts `log-only`/`log_only`, and `off` also accepts `0`/`false`/`no`. Weakening the gate takes an explicit, correctly-spelled `off` or `log`; unset or unrecognised values resolve to `on`, so a typo cannot silently drop a deployment below the product default. Expect the first reds to be gate wiring rather than slice code — a stale contract snapshot reddening contract-hygiene tests (#3301), or `make test`'s changeset narrowing resolving its baseline against `git merge-base` in a fresh worktree — and note either of those reds *every* slice close until fixed (a missing prebuilt-deps snapshot is not in this list: the runner exits non-zero and the gate fails open, costing coverage rather than throughput); the failure message names the branch to fix and quotes `EGG_SLICE_GREEN_GATE=off` as the bypass, and the slice's commits stay on the integration branch (a red gate withholds the PR, it does not discard work). Latency is identical under `log` and `on` — both run the checks and wait for the runner pod, so slice-close latency grows by the check duration (bounded by `EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS`). The worst case is not a slow suite but a runner pod that never schedules — the wait is `timeout` plus a 120s scheduling grace (~32 min at the defaults) before failing open, so a capacity-starved cluster pays that per slice close. A *partially* delayed pod is quieter and more common: the runner's deadline is the **Job's** `activeDeadlineSeconds`, counted from the Job's `startTime` (before any pod is bound), so time spent Pending or pulling is subtracted from the in-pod check budget rather than added to the wait — the scheduling grace widens only the orchestrator's wait. A pod delayed N seconds gets N fewer seconds to run checks, and a `DeadlineExceeded` kill emits no verdict line, so the gate fails open with no verdict at all. Capacity starvation therefore raises the rate of spurious no-verdict fail-opens as well as dead time ([#3622](https://github.com/jwbron/egg/issues/3622)) — under the `on` default that is a slice close you believed was gated and wasn't, though the direction is always *under*-blocking, never a false red. Grep for *both* fail-open log lines when diagnosing one: the Job controller deletes the active pod on `DeadlineExceeded` rather than leaving it terminal, so the wait normally times out ("runner pod did not reach a terminal state"); a poll that catches the pod reporting `Failed` mid-termination reads partial output and lands on "no parseable verdict from runner" instead. |
+| `EGG_SLICE_GREEN_GATE` | str | `on` | Per-slice green gate rollout switch (#3398): `off` skips the gate entirely; `log` runs the repo's configured checks at the slice tip and logs a red verdict without blocking; `on` (the default) withholds the slice PR on a red verdict. Case-insensitive, with aliases — `on` also accepts `1`/`true`/`yes`, `log` also accepts `log-only`/`log_only`, and `off` also accepts `0`/`false`/`no`. Weakening the gate takes an explicit, correctly-spelled `off` or `log`; unset or unrecognised values resolve to `on`, so a typo cannot silently drop a deployment below the product default. Expect the first reds to be gate wiring rather than slice code — a stale contract snapshot reddening contract-hygiene tests (#3301), or `make test`'s changeset narrowing resolving its baseline against `git merge-base` in a fresh worktree — and note either of those reds *every* slice close until fixed (a missing prebuilt-deps snapshot is not in this list: the runner exits non-zero and the gate fails open, costing coverage rather than throughput); recovery is operator-driven rather than automatic: a red verdict lands an unresolved HITL `Decision` on the contract (`_escalate_green_gate_to_hitl`, #3572 parity) whose continue / restart-slice / cancel options are *recorded* for the operator rather than dispatched — nothing routes on the `[#3398 green-gate]` marker today ([#3634](https://github.com/jwbron/egg/issues/3634)), so picking one answers the question without taking the action, and the fix and restart stay manual. What the Decision buys is visibility: the block surfaces in `/sdlc` instead of only as a FAILED phase an operator has to notice. Retries of one *unanswered* red adopt the open decision rather than stacking duplicates, but a red that recurs *after* the operator resolved it raises a fresh decision — precisely because resolving one has no mechanical effect, a gate-wiring red that survives a `restart_phase` must ask again rather than silently leave `pending_decisions` empty. The failure message names the branch to fix and quotes `EGG_SLICE_GREEN_GATE=off` as the bypass, and the slice's commits stay on the integration branch (a red gate withholds the PR, it does not discard work). Latency is identical under `log` and `on` — both run the checks and wait for the runner pod, so slice-close latency grows by the check duration (bounded by `EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS`). The worst case is not a slow suite but a runner pod that never schedules — the wait is `timeout` plus a 120s scheduling grace (~32 min at the defaults) before failing open, so a capacity-starved cluster pays that per slice close. A *partially* delayed pod is quieter and more common: the runner's deadline is the **Job's** `activeDeadlineSeconds`, counted from the Job's `startTime` (before any pod is bound), so time spent Pending or pulling is subtracted from the in-pod check budget rather than added to the wait — the scheduling grace widens only the orchestrator's wait. A pod delayed N seconds gets N fewer seconds to run checks, and a `DeadlineExceeded` kill emits no verdict line, so the gate fails open with no verdict at all. Capacity starvation therefore raises the rate of spurious no-verdict fail-opens as well as dead time ([#3622](https://github.com/jwbron/egg/issues/3622)) — under the `on` default that is a slice close you believed was gated and wasn't, though the direction is always *under*-blocking, never a false red. Grep for *both* fail-open log lines when diagnosing one: the Job controller deletes the active pod on `DeadlineExceeded` rather than leaving it terminal, so the wait normally times out ("runner pod did not reach a terminal state"); a poll that catches the pod reporting `Failed` mid-termination reads partial output and lands on "no parseable verdict from runner" instead. |
 | `EGG_SLICE_GREEN_GATE_SKIP_CHECKS` | str (comma-separated) | `security` | Configured check *names* (from `repositories.yaml` `checks`) the gate skips. |
 | `EGG_SLICE_GREEN_GATE_TIMEOUT_SECONDS` | int | 1800 | Wall-clock budget for the check-runner pod (spawn-to-terminal); a hung suite degrades to fail-open rather than wedging the slice close. Enforced as a Job-level `activeDeadlineSeconds` (`timeout + 60`) counted from Job start, so it is a ceiling on scheduling *plus* checks, not on checks alone — see the `EGG_SLICE_GREEN_GATE` row and [#3622](https://github.com/jwbron/egg/issues/3622). |
 | `EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN` | str | `on` | Infra-red fail-open (#3417): the runner tags red checks whose full output matches an exact infra signature (the sandbox git wrapper's gateway-down / missing-env / session-auth errors, the kernel's ENOSPC message) or whose process died by SIGKILL; a verdict where *every* red check is infra-tagged fails open instead of blocking, and mixed verdicts block on the genuine reds only. `off`/`0`/`false`/`no` restores strict every-red-blocks behavior; `on`/`1`/`true`/`yes` (and unset, and an empty or whitespace-only value) enable it silently; any other value resolves to `on` and logs a warning, since the typo direction here is strict → lenient. |

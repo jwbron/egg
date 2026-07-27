@@ -29,16 +29,19 @@ All persistent user configuration is consolidated under `~/.config/egg/`:
 
 ```
 ~/.config/egg/
-├── config.yaml        # All non-secret settings (compose, ports, identity, etc.)
-├── secrets.env        # All secrets (Slack, GitHub, Confluence, JIRA tokens)
-├── launcher-secret    # Gateway launcher secret (dedicated file)
-├── github-token       # GitHub token (dedicated file)
-├── github-app-id      # GitHub App ID (if using App auth)
+├── config.yaml                 # All non-secret settings (compose, ports, identity, etc.)
+├── secrets.env                 # All secrets (Slack, GitHub, Confluence, JIRA tokens)
+├── launcher-secret             # Gateway launcher secret — required for k8s deploys; make k3s-secrets aborts without it (bin/egg-deploy init or bin/egg-init generates it)
+├── lifecycle-secret            # Orchestrator lifecycle-control auth token — required for k8s deploys; make k3s-secrets aborts without it (bin/egg-deploy init or bin/egg-init generates it)
+├── github-token                # GitHub token (dedicated file)
+├── github-app-id               # GitHub App ID (if using App auth)
 ├── github-app-installation-id  # GitHub App Installation ID
-├── github-app.pem     # GitHub App private key (bot identity)
-├── reviewer-app.pem   # Reviewer GitHub App private key (optional, for separate reviewer bot)
-├── npm-packages-token # Optional: read-only token for the GitHub Packages npm read-through
-└── repositories.yaml  # Repository access configuration (created by setup.py)
+├── github-app.pem              # GitHub App private key (bot identity)
+├── reviewer-app.pem            # Optional: reviewer GitHub App private key, for a separate reviewer bot identity
+├── npm-packages-token          # Optional: read-only token for the GitHub Packages npm read-through
+├── litellm-models.yaml         # Optional: host-side LiteLLM model_list overlay, applied by make litellm-config (copy from config/litellm-models.template.yaml)
+├── routing-policy.yaml         # Optional: gateway routing policy — switchover remaps + fallback chains, hot-reloaded by make routing-policy (copy from config/routing-policy.template.yaml)
+└── repositories.yaml           # Repository access configuration (created by setup.py)
 ```
 
 ### npm-packages-token (Optional)
@@ -193,6 +196,11 @@ repo_settings:
 Each check has:
 - `name`: Display label (e.g., "lint", "test", "integration")
 - `command`: Shell command to execute
+- `fix` (optional): Single shell command string that auto-remediates a failing check (e.g. `make lint-fix` for a `lint` check). It must be a *string*: a YAML list is silently coerced to its Python repr (`"['make fmt', 'make lint-fix']"`) and will never run, so chain steps with `&&` or point at a make target; an empty or omitted value (a bare `fix:`, `fix: ""`, `fix: false`, `fix: 0`) is dropped entirely, leaving the check with no fix and a block message that never mentions `fix`. When the per-slice green gate finds this check red at the slice tip, it runs the fix and re-runs the check. It commits and pushes the result to the slice integration branch only when **all** of the following hold (#3409): every *genuine* red check's fix turned it green (reds tagged with an infra signature are excluded before this decision under the default `EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=on`, #3417 — set that switch to `off` and every red, infra-tagged or not, must carry a fix that re-ran green); a final full re-run of every check the gate runs against the all-fixes-applied tree is also green; the runner's tree gained no new non-ignored untracked files, whether from the fix *or* from the checks themselves — the baseline is captured before the first check runs (the gate stages with `git add -u`, which would silently drop them; gitignored droppings don't count); at least one tracked file in that tree is modified, so there is something to commit; the runner reported a final-verification verdict at all and could determine that untracked count (a best-effort git failure in the runner is treated as unsafe); and the gate is running in `on` mode. Every refusal is logged as `autofix_block_reason` on the orchestrator's `Green gate red` line — a `log`-mode refusal is not one of them (that line reads "autofix available but not applied" and carries no such field) — and the reason reaches the slice failure message only when every genuine red's own re-run went green; otherwise it stays in the orchestrator's structured log. Checks without `fix`, or whose re-run stays red, route red verdicts back to the slice team unchanged. When *every* red is infra-tagged the gate fails open and returns **before** this decision, so even a fix that re-ran green is discarded with the worktree rather than committed.
+
+  **`on` is the default mode — no opt-in is required.** `EGG_SLICE_GREEN_GATE` is unset in the shipped configuration, and both an unset and an unrecognised value resolve to `on`, so autofix commits and pushes to your slice integration branch unless you turn it down. Set `EGG_SLICE_GREEN_GATE=log` to keep the fix running as a soak signal while committing and pushing nothing, or `off` to stop the gate before it spawns the runner at all — under `off` the fix never executes.
+
+  `fix` is used only by the per-slice green gate (slice-DAG implement pipelines); the tester step ignores it, so setting it on a non-slice pipeline has no effect. It is also a silent no-op on a check the gate skips: `EGG_SLICE_GREEN_GATE_SKIP_CHECKS` excludes checks by name before the gate runs, and defaults to `security`. See [slice-dag.md](../docs/architecture/slice-dag.md) for the `EGG_SLICE_GREEN_GATE` rollout switch.
 
 Checks run sequentially during the implement phase tester step. If not configured, the tester falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.).
 

@@ -38,9 +38,12 @@ def _run_implement_phase_slices(
     slice reached CONFIRMED; non-zero means at least one slice failed.
     """
     try:
-        from orchestrator.slice_scheduler import SliceScheduler
+        from orchestrator.slice_scheduler import SchedulerSliceState, SliceScheduler
     except ImportError:
-        from slice_scheduler import SliceScheduler
+        from slice_scheduler import (  # type: ignore[no-redef]
+            SchedulerSliceState,
+            SliceScheduler,
+        )
 
     try:
         from egg_contracts.loader import load_contract, save_contract
@@ -528,6 +531,42 @@ def _run_implement_phase_slices(
     try:
         while not scheduler.all_done():
             driver_heartbeat.record_tick(pipeline_id)  # #3540 liveness tick
+
+            # 0. Stop walking the DAG once this loop no longer owns the phase.
+            #    Nothing used to stop it: the next tick admitted the next ready
+            #    slice, created its integration branch, and spawned a fresh
+            #    agent cohort. Two ways that goes wrong, both caught by the
+            #    same re-read — see ``_phase_bail_reason_impl``:
+            #
+            #    * the operator cancelled the run (#3633) — observed opening
+            #      slice-3 two hours after the cancel;
+            #    * a restart bumped ``run_epoch`` (#3315), so a new
+            #      ``_run_pipeline`` thread owns the pipeline. The stale loop
+            #      would otherwise race it: admit a slice, create its
+            #      integration branch, call the phase runner, have that bail on
+            #      supersession, record a spurious slice failure, repeat.
+            #
+            #    Bail before admitting another wave, so an in-flight one is the
+            #    last. ``_run_phase_execution`` maps the non-zero exit onto a
+            #    clean thread return rather than a phase FAILURE.
+            _loop_bail = _pkg._phase_bail_reason_impl(
+                store=store, pipeline_id=pipeline_id, run_epoch=run_epoch
+            )
+            if _loop_bail is not None:
+                _pkg.logger.info(
+                    "Stopping the slice loop without admitting further slices",
+                    pipeline_id=pipeline_id,
+                    reason=_loop_bail,
+                    unfinished=[
+                        rt.slice_id
+                        for rt in scheduler.list_slices()
+                        if rt.state != SchedulerSliceState.COMPLETE
+                    ],
+                )
+                aggregate_logs.append(f"--- slice loop stopped: {_loop_bail} ---")
+                overall_exit = 1
+                break
+
             # 1. Snapshot ready slices for this tick.
             ready_batch = list(scheduler.iter_ready())
             if not ready_batch:
@@ -878,6 +917,23 @@ def _run_implement_phase_slices(
                 )
 
                 if exit_code_inner != 0:
+                    # An operator cancel is not a slice failure (#3633
+                    # review). The phase runner returns non-zero on its
+                    # cancel bail, and recording that as a failure would
+                    # set the slice FAILED, arm the downstream cascade, and
+                    # publish SLICE_CLOSED(outcome="failed") to the bus —
+                    # so operators and SSE consumers would see a failed
+                    # slice for a clean cancel. Same intent-preservation
+                    # argument as ``_run_phase_execution``'s CANCELLED
+                    # carve-out, one level down.
+                    if _pkg._pipeline_cancelled(store, pipeline_id):
+                        _pkg.logger.info(
+                            "Slice stopped by pipeline cancellation (not recorded as a failure)",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            exit_code=exit_code_inner,
+                        )
+                        return exit_code_inner, logs_inner
                     scheduler.record_failure(slice_id)
                     _pkg.logger.warning(
                         "Slice failed",
@@ -907,38 +963,29 @@ def _run_implement_phase_slices(
                     scheduler.record_failure(slice_id)
                     return 1, evidence_failure
 
-                # #3398 — per-slice green gate: execute the repo's
-                # configured checks (repositories.yaml, via
-                # get_repo_checks) against the integration-branch tip
-                # in a sandboxed one-shot runner and, in "on" mode,
-                # refuse to open the slice PR while any check is red.
-                # Closes the trust-vs-verify gap in the propose-time
-                # checks_passed self-report. Same posture as the
-                # evidence gate above: fail-open on infra errors,
-                # fail-closed only on a definitive red verdict;
-                # EGG_SLICE_GREEN_GATE is the operator switch
-                # (off / log / on), defaulting to "on": the checks
-                # run on every slice close and a definitive red
-                # withholds the PR. "log" runs them without
-                # blocking; "off" is the escape hatch, and is
-                # quoted in the failure message itself.
-                if pipeline.repo:
-                    try:
-                        import slice_green_gate as _green_gate
-                    except ImportError:
-                        from .. import slice_green_gate as _green_gate  # type: ignore[no-redef]
-
-                    green_gate_failure = _green_gate.run_slice_green_gate(
-                        pipeline_id,
-                        spawner,
-                        slice_id,
-                        integration_branch,
-                        pipeline.repo,
-                        gateway_mode=gateway_mode,  # type: ignore[arg-type]
-                    )
-                    if green_gate_failure is not None:
-                        scheduler.record_failure(slice_id)
-                        return 1, green_gate_failure
+                # #3398 — per-slice green gate: run the repo's
+                # configured checks against the integration-branch tip
+                # and, in "on" mode (the default), refuse to open the
+                # slice PR while any check is red. Same posture as the
+                # evidence gate above on every axis, escalation
+                # included: fail-open on infra errors, fail-closed only
+                # on a definitive red verdict, and on that red the
+                # helper lands an unresolved HITL Decision before
+                # returning so the block is an operator question rather
+                # than a silently parked slice. See
+                # ``_slice_close_green_gate`` for the full posture.
+                green_gate_failure = _pkg._slice_close_green_gate(
+                    pipeline_id,
+                    spawner,
+                    worktree_repo_path,
+                    slice_id,
+                    integration_branch,
+                    gateway_mode=gateway_mode,  # type: ignore[arg-type]
+                    pipeline=pipeline,
+                )
+                if green_gate_failure is not None:
+                    scheduler.record_failure(slice_id)
+                    return 1, green_gate_failure
 
                 # Snapshot the slice's PR data from the same loaded
                 # contract — no second lock acquire, no second file

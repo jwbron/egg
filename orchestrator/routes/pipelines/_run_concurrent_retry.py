@@ -132,18 +132,24 @@ def _run_concurrent_phase_with_impasse_retry(
         # Defense-in-depth (#3315 facet a, slice path): if a restart bumped
         # ``run_epoch`` while this thread was running, a stale producer-written
         # impasse file could otherwise drive ``route_impasses`` into a HITL
-        # against the freshly-restarted phase. The poll loop in
-        # ``_run_concurrent_phase`` already bails on supersession before any
-        # escalation; mirror that here so the "no escalation when superseded"
-        # property holds on the slice path too — return the (superseded) result
-        # without routing.
-        if _pkg._pipeline_superseded_by_restart(store, pipeline_id, run_epoch):
+        # against the freshly-restarted phase. The same applies to a cancel
+        # (#3633): the phase call above returns immediately once the pipeline
+        # is CANCELLED, and without this guard a stale impasse would escalate
+        # a HITL — and, on the all-delegated branch, drive another retry
+        # iteration — against a run the operator already stopped. The poll loop
+        # in ``_run_concurrent_phase`` bails on both conditions before any
+        # escalation; mirror that here so the "no escalation once this thread
+        # no longer owns the phase" property holds on the slice path too.
+        _bail_reason = _pkg._phase_bail_reason_impl(
+            store=store, pipeline_id=pipeline_id, run_epoch=run_epoch
+        )
+        if _bail_reason is not None:
             _pkg.logger.info(
-                "Restart superseded this thread before impasse routing; "
-                "skipping route_impasses to avoid escalating against a "
-                "freshly-restarted phase",
+                "Thread no longer owns this phase before impasse routing; "
+                "skipping route_impasses to avoid escalating against it",
                 pipeline_id=pipeline_id,
                 slice_id=slice_id,
+                reason=_bail_reason,
             )
             return last_exit, last_logs
 

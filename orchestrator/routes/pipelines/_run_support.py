@@ -88,31 +88,115 @@ def _clear_stale_impasses_for_producers(
         )
 
 
-def _pipeline_superseded_by_restart(
-    store, pipeline_id: str, run_epoch: _pkg.datetime | None
-) -> bool:
-    """True if a newer ``run_epoch`` means another thread now owns this pipeline.
+def _pipeline_cancelled(store, pipeline_id: str) -> bool:
+    """True if ``pipeline_id`` is persisted as CANCELLED (#3633).
 
-    Reloads pipeline state and compares its ``run_epoch`` against the epoch the
-    caller runs under (#3315 facet a). Best-effort: a missing epoch or a load
-    failure returns ``False`` so a transient store hiccup never tears down a
-    legitimately-running phase. Shared by the ``_run_concurrent_phase`` poll
-    loop and the slice-path impasse-retry wrapper so the "no escalation when
-    superseded" property holds on both routes.
+    The operator's cancel is the authoritative "stop driving this run"
+    signal, and the persisted status outlives the in-process mechanisms a
+    cancel cannot reach (a stop event a thread never checks, an event loop
+    the cancel route did not know about). Driver work loops re-read it so a
+    cancelled pipeline stops admitting slices and spawning agents rather
+    than walking the rest of its DAG against an operator who believes it is
+    stopped.
+
+    It is not inviolable, and callers should not treat it as such. Every
+    operator-blocking gate parks the pipeline at ``AWAITING_HUMAN`` and writes
+    ``RUNNING`` back once its wait returns, so a loop that only re-reads the
+    status *after* such a gate sees the gate's own write, not the operator's
+    cancel. That is why each of them re-checks from inside, at **both** writes:
+
+    - before the park write, from inside the same state lock that performs it
+      (:func:`_park_at_gate_unless_cancelled`, and the bespoke in-lock checks
+      in ``_alerts.py`` and the gap gate's ``_set_status``). Re-checking only
+      after the wait is not enough: the park write itself clobbers the
+      operator's ``CANCELLED``, and the post-wait check then reads back the
+      gate's own ``AWAITING_HUMAN`` and concludes nothing happened;
+    - before the resume write, after the wait returns
+      (``_gate_wait_cancelled``, at all five of its blocking waits;
+      ``_await_unresolved_gap_gate``; the divergence-reconcile pause).
+
+    The park check has to be in-lock rather than merely "just before", because
+    ``StateStore.update_pipeline`` — which is how the cancel route persists
+    ``CANCELLED`` — takes the same per-pipeline lock. Reading outside it races
+    the cancel and loses the update.
+
+    A third check belongs *before* the decision is queued, at every site that
+    mints one: the cancel route sweeps pending decisions once, so a decision
+    minted after that sweep is never cancelled and ``wait_for_decision`` — an
+    unbounded poll with no timeout — blocks for the process lifetime, leaking
+    the driver thread and skipping ``_run_pipeline``'s ``finally`` entirely
+    (#3633 review round 3). Any new park-and-resume block needs all three.
+
+    Re-checking is only half of it. A block that merely *skips* its RUNNING
+    write leaves the persisted CANCELLED intact and then hands its caller the
+    same value an ordinary gating returns — so the driver keeps walking the
+    DAG and the next unguarded status write clobbers the cancel anyway. Each
+    block therefore has to propagate a stop the driver acts on: the five
+    ``_run_hitl_gate.py`` sites and the gap gate's caller
+    (``_run_implement_advance``) return ``"break"``, and the
+    divergence-reconcile pause returns ``aborted=True``. The terminal-phase
+    "pipeline complete" branch in ``_run_pipeline`` re-checks as a backstop for
+    the case a future block forgets.
+
+    FAILED is deliberately not included: ``container_monitor``
+    reconciliation can mark a live pipeline FAILED mid-poll, and the
+    consensus-complete path recovers it to RUNNING (#1273).
+
+    Best-effort: a missing store or a load failure returns ``False`` so a
+    transient store hiccup never tears down a legitimately-running phase.
     """
-    if store is None or run_epoch is None:
+    if store is None:
         return False
     try:
-        _epoch_pip = store.load_pipeline(pipeline_id)
-    except Exception as _epoch_err:  # noqa: BLE001 — never wedge the caller
+        return store.load_pipeline(pipeline_id).status == _pkg.PipelineStatus.CANCELLED
+    except Exception as exc:  # noqa: BLE001 — never wedge the caller
         _pkg.logger.debug(
-            "Epoch supersession check failed; continuing",
+            "Cancellation check failed; continuing",
             pipeline_id=pipeline_id,
-            error=str(_epoch_err),
+            error=str(exc),
         )
         return False
-    current_epoch = _epoch_pip.run_epoch or _epoch_pip.created_at
-    return current_epoch != run_epoch
+
+
+def _park_at_gate_unless_cancelled(store, pipeline_id: str, phase) -> tuple[_pkg.Any, bool]:
+    """Persist ``AWAITING_HUMAN`` for pipeline+phase, unless the run is cancelled (#3633).
+
+    Every operator-blocking gate parks the pipeline (and its phase box, so the
+    DAG visualization renders the gate on the right phase) at
+    ``AWAITING_HUMAN`` before blocking in ``wait_for_decision``. That write is
+    unconditional in every pre-#3633 gate, and it is the write that made the
+    persisted-status layers blind: it lands *on top of* the operator's
+    ``CANCELLED``, so the post-wait re-check reads back the gate's own
+    ``AWAITING_HUMAN``, concludes the run is live, and advances the phase.
+
+    The check is performed **inside** the same per-pipeline state lock that
+    performs the write, not just before taking it. ``StateStore.update_pipeline``
+    — the cancel route's persistence path — holds that lock, so an out-of-lock
+    read can observe RUNNING and then have the write land after the cancel's,
+    silently losing it. In-lock, the two interleavings are the only ones
+    possible: the cancel wins the lock (we see ``CANCELLED`` and skip), or we
+    do (the cancel's own sweep then unblocks the wait and the post-wait check
+    fires).
+
+    Returns ``(pipeline, cancelled)``. On ``cancelled=True`` nothing was
+    written and the caller must **not** wait — it has to propagate a stop the
+    driver acts on (``"break"`` from the gate blocks, ``aborted=True`` from
+    the divergence pause); skipping the write alone leaves the driver walking
+    the DAG until the next unguarded write clobbers the cancel anyway.
+
+    The returned ``pipeline`` is the freshly-loaded object in both cases, so
+    callers can rebind and keep reporting against current state.
+    """
+    with _pkg.get_pipeline_state_lock(pipeline_id):
+        pipeline = store.load_pipeline(pipeline_id)
+        if pipeline.status == _pkg.PipelineStatus.CANCELLED:
+            return pipeline, True
+        pipeline.status = _pkg.PipelineStatus.AWAITING_HUMAN
+        phase_execution = pipeline.get_phase_execution(phase)
+        if phase_execution is not None:
+            phase_execution.status = _pkg.PipelineStatus.AWAITING_HUMAN
+        store.save_pipeline(pipeline)
+    return pipeline, False
 
 
 def _spawn_and_wait(

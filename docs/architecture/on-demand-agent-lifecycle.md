@@ -183,7 +183,76 @@ Under orchestrator ownership the worktree becomes a hot path.
    resuming agent with no session memory can find and resume its prior
    work instead of silently re-deriving it (falls back to log-only when
    `pipeline_id` context is unavailable, or record-only when the salvage
-   push itself fails).
+   push itself fails). **Uncommitted work is snapshotted first**
+   ([#3639](https://github.com/jwbron/egg/issues/3639)): a dirty tree is
+   committed (`git add -A` plus a `[salvage] pre-reset working-tree state`
+   commit) *before* the `reset --hard`, so it becomes an ordinary orphan
+   that the salvage + record path above recovers. Without that step a
+   session that worked for hours without committing had nothing for the
+   orphan detector to find and lost everything on a routine respawn. The
+   snapshot does not relax the residue policy: the tree still hard-resets
+   to the origin tip, so the successor inherits nothing uncommitted; it
+   only makes the discarded state recoverable. Ignored files are excluded,
+   and a failed snapshot logs at WARNING with the file count and proceeds
+   with the reset rather than blocking reuse. The snapshot is skipped
+   entirely when the re-attach carries no `branch`: with no origin tip to
+   reset to and no salvage target, the commit would simply become the
+   successor's HEAD — un-vetted residue promoted to committed state, which
+   is what R6 exists to prevent. When the salvage push fails the bus
+   record says the snapshot was *not* pushed and asks for escalation
+   rather than reassuring the successor that nothing was lost. The ask
+   also scales with *what* the snapshot captured: when every captured path
+   is a **state file the next event regenerates and some other store
+   durably holds**, the record softens to "read it if you need it" so a
+   routine respawn does not train the #3509 message into background noise.
+   The membership test is regeneration, not authorship — the dominant
+   member is written by the *sandbox* on the agent's own tool call and
+   holds agent-authored prose. The allowlist is
+   `.egg-state/agent-outputs/*/brc-memory*.md` (rewritten by
+   `sandbox/egg_agent_tools/handlers/brc_memory.py` on every
+   `brc_ack`/`brc_nack`, with the orchestrator message history as the
+   durable backstop — see
+   [brc-memory.md](brc-memory.md)),
+   `.egg-state/agent-outputs/consensus-confirmed`, and
+   `.egg-state/agent-outputs/<pipeline-id>-apply-handoff.json`;
+   matching is segment-wise so `*` does not cross `/`. Agent *output* in
+   the same directory — `<pipeline>-wontdo.json`,
+   `<identifier>-tester-output.json` — is deliberately excluded: nothing
+   rewrites it on the next event and no other store holds it, so losing it
+   warrants the imperative. Anything else —
+   including an unrecognised or unknown file set — keeps the imperative
+   "inspect it before starting work", as does a snapshot flagged partial
+   (a truncated capture's path list omits whatever failed to stage, so it
+   cannot establish that the snapshot holds nothing but state files). The
+   bus record's metadata carries the inputs *and* the outcome as separate
+   fields — `wip_paths` (capped), `wip_partial`,
+   `wip_machine_state_only` (the path predicate alone) and `wip_softened`
+   (whether the body actually softened) — so a triage consumer can
+   reconstruct the decision instead of regexing the prose; the two derived
+   fields diverge whenever a machine-state-only path set is disqualified
+   by a commit stack, a truncated capture, or a failed salvage push. The
+   threshold selects wording only; the snapshot itself is always taken —
+   including when the path list cannot be read at all. The staged-path
+   read uses `-z` so `wip_paths` carries real bytes rather than
+   `core.quotePath` C-quoted tokens, which means a filename that is not
+   valid UTF-8 would be undecodable under `subprocess`'s strict `text=True`
+   decode; the read passes `errors="replace"`, so one bad name costs one
+   name (a U+FFFD in `wip_paths`) rather than the whole path set. That
+   replacement does not move the softening decision in either direction:
+   every non-`*` character in the softening globs is ASCII and replacement
+   only substitutes non-ASCII for non-ASCII, so a replaced path matches
+   exactly the globs its raw bytes would. Anything that still defeats that read — a
+   timeout on a large staged set, a non-zero `diff` against a locked index
+   — logs a WARNING and commits blind (`wip_paths`/`wip_files` become
+   `null`, so the record takes the imperative) rather than letting a
+   metadata read cost the working tree. A
+   snapshot whose `git add -A` did not complete cleanly is marked incomplete in
+   both its commit message and the bus record, since a truncated snapshot
+   is otherwise indistinguishable downstream from a complete one. The same
+   marker rides the #2807 crash-salvage commit
+   (`commit_working_tree`), which pushes to `egg/recovered/…` with no bus
+   record at all — there the commit message is the only channel a triager
+   ever sees.
 3. **Before handing off to spawn:** translate the validated paths from
    orchestrator-local (under `WORKTREE_BASE_DIR`) to host paths, matching
    what the create path already gets from the gateway. An untranslated

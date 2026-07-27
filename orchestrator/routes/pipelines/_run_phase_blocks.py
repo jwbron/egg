@@ -21,7 +21,9 @@ def _run_implement_advance(
     store,
     worktree_repo_path,
 ):
-    """IMPLEMENT-phase advance loop block (extracted verbatim; pure fall-through)."""
+    """IMPLEMENT-phase advance loop block. Returns ``(pipeline, action)``;
+    ``action == "break"`` -> the operator cancelled inside the gap gate and the
+    caller must leave the driver loop instead of advancing."""
     if current_phase == _pkg.PipelinePhase.IMPLEMENT:
         try:
             gap_gated = _pkg._await_unresolved_gap_gate(
@@ -34,6 +36,25 @@ def _run_implement_advance(
                 pipeline.config.hitl_gates,
             )
             pipeline = store.load_pipeline(pipeline_id)
+            # The gate bails out of its wait without restoring RUNNING when the
+            # operator cancelled mid-wait (#3633) — but it reports that through
+            # the same ``gated`` boolean an ordinary gating returns, so nothing
+            # downstream can tell the two apart. Re-read the persisted status
+            # here and hand the driver an explicit stop: without it the cancel
+            # is silently defaulted away, the commit+push below mutates the
+            # remote branch of a pipeline the operator just stopped, and
+            # IMPLEMENT being terminal (``PHASE_TRANSITIONS[IMPLEMENT] == []``)
+            # takes _run_pipeline straight into its "pipeline complete" branch,
+            # overwriting CANCELLED with COMPLETE and deleting the worktrees
+            # restart_phase resumes from (#3633 review round 2).
+            if _pkg._pipeline_cancelled(store, pipeline_id):
+                _pkg.logger.info(
+                    "Unresolved-gap gate: pipeline cancelled while awaiting the "
+                    "operator — stopping the driver without advancing (#3633)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                )
+                return pipeline, "break"
             # The gate ran after the statefile commit+push above, so
             # when it changed the contract (operator resolved a gap,
             # or the override audit landed) the resolution is still
@@ -88,7 +109,7 @@ def _run_implement_advance(
                 phase=current_phase.value,
                 error=str(gap_gate_err),
             )
-    return pipeline
+    return pipeline, None
 
 
 def _run_plan_advance(

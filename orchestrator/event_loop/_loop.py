@@ -616,6 +616,22 @@ def _handle_role(self, role: str) -> EventDecision:
         # wait / unknown — nothing to spawn.
         return EventDecision(role=role, action=action)
 
+    # #3633: never spawn once the loop has been stopped. ``run()`` checks the
+    # stop event between ticks, but ``stop()`` is also called from outside the
+    # loop's own thread — the cancel route stops every live loop for a
+    # pipeline synchronously — so a stop that lands mid-tick would otherwise
+    # still get one final cohort of one-shot Jobs out the door. Re-checking
+    # immediately before the spawn decision closes that window.
+    if self._stop.is_set():
+        logger.info(
+            "event-loop: spawn blocked, loop is stopping",
+            pipeline_id=self.pipeline_id,
+            slice_id=self.slice_id,
+            role=role,
+            action=action,
+        )
+        return EventDecision(role=role, action=action, spawned=False, blocked="stopped")
+
     identity = _pkg.event_identity(action, payload)
     key = _pkg.compute_dedupe_key(
         self.pipeline_id, self.slice_id, self.phase, role, action, identity

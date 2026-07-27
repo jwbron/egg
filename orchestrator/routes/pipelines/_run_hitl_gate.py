@@ -10,6 +10,84 @@ from __future__ import annotations
 import routes.pipelines as _pkg  # noqa: E402,F401
 
 
+def _gate_wait_cancelled(store, pipeline_id: str) -> bool:
+    """True when a gate's ``wait_for_decision`` was unblocked by an operator cancel (#3633).
+
+    ``wait_for_decision`` returns on two very different events: a human
+    resolved the decision, or a cancel route called ``cancel_decision`` on it —
+    which the pipeline cancel does deliberately, under the comment "cancel any
+    pending decisions so ``wait_for_decision()`` unblocks"
+    (``_routes_crud.py``). Downstream the two were indistinguishable: a
+    cancelled decision carries no ``resolution``, and the empty string is a
+    member of ``_APPROVE_KEYWORDS``, so the gate read the operator's cancel as
+    an approval, took the "Approved — resume and advance" branch, wrote
+    ``RUNNING`` over the persisted ``CANCELLED``, and let the driver advance
+    into the next phase and mint a fresh cohort.
+
+    That is the #3633 symptom reached through the one family of paths the
+    persisted-status layers cannot see: every gate re-reads a status the gate
+    block itself has already overwritten with ``AWAITING_HUMAN`` /
+    ``RUNNING``, so the loop-head check alone never fires. Each blocking wait
+    in the gate therefore has to ask this question on its own.
+
+    **Why the returned decision's own status is deliberately not consulted.**
+    It reads like the sharper signal, and an earlier revision keyed on it, but
+    it over-fires in two ways that a persisted-status check does not:
+
+    - ``routes/decisions/_lifecycle.py`` exposes a standalone endpoint that
+      cancels *one* decision without touching the pipeline. Treating that as a
+      pipeline cancel makes the driver exit and strands a live pipeline at
+      ``AWAITING_HUMAN`` with no waiter.
+    - the PATCH route sweeps pending decisions on ``FAILED`` too, so a
+      ``container_monitor`` false-positive ``FAILED`` — the case #1273
+      deliberately carves out of ``_pipeline_cancelled`` — would bail here
+      anyway, bypassing that carve-out.
+
+    Not bailing on ``FAILED`` is not the same as ignoring it, and the cost is
+    worth stating plainly: a ``FAILED`` PATCH sweeps the gate's decision, the
+    wait returns a decision with no ``resolution``, and the empty string is in
+    ``_APPROVE_KEYWORDS`` — so the gate reads it as an approval and advances
+    the phase. That is the lesser of the two evils (a false-positive
+    ``FAILED`` recovers to RUNNING under #1273, and stopping the driver on one
+    would strand a live pipeline), and no writer PATCHing ``status=FAILED``
+    through that route is known today. If one ever appears, the fix belongs in
+    the resolution parsing — an unset ``resolution`` on a swept decision is not
+    an approval — not in a ``FAILED`` bail here.
+
+    Both *real* cancel paths (the PATCH route in ``_routes_crud.py`` and
+    ``_cancel_pipeline_in_process`` in ``routes/decisions/_handlers.py``)
+    persist ``CANCELLED`` **before** sweeping the queue, so by the time a
+    *swept* wait returns the status this reads is already authoritative. Keep
+    that ordering if either route is ever restructured — it is what makes the
+    persisted status sufficient here.
+
+    That qualifier is load-bearing: the sweep is a one-time snapshot of the
+    pending queue, so it only reaches decisions that already existed when the
+    cancel ran. A wait that returns for any *other* reason reads whatever the
+    store holds — including, before the in-lock park checks landed, the gate's
+    own ``AWAITING_HUMAN``. This function is therefore the *last* of three
+    checks each gate needs, not the only one: the other two are the pre-queue
+    check (so a post-sweep decision is never minted, since nothing would ever
+    unblock its wait) and the in-lock park check
+    (:func:`_park_at_gate_unless_cancelled`, so the park write cannot clobber
+    the cancel this one is trying to read). See ``_pipeline_cancelled``.
+
+    **The phase box is deliberately left at ``AWAITING_HUMAN``.** When this
+    returns True the park write has already landed, and every caller breaks
+    without restoring the phase execution's status. That is a choice, not an
+    oversight: a second write to a pipeline the operator has already stopped
+    buys nothing, and leaving the box records *where* the run stopped — parked
+    at this gate — which is what an operator reading a cancelled pipeline's
+    phase timeline wants. All gates behave the same way (the gap, attestation,
+    and divergence-reconcile gates included), so a cancelled pipeline renders
+    consistently.
+
+    Delegates to ``_pipeline_cancelled``, inheriting its FAILED carve-out
+    (#1273) and its best-effort store-hiccup tolerance.
+    """
+    return _pkg._pipeline_cancelled(store, pipeline_id)
+
+
 def _run_hitl_gate_converge(
     pipeline,
     *,
@@ -132,6 +210,20 @@ def _run_hitl_gate_converge(
 
         if _ledger_missing:
             dq = _pkg.get_decision_queue(pipeline_id, repo_path)
+            # Never mint a decision for a cancelled run. The cancel route
+            # sweeps the pending queue *once*; a decision created after that
+            # sweep has nobody to cancel it, and ``wait_for_decision`` is an
+            # unbounded poll — the driver thread would block for the process
+            # lifetime, skipping the ``finally`` that cleans up containers and
+            # preserves worktrees (#3633 review round 3).
+            if _pkg._pipeline_cancelled(store, pipeline_id):
+                _pkg.logger.info(
+                    "Pipeline cancelled before the decision-ledger backstop "
+                    "was queued — exiting the gate without advancing (#3633)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                )
+                return pipeline, "break"
             _backstop = dq.queue_decision(
                 question=(
                     f"The {current_phase.value} phase reached its gate "
@@ -149,12 +241,21 @@ def _run_hitl_gate_converge(
                 decision_type="choice",
                 phase=current_phase,
             )
-            with _pkg.get_pipeline_state_lock(pipeline_id):
-                pipeline = store.load_pipeline(pipeline_id)
-                pipeline.status = _pkg.PipelineStatus.AWAITING_HUMAN
-                phase_execution = pipeline.get_phase_execution(current_phase)
-                phase_execution.status = _pkg.PipelineStatus.AWAITING_HUMAN
-                store.save_pipeline(pipeline)
+            # Park under the state lock, re-reading the status from inside it:
+            # the cancel route persists CANCELLED under the same lock, so an
+            # unconditional write here would silently lose it and the
+            # post-wait check below would read back our own AWAITING_HUMAN.
+            pipeline, _park_cancelled = _pkg._park_at_gate_unless_cancelled(
+                store, pipeline_id, current_phase
+            )
+            if _park_cancelled:
+                _pkg.logger.info(
+                    "Pipeline cancelled before parking at the decision-ledger "
+                    "backstop — exiting the gate without advancing (#3633)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                )
+                return pipeline, "break"
             _pkg.report_pipeline_status(
                 pipeline,
                 event_type="decision.created",
@@ -166,6 +267,14 @@ def _run_hitl_gate_converge(
             _pkg._emit_pipeline_event(pipeline, "decision.created")
 
             _backstop_resolved = dq.wait_for_decision(_backstop.id)
+            if _pkg._gate_wait_cancelled(store, pipeline_id):
+                _pkg.logger.info(
+                    "Pipeline cancelled while awaiting the decision-ledger "
+                    "backstop — exiting the gate without advancing (#3633)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                )
+                return pipeline, "break"
             _backstop_resolution = str(
                 getattr(_backstop_resolved, "resolution", None) or ""
             ).strip()
@@ -250,6 +359,26 @@ def _run_hitl_gate_converge(
             )
             if _rerun_requested:
                 return pipeline, "continue"  # Re-enter outer loop → re-run phase
+            # The attestation gate blocks in its own ``wait_for_decision``
+            # and, on any non-RESOLVED terminal status, deliberately "fails
+            # open to the phase gate" — a safe posture when a cancelled
+            # attestation only meant one more operator prompt. It is not safe
+            # once the cancel is the operator stopping the run: falling
+            # through writes ``AWAITING_HUMAN`` over the persisted
+            # ``CANCELLED`` and then queues a *fresh* phase_gate decision,
+            # minted after the cancel route already swept the queue, so
+            # nothing will ever cancel it and the wait below never returns.
+            # That leaks the driver thread for the process lifetime and skips
+            # the ``finally`` entirely — no cleanup, no worktree preservation
+            # (#3633 review).
+            if _pkg._gate_wait_cancelled(store, pipeline_id):
+                _pkg.logger.info(
+                    "Pipeline cancelled while awaiting the explicit-none "
+                    "attestation — exiting the gate without advancing (#3633)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                )
+                return pipeline, "break"
 
         # Check for an existing pending phase_gate decision for this
         # phase.  A prior agent-exit event may
@@ -262,14 +391,54 @@ def _run_hitl_gate_converge(
             for d in pipeline.decisions
         )
 
-        # Bound on *both* arms of the branch below: the "no specifics"
-        # follow-up block further down reads them, and it is reachable
-        # from the reuse arm too (an orchestrator restart revives the
-        # driver against a pending gate — the #1152 case). Assigning
-        # them only in the ``else`` arm raised UnboundLocalError there,
-        # killing the driver mid-gate with the decision already resolved.
+        # Read the draft up front, before the reuse-vs-create branch below.
+        # Both ``draft_content`` and ``phase_label`` are read unconditionally
+        # further down — the follow-up decision in the "bare request changes"
+        # path uses them for its question and context — but they used to be
+        # bound only inside the ``else:`` arm. Resuming onto an existing
+        # pending gate (an orchestrator restart or a driver respawn while
+        # parked at a refine/plan gate) and then answering with a bare
+        # "request changes" therefore raised ``UnboundLocalError`` before the
+        # follow-up could be queued (#3633 review). Binding both here costs
+        # one draft read on the reuse path and makes the follow-up reachable
+        # from either branch.
         phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
-        draft_content: str | None = None
+        draft_content = _pkg._read_phase_draft(
+            worktree_repo_path,
+            current_phase.value,
+            issue_number=pipeline.issue_number,
+            pipeline_id=pipeline_id,
+            branch=pipeline.branch,
+        )
+        # Warn if draft is missing — the agent may not have written
+        # it to the expected path.  See #1016.  The warning stays scoped to
+        # the create arm, which is the arm that renders the draft into a new
+        # gate comment: the reuse arm never read the draft before the hoist
+        # above, so warning there would be new operator-facing noise about a
+        # draft nothing is about to show (#3633 review round 2). The
+        # placeholder is still bound on both arms — the follow-up prompt uses
+        # it as decision context regardless of which arm queued the gate.
+        if draft_content is None:
+            if existing_pending_gate:
+                _pkg.logger.debug(
+                    "HITL gate: draft not found on work branch (reusing an "
+                    "existing pending gate; not rendering a draft)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                    worktree_path=str(worktree_repo_path),
+                )
+            else:
+                _pkg.logger.warning(
+                    "HITL gate: draft not found on work branch",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                    worktree_path=str(worktree_repo_path),
+                )
+            draft_content = (
+                f"**Warning**: No {phase_label} draft was found on the "
+                f"work branch. The agent may not have written the output "
+                f"to the expected path."
+            )
 
         if existing_pending_gate:
             _pkg.logger.info(
@@ -291,29 +460,6 @@ def _run_hitl_gate_converge(
             # rather than re-reading the draft off the worktree.
             draft_content = decision.context
         else:
-            draft_content = _pkg._read_phase_draft(
-                worktree_repo_path,
-                current_phase.value,
-                issue_number=pipeline.issue_number,
-                pipeline_id=pipeline_id,
-                branch=pipeline.branch,
-            )
-
-            # Warn if draft is missing — the agent may not have written
-            # it to the expected path.  See #1016.
-            if draft_content is None:
-                _pkg.logger.warning(
-                    "HITL gate: draft not found on work branch",
-                    pipeline_id=pipeline_id,
-                    phase=current_phase.value,
-                    worktree_path=str(worktree_repo_path),
-                )
-                draft_content = (
-                    f"**Warning**: No {phase_label} draft was found on the "
-                    f"work branch. The agent may not have written the output "
-                    f"to the expected path."
-                )
-
             question = (
                 f"The {current_phase.value} phase has completed. "
                 f"Please review the {phase_label} and approve to continue, "
@@ -383,6 +529,22 @@ def _run_hitl_gate_converge(
                 _content_changed = gate_context != _prev_gate.context
 
             dq = _pkg.get_decision_queue(pipeline_id, repo_path)
+            # Everything above this line — the phase-draft reads, the
+            # human-companion read, the previous-gate scan — is seconds of IO
+            # the cancel route can land in. Minting the gate for a cancelled
+            # run leaves an orphan decision the one-time pending sweep already
+            # passed, so nothing will ever cancel it and the unbounded
+            # ``wait_for_decision`` below never returns: the driver thread
+            # leaks for the process lifetime and ``_run_pipeline``'s
+            # ``finally`` never runs (#3633 review round 3).
+            if _pkg._pipeline_cancelled(store, pipeline_id):
+                _pkg.logger.info(
+                    "Pipeline cancelled before the phase gate was queued — "
+                    "exiting the gate without advancing (#3633)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                )
+                return pipeline, "break"
             decision = dq.queue_decision(
                 question=question,
                 context=gate_context,
@@ -393,15 +555,24 @@ def _run_hitl_gate_converge(
             )
 
         # Reload pipeline to pick up the decision persisted by queue_decision(),
-        # otherwise the stale local object overwrites it with an empty decisions list.
-        with _pkg.get_pipeline_state_lock(pipeline_id):
-            pipeline = store.load_pipeline(pipeline_id)
-            pipeline.status = _pkg.PipelineStatus.AWAITING_HUMAN
-            # Also mark the phase as awaiting human so the DAG visualization
-            # shows the HITL gate on the correct phase box.
-            phase_execution = pipeline.get_phase_execution(current_phase)
-            phase_execution.status = _pkg.PipelineStatus.AWAITING_HUMAN
-            store.save_pipeline(pipeline)
+        # otherwise the stale local object overwrites it with an empty decisions
+        # list — and park at AWAITING_HUMAN, but only if the operator has not
+        # cancelled in the meantime. The check lives inside the same state lock
+        # as the write (see ``_park_at_gate_unless_cancelled``): this write is
+        # on the reuse arm as well as the create arm, and an unconditional one
+        # is what let a cancel arriving before the gate be read back as the
+        # gate's own AWAITING_HUMAN and then advanced (#3633 review round 3).
+        pipeline, _park_cancelled = _pkg._park_at_gate_unless_cancelled(
+            store, pipeline_id, current_phase
+        )
+        if _park_cancelled:
+            _pkg.logger.info(
+                "Pipeline cancelled before parking at the phase gate — "
+                "exiting the gate without advancing (#3633)",
+                pipeline_id=pipeline_id,
+                phase=current_phase.value,
+            )
+            return pipeline, "break"
 
         # Report HITL gate to collaborator
         _pkg.report_pipeline_status(
@@ -415,6 +586,26 @@ def _run_hitl_gate_converge(
 
         # Check resolution — did the human approve or request changes?
         resolved_decision = dq.get_decision(decision.id)
+
+        # ...or did neither happen, because the operator cancelled the
+        # pipeline and the route cancelled this decision to unblock the wait
+        # above? Bail before any of the resolution parsing below: an unset
+        # resolution reads as an approval (``"" in _APPROVE_KEYWORDS``), and
+        # the approve branch rewrites the operator's CANCELLED to RUNNING and
+        # advances the phase — the #3633 spawn, through the one path the
+        # persisted-status layers cannot see. "break" leaves the driver loop
+        # the same way its own CANCELLED check at the loop head does, so the
+        # ``finally`` observes CANCELLED and preserves the worktrees
+        # ``restart_phase`` resumes from (#1725).
+        if _pkg._gate_wait_cancelled(store, pipeline_id):
+            _pkg.logger.info(
+                "Pipeline cancelled while awaiting the phase gate — "
+                "exiting the gate without advancing (#3633)",
+                pipeline_id=pipeline_id,
+                phase=current_phase.value,
+            )
+            return pipeline, "break"
+
         resolution = (resolved_decision.resolution or "").strip()
 
         # JSON-first resolution parsing: try structured payload before
@@ -532,6 +723,20 @@ def _run_hitl_gate_converge(
                 )
             except _pkg.json.JSONDecodeError, TypeError, AttributeError:
                 display_resolution = resolution
+            # Same one-time-sweep hazard as the gate above: a cancel landing
+            # between the gate's resolution and this follow-up would mint a
+            # decision nothing can cancel, and the wait below would never
+            # return (#3633 review round 3). This site never parks at
+            # AWAITING_HUMAN — the gate's park is still in force — so the
+            # pre-queue check is the only one it needs.
+            if _pkg._pipeline_cancelled(store, pipeline_id):
+                _pkg.logger.info(
+                    "Pipeline cancelled before the gate follow-up was queued "
+                    "— exiting the gate without advancing (#3633)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                )
+                return pipeline, "break"
             followup = dq.queue_decision(
                 question=(
                     f'You selected "{display_resolution}" but didn\'t provide specific feedback. '
@@ -546,6 +751,14 @@ def _run_hitl_gate_converge(
             followup_decision_id = followup.id
             dq.wait_for_decision(followup.id)
             resolved_followup = dq.get_decision(followup.id)
+            if _pkg._gate_wait_cancelled(store, pipeline_id):
+                _pkg.logger.info(
+                    "Pipeline cancelled while awaiting gate follow-up "
+                    "specifics — exiting the gate without advancing (#3633)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                )
+                return pipeline, "break"
             followup_resolution = (resolved_followup.resolution or "").strip()
 
             # Parse follow-up resolution (also JSON-first)
@@ -686,6 +899,7 @@ def _run_hitl_gate_converge(
                 pipeline_id,
                 _pkg._pipeline_identifier(pipeline.issue_number, pipeline_id),
                 current_phase,
+                cancelled=lambda: _pkg._gate_wait_cancelled(store, pipeline_id),
             )
         except Exception as bridge_err:
             _pkg.logger.warning(
@@ -694,6 +908,23 @@ def _run_hitl_gate_converge(
                 phase=current_phase.value,
                 error=str(bridge_err),
             )
+
+        # The bridge is the *longest* human-latency window in the gate — one
+        # blocking wait per contract question, answered sequentially — and a
+        # cancel landing in it unblocks every one of them with no
+        # ``resolution``. The bridge only counts RESOLVED answers, so
+        # ``_decisions_resolved_this_round`` stays 0, the converge branch
+        # below is skipped, and control falls straight through to "Approved —
+        # resume and advance", which writes RUNNING over the operator's
+        # CANCELLED and advances the phase: #3633 verbatim (#3633 review).
+        if _pkg._gate_wait_cancelled(store, pipeline_id):
+            _pkg.logger.info(
+                "Pipeline cancelled while bridging contract decisions — "
+                "exiting the gate without advancing (#3633)",
+                pipeline_id=pipeline_id,
+                phase=current_phase.value,
+            )
+            return pipeline, "break"
 
         # Converge-before-advance (#3392): if the operator just
         # resolved one or more decisions, re-run the phase so the

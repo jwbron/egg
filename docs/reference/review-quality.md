@@ -16,33 +16,60 @@ rather than a bespoke one.
 ## Staged rollout convention (`off → log → on`)
 
 Every behavior-shifting piece below ships behind the established staged-flag
-convention (the same shape as `orchestrator/slice_green_gate.py`):
+convention — for which `orchestrator/slice_green_gate.py` was the original
+reference implementation, though it has since diverged (see the note below):
 
 - **`off`** (default) — inert. Behavior is byte-identical to the pre-#3523 pipeline.
-  Unknown / mistyped flag values resolve to `off` (fail-safe): an operator typo
-  must never silently activate a behavior shift.
+  Unknown / mistyped flag values resolve to `off` (fail-safe), silently and with no
+  warning: an operator typo must never silently activate a behavior shift.
 - **`log`** — compute the would-be behavior and record it (to logs / existing BRC
   artifacts), but do **not** apply it. This is the measurement/observation stage.
-- **`on`** — apply the behavior.
+  Also accepted: `log-only`, `log_only`.
+- **`on`** — apply the behavior. Also accepted: `1`, `true`, `yes`.
 
-The flags are read in code, not in prompts, so the gate is deterministic. The two
-runtime flags governing this rollout are `EGG_RISK_ROUTER` (§4) and
-`EGG_REVIEW_EVIDENCE_PREFIX` (§5); the per-finding tool-call cap has its own
-`…_MODE` flag (§2).
+Values are lowercased and stripped before matching, and all three flags share the
+same accepted-value sets — spelled `_ENABLED_VALUES` / `_LOG_ONLY_VALUES` in
+[`orchestrator/review_findings_verdict.py`](../../orchestrator/review_findings_verdict.py)
+and `evidence_gatherer.py`, and under router-prefixed names
+(`_RISK_ROUTER_ENABLED_VALUES` / `_RISK_ROUTER_LOG_VALUES`) in `review_graph.py`.
+The value sets are identical; only the constant names differ. Anything else is an
+unknown value and lands on `off`.
+
+**Note — the green gate diverged.** `orchestrator/slice_green_gate.py` now defaults
+to `on`, and degrades an unknown value to `on` *with a logged warning*, since
+over-verifying is that gate's safe direction. The flags below keep the original
+shape: off by default, and an unknown value resolves to `off` silently, since
+under-reviewing is never safe for them.
+
+The flags are read in code, not in prompts, so the gate is deterministic. The
+**staged** flags governing this rollout are `EGG_REVIEW_FINDINGS_MODE` (§1 — it also
+governs the per-finding tool-call cap, §2), `EGG_RISK_ROUTER` (§4), and
+`EGG_REVIEW_EVIDENCE_PREFIX` (§5). Two further operator-facing env vars are *not*
+staged, because each carries a value rather than a mode: `EGG_REVIEW_RISK_CONFIG`,
+a path overriding the risk-router config location (§4), and
+`EGG_REVIEW_FINDING_TOOL_CALL_CAP`, the integer per-finding tool-call cap (§2) —
+which still only reaches the reviewer when `EGG_REVIEW_FINDINGS_MODE` is `log` or
+`on`.
 
 ## 1. Structured findings and the server-side computed verdict
 
-A reviewer no longer emits a prose-only NACK. It emits a **versioned finding
-schema**, and orchestrator-side code computes the edge verdict from the findings.
-Models own judgment (what to flag, severity, confidence, prose); code owns
+The target shape: a reviewer stops emitting a prose-only NACK and instead emits a
+**versioned finding schema**, from which orchestrator-side code computes the edge
+verdict. Models own judgment (what to flag, severity, confidence, prose); code owns
 mechanics (dedup, verdict, rendering).
+
+What has shipped is the contract and the pure verdict logic, not the wiring —
+reviewers still emit a prose `--reason` today. See **Not yet wired**, below, for
+exactly which pieces have no production caller.
 
 ### The finding schema
 
 Defined in [`shared/egg_contracts/review_findings.py`](../../shared/egg_contracts/review_findings.py),
-next to the other verdict contracts and validated at the message boundary the same
-way `orchestrator/attestation_schemas.py` validates attestations. The wire schema
-is versioned (`FINDINGS_SCHEMA_VERSION = 1`) and evolves additively.
+next to the other verdict contracts. It is *designed* to be validated at the message
+boundary the same way `orchestrator/attestation_schemas.py` validates attestations —
+but no such boundary exists yet: `validate_findings_payload()` is exported and
+unit-tested, with no production caller. The wire schema is versioned
+(`FINDINGS_SCHEMA_VERSION = 1`) and evolves additively.
 
 A `Finding` carries:
 
@@ -93,6 +120,26 @@ The three outcomes:
 the computed verdict through the same `record_ack` / `record_nack` primitives the
 legacy path uses, so advisory obligations flow into the existing conditional-ACK
 machinery unchanged.
+
+The whole computed-verdict path rides one staged flag, `EGG_REVIEW_FINDINGS_MODE`
+(`off` / `log` / `on`), resolved by `review_findings_mode()` in
+[`orchestrator/review_findings_verdict.py`](../../orchestrator/review_findings_verdict.py):
+`off` (the default, and where an unknown value lands) leaves the legacy prose-NACK
+path authoritative; `log` records the computed verdict alongside it without acting
+on it; `on` lets the computed verdict drive the edge. The same flag also governs
+the per-finding tool-call cap in §2.
+
+**Not yet wired.** Those three states are the semantics the wiring slice will honor,
+not observable behavior today. As of this snapshot nothing in production computes the
+verdict: `compute_verdict()`, `ApprovalMatrix.record_findings_verdict()`,
+`render_findings_nack_reason()`, and `validate_findings_payload()` have no callers
+outside tests, and reviewers still emit a prose `--reason`
+([`orchestrator/routes/pipelines/_prompt_review.py`](../../orchestrator/routes/pipelines/_prompt_review.py)
+— "Your `--reason` IS your review — include all findings there"). The module says so
+itself: `review_findings_verdict.py`'s docstring notes that "the caller (a later
+wiring slice) decides." `EGG_REVIEW_FINDINGS_MODE`'s only current production effect
+is the §2 cap export — which, per §2, nothing reads either. Setting it to `on` today
+therefore changes no consensus edge, and logs nothing to say so.
 
 ### Mechanism dedup and convergence-as-signal
 
@@ -164,15 +211,31 @@ the checkout, never the network) to confirm or refute a claim — e.g. actually
 running a disputed command, or reading a pinned dependency's real source instead of
 trusting memory.
 
-Their cost is bounded by a **per-finding tool-call cap**, enforced in the wrapper
-(not the prompt) in
+Their cost is bounded by a **per-finding tool-call cap** owned by the wrapper (not
+the prompt) in
 [`orchestrator/consensus_wrapper.py`](../../orchestrator/consensus_wrapper.py)
-(`review_finding_tool_call_cap()`, `evaluate_finding_tool_call_cap()`). It is
-governed by two env vars:
+(`review_finding_tool_call_cap()`, `evaluate_finding_tool_call_cap()`). The cap has
+**no staged flag of its own** — it rides `EGG_REVIEW_FINDINGS_MODE` (§1). In `log` /
+`on` mode the wrapper exports two vars into the reviewer's environment, on the
+`ack` / `nack` arms only (the `tester` role and the producer `propose` arm are
+exempt):
 
-- `EGG_REVIEW_FINDING_TOOL_CALL_CAP` — the integer cap.
-- `EGG_REVIEW_FINDING_TOOL_CALL_CAP_MODE` — the staged flag (`off` / `log` / `on`);
-  `log` records would-have-been-capped outcomes without enforcing.
+- `EGG_REVIEW_FINDING_TOOL_CALL_CAP` — the integer cap. Defaults to 8; an unset,
+  non-integer, or non-positive value resolves to that default.
+- `EGG_REVIEW_FINDING_TOOL_CALL_CAP_MODE` — a marker the wrapper **exports**, not an
+  operator knob, telling the reviewer runtime whether the cap is advisory (`log`) or
+  enforced (`on`).
+
+In `off` mode the export block is omitted wholesale, so the spawn command stays
+byte-identical to the legacy path. Setting `EGG_REVIEW_FINDING_TOOL_CALL_CAP_MODE`
+in the orchestrator environment therefore does nothing on its own: with
+`EGG_REVIEW_FINDINGS_MODE` unset, neither var reaches the reviewer.
+
+**Not yet enforced.** As of this snapshot the cap is resolved and exported, but
+nothing consumes it: `evaluate_finding_tool_call_cap()` has no production caller,
+and no code outside `consensus_wrapper.py` and its tests reads either exported var.
+The enforcement point — a sandbox-side tool-call counter honoring the exported cap —
+is not yet wired.
 
 ## 3. Method-angle procedures (the four finder angles)
 
@@ -204,10 +267,12 @@ the four method angles are specific to the code-review and holistic lenses.
 
 ## 4. The deterministic risk router
 
-The review graph was static — every slice got all critical lenses at full depth.
-A deterministic router (plain code, never a model) now sits in front of it and, per
-slice, gates lenses, sets a risk tier that scales reasoning effort, and optionally
-scales stance.
+The review graph is static — every slice gets all critical lenses at full depth.
+A deterministic router (plain code, never a model) is designed to sit in front of it
+and, per slice, gate lenses, set a risk tier that scales reasoning effort, and
+optionally scale stance. The router core and its three wiring seams have shipped, but
+nothing threads a changed-file set into them yet, so none of it is live — see **Not
+yet wired** below. This section describes the semantics the wiring slice will honor.
 
 ### The router
 
@@ -219,7 +284,21 @@ is pure: the same changed-file set and config always yield the same
 ### The per-repo config: `.egg/review-risk.yaml`
 
 [`.egg/review-risk.yaml`](../../.egg/review-risk.yaml) is the policy input; the
-router reads it via `load_risk_config()`. Format:
+router reads it via `load_risk_config()`. `default_config_path()` resolves the
+location: the `EGG_REVIEW_RISK_CONFIG` env var wins if set to a *non-empty* value (an
+absolute or cwd-relative path to the YAML file itself, not a directory). The check is
+a bare truthiness test, so the empty string falls through to the default rather than
+erroring — but a whitespace-only value does *not*: it becomes `Path(" ")`, fails to
+load, and lands on the fail-open path below with only the generic warning. Otherwise
+the path is `.egg/review-risk.yaml` relative to the `repo_root` the caller threads
+through — or, when the caller passes none, relative to the **process CWD**. All three
+router seams default their repo-root parameter (`repo_root`, or `repo_path` on the
+stance seam) to `None`, so which applies is the caller's choice.
+Mirrors the `.egg/phase-permissions.json` convention. The override is a plain path,
+not a staged mode flag; a config that fails to load — including one the CWD fallback
+failed to find — fails open (see below).
+
+Format:
 
 ```yaml
 schema_version: 1          # currently 1; evolve additively
@@ -278,6 +357,30 @@ it computes the would-be gated graph / tier / effort and logs it while returning
 unchanged full graph. If `review-risk.yaml` fails to load, `resolve_risk_decision()`
 **fails open** to the FULL review graph + legacy effort with a warning — a broken
 config never silently reduces review.
+
+### Not yet wired
+
+No production caller threads a slice's changed-file set into any of the router's three
+seams, so `resolve_risk_decision()` has no production call path and
+`default_config_path()` is never reached outside tests:
+
+- **Lens gating** — `get_review_graph_for_phase()` only gates when a caller passes
+  `changed_files` and the phase is `implement`
+  ([`orchestrator/review_graph.py`](../../orchestrator/review_graph.py)); none of its
+  production call sites (`concurrent_executor.py`, `kubernetes_monitor.py`,
+  `routes/consensus.py`, `kubernetes_spawner/_env.py`, and the rest) pass it.
+- **Effort** — `resolve_agent_model()` has two production callers,
+  `concurrent_executor.py` and `resolve_overseer_model()` in the same module; neither
+  passes `changed_files`, so `resolve_review_effort()` returns the base effort verbatim
+  before the router is consulted
+  ([`orchestrator/agent_model_resolution.py`](../../orchestrator/agent_model_resolution.py)).
+- **Stance** — `_get_reviewer_scope_preamble()` is called from `_prompt_review.py` with
+  neither `changed_files` nor `repo_path`, so `_review_stance_framing()` short-circuits
+  to `""` ([`orchestrator/routes/pipelines/_criteria.py`](../../orchestrator/routes/pipelines/_criteria.py)).
+
+With `EGG_RISK_ROUTER=on` the graph, effort, and stance are therefore all unchanged
+today, and **nothing logs to say so** — not even the fail-open warning above, because
+the config load is never attempted.
 
 ## 5. The shared-evidence prompt prefix (the cost bet)
 
@@ -342,6 +445,12 @@ rules of the ladder first (prompt-only, zero-regret); then the finding schema +
 computed verdict + dedup/convergence; then the risk router (config + gating + effort,
 `log` first); then the evidence prefix last, behind its own flag and cost gate.
 
+**"Shipped" here means the code slice landed, not that it is live.** Of those pieces,
+only the method angles and ladder rules (prompt-only) and the evidence prefix are
+wired end to end today; the computed-verdict path (§1), the per-finding tool-call cap
+(§2), and all three risk-router seams (§4) each carry a not-yet-wired caveat in their
+own section. Setting their flags changes no observable behavior yet.
+
 Out of scope by operator directive: an eval/benchmark harness (this is a
 single-operator deployment; the operator judges quality directly) and
 human-feedback learning loops (no human PR review exists in this deployment).
@@ -370,7 +479,7 @@ human-feedback learning loops (no human PR review exists in this deployment).
   cost logging in [`config/litellm/cost_callback.py`](../../config/litellm/cost_callback.py).
 - Reference design: Claude Code's `/review` / `/code-review` skill (see issue #3523
   comments for the verbatim prompt bodies).
-- Related: [Conditional ACK](conditional-ack.md) (advisory-only findings route
-  through the conditional-ACK obligation path),
+- Related: [Conditional ACK](conditional-ack.md) (the obligation path advisory-only
+  findings are designed to route through, once §1 is wired),
   [Concurrent Execution](../guides/concurrent-execution.md),
   [Reviewer Sync](../../shared/prompts/REVIEWER-SYNC.md).

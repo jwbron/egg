@@ -484,6 +484,162 @@ class TestFailurePathPreservesWorktrees:
         # delete_worktrees should NOT be called since pipeline is FAILED
         mock_gateway.delete_worktrees.assert_not_called()
 
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_worktree_cleanup_skipped_on_cancellation(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+    ):
+        """CANCELLED joins FAILED on the ``skip_cleanup`` arm (#3633 review).
+
+        ``restart_phase`` allowlists CANCELLED precisely so a ``cancel_task``
+        run can be resumed without a full resubmission (#1725), and the PATCH
+        cancel route already passes ``preserve_worktrees=(status ==
+        "cancelled")``. Before this, the driver's own ``finally`` contradicted
+        both by deleting the worktrees the operator was told they could resume
+        from — and the #3633 layers make that teardown land seconds after the
+        cancel rather than at the next consensus timeout, so the two policies
+        have to agree. The whole justification lives in a comment, which makes
+        a "tidy-up" back to FAILED-only a silent regression; pin it.
+        """
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        pipeline.status = PipelineStatus.CANCELLED
+        mock_store, mock_gateway = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+        mock_spawner = mock_get_spawner.return_value
+        mock_spawner.cleanup_pipeline.return_value = 0
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+            # The ``finally`` reaches the spawner through ``_get_spawner``
+            # (runtime-dependent), not the ``get_container_spawner`` seam the
+            # rest of the harness patches.
+            patch("routes.pipelines._get_spawner", return_value=mock_spawner),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        assert pipeline.status == PipelineStatus.CANCELLED
+        mock_gateway.delete_worktrees.assert_not_called()
+
+        # The safety-net container sweep must still run — only the worktrees
+        # are preserved, and it has to be told so explicitly.
+        assert mock_spawner.cleanup_pipeline.call_args is not None, (
+            "safety-net container cleanup must still run for a cancelled run"
+        )
+        assert mock_spawner.cleanup_pipeline.call_args.kwargs["preserve_worktrees"] is True
+
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_terminal_phase_does_not_complete_a_cancelled_pipeline(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+    ):
+        """The terminal-phase branch must not write COMPLETE over a cancel.
+
+        It is the last unguarded status write in the driver loop, and every
+        park-and-resume block in a terminal phase lands on it: the block bails
+        without restoring RUNNING (leaving CANCELLED persisted), the driver
+        reads "no next phase" as success, and the operator's cancel becomes
+        COMPLETE plus a "Pipeline completed successfully" broadcast — after
+        which the ``finally`` no longer sees CANCELLED, so ``skip_cleanup``
+        stays False and the worktrees ``restart_phase`` resumes from are
+        deleted (#3633 review round 2).
+
+        The bail is modelled at ``_run_implement_advance`` — the gap gate's
+        caller, and today's only such block — but the guard is deliberately on
+        the branch rather than the block, so a future one cannot reintroduce
+        this by forgetting to propagate.
+        """
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        pipeline.current_phase = PipelinePhase.IMPLEMENT
+        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        execution.status = PipelineStatus.RUNNING
+        execution.started_at = datetime.now(UTC)
+
+        mock_store, mock_gateway = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+        mock_spawner = mock_get_spawner.return_value
+        mock_spawner.cleanup_pipeline.return_value = 0
+
+        def _bail_without_propagating(pl, **_kwargs):
+            """A park-and-resume block that skips its RUNNING write and stops
+            there — what the gap gate did before its caller learned to stop
+            the driver."""
+            pipeline.status = PipelineStatus.CANCELLED
+            return pl, None
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "")),
+            patch(
+                "routes.pipelines._run_implement_advance",
+                side_effect=_bail_without_propagating,
+            ),
+            patch("routes.pipelines._get_spawner", return_value=mock_spawner),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        assert pipeline.status == PipelineStatus.CANCELLED, (
+            "the terminal-phase branch overwrote the operator's CANCELLED"
+        )
+        completed = [
+            c
+            for c in mock_emit.call_args_list
+            if len(c.args) >= 2 and c.args[1] == "pipeline.completed"
+        ]
+        assert completed == [], "a cancelled pipeline must not broadcast completion"
+        mock_gateway.delete_worktrees.assert_not_called()
+
 
 class TestWorktreeCreationFailure:
     """Verify pipeline fails when worktree creation returns empty worktrees."""

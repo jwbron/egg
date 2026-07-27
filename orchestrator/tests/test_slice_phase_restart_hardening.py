@@ -1466,6 +1466,163 @@ class TestEscalateLayerCHITLPersistence:
                 "IMPLEMENT, not raise / write None / drop the Decision"
             )
 
+    def _resolve_only_decision(self, repo_root: Path) -> None:
+        contract = load_contract(self.PIPELINE_ID, repo_root)
+        assert len(contract.decisions) == 1
+        contract.decisions[0].resolved = True
+        contract.decisions[0].resolution = "Restart slice from scratch"
+        save_contract(contract, repo_root)
+
+    def test_carry_forward_default_adopts_the_resolved_question(self) -> None:
+        """The #3392 converge-before-advance behaviour, unchanged.
+
+        A refine/plan re-run that re-registers an already-answered
+        question must adopt the resolution rather than re-surface it,
+        or the loop never reaches a fixpoint. That is what the default
+        ``carry_forward=True`` preserves; the gate escalations opt out
+        of it (see the two tests below and the helper's docstring).
+        """
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_layer_c_hitl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root)
+            for _ in range(2):
+                _escalate_layer_c_hitl(
+                    pipeline_id=self.PIPELINE_ID,
+                    slice_id="slice-1",
+                    worktree_repo_path=repo_root,
+                    current_phase=PipelineModelsPhase.IMPLEMENT,
+                    question="same question",
+                )
+                self._resolve_only_decision(repo_root)
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            assert len(reloaded.decisions) == 1, (
+                "carry_forward=True must adopt the resolved decision so the #3392 loop converges"
+            )
+
+    def test_carry_forward_false_re_opens_after_a_resolution(self) -> None:
+        """The gate-escalation posture (PR #3628 review, blocking finding 1).
+
+        A close-path gate red that recurs *after* the operator answered
+        is a discrete physical event, not a re-derivation: the answer
+        had no mechanical effect (nothing dispatches on the gate
+        markers) and the world is still red. Adopting the prior
+        resolution there is suppression, not idempotence — the phase
+        goes FAILED with nothing on ``pending_decisions``.
+        """
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_layer_c_hitl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root)
+            _escalate_layer_c_hitl(
+                pipeline_id=self.PIPELINE_ID,
+                slice_id="slice-1",
+                worktree_repo_path=repo_root,
+                current_phase=PipelineModelsPhase.IMPLEMENT,
+                question="same question",
+                carry_forward=False,
+            )
+            self._resolve_only_decision(repo_root)
+            _escalate_layer_c_hitl(
+                pipeline_id=self.PIPELINE_ID,
+                slice_id="slice-1",
+                worktree_repo_path=repo_root,
+                current_phase=PipelineModelsPhase.IMPLEMENT,
+                question="same question",
+                carry_forward=False,
+            )
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            assert [d.resolved for d in reloaded.decisions] == [True, False], (
+                "carry_forward=False must mint a fresh unresolved decision "
+                "when the identical question recurs after a resolution"
+            )
+
+    def test_carry_forward_false_still_dedupes_the_open_question(self) -> None:
+        """Opting out of carry-forward must not become one-per-retry.
+
+        The open-question half of the #3427 guard is unconditional: an
+        operator who has not answered yet sees exactly one decision no
+        matter how many close retries fire.
+        """
+        from models import PipelinePhase as PipelineModelsPhase
+        from routes.pipelines import _escalate_layer_c_hitl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            self._seed_contract(repo_root)
+            for _ in range(3):
+                _escalate_layer_c_hitl(
+                    pipeline_id=self.PIPELINE_ID,
+                    slice_id="slice-1",
+                    worktree_repo_path=repo_root,
+                    current_phase=PipelineModelsPhase.IMPLEMENT,
+                    question="same question",
+                    carry_forward=False,
+                )
+            reloaded = load_contract(self.PIPELINE_ID, repo_root)
+            assert len(reloaded.decisions) == 1
+
+    def test_every_gate_wrapper_opts_out_of_carry_forward(self) -> None:
+        """Wiring check for *every* gate wrapper, discovered by name.
+
+        Guards against a future wrapper being added without the opt-out
+        (or one of the current two being edited), which would silently
+        restore the suppression the behaviour tests above pin. Listing
+        the two known wrappers explicitly would not do that — a third
+        ``_escalate_*_gate_to_hitl`` would sail past — so this walks the
+        barrel's namespace and drives whatever it finds, building each
+        call's kwargs from the wrapper's own signature.
+        """
+        import inspect
+        from unittest.mock import patch as _patch
+
+        import routes.pipelines as _rp
+        from models import PipelinePhase as PipelineModelsPhase
+
+        wrappers = {
+            name: fn
+            for name, fn in vars(_rp).items()
+            if name.startswith("_escalate_")
+            and name.endswith("_gate_to_hitl")
+            and inspect.isfunction(fn)
+        }
+        # Discovery sanity: a glob that matched nothing would make the
+        # assertion below vacuously true. Subset, not equality, so a
+        # third wrapper is exercised rather than rejected.
+        assert {
+            "_escalate_evidence_gate_to_hitl",
+            "_escalate_green_gate_to_hitl",
+        } <= set(wrappers), f"gate-wrapper discovery found only {sorted(wrappers)}"
+
+        common: dict[str, object] = {
+            "pipeline_id": self.PIPELINE_ID,
+            "slice_id": "slice-1",
+            "worktree_repo_path": Path("/tmp/worktree"),
+            "current_phase": PipelineModelsPhase.IMPLEMENT,
+        }
+        driven = sorted(wrappers)
+        with _patch("routes.pipelines._escalate_layer_c_hitl") as shared:
+            for name in driven:
+                params = inspect.signature(wrappers[name]).parameters
+                kwargs = {k: v for k, v in common.items() if k in params}
+                # Whatever failure-text parameter this wrapper names
+                # (``failure`` / ``failure_headline`` / a future one).
+                kwargs.update(
+                    {
+                        p.name: f"{name} failure text"
+                        for p in params.values()
+                        if p.name not in kwargs and p.default is inspect.Parameter.empty
+                    }
+                )
+                wrappers[name](**kwargs)
+        assert [c.kwargs["carry_forward"] for c in shared.call_args_list] == [False] * len(
+            driven
+        ), f"every gate wrapper must pass carry_forward=False; drove {driven}"
+
     def test_signature_no_longer_accepts_context_prefix(self) -> None:
         """Adversarial probe for the v3 signature surface — the v2
         ``context_prefix`` parameter was dropped (the routing

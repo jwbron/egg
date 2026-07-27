@@ -593,7 +593,8 @@ data:
 > Claude Code prepends (the block's `cch=` hash invalidates the cache key
 > every turn). egg ships a custom **`egg-litellm`** image
 > ([`config/litellm/Dockerfile`](../../config/litellm/Dockerfile)) that
-> bakes in three patches closing those gaps
+> bakes in nine patches closing those gaps and the reasoning-parameter ones
+> below
 > ([`config/litellm/patch_litellm_cache.py`](../../config/litellm/patch_litellm_cache.py));
 > the build fails loudly if a LiteLLM bump moves the patched code. Pinning
 > the OpenRouter provider (`extra_body.provider.order` + `allow_fallbacks:
@@ -607,6 +608,48 @@ data:
 > hand cross-reference of agent completion logs). Each call emits one JSON
 > line to the LiteLLM pod stream, visible via `get_service_logs` / the
 > structured-logging stream.
+
+> **Reasoning depth on OpenRouter routes, and the four env vars that
+> control it.** Two of the baked-in patches decide whether a reasoning
+> parameter reaches the provider, and both are runtime-overridable on
+> [`k8s/base/litellm-deployment.yaml`](../../k8s/base/litellm-deployment.yaml)
+> (where they are present but commented out) without rebuilding the image:
+>
+> - **Patch 7 — live capability lookup.** LiteLLM gates reasoning params on
+>   its bundled model-cost map, which does not carry current OpenRouter
+>   slugs, so a `reasoning_effort` set in `litellm_params` was discarded
+>   before the request body was built — no exception, no log line. The patch
+>   also reads OpenRouter's unauthenticated `GET /api/v1/models`, **unioned**
+>   with the map answer so it can admit a knob the map does not know but
+>   never withhold one it allows. `LITELLM_OPENROUTER_CAPABILITY_FETCH=0`
+>   restores map-only behaviour exactly;
+>   `LITELLM_OPENROUTER_CAPABILITY_TTL` (default `3600` seconds; `0` means
+>   re-fetch on every lookup, a debugging setting) and
+>   `LITELLM_OPENROUTER_CAPABILITY_TIMEOUT` (default `5` seconds, per HTTP
+>   phase) tune it. A fetch that fails is cached for the TTL too, so an
+>   offline cluster costs one attempt per hour rather than one per request,
+>   and the first failure is logged at `warning`.
+> - **Patch 9 — no synthesized reasoning ceiling.** On `/v1/messages` (the
+>   route Claude Code uses) LiteLLM's Anthropic adapter converts each
+>   request's `thinking: {budget_tokens: N}` into a bucketed
+>   `reasoning_effort` for any non-Claude model. That value is not in any
+>   config file — it is manufactured per request — and measurement (#3624)
+>   shows it acts as a **cap below the model's own default**: kimi-k3 means
+>   3130 reasoning tokens with no parameter vs 340 with `high`,
+>   distributions non-overlapping. So the synthesis is off by default and
+>   only an explicitly configured `reasoning_effort` reaches the wire. Set
+>   `LITELLM_ANTHROPIC_THINKING_TO_REASONING_EFFORT=1` to restore stock
+>   behaviour — worth doing only for a model you have measured to reason
+>   *more* when asked explicitly. Only the *derived* value is suppressed: an
+>   adaptive request that names an effort outright
+>   (`output_config: {effort: ...}`) is an instruction rather than a
+>   manufactured ceiling, and still reaches the provider with this off.
+>
+> The same measurement is why the commented-out
+> `extra_body.reasoning.effort: "high"` in
+> [`config/litellm-models.template.yaml`](../../config/litellm-models.template.yaml)
+> carries a "measure before uncommenting" warning: on these models,
+> sending nothing is what buys full depth.
 
 > **Which decoding config did this run under?** Every `cost_callback` line
 > also carries `request_params` — the sampling configuration that actually
@@ -625,9 +668,23 @@ data:
 >   provider's and can change under you with no egg change.
 > - **It is read after `drop_params` has acted**, so it reports what the wire
 >   carried, not what your config asked for. A knob you set in
->   `litellm_params` that does not appear here was silently discarded or
->   relocated into `extra_body` by LiteLLM's parameter mapper — which is the
->   fastest way to catch a tuning change that never took effect.
+>   `litellm_params` that does not appear here was discarded or relocated
+>   into `extra_body` by LiteLLM's parameter mapper. Patch 8
+>   (`drop_params_visibility.py`) also logs a `litellm.drop_params: dropped
+>   ...` warning once per (provider, model, param-set) combo, for as long as
+>   the proxy's bookkeeping set holds that combo, naming the params and — when
+>   they came from this model's `litellm_params` — the `allowed_openai_params`
+>   remedy, so a drop is visible in the log stream rather than only inferable
+>   from `request_params`. Note the asymmetry when you go looking: that warning
+>   is a one-shot per combo, not per request — a proxy discarding different
+>   param sets across several models emits one warning each, but not a second
+>   for the same combo while the bookkeeping set still holds it — so on a pod
+>   that has been serving traffic it has likely already scrolled past (it
+>   re-fires after a proxy restart, and in cycles on a proxy dropping params
+>   across more than 1000 distinct combos, whose bookkeeping set clears on
+>   overflow — an intra-process clear, so an already-warned combo warns
+>   again). By contrast `request_params` is on every `cost_callback` line and
+>   stays the queryable signal.
 > - **A `<…>` value is a degradation marker, not a recorded value.** Every
 >   field is bounded so one pathological param cannot cost you the line —
 >   cost data included — when it fails to serialize. `<N chars omitted>` means

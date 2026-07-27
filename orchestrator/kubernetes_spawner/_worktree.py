@@ -5,9 +5,13 @@ the barrel (``from kubernetes_spawner import ...``), not directly.
 """
 
 import os
+from collections.abc import Callable
+from fnmatch import fnmatchcase
 from pathlib import Path
+from typing import Any, NamedTuple
 
 import kubernetes_spawner as _pkg
+from agent_salvage import _SALVAGE_COMMIT_EMAIL, _SALVAGE_COMMIT_NAME
 from kubernetes_spawner import (
     logger,
 )
@@ -392,12 +396,18 @@ def _clean_reused_worktree(
     policy, silently degrading auto-salvage to record-only — the exact
     silent-loss class this hook exists to prevent.
 
-    Only the committed tip (``HEAD``) is salvaged. The ``git reset
-    --hard`` + ``git clean -fd`` above run *before* orphan detection, so
-    uncommitted tracked edits and untracked files in a killed-mid-event
-    worktree are gone before salvage runs; the recovery ref is therefore
-    a commit snapshot, not a full worktree snapshot. Capturing dirty
-    working-tree state is #2807's domain, deliberately out of scope here.
+    Only the committed tip (``HEAD``) is salvaged, so a dirty tree with
+    no commits used to fall outside every preservation path: the ``git
+    reset --hard`` + ``git clean -fd`` above run *before* orphan
+    detection, and orphan detection then found nothing to save. That is
+    the #3639 loss (110 minutes across 33 modified files, discarded
+    silently on a routine respawn). The gap is closed one step earlier:
+    :func:`_preserve_dirty_tree` commits the dirty tree BEFORE the reset,
+    so the snapshot becomes an ordinary orphan and rides the salvage +
+    record path above. Preservation is best-effort and never blocks the
+    reset; when it cannot run (no ``branch``, or the commit fails) the
+    discard is logged at WARNING with the file count rather than the
+    pre-#3639 silence.
 
     Returns ``True`` on success, ``False`` on any failure (the caller
     falls back to create-with-retry — never allow a half-cleaned
@@ -408,7 +418,13 @@ def _clean_reused_worktree(
     """
     import subprocess as _sp
 
-    def _git(repo_dir: Path, *args: str, timeout: int = 30, check: bool = True):
+    def _git(
+        repo_dir: Path,
+        *args: str,
+        timeout: int = 30,
+        check: bool = True,
+        errors: str | None = None,
+    ):
         return _sp.run(
             [
                 "git",
@@ -418,10 +434,35 @@ def _clean_reused_worktree(
                 "core.hooksPath=/dev/null",
                 "-c",
                 "safe.directory=*",
+                # A worktree that inherits ``commit.gpgsign=true`` from the
+                # clone's config would fail every #3639 snapshot commit (no
+                # signing key in the orchestrator image), losing exactly the
+                # work the snapshot exists to save.
+                "-c",
+                "commit.gpgsign=false",
+                # Pinned, not inherited (#3639 re-review NB-3). Every command
+                # here that does not opt into ``errors="replace"`` runs under
+                # a strict UTF-8 decode, so any git output that echoes a
+                # filename verbatim raises ``UnicodeDecodeError`` from inside
+                # ``run`` the moment a path in this tree is not valid UTF-8.
+                # (The two calls that *do* opt in are the ones git leaves
+                # unquoted regardless of this setting: the ``-z`` staged read,
+                # and ``add``, whose stderr echoes raw paths.) The default
+                # ``core.quotePath=true`` C-quote-encodes those bytes to ASCII
+                # and is what keeps ``status --porcelain`` and ``clean -fd``
+                # decodable; a worktree that inherited ``quotePath=false``
+                # would break them — ``clean -fd`` failing *after* the snapshot
+                # commit but *before* the salvage push loses the commit
+                # entirely. ``-z`` reads are unaffected either way (git never
+                # quotes NUL-terminated output), so this costs nothing and
+                # turns an inherited default into an invariant.
+                "-c",
+                "core.quotePath=true",
                 *args,
             ],
             capture_output=True,
             text=True,
+            errors=errors,
             timeout=timeout,
             check=check,
         )
@@ -442,10 +483,59 @@ def _clean_reused_worktree(
         # BEFORE the discard below erases the evidence: dirt is the
         # killed-mid-event signature that disqualifies the fast-forward
         # keep in the sync step (#3506). Unknown state counts as dirty.
+        # ``state_unknown`` distinguishes "status failed, assume dirty" from
+        # "status reported zero entries": without it the downstream WARNINGs
+        # report ``discarded_dirty_entries=0``, which reads as "nothing was
+        # there" on the one path where we genuinely do not know.
+        state_unknown = False
         try:
-            was_dirty = bool(_git(d, "status", "--porcelain").stdout.strip())
+            dirty_entries = _git(d, "status", "--porcelain").stdout.strip().splitlines()
+            was_dirty = bool(dirty_entries)
         except Exception:
+            dirty_entries = []
             was_dirty = True
+            state_unknown = True
+
+        # #3639: snapshot the dirty tree into a commit BEFORE the reset.
+        # Uncommitted work is otherwise the one class of agent output no
+        # preservation path can reach: ``reset --hard`` erases it and the
+        # orphan detector below then finds nothing to salvage. Committing
+        # here turns it into an ordinary orphan that the existing #3509
+        # salvage + record path pushes to ``egg/recovered/...``. The commit
+        # does NOT change the residue policy: ``was_dirty`` is already
+        # latched above, so the tree still hard-resets to the origin tip
+        # and the successor never inherits a killed-mid-event working set.
+        wip_commit: str | None = None
+        wip_files: int | None = None
+        wip_paths: tuple[str, ...] | None = None
+        wip_partial = False
+        if was_dirty:
+            if branch:
+                snapshot = _preserve_dirty_tree(
+                    _git,
+                    d,
+                    agent_worktree_id=agent_worktree_id,
+                    repo=n,
+                    n_entries=len(dirty_entries),
+                    state_unknown=state_unknown,
+                )
+                if snapshot is not None:
+                    wip_commit, wip_files = snapshot.sha, snapshot.n_files
+                    wip_paths, wip_partial = snapshot.paths, snapshot.partial
+            else:
+                # No branch ⇒ no origin tip to reset to and no salvage
+                # target, so a snapshot commit would just become the
+                # successor's HEAD: un-vetted residue promoted to committed
+                # state, which is exactly what R6 exists to prevent. Discard
+                # as before, but say so.
+                logger.warning(
+                    "Worktree re-attach: discarding uncommitted work "
+                    "(no branch to sync or salvage against)",
+                    agent_worktree_id=agent_worktree_id,
+                    repo=n,
+                    dirty_entries=len(dirty_entries),
+                    dirty_state_unknown=state_unknown,
+                )
 
         # reset --hard
         try:
@@ -579,6 +669,25 @@ def _clean_reused_worktree(
                         discarded_commits=orphans[:20],
                         recovery_ref=recovery_ref,
                         salvage_error=salvage_error,
+                        wip_commit=wip_commit,
+                        # Completeness rides with the sha so "which recovery
+                        # refs are truncated" is one query over this WARNING,
+                        # not a join back to the earlier _preserve_dirty_tree
+                        # line by worktree id. Named ``wip_*`` to match the bus
+                        # record's metadata keys exactly (#3639 re-review
+                        # NB-1): one query shape has to work over both, and a
+                        # log field called ``preserved_files`` next to a
+                        # metadata field called ``wip_files`` guarantees it
+                        # does not.
+                        wip_partial=wip_partial,
+                        wip_files=wip_files,
+                        # ``wip_files`` is ``None`` when the staged-path read
+                        # failed — the exact path this WARNING exists to make
+                        # queryable. A bare ``None`` renders as ``wip_files=``,
+                        # which reads as *zero files preserved* rather than
+                        # *unknown*, so the distinction gets its own boolean
+                        # (the same reason ``dirty_state_unknown`` exists).
+                        wip_files_unknown=(wip_commit is not None and wip_files is None),
                     )
                     if pipeline_id:
                         _record_discarded_tip(
@@ -594,6 +703,10 @@ def _clean_reused_worktree(
                             was_dirty=was_dirty,
                             recovery_ref=recovery_ref,
                             salvage_error=salvage_error,
+                            wip_commit=wip_commit,
+                            wip_files=wip_files,
+                            wip_paths=wip_paths,
+                            wip_partial=wip_partial,
                         )
                 try:
                     _git(d, "reset", "--hard", f"origin/{branch}")
@@ -619,6 +732,409 @@ def _clean_reused_worktree(
     return True
 
 
+# Identity for the synthetic commit that captures a re-attached worktree's
+# dirty state. Bound from the #2807 restart-path constants at import time so
+# one ``[salvage]`` grep finds every machine-made working-tree snapshot
+# regardless of which path took it, and so the two identities cannot drift.
+# The module-level ``from`` import binds the real values and is unaffected by
+# the suite's ``patch("kubernetes_spawner.agent_salvage")`` seam — that
+# rebinds the package *attribute*, not what is already bound here.
+
+# Paths whose loss in a discard costs nothing durable: each is rebuilt by the
+# next event and has a durable record elsewhere, so a respawn that trips this
+# path over nothing else is routine and :func:`_record_discarded_tip` may
+# soften its ask. Matching the noise source *by name* rather than by a file
+# count is deliberate: a count threshold scores one rewritten 400-line module
+# identically to one stray memory file, and telling the agent that ref "is as
+# likely to be a leftover state file as work" is the one framing that could
+# talk it out of fetching a real #3639 loss. Anything not on this list —
+# including an unknown file set — takes the imperative.
+#
+# Membership test is "mechanically regenerated on the next event, with a
+# durable backstop elsewhere", not "written by orchestrator code" and not
+# "looks mechanical". The narrower "orchestrator-written" rule would exclude
+# the dominant member below, whose *writer* is in the sandbox and whose
+# content is agent-authored prose:
+#   * ``<role>/brc-memory-<pipeline-id>.md`` — the dominant case. Written by
+#     ``sandbox/egg_agent_tools/handlers/brc_memory.py::write_memory_atomic``,
+#     reached from the agent's own ``brc_ack``/``brc_nack`` tool call, so the
+#     prose in it is the reviewer's. It qualifies because the next ack/nack
+#     rewrites it and ``docs/architecture/brc-memory.md`` names the durable
+#     backstop: the orchestrator message history, rehydrated by
+#     ``reconstruct_tracker_from_messages``.
+#   * ``consensus-confirmed`` — ``routes/signals/_consensus_confirm`` writes the
+#     marker the gateway reads back (``gateway/session_manager``); the
+#     consensus state it mirrors lives in the tracker.
+#   * ``<pipeline-id>-apply-handoff.json`` — ``routes/pipelines/_ledger``
+#     writes the applier's *input* handoff just before APPLY spawns, and
+#     rewrites it on the next spawn from the ledger it was derived from.
+# Deliberately NOT listed, though they sit in the same directory and look
+# alike: ``<pipeline>-wontdo.json`` and ``<identifier>-tester-output.json`` are
+# agent *output* with no regeneration path — nothing rewrites them on the next
+# event and no other store holds them — so a discard that loses them is a real
+# loss, worth the imperative. That is the line to test a new entry against.
+_MACHINE_STATE_FILE_GLOBS = (
+    ".egg-state/agent-outputs/*/brc-memory*.md",
+    ".egg-state/agent-outputs/consensus-confirmed",
+    ".egg-state/agent-outputs/*-apply-handoff.json",
+)
+
+# Above this many paths the soft branch states a count instead of naming each
+# one: a bus body is read by an agent with a context budget, and a per-role
+# memory file for a wide roster would otherwise inline a dozen paths to say
+# "nothing here". ``wip_paths`` rides in the metadata either way.
+_SOFT_BRANCH_MAX_NAMED_PATHS = 4
+
+# Cap on the ``wip_paths`` list carried in the bus record's metadata. The
+# #3639 incident was 33 files; a cap in that neighbourhood keeps the whole
+# path set for realistic discards while bounding a pathological one.
+_METADATA_MAX_PATHS = 50
+
+_WIP_COMMIT_AUTHOR_NAME = _SALVAGE_COMMIT_NAME
+_WIP_COMMIT_AUTHOR_EMAIL = _SALVAGE_COMMIT_EMAIL
+_WIP_COMMIT_MESSAGE = (
+    "[salvage] pre-reset working-tree state (#3639)\n"
+    "\n"
+    "Snapshot taken by the orchestrator's worktree re-attach before the R6\n"
+    "dirty-state reset, which would otherwise discard it. This is a\n"
+    "mechanical checkpoint of a previous session's working tree, not\n"
+    "reviewed work."
+)
+# Appended when ``git add -A`` did not complete cleanly. A truncated snapshot
+# is otherwise indistinguishable downstream from a complete one — same subject,
+# same ``egg/recovered/...`` ref — and the only other record is an
+# orchestrator WARNING nobody who cherry-picks this commit will read.
+#
+# "did not complete cleanly" rather than "reported errors" (#3639 re-review
+# NB-6): the caller's ``except Exception`` sets ``partial`` for a
+# ``TimeoutExpired`` at 120s as well as for a non-zero exit, and a commit
+# message that asserts git's exit status when the add never returned one is a
+# claim a triager cannot check. The neutral phrasing covers both without
+# losing the fact that staging is where the truncation happened.
+#
+# Deliberately a near-duplicate of the #2807 restart path's
+# ``agent_salvage._UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX`` rather than a shared
+# constant: the two differ only in naming whose working tree was truncated
+# ("previous session's" here, "crashed agent's" there), and that provenance is
+# the one thing a triager reading a lone commit message cannot infer. The
+# grep token — the leading ``INCOMPLETE:`` and the ``git add -A`` phrase — is
+# identical in both, so one search still finds every truncated snapshot
+# regardless of which path took it, and
+# ``docs/reference/agent-recovery.md`` quotes it verbatim for triagers.
+# Change one, change the other — and the runbook.
+_WIP_COMMIT_PARTIAL_SUFFIX = (
+    "\n"
+    "\n"
+    "INCOMPLETE: `git add -A` did not complete cleanly while staging, so\n"
+    "files present in the previous session's working tree may be missing\n"
+    "from this commit."
+)
+
+
+class _DirtySnapshot(NamedTuple):
+    """The commit :func:`_preserve_dirty_tree` made, and what is in it.
+
+    ``paths`` and ``n_files`` are carried alongside the sha because they
+    are the only signal that separates the #3639 incident (110 minutes, 33
+    files) from a respawn whose worktree held one stray
+    ``brc-memory-*.md``. The message a resuming agent reads is worded off
+    them — see :func:`_record_discarded_tip`.
+
+    ``partial`` is set when ``git add -A`` did not complete cleanly, so
+    the commit may be missing files the previous session's tree held. It
+    rides all the way to the bus message: a snapshot that is silently
+    truncated is a worse failure than one the agent is told is truncated,
+    and the orchestrator WARNING that records it is not a surface the
+    resuming agent reads.
+
+    ``paths``/``n_files`` are ``None`` when the staged-path list could not
+    be read at all — the ``diff --cached`` timed out, exited non-zero, or
+    raised (see :func:`_preserve_dirty_tree`).
+    That degrades the *wording* to the imperative, never the snapshot: the
+    commit is taken either way, because a path list is a nicety and the
+    working tree is the thing #3639 exists to save.
+    """
+
+    sha: str
+    n_files: int | None
+    paths: tuple[str, ...] | None
+    partial: bool = False
+
+
+def _preserve_dirty_tree(
+    git: Callable[..., Any],
+    repo_dir: Path,
+    *,
+    agent_worktree_id: str,
+    repo: str,
+    n_entries: int,
+    state_unknown: bool = False,
+) -> _DirtySnapshot | None:
+    """Commit a re-attached worktree's dirty state before the R6 reset (#3639).
+
+    ``_clean_reused_worktree``'s ``git reset --hard`` + ``git clean -fd``
+    are the only step in the re-attach path that no preservation hook can
+    see behind: #3509's auto-salvage runs after them and operates on
+    commits, so a session that worked for hours without committing had its
+    entire output erased on the next respawn, silently. Committing the
+    tree here (tracked edits *and* non-ignored untracked files, via ``git
+    add -A``) converts that state into a commit ahead of the origin tip,
+    the exact shape the orphan detector already salvages to
+    ``egg/recovered/...`` and records on the message bus.
+
+    Returns a :class:`_DirtySnapshot` (the commit's SHA, the files it
+    captured, and whether the capture was partial), or ``None`` when
+    nothing was preserved (a tree with no committable change, or a failed
+    commit). Nothing short of "no commit exists" returns ``None``: a
+    staged-path list that cannot be read — *for any reason*, decode
+    failure or timeout or a non-zero ``diff`` — degrades the snapshot's
+    *metadata* (``paths``/``n_files`` become ``None``) and never its
+    existence. Undecodable bytes cost less than that: they are replaced
+    per-path, so a single latin-1 filename leaves the other N-1 names
+    intact.
+    Strictly best-effort: every failure logs at WARNING and returns
+    ``None`` so the caller proceeds with the reset. Blocking reuse instead
+    would only send the spawn down the create-with-retry path, which
+    discards the same state with less visibility.
+
+    A failing ``git add -A`` is *not* treated as fatal. Per ``git-add(1)``
+    the default behaviour on an unindexable entry (unreadable file, fifo,
+    a filter that is not installed in the orchestrator image) is to abort
+    the whole add and exit non-zero, leaving a partially populated index —
+    so returning early there would discard the other N-1 files. The add
+    passes ``--ignore-errors`` to keep going past the bad entry, and on a
+    non-zero exit the helper still commits whatever reached the index:
+    partial preservation strictly beats none for a helper whose purpose is
+    "never lose the working tree". Such a snapshot is marked ``partial``
+    and says so in both its commit message and the bus record, so a
+    resuming agent that cherry-picks it knows files may be missing.
+
+    Ignored files (``.gitignore``) are deliberately not captured: they are
+    build output and caches, not agent work, and sweeping them in would
+    make the recovery ref unpushably large.
+
+    This does not call ``agent_salvage.commit_working_tree`` (#2807's
+    equivalent for the restart path) even though the two are otherwise the
+    same operation: that helper's ``_run_git`` omits ``safe.directory=*``,
+    which the re-attach path needs because the orchestrator's uid differs
+    from the host uid owning the worktree. Reusing it would fail on
+    "dubious ownership" exactly in production and silently degrade back to
+    the discard this exists to prevent. The caller's ``git`` closure
+    carries the right config, so it is threaded in as a parameter.
+    """
+    partial = False
+    try:
+        try:
+            # ``errors="replace"`` for the same reason the staged read below
+            # uses it, one layer earlier (#3639 re-review NB-3): ``git add``
+            # echoes the raw path in stderr messages that ``core.quotePath``
+            # does not cover (``unable to index file '<path>'``, ``'<path>/'
+            # does not have a commit checked out``), so a non-UTF-8 name in
+            # the tree raises ``UnicodeDecodeError`` inside ``run``. Under a
+            # strict decode that lands in the handler below and stamps
+            # ``INCOMPLETE:`` on a snapshot that may be perfectly complete —
+            # and disqualifies the soft branch — over a filename git only
+            # mentioned in passing.
+            git(repo_dir, "add", "-A", "--ignore-errors", timeout=120, errors="replace")
+        except Exception as add_error:  # partial index beats no index
+            partial = True
+            logger.warning(
+                "Worktree re-attach: `git add -A` did not complete cleanly; "
+                "committing whatever reached the index",
+                agent_worktree_id=agent_worktree_id,
+                repo=repo,
+                dirty_entries=n_entries,
+                dirty_state_unknown=state_unknown,
+                # A non-zero exit and a 120s ``TimeoutExpired`` both land here
+                # and mean different things to a triager; the commit message's
+                # ``INCOMPLETE:`` paragraph is deliberately neutral between
+                # them, so the distinction has to live in the log.
+                error_type=type(add_error).__name__,
+                error=str(add_error),
+            )
+        # ``-z`` (NUL-terminated, unmunged bytes) rather than the newline
+        # form: with the default ``core.quotePath=true`` git C-quote-encodes
+        # any path holding non-ASCII or control characters, so
+        # ``.egg-state/agent-outputs/coder/brc-memory-café.md`` comes back as
+        # the literal token ``".egg-state/.../brc-memory-caf\303\251.md"``,
+        # double quotes included — and ``splitlines()`` additionally misparses
+        # a path containing a newline. Those encoded names would flow verbatim
+        # into :func:`_path_matches_glob` (harmless: the leading quote fails
+        # every glob, so the record takes the imperative — the safe default)
+        # and into the ``wip_paths`` bus metadata, which is a machine-readable
+        # field a consumer matches its own paths against. NUL separation makes
+        # the field mean what its name says.
+        #
+        # ``-z`` moves the failure mode down a layer. Unmunged bytes reach the
+        # caller's ``subprocess.run(..., text=True)``, which decodes as strict
+        # UTF-8 by default: a filename that is not valid UTF-8 (a latin-1 name
+        # from an extracted archive, a fixture written with raw bytes) would
+        # raise ``UnicodeDecodeError`` *inside* ``run``, before the split.
+        #
+        # ``errors="replace"`` decodes the bad bytes to U+FFFD instead of
+        # raising, so one bad name costs one name rather than the whole path
+        # set (#3639 re-review NB-2) — the shape
+        # ``routes/pipelines/_worktree_sync`` already uses for its own ``-z``
+        # read. Replacement is byte-local and never synthesises a NUL, so
+        # replacing across the whole stream is equivalent to decoding each
+        # path separately. ``surrogateescape`` was rejected: lone surrogates
+        # are unencodable by ``json.dumps`` and by a UTF-8 DB driver, which
+        # would move the failure downstream into the message bus.
+        #
+        # Replacement does not perturb :func:`_path_matches_glob` at all — a
+        # replaced path matches exactly the globs the raw bytes would (#3639
+        # re-review NB-2). It is NOT that a U+FFFD fails every glob: the
+        # ``*`` in ``brc-memory*.md`` swallows one happily. The property is
+        # that replacement is confined to non-ASCII: every byte in an invalid
+        # sequence is >= 0x80, U+FFFD is non-ASCII too, and every non-``*``
+        # character in ``_MACHINE_STATE_FILE_GLOBS`` is ASCII — so a literal
+        # position can neither gain nor lose a match, and ``*`` regions are
+        # length-agnostic. Segment count is preserved for the same reason:
+        # ``/`` is 0x2F and never appears inside an invalid sequence. Keep the
+        # globs ASCII and this stays true of a new entry.
+        #
+        # The handler is deliberately ``Exception`` and not
+        # ``UnicodeDecodeError`` (#3639 re-review B1). This read is *metadata
+        # only*: whatever makes it fail — a decode this replace pass does not
+        # cover, the 60s timeout expiring on a large staged set, a non-zero
+        # exit from an index another git process is still holding — must not
+        # reach the outer handler, which abandons the commit and hands the
+        # whole working tree to the reset. That is #3639 itself, with the
+        # trigger moved from "one bad filename" to "the metadata read was slow
+        # or exited non-zero". The cost is strictly one-directional: ``staged
+        # is None`` can only lose the softening and the size claim, never make
+        # the record quieter or wronger. A genuinely empty index is unaffected
+        # — the ``git commit`` below then exits non-zero and falls through to
+        # the outer handler exactly as it does today.
+        try:
+            staged_out = git(
+                repo_dir,
+                "diff",
+                "--cached",
+                "--name-only",
+                "-z",
+                timeout=60,
+                errors="replace",
+            ).stdout
+            staged: list[str] | None = [p for p in staged_out.split("\0") if p]
+        except Exception as read_error:
+            logger.warning(
+                "Worktree re-attach: staged-path list could not be read "
+                "(undecodable filename, timeout, or a failed diff); "
+                "committing the snapshot without a path set",
+                agent_worktree_id=agent_worktree_id,
+                repo=repo,
+                dirty_entries=n_entries,
+                dirty_state_unknown=state_unknown,
+                error_type=type(read_error).__name__,
+                error=str(read_error),
+            )
+            staged = None
+        # Only a *known*-empty index skips the commit. ``staged is None`` means
+        # "could not tell", and this helper never discards a tree on a maybe.
+        if staged is not None and not staged:
+            logger.warning(
+                "Worktree re-attach: dirty tree held no committable change "
+                "(ignored files, submodule-only dirt, or a failed add); "
+                "discarding it",
+                agent_worktree_id=agent_worktree_id,
+                repo=repo,
+                dirty_entries=n_entries,
+                dirty_state_unknown=state_unknown,
+            )
+            return None
+        git(
+            repo_dir,
+            "-c",
+            f"user.name={_WIP_COMMIT_AUTHOR_NAME}",
+            "-c",
+            f"user.email={_WIP_COMMIT_AUTHOR_EMAIL}",
+            "commit",
+            "--no-verify",
+            "-m",
+            _WIP_COMMIT_MESSAGE + (_WIP_COMMIT_PARTIAL_SUFFIX if partial else ""),
+            timeout=120,
+        )
+        sha = git(repo_dir, "rev-parse", "HEAD").stdout.strip()
+    except Exception as e:  # preservation must never block the reset
+        logger.warning(
+            "Worktree re-attach: could not preserve uncommitted work; "
+            "the hard reset below WILL discard it",
+            agent_worktree_id=agent_worktree_id,
+            repo=repo,
+            dirty_entries=n_entries,
+            dirty_state_unknown=state_unknown,
+            error=str(e),
+        )
+        return None
+
+    paths = tuple(staged) if staged is not None else None
+    logger.warning(
+        "Worktree re-attach: auto-committed uncommitted work before hard reset (#3639)",
+        agent_worktree_id=agent_worktree_id,
+        repo=repo,
+        dirty_entries=n_entries,
+        dirty_state_unknown=state_unknown,
+        # ``wip_*`` throughout, matching the discard WARNING and the bus
+        # record's metadata keys so one query shape spans all three
+        # (#3639 re-review NB-1).
+        wip_files=len(paths) if paths is not None else None,
+        wip_files_unknown=paths is None,
+        wip_partial=partial,
+        wip_commit=sha,
+    )
+    return _DirtySnapshot(
+        sha=sha,
+        n_files=len(paths) if paths is not None else None,
+        paths=paths,
+        partial=partial,
+    )
+
+
+def _path_matches_glob(path: str, glob: str) -> bool:
+    """Segment-wise glob match where ``*`` does not cross ``/``.
+
+    ``fnmatch`` is the wrong primitive for a discriminator whose whole job
+    is to match the noise source *precisely*: its ``*`` crosses separators,
+    so ``.egg-state/agent-outputs/a/b/c/brc-memory-x.md`` matches
+    ``.../*/brc-memory*.md``. Matching segment-by-segment with equal depth
+    keeps a deeper path off the soft branch.
+
+    :func:`fnmatch.fnmatchcase` rather than :func:`fnmatch.fnmatch` is a
+    smaller point and not a behaviour change on the deployment platform:
+    ``fnmatch`` normalises case through ``os.path.normcase``, which is the
+    identity on POSIX, so both are case-sensitive on Linux. The explicit
+    form states the intended semantics on every platform rather than
+    inheriting them from the host.
+    """
+    segments = path.split("/")
+    patterns = glob.split("/")
+    if len(segments) != len(patterns):
+        return False
+    return all(fnmatchcase(s, p) for s, p in zip(segments, patterns, strict=True))
+
+
+def _is_machine_state_only(paths: tuple[str, ...] | None) -> bool:
+    """True when every captured path is regenerated state with a backstop.
+
+    "Machine state" here means the file is rewritten by the next event and
+    the thing it carries survives elsewhere (``_MACHINE_STATE_FILE_GLOBS``
+    documents the test per member) — *not* that the orchestrator wrote it.
+    The dominant member, ``brc-memory-<pipeline-id>.md``, is written by the
+    sandbox on the agent's own tool call and holds agent-authored prose; it
+    qualifies on regeneration, not provenance.
+
+    The discriminator behind :func:`_record_discarded_tip`'s soft wording.
+    An empty or unknown path set is False: softening must be earned by
+    evidence, never fall out of missing evidence.
+    """
+    if not paths:
+        return False
+    return all(
+        any(_path_matches_glob(p, glob) for glob in _MACHINE_STATE_FILE_GLOBS) for p in paths
+    )
+
+
 def _record_discarded_tip(
     *,
     pipeline_id: str,
@@ -633,6 +1149,10 @@ def _record_discarded_tip(
     was_dirty: bool,
     recovery_ref: str | None,
     salvage_error: str | None,
+    wip_commit: str | None = None,
+    wip_files: int | None = None,
+    wip_paths: tuple[str, ...] | None = None,
+    wip_partial: bool = False,
 ) -> None:
     """Durably record a dirty-discard's orphaned tip where the agent looks (#3509).
 
@@ -645,12 +1165,120 @@ def _record_discarded_tip(
     reset target, and the recovery ref there as a system message to the
     role.
 
+    ``wip_commit`` is set when the tip being discarded is the automatic
+    snapshot :func:`_preserve_dirty_tree` took of the previous session's
+    uncommitted work (#3639). The message calls that out, because a
+    resuming agent must read such a commit as a mechanical checkpoint to
+    inspect rather than as reviewed work it already proposed.
+
+    The reassurance that nothing was lost is conditional on
+    ``recovery_ref``: when the salvage push failed, the snapshot exists
+    only in the local object store and the message must say so and ask for
+    escalation. Telling a memory-less agent "nothing was lost" on the one
+    path where the work is a ``gc`` away from gone would suppress exactly
+    the escalation this record exists to trigger.
+
+    ``wip_paths`` is what that snapshot contains, and it is what decides
+    how hard the message pushes. "Snapshot-only" on its own is a bad proxy
+    for "trivial": the #3639 incident (110 minutes, 33 modified files,
+    zero commits) is snapshot-only too, so keying the soft wording off the
+    commit count alone would soften precisely the case this record exists
+    for. The ask is softened only when every captured path is a known
+    machine-maintained state file — one the next event rewrites and whose
+    contents survive elsewhere (``_MACHINE_STATE_FILE_GLOBS``) — since the
+    noise source is known by name, and matching it by name is strictly
+    sharper than any size threshold. On the imperative branches ``wip_files`` is
+    stated outright rather than asking the reader whether anything is
+    "missing": a memory-less agent has no baseline against which that
+    question means anything, which is this function's own premise. (The
+    soft branch states the paths themselves, so the count is redundant
+    there and is not rendered.)
+
+    ``wip_partial`` marks a snapshot whose ``git add -A`` did not complete
+    cleanly — a non-zero exit, or a raise (timeout, undecodable stderr) with
+    no exit status at all, so the neutral phrasing is the only checkable one.
+    It is surfaced because an agent that cherry-picks a silently truncated
+    snapshot fails worse than one told the snapshot is truncated, and it
+    also *disqualifies* the soft branch: a truncated capture's path list
+    omits whatever failed to stage, so it cannot establish that the
+    snapshot holds nothing but state files.
+
     Best-effort: a record failure is logged and swallowed; it must not
     block the re-attach path.
     """
     from message_store import Message, MessageType, get_message_store
 
-    if recovery_ref:
+    # A discard whose only casualty is the machine-made snapshot is not the
+    # same event as losing a stack of the agent's own commits: the imperative
+    # "inspect it before starting work" is what turns #3509's message into
+    # background noise when every respawn with a stray memory file triggers
+    # it. But the *contents* of the snapshot, not its snapshot-ness, are what
+    # make it ignorable — #3639 itself was 33 files with no commits, and a
+    # single rewritten source module is the same loss one file wide. Only a
+    # capture consisting entirely of regenerated-with-a-backstop state files softens;
+    # an unknown or unrecognised file set counts as substantial, so the soft
+    # wording is an opt-in for the demonstrably trivial case, never a default.
+    #
+    # ``wip_partial`` disqualifies the soft branch for the same reason
+    # ``wip_paths=None`` does. When ``git add -A`` did not complete cleanly the
+    # path list is *by construction* only the subset that reached the index — the
+    # files that failed to stage are absent from it — so "every captured path
+    # is a state file" says nothing about what was in the tree. A partial
+    # capture is missing evidence by another name, and softening must never
+    # fall out of missing evidence.
+    snapshot_only = bool(wip_commit) and n_commits == 1
+    machine_state_only = _is_machine_state_only(wip_paths)
+    trivial_snapshot = snapshot_only and not wip_partial and machine_state_only
+    # ``wip_files``/``wip_paths`` are assigned together off ``_DirtySnapshot``
+    # and are both ``None`` on the one production path where the snapshot
+    # exists but its contents could not be read: a filename whose bytes are
+    # not valid UTF-8 makes the staged-path list undecodable, and
+    # ``_preserve_dirty_tree`` commits anyway rather than lose the tree over a
+    # name. So the ``None`` arms — ``_is_machine_state_only(None) is False``
+    # above, and the ``snapshot_size`` fallback just below — are live
+    # degradation paths, not merely defensive: knowing the sha but not the
+    # contents must take the imperative rather than crash or soften.
+    snapshot_size = (
+        f"{wip_files} file(s) of uncommitted work" if wip_files is not None else "uncommitted work"
+    )
+
+    if recovery_ref and trivial_snapshot:
+        # ``trivial_snapshot`` implies a non-empty ``wip_paths``.
+        paths = wip_paths or ()
+        # The descriptor stays out of the sentence's grammar: an apposition
+        # ("— a state file the orchestrator rewrites on every BRC ack/nack")
+        # is singular on a plural subject, and it hardcodes one member's
+        # provenance into a message keyed off a tuple designed to grow, so
+        # the second entry makes the clause false.
+        if len(paths) == 1:
+            named = f"only `{paths[0]}`"
+        elif len(paths) <= _SOFT_BRANCH_MAX_NAMED_PATHS:
+            named = f"only {len(paths)} files (" + ", ".join(f"`{p}`" for p in paths) + ")"
+        else:
+            named = f"only {len(paths)} files"
+        # "rewritten by the step that produces it rather than restored before
+        # you start" and not "rebuilt on your next event" (#3639 re-review
+        # NB-7): nothing restores these files ahead of the agent. brc-memory
+        # is rewritten by the agent's *own* ``brc_ack``/``brc_nack`` — i.e.
+        # after it has already redone the review — and the other two entries
+        # are rewritten by whichever orchestrator step next produces them. The
+        # softening still holds (none of it is lost work), but the sentence
+        # must not promise the agent it will find the file waiting.
+        recovery_text = (
+            f"The snapshot holds {named} — machine-maintained coordination state, "
+            "rewritten by the step that produces it rather than restored "
+            "before you start, and durably recorded elsewhere. It is "
+            f"preserved on remote ref {recovery_ref}; run `git fetch origin "
+            f"{recovery_ref}` to read it if you need it."
+        )
+    elif recovery_ref and snapshot_only:
+        recovery_text = (
+            f"The snapshot holds {snapshot_size} and is preserved on remote ref "
+            f"{recovery_ref}; run `git fetch origin {recovery_ref}` and inspect it "
+            "before starting work. If it contains completed work, build on it "
+            "(cherry-pick or reset) instead of re-deriving it."
+        )
+    elif recovery_ref:
         recovery_text = (
             f"The full commit stack is preserved on remote ref {recovery_ref}; "
             f"run `git fetch origin {recovery_ref}` and inspect it before "
@@ -658,19 +1286,73 @@ def _record_discarded_tip(
             "(cherry-pick or reset) instead of re-deriving it."
         )
     else:
+        # NOT salvage_agent_commits: it enumerates worktree branches, which
+        # the reset below has already moved off the discarded tip
+        # (``salvage_discarded_tip``'s own docstring says so), so it provably
+        # cannot see this sha. The worktree's HEAD reflog can.
         recovery_text = (
             f"Automatic salvage FAILED ({salvage_error or 'unknown error'}); the "
-            "commits survive only in the local git object store until gc. Ask an "
-            "operator to recover them (salvage_agent_commits, #3368) before "
-            "re-deriving any work."
+            "commits survive only in this worktree's local git object store "
+            "until gc, unreachable from any ref. salvage_agent_commits cannot "
+            "recover them (it inspects worktree branches the reset has already "
+            f"moved, #3509) — ask an operator to fetch {discarded_tip} directly "
+            "out of the worktree (`git reflog`) before re-deriving any work."
+        )
+    if recovery_ref and trivial_snapshot:
+        # ``trivial_snapshot`` already implies a truthy ``wip_commit`` (via
+        # ``snapshot_only``), so this arm needs no separate conjunct for it.
+        # The softening has to survive the whole body: restating "AUTOMATIC
+        # snapshot ... treat it as a WIP checkpoint to review" here would put
+        # an imperative in the last sentence the reader sees, undoing the
+        # branch above — which is exactly the noise this case exists to
+        # suppress.
+        wip_text = f" Commit {wip_commit} is that snapshot; it is on the recovery ref above."
+    elif wip_commit and recovery_ref:
+        wip_text = (
+            f" Commit {wip_commit} is an AUTOMATIC snapshot of the uncommitted "
+            "changes your previous session left behind (#3639); it is on the "
+            "recovery ref above, so nothing was lost. Treat it as a WIP "
+            "checkpoint to review, not as work you already proposed."
+        )
+    elif wip_commit:
+        wip_text = (
+            f" Commit {wip_commit} is an AUTOMATIC snapshot of the uncommitted "
+            f"changes your previous session left behind ({snapshot_size}, #3639) "
+            "and it was NOT pushed — it exists only in the local object store. "
+            "Escalate to an operator before re-deriving any work."
+        )
+    else:
+        wip_text = ""
+    partial_text = (
+        " WARNING: `git add -A` did not complete cleanly while taking this "
+        "snapshot, so it may be INCOMPLETE — files the previous session's "
+        "working tree held may be missing from it."
+        if wip_commit and wip_partial
+        else ""
+    )
+    count_text = f"{n_commits} unpushed commit(s)"
+    # ``recovery_text`` already names the snapshot and its contents on the
+    # trivial branch; repeating it in the opening clause is the third
+    # restatement of the same fact in one message. That is only true under
+    # ``recovery_ref`` — with the salvage push failed, ``recovery_text`` is
+    # the escalation prose, which never names the snapshot, so dropping the
+    # clarifier there would leave the opening clause silent about what the
+    # discarded commit actually was.
+    if wip_commit and not (trivial_snapshot and recovery_ref):
+        count_text += (
+            " (one of which is an automatic snapshot of uncommitted work)"
+            if n_commits > 1
+            else " (an automatic snapshot of uncommitted work)"
         )
     body = (
-        f"Worktree re-attach discarded {n_commits} unpushed commit(s) from "
+        f"Worktree re-attach discarded {count_text} from "
         f"{repo} (worktree {agent_worktree_id}). Your previous tip was "
         f"{discarded_tip}; the worktree was reset to {remote_tip}"
         + (f" (origin/{branch})." if branch else ".")
         + " "
         + recovery_text
+        + wip_text
+        + partial_text
     )
     try:
         store = get_message_store()
@@ -694,6 +1376,35 @@ def _record_discarded_tip(
                     "was_dirty": was_dirty,
                     "recovery_ref": recovery_ref,
                     "salvage_error": salvage_error,
+                    "wip_commit": wip_commit,
+                    # The body makes a size claim and a completeness claim;
+                    # both belong in the metadata so a consumer (or a triage
+                    # query like "discards over N files") reads them
+                    # structurally instead of regexing the prose. ``wip_paths``
+                    # and the derived verdict ride along because they are what
+                    # the wording decision is *made from* — without them a
+                    # consumer can see a softened body and cannot reconstruct
+                    # why it was softened. The path list is capped: a bus
+                    # record is not the place to inline an arbitrarily wide
+                    # working tree, and ``wip_files`` already carries the
+                    # untruncated count.
+                    #
+                    # The two derived fields are kept distinct because they
+                    # answer different questions and diverge on real inputs.
+                    # ``wip_machine_state_only`` is the *path predicate* alone,
+                    # so it stays true for a multi-commit discard, a truncated
+                    # capture, or a failed salvage push — cases where the
+                    # wording is not softened. ``wip_softened`` is the actual
+                    # verdict the body took, gated on ``recovery_ref`` exactly
+                    # as the soft branch is. Reporting the verdict under the
+                    # predicate's name would contradict ``wip_paths`` in one
+                    # direction and the body in the other.
+                    "wip_files": wip_files,
+                    "wip_partial": wip_partial,
+                    "wip_paths": list(wip_paths[:_METADATA_MAX_PATHS]) if wip_paths else None,
+                    "wip_paths_truncated": bool(wip_paths and len(wip_paths) > _METADATA_MAX_PATHS),
+                    "wip_machine_state_only": machine_state_only,
+                    "wip_softened": bool(recovery_ref and trivial_snapshot),
                 },
             )
         )

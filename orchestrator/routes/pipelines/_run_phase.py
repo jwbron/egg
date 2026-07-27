@@ -283,6 +283,20 @@ def _run_phase_execution(
                     )
                     return pipeline, phase_execution, phase_failed, "return"
 
+                # Same for a cancel (#3633): the phase runner returns non-zero
+                # once it sees the CANCELLED status, and the operator's cancel
+                # is the reason this phase stopped — not a failure of it.
+                # Falling through would rewrite the status to FAILED, losing
+                # the operator's intent and (via #1725) the CANCELLED-only
+                # worktree preservation that restart_phase resumes from.
+                if _check_pip.status == _pkg.PipelineStatus.CANCELLED:
+                    _pkg.logger.info(
+                        "Pipeline was cancelled during phase execution, exiting thread",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                    )
+                    return pipeline, phase_execution, phase_failed, "return"
+
                 error_msg = f"Container exited with code {exit_code}"
                 if container_logs:
                     log_lines = container_logs.strip().splitlines()

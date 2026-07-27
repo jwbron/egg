@@ -110,7 +110,7 @@ orchestrator/
 ├── slice_scheduler.py      # Wave-based scheduler for the implement-phase slice DAG: computes execution waves, caps concurrency, two-tier max_cycles accounting, failure-cascade detection (#2137)
 ├── stacked_pr_reconciler.py # Stacked-PR rebase reconciler: detects child slice PRs whose base branch was deleted after a parent merge and retargets them via gateway rebase_onto (#2137)
 ├── cross_repo_merge_gate.py # Cross-repo merge-sequencing gate for multi-repo pipelines: auto-readies (or HITL-holds) a dependent slice's draft PR once its cross-repo upstream PR merges; rides the stacked-PR reconciler cadence (#3393 slice-5)
-├── slice_green_gate.py     # Per-slice green gate: sandboxed one-shot Job runs the repo's configured checks at the integration-branch tip; staged rollout via EGG_SLICE_GREEN_GATE (off/log/on, default on — on withholds the slice PR on a red verdict, log runs the checks and logs the verdict without blocking), fail-open on infra errors (#3398) and on infra-signature-tagged reds inside check execution (#3417)
+├── slice_green_gate.py     # Per-slice green gate: sandboxed one-shot Job runs the repo's configured checks at the integration-branch tip; staged rollout via EGG_SLICE_GREEN_GATE (off/log/on, default on — on withholds the slice PR on a red verdict, log runs the checks and logs the verdict without blocking), fail-open on infra errors (#3398) and on infra-signature-tagged reds inside check execution (#3417); Stage A (#3409) auto-remediates via each check's optional repositories.yaml `fix:` command and commits + pushes the fix to the integration branch instead of blocking, but only in `on` mode and only when every *genuine* red (infra-tagged reds are excluded first under the default EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=on, #3417) re-ran green, a final full re-run of every check the gate runs (EGG_SLICE_GREEN_GATE_SKIP_CHECKS excludes names, default `security`) against the fixed tree was green, the runner's tree gained no new non-ignored untracked files (from the fix or from the checks themselves — the baseline predates the first check), and at least one tracked file in it is modified so there is something to commit; when *every* red is infra-tagged the gate fails open and returns before the autofix decision, discarding a fix that re-ran green rather than committing it; a red that survives to block lands an unresolved HITL `Decision` on the contract (`_escalate_green_gate_to_hitl`, #3572 parity with the evidence gate — see docs/hitl-decisions.md § "Close-Path Gate Escalation") so the block is an operator question rather than a silently parked slice
 ├── action_guards.py        # Formal BRC state machine action guards (preconditions for propose/ack/nack/confirm/withdraw)
 ├── approval_matrix.py      # Per-reviewer ACK/NACK matrix for BRC consensus
 ├── attestation_schemas.py  # Attestation payload validation for BRC proposals
@@ -534,16 +534,22 @@ Key workflows for PR automation (see `.github/workflows/` for complete list):
 
 ```
 config/
-├── config.yaml.example          # Configuration template (copy to ~/.config/egg/config.yaml)
-├── repositories.yaml.example    # Repository access configuration template
-├── secrets.template.env         # Secrets template (includes Jira credential placeholders)
-├── context-filters.yaml         # Operator allowlists for external integrations (jira.projects)
-├── litellm-models.template.yaml # Operator template for registering non-Claude backends (copy to ~/.config/egg/litellm-models.yaml)
-├── litellm/                     # egg-litellm image sources
-│   ├── Dockerfile               # Builds egg-litellm: stock LiteLLM + prompt-cache patches
-│   ├── patch_litellm_cache.py   # Build-time patches for cache_control passthrough on Qwen/DeepSeek routes
-│   └── cost_callback.py         # LiteLLM custom logger: upstream + estimated cost, per-role attribution (x-egg-* headers), cache hit rate, per-call decoding config -> pod stdout
-├── repo_config.py               # Python API for repo access
+├── config.yaml.example               # Configuration template (copy to ~/.config/egg/config.yaml)
+├── repositories.yaml.example         # Repository access configuration template
+├── secrets.template.env              # Secrets template (includes Jira credential placeholders)
+├── context-filters.yaml              # Operator allowlists for external integrations (jira.projects)
+├── litellm-models.template.yaml      # Operator template for registering non-Claude backends (copy to ~/.config/egg/litellm-models.yaml)
+├── routing-policy.template.yaml      # Operator template for the gateway's hot-reloadable model routing policy: switchover remaps + fallback chains (copy to ~/.config/egg/routing-policy.yaml)
+├── litellm/                          # egg-litellm image sources
+│   ├── Dockerfile                    # Builds egg-litellm: stock LiteLLM + prompt-cache and reasoning-parameter patches
+│   ├── patch_litellm_cache.py        # Build-time patches: cache_control passthrough on Qwen/DeepSeek routes, live OpenRouter capability lookup, drop_params visibility, no synthesized reasoning ceiling
+│   ├── openrouter_capabilities.py    # Patch 7: live GET /api/v1/models capability lookup, unioned with LiteLLM's bundled model-cost map
+│   ├── drop_params_visibility.py     # Patch 8: warn once per proxy process per (provider, model, param-set) when drop_params discards a parameter
+│   ├── anthropic_thinking_policy.py  # Patch 9: stop synthesizing a reasoning_effort ceiling from the caller's thinking budget on non-Claude models
+│   └── cost_callback.py              # LiteLLM custom logger: upstream + estimated cost, per-role attribution (x-egg-* headers), cache hit rate, per-call decoding config -> pod stdout
+├── redis/                            # egg-redis image sources
+│   └── Dockerfile                    # Builds egg-redis: pinned stock Redis, repackaged for the local build/publish supply chain; backs the orchestrator's Redis Streams message store
+├── repo_config.py                    # Python API for repo access
 └── README.md
 ```
 
