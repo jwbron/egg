@@ -286,10 +286,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "Pipeline-level only. Ship the uniform 7200s default and make it configurable; do not build per-role overrides in this work.\n\nReasoning: the defect being fixed is that the deadline is INVISIBLE, not that it is uniform. #3658's three substantive asks are that the agent can see its deadline, that expiry is not counted as a crash, and that there is a checkpoint on the way out. None of those need per-role granularity, and adding a second dimension now widens the config surface before there is any measurement to tune it against.\n\nThat said, #3658 does note the workloads genuinely differ (\"an implement-phase coder on a multi-file slice and a refiner are not the same workload\"), so per-role is a real follow-up rather than a dead end. Make it cheap to add later: keep the resolution in one place so a future per-role layer is a lookup change and not a rewrite of every call site.\n\nTwo constraints on the pipeline-level version, both from #3658 and neither optional:\n\n1. The agent must be able to SEE the deadline. `EGG_AGENT_TIMEOUT_SECONDS` reaching the sandbox is necessary but not sufficient; the remaining budget has to reach the agent's prompt or a tool it can call, or an agent still cannot commit before expiry. A single line stating the wall-clock deadline is the cheapest sufficient version.\n\n2. Expiry must not feed the abnormal streak. Commit 6ffe97c8e classifies exit 143 as `JOB_OUTCOME_LEGITIMATE` rather than adding `JOB_OUTCOME_TIMEOUT`, and reusing the existing category is the right call, as your plan already observed. Verify the streak accounting actually follows: `record_legitimate_outcome` must not increment toward the fail-streak halt, and a timeout must still be distinguishable in the record from a genuine no-op, or you have traded one indistinguishable pair for another.\n\nKeep the 4h K8s `active_deadline_seconds` as the outer safety net and leave it where it is.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-27T08:25:29.501817Z",
       "debounce_until": null,
       "redirect_seed": null
     },
