@@ -7,7 +7,7 @@ slice's BRC event loop kept running in-process, so the next poll re-derived
 its arms and spawned again: ``issue-3596-v2`` was cancelled at 20:48Z and
 spawned slice-3 agents at 22:55Z, complete with a fresh integration branch.
 
-These tests pin the four layers of the fix:
+These tests pin the five layers of the fix:
 
 1. the cancel route stops every live BRC event loop, and does it *before*
    container cleanup (cleanup that races a live loop is removing pods the
@@ -15,13 +15,17 @@ These tests pin the four layers of the fix:
 2. a loop stopped mid-tick refuses the spawn it was about to request;
 3. the concurrent-phase poll loop re-reads the persisted status and bails
    (without escalating, and without rewriting CANCELLED to FAILED);
-4. the implement-phase slice loop refuses to admit another slice.
+4. the implement-phase slice loop refuses to admit another slice;
+5. the refine/plan HITL gate — the one path that *overwrites* the persisted
+   status the four layers above key on — bails on its own signal (a cancelled
+   decision) instead of reading the operator's cancel as an approval.
 """
 
 from __future__ import annotations
 
 import threading
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -35,6 +39,8 @@ from event_loop import (
 )
 from flask import Flask
 from models import (
+    DecisionStatus,
+    HITLDecision,
     Pipeline,
     PipelinePhase,
     PipelineStatus,
@@ -550,8 +556,12 @@ def test_slice_loop_admits_nothing_after_a_cancel():
             certs_volume=None,
             worktree_repo_path=pipelines_pkg.Path("/tmp/does-not-matter"),
             # Production (``_run_phase.py``) always threads the owning
-            # thread's epoch through; pass it so this covers the real
-            # configuration rather than the ``None`` default.
+            # thread's epoch through, so pass it rather than leaning on the
+            # ``None`` default. It is not what this test exercises: layer 4
+            # keys on ``_pipeline_cancelled`` alone and bails before
+            # ``_run_concurrent_phase_with_impasse_retry``, where the epoch
+            # arm lives. Supersession is covered by
+            # ``test_phase_bail_reason_still_reports_supersession``.
             run_epoch=cancelled.run_epoch or cancelled.created_at,
         )
 
@@ -614,7 +624,535 @@ def test_slice_loop_keeps_running_while_the_pipeline_is_running():
             store=store,
             certs_volume=None,
             worktree_repo_path=pipelines_pkg.Path("/tmp/does-not-matter"),
+            # As above: production-faithful, but not the epoch arm under
+            # test — ``all_done()`` short-circuits before the retry wrapper.
             run_epoch=running.run_epoch or running.created_at,
         )
 
     assert scheduler.iter_ready_calls >= 1, "the guard stopped a RUNNING pipeline"
+
+
+# ---------------------------------------------------------------------------
+# Layer 5 — the HITL gate bails instead of reading a cancel as an approval
+# ---------------------------------------------------------------------------
+#
+# The four layers above all key on the *persisted* status. The refine/plan
+# gate is the one path that overwrites that status before they read it: it
+# parks at AWAITING_HUMAN, blocks in ``wait_for_decision``, and the operator's
+# cancel unblocks it by cancelling the decision — leaving no ``resolution``.
+# An unset resolution reads as an approval (``"" in _APPROVE_KEYWORDS``), so
+# the gate took its "Approved — resume and advance" branch, wrote RUNNING over
+# the operator's CANCELLED, and let the driver advance into the next phase and
+# mint a fresh cohort: #3633 verbatim, through the one door the
+# persisted-status layers cannot watch.
+
+
+def _gate_pipeline(status=PipelineStatus.AWAITING_HUMAN) -> Pipeline:
+    """A pipeline parked at the plan gate with a pending phase_gate decision.
+
+    The pending decision routes the gate down its ``existing_pending_gate``
+    branch, so the test reaches ``wait_for_decision`` without touching draft
+    reads or the decision queue's create path.
+    """
+    pipeline = Pipeline(
+        id=PIPELINE_ID,
+        issue_number=3633,
+        repo="owner/repo",
+        branch=f"egg/{PIPELINE_ID}/work",
+        status=status,
+        current_phase=PipelinePhase.PLAN,
+    )
+    pipeline.decisions = [
+        HITLDecision(
+            id="gate-1",
+            question="Approve the plan?",
+            decision_type="phase_gate",
+            phase=PipelinePhase.PLAN,
+            status=DecisionStatus.PENDING,
+        )
+    ]
+    return pipeline
+
+
+def _gate_decision(status, resolution=None) -> HITLDecision:
+    return HITLDecision(
+        id="gate-1",
+        question="Approve the plan?",
+        decision_type="phase_gate",
+        phase=PipelinePhase.PLAN,
+        status=status,
+        resolution=resolution,
+    )
+
+
+class _StatusCell:
+    """The pipeline status the fake store persists, mutable mid-run.
+
+    A cancel is not a value the gate is handed — it is a write that lands on
+    the store while the gate is parked in ``wait_for_decision``. Tests for the
+    later bail sites flip this from inside a hook to model exactly that.
+    """
+
+    def __init__(self, status):
+        self.status = status
+
+    def cancel(self):
+        self.status = PipelineStatus.CANCELLED
+
+
+def _run_gate(
+    resolved_decision,
+    *,
+    persisted_status=None,
+    cell=None,
+    pipeline=None,
+    ledger_status=("", False, None, {}),
+    attestation=None,
+    bridge=None,
+    on_wait=None,
+):
+    """Drive ``_run_hitl_gate_converge`` to its phase-gate wait and back.
+
+    ``load_pipeline`` hands out a *fresh* object per call, as the real store
+    does: the gate mutates what it loads, and a shared MagicMock return value
+    would let its own ``AWAITING_HUMAN`` write mask the persisted status the
+    bail re-reads.
+
+    The hooks steer the gate onto whichever branch's bail is under test:
+    ``ledger_status`` is the ``_collect_decision_ledger_status`` 4-tuple (set
+    ``missing=True`` for the backstop, ``explicit_none`` for the attestation
+    gate), ``attestation`` / ``bridge`` stand in for the two helpers that block
+    on their own waits, and ``on_wait`` fires on every ``wait_for_decision``.
+    Each receives the ``_StatusCell`` so it can cancel from inside the wait.
+    """
+    cell = cell if cell is not None else _StatusCell(persisted_status)
+    saved: list[PipelineStatus] = []
+    store = MagicMock()
+    store.load_pipeline.side_effect = lambda _pid: _gate_pipeline(status=cell.status)
+    store.save_pipeline.side_effect = lambda p, *a, **k: saved.append(p.status)
+
+    waits: list[str] = []
+
+    def _wait(decision_id):
+        waits.append(decision_id)
+        if on_wait is not None:
+            on_wait(len(waits), cell)
+        return resolved_decision
+
+    dq = MagicMock()
+    dq.wait_for_decision.side_effect = _wait
+    dq.get_decision.return_value = resolved_decision
+
+    def _attestation(**kwargs):
+        if attestation is not None:
+            attestation(cell)
+        return False, "", kwargs["pipeline"]
+
+    def _bridge(*args, **kwargs):
+        if bridge is not None:
+            return bridge(cell)
+        return 0
+
+    with (
+        patch.object(
+            pipelines_pkg,
+            "_collect_decision_ledger_status",
+            return_value=ledger_status,
+        ),
+        patch.object(pipelines_pkg, "_persist_decision_ledger_summary", return_value=None),
+        patch.object(
+            pipelines_pkg,
+            "_handle_explicit_none_attestation_gate",
+            side_effect=_attestation,
+        ),
+        patch.object(pipelines_pkg, "get_decision_queue", return_value=dq),
+        patch.object(pipelines_pkg, "get_pipeline_state_lock"),
+        patch.object(pipelines_pkg, "report_pipeline_status"),
+        patch.object(pipelines_pkg, "_emit_pipeline_event"),
+        patch.object(pipelines_pkg, "_read_phase_draft", return_value="draft body"),
+        patch.object(pipelines_pkg, "_read_human_phase_draft", return_value=None),
+        patch.object(pipelines_pkg, "_queue_and_await_contract_decisions", side_effect=_bridge),
+        patch.object(pipelines_pkg, "_persist_phase_gate_resolution"),
+        patch.object(pipelines_pkg, "_commit_statefiles_to_worktree"),
+    ):
+        _pipeline, action = pipelines_pkg._run_hitl_gate_converge(
+            pipeline if pipeline is not None else _gate_pipeline(),
+            current_phase=PipelinePhase.PLAN,
+            gateway_mode="public",
+            pipeline_id=PIPELINE_ID,
+            repo_path=Path("/repo"),
+            spawner=MagicMock(),
+            store=store,
+            worktree_repo_path=Path("/tmp/egg-worktree"),
+        )
+    return action, saved
+
+
+def test_gate_bails_when_the_cancel_route_cancels_its_decision():
+    """The headline regression: cancelling a pipeline parked at a HITL gate
+    must not resurrect it to RUNNING and advance the phase."""
+    # What ``cancel_decision`` leaves behind: CANCELLED, no resolution.
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.CANCELLED),
+        persisted_status=PipelineStatus.CANCELLED,
+    )
+
+    assert action == "break", "the gate must exit the driver loop on a cancel"
+    assert PipelineStatus.RUNNING not in saved, (
+        "the gate rewrote the operator's CANCELLED back to RUNNING"
+    )
+
+
+def test_gate_bails_on_a_cancelled_pipeline_even_if_the_decision_resolved():
+    """A cancel that lands after the decision-queue sweep — or one racing an
+    operator who resolved the gate — must still bail: the persisted status is
+    checked alongside the decision's own."""
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.RESOLVED, "approve"),
+        persisted_status=PipelineStatus.CANCELLED,
+    )
+
+    assert action == "break"
+    assert PipelineStatus.RUNNING not in saved
+
+
+def test_gate_still_advances_a_genuine_approval():
+    """Control: a real approval on a live pipeline still advances. Without
+    this, ``return "break"`` unconditionally would pass the two above."""
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.RESOLVED, "approve"),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+    )
+
+    assert action is None, "an approved gate must fall through and advance"
+    assert PipelineStatus.RUNNING in saved
+
+
+def test_gate_still_advances_when_only_the_decision_was_cancelled():
+    """A *lone* decision cancel on a live pipeline is not a pipeline cancel.
+
+    ``routes/decisions/_lifecycle.py`` exposes a standalone endpoint that
+    cancels one decision without touching the pipeline. Keying the bail on the
+    returned decision's status would read that as a stop, exit the driver, and
+    strand a live pipeline at AWAITING_HUMAN with no waiter — which is why the
+    bail consults the persisted pipeline status only.
+    """
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.CANCELLED),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+    )
+
+    assert action is None, "a lone decision cancel must not break the driver loop"
+    assert PipelineStatus.RUNNING in saved
+
+
+def test_gate_bails_when_cancelled_at_the_ledger_backstop():
+    """The decision-ledger backstop (#3390) blocks on its own wait before the
+    phase gate is ever queued. A cancel landing there must not fall through to
+    the gate — the ``proceed`` branch treats a non-RESOLVED backstop as an
+    operator override and walks straight into the phase gate below."""
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.CANCELLED),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+        ledger_status=("no ledger", True, None, {}),
+        on_wait=lambda n, cell: cell.cancel(),
+    )
+
+    assert action == "break"
+    assert PipelineStatus.RUNNING not in saved
+
+
+def test_gate_bails_when_cancelled_at_the_attestation_gate():
+    """The explicit-none attestation gate (#3462) "fails open to the phase
+    gate" on any non-RESOLVED status — safe for a cancelled attestation, not
+    safe for a cancelled pipeline. Falling through would queue a *fresh*
+    phase_gate decision minted after the cancel route already swept the queue,
+    so nothing would ever cancel it and the wait below would never return."""
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.RESOLVED, "approve"),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+        ledger_status=("attested none", False, ("coder", "abc1234", []), {}),
+        attestation=lambda cell: cell.cancel(),
+    )
+
+    assert action == "break"
+    assert PipelineStatus.RUNNING not in saved
+
+
+def test_gate_bails_when_cancelled_at_the_followup_specifics():
+    """A bare "request changes" queues a follow-up asking for specifics and
+    blocks on it. That wait is swept by a cancel exactly like the gate's own,
+    and an unset follow-up resolution reads as an approval."""
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.RESOLVED, "request changes"),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+        # Wait 1 is the phase gate (still live); wait 2 is the follow-up.
+        on_wait=lambda n, cell: cell.cancel() if n == 2 else None,
+    )
+
+    assert action == "break"
+    assert PipelineStatus.RUNNING not in saved
+
+
+def test_gate_bails_when_cancelled_bridging_contract_decisions():
+    """The contract-decision bridge (#1889) is the longest human-latency
+    window in the gate — one blocking wait per contract question. A cancel
+    there leaves every answer unresolved, so the converge branch is skipped and
+    control falls through to "Approved — resume and advance"."""
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.RESOLVED, "approve"),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+        bridge=lambda cell: (cell.cancel(), 0)[1],
+    )
+
+    assert action == "break"
+    assert PipelineStatus.RUNNING not in saved, (
+        "the gate advanced the phase after the operator cancelled mid-bridge"
+    )
+
+
+def test_bare_request_changes_on_a_reused_gate_reaches_the_followup():
+    """Regression for the reuse path: ``draft_content`` / ``phase_label`` used
+    to be bound only on the create-a-new-gate arm, so resuming onto an existing
+    pending gate and answering with a bare "request changes" raised
+    ``UnboundLocalError`` before the follow-up could be queued."""
+    waits: list[int] = []
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.RESOLVED, "request changes"),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+        on_wait=lambda n, cell: waits.append(n),
+    )
+
+    assert waits == [1, 2], "the follow-up asking for specifics was never queued"
+    # The follow-up came back bare too, which the gate reads as an approval.
+    assert action is None
+    assert PipelineStatus.RUNNING in saved
+
+
+def test_gate_wait_cancelled_helper():
+    """Unit coverage for the seam itself, including the store-hiccup
+    tolerance it inherits from ``_pipeline_cancelled``."""
+    live = _store_returning(_cancellable_pipeline())
+    dead = _store_returning(_cancellable_pipeline(status=PipelineStatus.CANCELLED))
+
+    # A cancelled pipeline bails. Both real cancel paths persist CANCELLED
+    # before sweeping the decision queue, so a swept wait always sees it.
+    assert pipelines_pkg._gate_wait_cancelled(dead, PIPELINE_ID) is True
+    # A live pipeline proceeds.
+    assert pipelines_pkg._gate_wait_cancelled(live, PIPELINE_ID) is False
+    # FAILED is not a cancel (#1273): container_monitor can mark a live
+    # pipeline FAILED mid-gate and the consensus-complete path recovers it.
+    assert (
+        pipelines_pkg._gate_wait_cancelled(
+            _store_returning(_cancellable_pipeline(status=PipelineStatus.FAILED)),
+            PIPELINE_ID,
+        )
+        is False
+    )
+    # A store hiccup must never invent a cancel and strand an approved gate.
+    broken = MagicMock()
+    broken.load_pipeline.side_effect = RuntimeError("state branch locked")
+    assert pipelines_pkg._gate_wait_cancelled(broken, PIPELINE_ID) is False
+
+
+# ---------------------------------------------------------------------------
+# The pre-spawn guard sits between executor construction and spawn_all
+# ---------------------------------------------------------------------------
+
+
+def test_pre_spawn_guard_runs_before_spawn_all():
+    """A cancel landing in the prompt-build/session-setup window must stop the
+    cohort being minted at all.
+
+    That window is tens of seconds wide, and a cancel inside it runs the
+    route's teardown BEFORE these Jobs exist — nothing would reap them, since
+    no reconciler acts on CANCELLED and ``cleanup_pipeline`` only re-runs on
+    an operator DELETE. So the guard has to be the last thing before
+    ``spawn_all``, not merely present somewhere in the function.
+    """
+    cancelled = _cancellable_pipeline(status=PipelineStatus.CANCELLED)
+    cancelled.base_branch = "main"
+    cancelled.current_phase = PipelinePhase.PLAN
+    store = MagicMock()
+    store.load_pipeline.return_value = cancelled
+
+    executor = MagicMock()
+    spawner = MagicMock()
+
+    with (
+        patch("concurrent_executor.ConcurrentPhaseExecutor", return_value=executor),
+        patch.object(pipelines_pkg, "_build_agent_prompt", return_value="prompt"),
+    ):
+        exit_code, logs = pipelines_pkg._run_concurrent_phase(
+            PIPELINE_ID,
+            cancelled,
+            "plan",
+            spawner,
+            {},
+            "public",
+            ["owner/repo"],
+            {},
+            store,
+            None,
+            Path("/tmp/egg-worktree"),
+        )
+
+    assert exit_code == 1
+    assert "pipeline_cancelled" in logs
+    executor.spawn_all.assert_not_called()
+    # The executor owns a live event loop the moment it is constructed, so
+    # bailing without stopping it would leak the very thing layer 2 stops.
+    executor.stop_event_loop.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Layer 6 — the unresolved-gap gate's bail has to reach the driver
+# ---------------------------------------------------------------------------
+#
+# The gap gate is the one park-and-resume block whose caller, not the block
+# itself, decides the pipeline's fate. Skipping the RUNNING write leaves the
+# operator's CANCELLED intact for exactly as long as it takes control to
+# return to ``_run_pipeline``: IMPLEMENT is terminal
+# (``PHASE_TRANSITIONS[IMPLEMENT] == []``), so an unstopped driver walks
+# straight into its "pipeline complete" branch, writes COMPLETE over the
+# cancel, broadcasts "Pipeline completed successfully", and — now that the
+# ``finally`` no longer sees CANCELLED — deletes the worktrees ``restart_phase``
+# resumes from. The gate returning ``gated=True`` cannot be told apart from an
+# ordinary gating, so the stop has to be propagated explicitly (#3633 review
+# round 2). These tests drive the containing functions, not the gate alone.
+
+
+def _gap_contract(*, resolved: bool):
+    """A contract carrying one tester→coder gap, resolved or not."""
+    from egg_contracts.models import Contract
+
+    return Contract(
+        pipeline_id=PIPELINE_ID,
+        slices=[
+            {
+                "id": "slice-1",
+                "name": "n",
+                "tasks": [
+                    {
+                        "id": "task-1-2",
+                        "description": "d",
+                        "gaps": [
+                            {
+                                "id": "gap-1",
+                                "from_role": "tester",
+                                "to_role": "coder",
+                                "description": "no error-path test",
+                                "resolved": resolved,
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    )
+
+
+def _implement_pipeline(status=PipelineStatus.RUNNING) -> Pipeline:
+    pipeline = Pipeline(
+        id=PIPELINE_ID,
+        issue_number=3633,
+        repo="owner/repo",
+        branch=f"egg/{PIPELINE_ID}/work",
+        base_branch="main",
+        status=status,
+        current_phase=PipelinePhase.IMPLEMENT,
+    )
+    return pipeline
+
+
+def _run_implement_advance(*, cancel_during_wait: bool, resolution: str | None):
+    """Drive ``_run_implement_advance`` over the *real* gap gate.
+
+    ``cancel_during_wait`` models the operator's cancel as a store write that
+    lands while the gate is parked in ``wait_for_decision`` — the shape the
+    PATCH route produces (persist CANCELLED, then sweep the queue).
+    """
+    cell = _StatusCell(PipelineStatus.RUNNING)
+    saved: list[PipelineStatus] = []
+
+    decision = HITLDecision(
+        id="gap-gate-1",
+        question="Resolve the gap?",
+        decision_type="phase_gate",
+        phase=PipelinePhase.IMPLEMENT,
+        status=(DecisionStatus.CANCELLED if resolution is None else DecisionStatus.RESOLVED),
+        resolution=resolution,
+    )
+
+    def _wait(_decision_id):
+        if cancel_during_wait:
+            cell.cancel()
+        return decision
+
+    dq = MagicMock()
+    dq.queue_decision.return_value = decision
+    dq.wait_for_decision.side_effect = _wait
+
+    def _load(_pipeline_id):
+        # A fresh object per load, as the real store does — a shared one would
+        # let the gate's own AWAITING_HUMAN write mask the persisted cancel.
+        return _implement_pipeline(status=cell.status)
+
+    store = MagicMock()
+    store.load_pipeline.side_effect = _load
+    store.save_pipeline.side_effect = lambda p, *a, **k: saved.append(p.status)
+
+    spawner = MagicMock()
+
+    with (
+        patch.object(pipelines_pkg, "get_decision_queue", return_value=dq),
+        patch.object(pipelines_pkg, "get_pipeline_state_lock"),
+        patch.object(pipelines_pkg, "report_pipeline_status"),
+        patch.object(pipelines_pkg, "_emit_event", None),
+        patch.object(pipelines_pkg, "_commit_statefiles_to_worktree", return_value=True),
+        patch(
+            "egg_contracts.loader.load_contract",
+            side_effect=[_gap_contract(resolved=False), _gap_contract(resolved=True)],
+        ),
+    ):
+        pipeline, action = pipelines_pkg._run_implement_advance(
+            _implement_pipeline(),
+            current_phase=PipelinePhase.IMPLEMENT,
+            gateway_mode="public",
+            pipeline_id=PIPELINE_ID,
+            repo_path=Path("/repo"),
+            spawner=spawner,
+            store=store,
+            worktree_repo_path=Path("/tmp/egg-worktree"),
+        )
+    return action, saved, spawner
+
+
+def test_implement_advance_stops_the_driver_on_a_cancel_at_the_gap_gate():
+    """The gate's bail is only half the fix — its caller has to stop the driver.
+
+    Returning ``gated`` alone is indistinguishable from an ordinary gating, so
+    ``_run_pipeline`` fell through to the terminal-phase branch and overwrote
+    the operator's CANCELLED with COMPLETE.
+    """
+    action, saved, spawner = _run_implement_advance(cancel_during_wait=True, resolution=None)
+
+    assert action == "break", (
+        "a cancel inside the gap gate must stop the driver, not just skip the "
+        "gate's own RUNNING write"
+    )
+    assert PipelineStatus.RUNNING not in saved, (
+        "the gap gate rewrote the operator's CANCELLED back to RUNNING"
+    )
+    # A cancelled pipeline must not keep mutating the remote work branch.
+    spawner.gateway.push_worktree_branch.assert_not_called()
+
+
+def test_implement_advance_still_advances_after_a_genuine_gap_resolution():
+    """The bail must not swallow the ordinary path: an operator who resolves
+    the gap and approves gets the post-gate commit+push and a fall-through."""
+    action, saved, spawner = _run_implement_advance(cancel_during_wait=False, resolution="approve")
+
+    assert action is None, "a resolved gap gate must let the driver advance"
+    assert PipelineStatus.RUNNING in saved
+    spawner.gateway.push_worktree_branch.assert_called_once()

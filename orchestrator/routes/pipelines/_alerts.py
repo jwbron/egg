@@ -111,6 +111,10 @@ def _fail_pipeline_after_divergence_abort(
     ``pre_event_hook`` runs after the FAILED-write but before the public
     ``pipeline.failed`` broadcast (the post-phase site uses it to tear down
     the per-phase overseer container).
+
+    On an already-CANCELLED pipeline the status write and the broadcast are
+    both skipped — ``pre_event_hook`` still runs — so an operator cancel that
+    unblocked the reconcile pause is not rewritten as a failure (#3633).
     """
     phase_label = phase.value if phase is not None else "current phase"
     reason = (
@@ -124,6 +128,25 @@ def _fail_pipeline_after_divergence_abort(
         f"preserved under {backup_ref or '(backup ref write failed)'} "
         f"({len(local_only_commit_shas)} commit(s))."
     )
+    # ``_sync_worktree_reconciling_divergence`` also returns ``aborted=True``
+    # when what unblocked its ``wait_for_decision`` was the operator
+    # cancelling the pipeline (#3633).  That is a stop, not a failure: the
+    # FAILED write below would overwrite the persisted CANCELLED every driver
+    # work loop keys on, and the ``pipeline.failed`` broadcast would report a
+    # failure the operator never caused.  Run ``pre_event_hook`` anyway — the
+    # per-phase overseer teardown it carries is wanted on either exit — then
+    # return, leaving CANCELLED intact for the caller to stop on.
+    if _pkg._pipeline_cancelled(store, pipeline_id):
+        _pkg.logger.info(
+            "Divergence reconcile ended on an operator cancel — leaving the "
+            "persisted CANCELLED intact instead of pinning FAILED (#3633)",
+            pipeline_id=pipeline_id,
+            phase=phase_label,
+        )
+        if pre_event_hook is not None:
+            pre_event_hook()
+        return
+
     with _pkg.get_pipeline_state_lock(pipeline_id):
         pipeline = store.load_pipeline(pipeline_id)
         if phase is not None:
@@ -173,11 +196,13 @@ def _sync_worktree_reconciling_divergence(
     nothing discarded.
 
     Returns ``(outcome, aborted)``.  ``aborted`` is True when the operator
-    chose "Abort pipeline" or the reconcile-pause budget was exhausted; the
-    caller should fail the pipeline via
-    :func:`_fail_pipeline_after_divergence_abort`.  When ``aborted`` is
-    False the worktree is reconciled (or never diverged) and the caller
-    proceeds normally.
+    chose "Abort pipeline", the reconcile-pause budget was exhausted, or the
+    operator cancelled the pipeline while this was blocked on the pause
+    (#3633); the caller should stop driving the phase via
+    :func:`_fail_pipeline_after_divergence_abort`, which pins FAILED for the
+    first two and is a status no-op for the third so the persisted CANCELLED
+    survives.  When ``aborted`` is False the worktree is reconciled (or never
+    diverged) and the caller proceeds normally.
 
     Only call this from inside the ``_run_pipeline`` loop thread, which is
     allowed to block; route handlers that cannot block use
@@ -279,6 +304,25 @@ def _sync_worktree_reconciling_divergence(
             _pkg._emit_pipeline_event(pipeline, "decision.created")
 
             dq.wait_for_decision(decision.id)
+
+            # The wait also returns when the operator cancels the pipeline —
+            # the cancel route sweeps every pending decision, this one
+            # included, with no resolution.  Bail before the RUNNING write
+            # below: restoring RUNNING would overwrite the persisted
+            # CANCELLED the driver keys on and re-admit the run the operator
+            # just stopped (#3633).  ``aborted=True`` is how the two callers
+            # spell "stop driving this phase"; the FAILED pin they route to
+            # is suppressed on a cancelled pipeline in
+            # ``_fail_pipeline_after_divergence_abort``.
+            if _pkg._pipeline_cancelled(store, pipeline_id):
+                _pkg.logger.info(
+                    "Divergence reconcile pause: pipeline cancelled while "
+                    "awaiting the operator — leaving the persisted CANCELLED "
+                    "intact (#3633)",
+                    pipeline_id=pipeline_id,
+                    phase=phase_label,
+                )
+                return outcome, True
 
             resolved = dq.get_decision(decision.id)
             resolution = (resolved.resolution or "") if resolved is not None else ""

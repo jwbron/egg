@@ -309,8 +309,11 @@ def _run_concurrent_phase(
     # Last chance to notice a cancel before minting a cohort (#3633 review).
     # The slice loop's guard runs at the top of its tick; everything between
     # there and here — contract load, per-role prompt building (draft reads,
-    # BRC history, git diffs), gateway session + worktree setup, integration
-    # branch creation — takes tens of seconds. A cancel landing in that window
+    # BRC history, git diffs), gateway session + worktree setup — takes tens
+    # of seconds. (Integration-branch creation is in that window too, but it
+    # happens back in ``_run_implement`` before this function is called, so
+    # this guard cannot prevent it — only the slice loop's own guard can.)
+    # A cancel landing in that window
     # runs the route's teardown BEFORE these Jobs exist, so nothing would reap
     # them: no reconciler acts on CANCELLED, and ``cleanup_pipeline`` only
     # re-runs on an operator DELETE. Re-read the status here so the cohort is

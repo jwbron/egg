@@ -744,7 +744,10 @@ def _run_pipeline(
             # discarded — the local commits remain pinned under the backup
             # ref for offline recovery.  ``pre_event_hook`` tears down the
             # per-phase overseer under its own lock before the public
-            # ``pipeline.failed`` event, matching the prior ordering.
+            # ``pipeline.failed`` event, matching the prior ordering.  The
+            # helper also fields the operator-cancelled-during-the-pause case
+            # (#3633), where it tears down but leaves CANCELLED persisted
+            # instead of pinning FAILED; the ``break`` below is right for both.
             if post_phase_sync_aborted and post_phase_sync_outcome is not None:
                 _pkg._fail_pipeline_after_divergence_abort(
                     pipeline_id,
@@ -901,7 +904,7 @@ def _run_pipeline(
             # not block — both options need a human, so blocking would
             # stall the pipeline indefinitely; the reactive CI check stays
             # the backstop there.
-            pipeline = _pkg._run_implement_advance(
+            pipeline, _gap_gate_action = _pkg._run_implement_advance(
                 pipeline,
                 current_phase=current_phase,
                 gateway_mode=gateway_mode,
@@ -911,6 +914,13 @@ def _run_pipeline(
                 store=store,
                 worktree_repo_path=worktree_repo_path,
             )
+            if _gap_gate_action == "break":
+                # The operator cancelled while the gap gate was blocked in
+                # ``wait_for_decision`` (#3633). Leave the loop the same way the
+                # CANCELLED check at the loop head does. Falling through instead
+                # would reach the terminal-phase branch below — IMPLEMENT has no
+                # successor — and write COMPLETE over the operator's CANCELLED.
+                break
 
             # --- HITL gate: pause for human approval ---
             # Refine/plan are gated by the converge-before-advance loop
@@ -941,6 +951,16 @@ def _run_pipeline(
             )
             if _hitl_gate_action == "continue":
                 continue
+            if _hitl_gate_action == "break":
+                # The operator cancelled while the gate was blocked in one of
+                # its ``wait_for_decision`` calls (#3633). Leave the loop the
+                # same way the CANCELLED check at the loop head does rather
+                # than advancing the phase: the gate parks at AWAITING_HUMAN
+                # and writes RUNNING back on its way out, so by the time
+                # control returns here the loop-head check would be reading a
+                # status the gate itself had already overwritten. It has to
+                # bail from inside.
+                break
 
             # ----------------------------------------------------------
             # #2777 (cq-4, TASK-1-2) — inline ``_run_pipeline``
@@ -1008,7 +1028,29 @@ def _run_pipeline(
             )
 
             if not next_phases:
-                # Terminal phase — pipeline complete
+                # Terminal phase — pipeline complete.
+                #
+                # ...unless the operator cancelled somewhere between the loop
+                # head and here. This branch is the last unguarded status write
+                # in the loop, and it is the one every park-and-resume block in
+                # a terminal phase falls into: the block bails without writing
+                # RUNNING back, the driver reads that as "nothing left to do",
+                # and CANCELLED becomes COMPLETE plus a "completed
+                # successfully" broadcast — after which the ``finally`` sees a
+                # non-CANCELLED status, leaves ``skip_cleanup`` False, and
+                # deletes the worktrees ``restart_phase`` resumes from (#3633).
+                # Re-read the persisted status here so the guard holds for
+                # future blocks too, not just today's gap gate.
+                if _pkg._pipeline_cancelled(store, pipeline_id):
+                    _pkg.logger.info(
+                        "Terminal phase reached on a cancelled pipeline — "
+                        "leaving the persisted CANCELLED intact and skipping "
+                        "the completion broadcast (#3633)",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                    )
+                    break
+
                 with _pkg.get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
                     pipeline.status = _pkg.PipelineStatus.COMPLETE

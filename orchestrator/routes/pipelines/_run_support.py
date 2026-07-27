@@ -92,11 +92,33 @@ def _pipeline_cancelled(store, pipeline_id: str) -> bool:
     """True if ``pipeline_id`` is persisted as CANCELLED (#3633).
 
     The operator's cancel is the authoritative "stop driving this run"
-    signal, and it is the one signal that survives every in-process
-    mechanism (a stop event a thread never checks, an event loop the cancel
-    route could not reach). Driver work loops re-read it so a cancelled
-    pipeline stops admitting slices and spawning agents rather than walking
-    the rest of its DAG against an operator who believes it is stopped.
+    signal, and the persisted status outlives the in-process mechanisms a
+    cancel cannot reach (a stop event a thread never checks, an event loop
+    the cancel route did not know about). Driver work loops re-read it so a
+    cancelled pipeline stops admitting slices and spawning agents rather
+    than walking the rest of its DAG against an operator who believes it is
+    stopped.
+
+    It is not inviolable, and callers should not treat it as such. Every
+    operator-blocking gate parks the pipeline at ``AWAITING_HUMAN`` and writes
+    ``RUNNING`` back once its wait returns, so a loop that only re-reads the
+    status *after* such a gate sees the gate's own write, not the operator's
+    cancel. That is why each of them re-checks from inside, before the write:
+    the refine/plan HITL gate (``_gate_wait_cancelled``, at all five of its
+    blocking waits), the unresolved-gap gate (``_await_unresolved_gap_gate``),
+    and the divergence-reconcile pause (``_alerts.py``). Any new
+    park-and-resume block belongs on that list.
+
+    Re-checking is only half of it. A block that merely *skips* its RUNNING
+    write leaves the persisted CANCELLED intact and then hands its caller the
+    same value an ordinary gating returns — so the driver keeps walking the
+    DAG and the next unguarded status write clobbers the cancel anyway. Each
+    block therefore has to propagate a stop the driver acts on: the four
+    ``_run_hitl_gate.py`` sites and the gap gate's caller
+    (``_run_implement_advance``) return ``"break"``, and the
+    divergence-reconcile pause returns ``aborted=True``. The terminal-phase
+    "pipeline complete" branch in ``_run_pipeline`` re-checks as a backstop for
+    the case a future block forgets.
 
     FAILED is deliberately not included: ``container_monitor``
     reconciliation can mark a live pipeline FAILED mid-poll, and the

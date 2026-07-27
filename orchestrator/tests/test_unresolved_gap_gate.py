@@ -267,3 +267,60 @@ def test_unresolved_decision_does_not_spin() -> None:
     gated, _, _ = _run_gate(dq, load_side_effect=[_contract(resolved=False)])
     assert gated is True
     assert len(dq.queued) == 1
+
+
+def test_pipeline_cancelled_during_the_gate_keeps_cancelled() -> None:
+    """This gate is a park-and-resume block: AWAITING_HUMAN, block, then
+    RUNNING back once the wait returns. When what unblocked the wait was the
+    operator cancelling the pipeline, that RUNNING write lands on top of the
+    persisted CANCELLED every driver work loop keys on, re-admitting the run
+    the operator just stopped (#3633). Bail before the status write."""
+    from routes.pipelines import _await_unresolved_gap_gate
+
+    persisted = {"status": PipelineStatus.RUNNING}
+    saved: list[PipelineStatus] = []
+
+    class _CancellingQueue(_FakeQueue):
+        def wait_for_decision(self, decision_id: str):
+            # The operator cancels while the gate is blocked here; the cancel
+            # route sweeps this decision, leaving no resolution.
+            persisted["status"] = PipelineStatus.CANCELLED
+            return super().wait_for_decision(decision_id)
+
+    dq = _CancellingQueue(resolutions=[None])
+
+    # A fresh object per load, as the real store does — a shared one would let
+    # the gate's own AWAITING_HUMAN write mask the cancel the bail re-reads.
+    def _load(_pipeline_id):
+        pipeline = Pipeline(
+            id="issue-42", issue_number=42, repo="owner/repo", branch="egg/issue-42"
+        )
+        pipeline.current_phase = PipelinePhase.IMPLEMENT
+        pipeline.status = persisted["status"]
+        return pipeline
+
+    store = MagicMock()
+    store.load_pipeline.side_effect = _load
+    store.save_pipeline.side_effect = lambda p, *a, **k: saved.append(p.status)
+
+    with (
+        patch("routes.pipelines.get_decision_queue", return_value=dq),
+        patch("routes.pipelines.get_pipeline_state_lock", return_value=nullcontext()),
+        patch("routes.pipelines.report_pipeline_status"),
+        patch("routes.pipelines._emit_event", None),
+        patch("egg_contracts.loader.load_contract", side_effect=[_contract(resolved=False)]),
+    ):
+        gated = _await_unresolved_gap_gate(
+            store,
+            "issue-42",
+            Path("/repo"),
+            Path("/worktree"),
+            42,
+            PipelinePhase.IMPLEMENT,
+            True,
+        )
+
+    assert gated is True
+    assert PipelineStatus.RUNNING not in saved, (
+        "the gap gate rewrote the operator's CANCELLED back to RUNNING"
+    )
