@@ -705,10 +705,16 @@ the `AWAITING_HUMAN` restart path) and persisted on the decision record as
 rather than only the text itself. When the gate takes the "you didn't provide
 specifics" follow-up path, the outcome is recorded on the follow-up decision as
 well as the primary gate decision, since the follow-up answer is what produced
-the final branch. The overseer's no-op-rerun heuristic
-(`_check_rerun_anomaly`) keys on `resolution_outcome == "needs_revision"`,
-falling back to a substring test on the raw resolution only for decisions
-resolved before the field existed.
+the final branch. The live consumers are the two decision API serializers
+(`GET /pipelines/<id>/decisions` and the single-decision route), which expose
+the field alongside the raw text. The legacy overseer monitor's no-op-rerun
+heuristic (`_check_rerun_anomaly`) also keys on `resolution_outcome ==
+"needs_revision"`, falling back to a substring test on the raw resolution only
+for decisions resolved before the field existed — but that heuristic runs
+inside `OverseerMonitor._poll_cycle`, which is reachable only from the
+deprecated `_lifecycle.start()` (#2270 slice-4) and has no production
+construction site today. Treat it as keyed and ready, not as live detection,
+pending detection-plane parity in `orchestrator/health_checks/`.
 
 ### Creating Typed Decisions from Agents
 

@@ -408,6 +408,37 @@ def _classify_bare_gate_resolution(resolution: str | None) -> tuple[bool, str | 
     return False, text, ""
 
 
+def _coerce_gate_resolution_text(value: object) -> str:
+    """Coerce a structured resolution's ``feedback`` / ``context`` to text.
+
+    Nothing on the resolution path type-checks these fields. ``provide_input``
+    stores whatever JSON the client sends, and the gate's JSON-first parser
+    only tests ``isinstance(payload, dict) and "action" in payload`` — so
+    ``{"action": "approve", "context": {"note": "ship it"}}`` and
+    ``{"action": "request_changes", "feedback": 42}`` are both accepted and
+    the non-string value reaches ``.strip()`` / ``feedback[:200]`` intact.
+    That raises ``AttributeError`` / ``KeyError`` out of
+    ``_run_hitl_gate_converge``, which is called unguarded from the phase
+    loop, so the pipeline is marked ``FAILED`` at the exact moment the
+    operator answered — with the decision already ``resolved`` and its
+    ``resolution_outcome`` already stamped (#3636 review).
+
+    Strings pass through unchanged. Anything else is rendered as JSON so the
+    operator's content still reaches the producers instead of crashing the
+    driver; an unserialisable object degrades to ``repr``-ish ``str()``.
+    ``None`` (an absent field) is the empty string, matching the
+    ``payload.get("feedback", "")`` default it replaces.
+    """
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return ""
+    try:
+        return _pkg.json.dumps(value)
+    except ValueError, TypeError:
+        return str(value)
+
+
 def _parse_resolution(resolution: str | None) -> tuple[bool, str | None]:
     """Parse a HITL phase_gate resolution into (is_approved, feedback).
 
@@ -429,7 +460,9 @@ def _parse_resolution(resolution: str | None) -> tuple[bool, str | None]:
         payload = _pkg.json.loads(resolution)
         if isinstance(payload, dict) and "action" in payload:
             action = payload["action"]
-            feedback_text = payload.get("feedback", "") or None
+            # Coerced for the same reason as the gate's own parse: the return
+            # is annotated ``str | None`` but nothing upstream enforces it.
+            feedback_text = _coerce_gate_resolution_text(payload.get("feedback")) or None
 
             if action in ("approve", "select", "submit_feedback"):
                 return True, None

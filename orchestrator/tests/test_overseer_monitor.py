@@ -1207,8 +1207,8 @@ class TestQueryDecisionsUnwrapsTheEnvelope:
     dead code with no error, log, or alert to show for it.
     """
 
-    def _monitor(self, pipeline_id: str, stdout: str) -> OverseerMonitor:
-        monitor = OverseerMonitor(pipeline_id=pipeline_id, config=_MockConfig())
+    def _monitor(self, pipeline_id: str, stdout: str, config=None) -> OverseerMonitor:
+        monitor = OverseerMonitor(pipeline_id=pipeline_id, config=config or _MockConfig())
         monitor._run_cli = AsyncMock(return_value=(0, stdout, ""))
         return monitor
 
@@ -1251,7 +1251,8 @@ class TestQueryDecisionsUnwrapsTheEnvelope:
 
         monitor = self._monitor(
             "test-dq-006",
-            _decision_list_envelope(
+            config=config,
+            stdout=_decision_list_envelope(
                 [
                     {
                         "id": "d-outcome",
@@ -1286,7 +1287,8 @@ class TestQueryDecisionsUnwrapsTheEnvelope:
 
         monitor = self._monitor(
             "test-dq-007",
-            _decision_list_envelope(
+            config=config,
+            stdout=_decision_list_envelope(
                 [
                     {
                         "id": "d-approved",
@@ -1317,7 +1319,8 @@ class TestQueryDecisionsUnwrapsTheEnvelope:
 
         monitor = self._monitor(
             "test-dq-008",
-            _decision_list_envelope(
+            config=config,
+            stdout=_decision_list_envelope(
                 [
                     {
                         "id": "d-legacy",

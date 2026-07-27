@@ -1433,6 +1433,7 @@ from ._run_pipeline_support import (  # noqa: E402,F401
 from ._run_support import (  # noqa: E402,F401
     _classify_bare_gate_resolution,
     _clear_stale_impasses_for_producers,
+    _coerce_gate_resolution_text,
     _parse_resolution,
     _pipeline_superseded_by_restart,
     _spawn_and_wait,

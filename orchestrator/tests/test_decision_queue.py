@@ -7,6 +7,7 @@ error cases (DecisionNotFoundError, DecisionAlreadyResolvedError),
 and the get_decision_queue factory.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -358,14 +359,24 @@ class TestRecordResolutionOutcome:
         mock_logger.warning.assert_not_called()
 
     def test_records_the_write_on_the_pipeline_timestamp(self, queue):
-        """The stamp is a pipeline mutation, so ``updated_at`` moves with it."""
+        """The stamp is a pipeline mutation, so ``updated_at`` moves with it.
+
+        Asserted as a window around the call rather than ``>= before``: the
+        latter also passes when the stamp is never written at all, since the
+        value left behind by ``resolve_decision`` is itself ``>=`` the
+        pre-call read.
+        """
         queue.queue_decision(question="Approve?")
         queue.resolve_decision("decision-1", "approve")
-        before = queue._load_pipeline().updated_at
+        resolved_at = queue._load_pipeline().updated_at
 
+        window_start = datetime.now(UTC)
         queue.record_resolution_outcome("decision-1", "approved")
+        window_end = datetime.now(UTC)
 
-        assert queue._load_pipeline().updated_at >= before
+        stamped = queue._load_pipeline().updated_at
+        assert window_start <= stamped <= window_end
+        assert stamped > resolved_at
 
 
 # ---------------------------------------------------------------------------

@@ -14,6 +14,8 @@ lived and which nothing else exercises:
   text and reaches producers verbatim;
 * ``record_resolution_outcome`` on both the primary and the follow-up
   decision, and that its failure cannot strand the gate;
+* that a non-string ``context`` / ``feedback`` in an otherwise-valid
+  ``{"action": ...}`` payload cannot fail the pipeline;
 * the reuse-an-existing-pending-gate arm reaching the follow-up block without
   an ``UnboundLocalError``.
 """
@@ -321,6 +323,76 @@ class TestApproveContextThreading:
 
         assert action == "continue"
         assert gate_env["rerun_calls"][0]["feedback_text"] == "[1, 2, 3]"
+
+
+class TestNonStringPayloadFields:
+    """``context`` / ``feedback`` are untyped, and both reach a ``str`` op.
+
+    Nothing on the resolution path type-checks them: the gate accepts any
+    ``{"action": ...}`` mapping, so a non-string value reaches ``.strip()``
+    on the approve-context path and ``feedback[:200]`` on the revision path.
+    Either raises out of ``_run_hitl_gate_converge``, which the phase loop
+    calls unguarded — the pipeline is marked FAILED at the moment the
+    operator answered, with the decision already resolved and its outcome
+    already stamped (#3636 review).
+    """
+
+    def test_dict_context_on_an_approve_does_not_fail_the_pipeline(self, gate_env):
+        gate_env["bridge"].return_value = 1
+        dq = FakeDecisionQueue(['{"action": "approve", "context": {"note": "ship it"}}'])
+
+        _pipeline, action = _run(gate_env, dq)
+
+        assert action == "continue"
+        assert dq.recorded_outcomes == [("d1", "approved")]
+        # Serialised rather than dropped: the operator's content still reaches
+        # the producers.
+        feedback = gate_env["rerun_calls"][0]["feedback_text"]
+        assert 'Operator note at the gate: {"note": "ship it"}' in feedback
+
+    def test_numeric_feedback_on_an_approve_does_not_fail_the_pipeline(self, gate_env):
+        """``context`` absent, ``feedback`` non-string — the ``or`` chain
+        yields the number and it lands on the same ``.strip()``."""
+        gate_env["bridge"].return_value = 1
+        dq = FakeDecisionQueue(['{"action": "approve", "feedback": 42}'])
+
+        _pipeline, action = _run(gate_env, dq)
+
+        assert action == "continue"
+        assert "Operator note at the gate: 42" in gate_env["rerun_calls"][0]["feedback_text"]
+
+    def test_dict_feedback_on_a_change_request_does_not_fail_the_pipeline(self, gate_env):
+        """The revision path's ``_revision_feedback[:200]`` raised
+        ``KeyError: slice(None, 200, None)`` on a non-string feedback."""
+        dq = FakeDecisionQueue(['{"action": "request_changes", "feedback": {"x": 1}}'])
+
+        _pipeline, action = _run(gate_env, dq)
+
+        assert action == "continue"
+        assert gate_env["rerun_calls"][0]["feedback_text"] == '{"x": 1}'
+        assert dq.recorded_outcomes == [("d1", "needs_revision")]
+
+    def test_dict_feedback_on_the_follow_up_does_not_fail_the_pipeline(self, gate_env):
+        """The follow-up parse reads ``feedback`` from its own payload."""
+        dq = FakeDecisionQueue(
+            ["request changes", '{"action": "request_changes", "feedback": [1, 2]}']
+        )
+
+        _pipeline, action = _run(gate_env, dq)
+
+        assert action == "continue"
+        assert gate_env["rerun_calls"][0]["feedback_text"] == "[1, 2]"
+
+    def test_null_feedback_on_a_change_request_asks_for_specifics(self, gate_env):
+        """``None`` coerces to ``""``, matching the absent-field default, so
+        the bare-label follow-up still fires rather than re-running the phase
+        against the string ``"None"``."""
+        dq = FakeDecisionQueue(['{"action": "request_changes", "feedback": null}', "approve"])
+
+        _run(gate_env, dq)
+
+        assert len(dq.queued) == 2
+        assert "didn't provide specific feedback" in dq.queued[1].question
 
 
 class TestExistingPendingGateReuse:

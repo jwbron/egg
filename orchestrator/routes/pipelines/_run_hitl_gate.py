@@ -432,7 +432,14 @@ def _run_hitl_gate_converge(
             payload = _pkg.json.loads(resolution)
             if isinstance(payload, dict) and "action" in payload:
                 action = payload["action"]
-                feedback_text = payload.get("feedback", "")
+                # ``feedback`` is whatever JSON the client stored — there is
+                # no type check anywhere on this path, and ``_revision_feedback``
+                # is annotated ``str | None`` on the strength of that annotation
+                # alone. A dict/int would reach ``_revision_feedback[:200]``
+                # below and raise out of the gate, failing the pipeline at the
+                # moment the operator answered. Enforce the annotation here
+                # rather than trusting it (#3636 review).
+                feedback_text = _pkg._coerce_gate_resolution_text(payload.get("feedback"))
 
                 if action == "approve":
                     _is_approved = True
@@ -550,7 +557,8 @@ def _run_hitl_gate_converge(
                         _is_approved = True
                         _needs_revision = False
                     elif fa in ("request_changes", "change_approach"):
-                        ft = fp.get("feedback", "")
+                        # Same untyped-field hazard as the primary parse above.
+                        ft = _pkg._coerce_gate_resolution_text(fp.get("feedback"))
                         if ft:
                             _revision_feedback = ft
                         else:
@@ -711,7 +719,16 @@ def _run_hitl_gate_converge(
             except _pkg.json.JSONDecodeError, TypeError, AttributeError:
                 _ap = None
             if isinstance(_ap, dict):
-                _approve_context = (_ap.get("context") or _ap.get("feedback") or "").strip()
+                # ``.strip()`` sits outside the ``try`` above, so the
+                # ``AttributeError`` arm no longer covers it: a non-string
+                # ``context`` (``{"action": "approve", "context": {"note":
+                # "x"}}``) would unwind to ``_run_pipeline``'s outer handler
+                # and mark the pipeline FAILED on an approving answer. Coerce
+                # rather than relying on a handler that no longer wraps this
+                # expression (#3636 review).
+                _approve_context = _pkg._coerce_gate_resolution_text(
+                    _ap.get("context") or _ap.get("feedback")
+                ).strip()
             else:
                 # Bare-string approve-with-context: the remainder after the
                 # leading option word is the operator's note, and dropping
