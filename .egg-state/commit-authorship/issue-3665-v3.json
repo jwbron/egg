@@ -32,6 +32,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "4e03796ef4bc94c2d5a32680474e42c805d8d3c9": {
+      "branch": "egg/issue-3665-v3/work",
+      "patch_id": "4f478371255e3fabb32bbbd53037649ecf791751",
+      "pipeline_id": "issue-3665-v3",
+      "registered_at": "2026-07-27T23:44:30.297804+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "6092b5a7afd4e018c2c7f83fdf1161cbab01430e": {
       "branch": "egg/issue-3665-v3/work",
       "patch_id": "c879dd7f1b8f9b449ebe155d6abc7ac081a70e59",
@@ -181,6 +189,14 @@
       "patch_id": "028e566ca808aff84b5bfab909bb7d17e3435eb6",
       "pipeline_id": "issue-3665-v3",
       "registered_at": "2026-07-27T22:31:40.672835+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
+    "ef0f06645d673edc5a5dc8b820cf2c0787748f5f": {
+      "branch": "egg/issue-3665-v3/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3665-v3",
+      "registered_at": "2026-07-27T23:44:30.289881+00:00",
       "repo": null,
       "role": "task_planner"
     },
