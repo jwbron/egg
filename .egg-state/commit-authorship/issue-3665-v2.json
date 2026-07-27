@@ -160,6 +160,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "be67e9e594815ac42020a912d9606e8b58350191": {
+      "branch": "egg/issue-3665-v2/work",
+      "patch_id": "d4a87ddc1c1dd2a631d159e9674a9d0b80b620ef",
+      "pipeline_id": "issue-3665-v2",
+      "registered_at": "2026-07-27T08:21:44.355897+00:00",
+      "repo": null,
+      "role": "architect"
+    },
     "bef7b38f195054c1467147599ec5dd9a7d9b8e6f": {
       "branch": "egg/issue-3665-v2/work",
       "patch_id": "51431e8e3e03cefe2cc6b7b5be0aff7bdd654855",
