@@ -1083,12 +1083,21 @@ class ConcurrentPhaseExecutor:
         encoded in the subject (so ``/sdlc`` and any listener pick it up).
         Best-effort — a message-store hiccup must not wedge the loop.
 
-        #3665 priority 4: ``evidence`` is an optional dict of structured
-        evidence (agent activity ages, blocking agents, consensus state)
-        that is merged into the message metadata so operators can act
-        without hand-investigation.
+        #3665 priority 4: enriches the OVERSEER_ALERT metadata with structured
+        evidence so operators can act without hand-investigation. When the
+        caller does not supply ``evidence``, the method builds it from the
+        health monitor's activity ages and the BRC consensus tracker:
+
+        * ``latest_heartbeat_age_s`` — seconds since the agent's last heartbeat
+        * ``latest_tool_call_age_s`` — seconds since the agent's last tool call
+        * ``last_progress_event`` — the agent's most recent progress event data
+        * ``blocking_agents`` — the BRC consensus blocking set
+        * ``consensus_state`` — the BRC consensus status dict
+        * ``container_logs_tail`` — last N lines of container logs (best-effort)
         """
         try:
+            if evidence is None:
+                evidence = self._build_alert_evidence()
             metadata: dict[str, Any] = {
                 "anomaly": anomaly,
                 "priority": priority,
@@ -1115,6 +1124,79 @@ class ConcurrentPhaseExecutor:
                 anomaly=anomaly,
                 error=str(exc),
             )
+
+    def _build_alert_evidence(self) -> dict[str, Any]:
+        """Build structured evidence for a supervision alert (#3665 priority 4).
+
+        Aggregates per-agent activity ages from the HealthMonitor and the BRC
+        consensus blocking set from the peer-consensus tracker. All lookups are
+        best-effort — a failure in any one leaves the corresponding field absent
+        rather than raising.
+        """
+        evidence: dict[str, Any] = {}
+
+        # Agent activity ages from the health monitor.
+        try:
+            from health_monitor import get_health_monitor
+
+            hm = get_health_monitor()
+            if hm is not None:
+                activity = hm.get_agent_activity_ages()
+                if activity:
+                    # Pick the most-recently-active agent as the representative
+                    # for the alert. If there's only one, that's the one.
+                    best_role: str | None = None
+                    best_age: float | None = None
+                    for role, ages in activity.items():
+                        hb_age = ages.get("last_heartbeat_age_s")
+                        if hb_age is not None and (best_age is None or hb_age < best_age):
+                            best_age = hb_age
+                            best_role = role
+                    if best_role is not None:
+                        agent_info = activity[best_role]
+                        evidence["agent_role"] = best_role
+                        evidence["latest_heartbeat_age_s"] = agent_info.get("last_heartbeat_age_s")
+                        evidence["latest_tool_call_age_s"] = agent_info.get("last_activity_age_s")
+                        evidence["latest_progress_age_s"] = agent_info.get("last_progress_age_s")
+                        # last_progress_event is stored on the agent state object.
+                        agent = hm._agents.get(best_role)
+                        if agent is not None:
+                            evidence["last_progress_event"] = dict(agent.last_progress_data) if agent.last_progress_data else None
+        except Exception:
+            pass
+
+        # BRC consensus state.
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+
+            tracker = get_peer_consensus_tracker(self.pipeline.id, self._slice_id)
+            if tracker is not None:
+                consensus = tracker.evaluate()
+                evidence["blocking_agents"] = consensus.get("blocking_agents", [])
+                evidence["consensus_state"] = {
+                    "is_complete": consensus.get("is_complete", False),
+                    "producer_phases": dict(tracker._producer_phases),
+                    "reviewer_phases": dict(tracker._reviewer_phases),
+                }
+        except Exception:
+            pass
+
+        # Container logs tail (best-effort — the overseer fetches these at
+        # _poll.py:78-85; we attempt the same for the alert payload).
+        try:
+            from container_backend import get_container_backend
+
+            backend = get_container_backend()
+            if backend is not None:
+                # Try to get logs for the most recently active agent.
+                if "agent_role" in evidence:
+                    logs = backend.get_container_logs(evidence["agent_role"], tail=50)
+                    if logs:
+                        evidence["container_logs_tail"] = logs[-5000:]  # cap size
+        except Exception:
+            pass
+
+        return evidence
 
     def _unresolved_contract_decision_ids(self) -> frozenset[str] | None:
         """Return ids of unresolved contract-resident decisions (#3425).
