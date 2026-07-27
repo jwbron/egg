@@ -73,6 +73,7 @@ def list_decisions(pipeline_id: str) -> tuple[Response, int]:
                 "resolution": d.resolution,
                 "phase": d.phase.value if d.phase else None,
                 "content_changed": d.content_changed,
+                "resolution_outcome": d.resolution_outcome,
             }
             for d in decisions
         ]
@@ -236,6 +237,7 @@ def get_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
                     else None,
                     "resolution": decision.resolution,
                     "phase": decision.phase.value if decision.phase else None,
+                    "resolution_outcome": decision.resolution_outcome,
                 }
             },
         )

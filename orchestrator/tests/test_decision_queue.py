@@ -7,6 +7,7 @@ error cases (DecisionNotFoundError, DecisionAlreadyResolvedError),
 and the get_decision_queue factory.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -279,6 +280,103 @@ class TestResolveDecision:
         pipeline = queue._load_pipeline()
         assert pipeline.decisions[0].status == DecisionStatus.RESOLVED
         assert pipeline.decisions[0].resolution == "Done"
+
+
+# ---------------------------------------------------------------------------
+# record_resolution_outcome (#3636)
+# ---------------------------------------------------------------------------
+
+
+class TestRecordResolutionOutcome:
+    """The parsed branch is recorded alongside the raw resolution."""
+
+    def test_outcome_defaults_to_none(self, queue):
+        """A decision carries no outcome until a gate parses it."""
+        decision = queue.queue_decision(question="Approve?")
+
+        assert decision.resolution_outcome is None
+
+    def test_records_outcome_without_touching_the_raw_resolution(self, queue):
+        """The operator's text is the audit trail; the outcome sits beside it."""
+        queue.queue_decision(question="Approve?")
+        queue.resolve_decision("decision-1", "approve\n\nApproved. Advance to plan.")
+
+        queue.record_resolution_outcome("decision-1", "approved")
+
+        decision = queue._load_pipeline().decisions[0]
+        assert decision.resolution_outcome == "approved"
+        assert decision.resolution == "approve\n\nApproved. Advance to plan."
+
+    def test_records_needs_revision(self, queue):
+        queue.queue_decision(question="Approve?")
+        queue.resolve_decision("decision-1", "The risk section is missing.")
+
+        queue.record_resolution_outcome("decision-1", "needs_revision")
+
+        assert queue._load_pipeline().decisions[0].resolution_outcome == "needs_revision"
+
+    def test_unknown_decision_raises(self, queue):
+        with pytest.raises(DecisionNotFoundError):
+            queue.record_resolution_outcome("decision-999", "approved")
+
+    def test_pending_decision_warns_but_still_records(self, queue):
+        """A non-``RESOLVED`` target means a mis-sequenced caller.
+
+        The field describes how a *resolved* decision's text was read, so
+        stamping a pending one is a bug worth surfacing — but the write is
+        observability and every caller treats it as best-effort, so it warns
+        rather than raising.
+        """
+        queue.queue_decision(question="Approve?")
+
+        with patch("decision_queue.logger") as mock_logger:
+            decision = queue.record_resolution_outcome("decision-1", "approved")
+
+        assert decision.status == DecisionStatus.PENDING
+        assert queue._load_pipeline().decisions[0].resolution_outcome == "approved"
+        mock_logger.warning.assert_called_once()
+        _args, kwargs = mock_logger.warning.call_args
+        assert kwargs["decision_id"] == "decision-1"
+        assert kwargs["status"] == "pending"
+
+    def test_cancelled_decision_warns(self, queue):
+        queue.queue_decision(question="Approve?")
+        queue.cancel_decision("decision-1")
+
+        with patch("decision_queue.logger") as mock_logger:
+            queue.record_resolution_outcome("decision-1", "needs_revision")
+
+        mock_logger.warning.assert_called_once()
+        assert mock_logger.warning.call_args.kwargs["status"] == "cancelled"
+
+    def test_resolved_decision_does_not_warn(self, queue):
+        queue.queue_decision(question="Approve?")
+        queue.resolve_decision("decision-1", "approve")
+
+        with patch("decision_queue.logger") as mock_logger:
+            queue.record_resolution_outcome("decision-1", "approved")
+
+        mock_logger.warning.assert_not_called()
+
+    def test_records_the_write_on_the_pipeline_timestamp(self, queue):
+        """The stamp is a pipeline mutation, so ``updated_at`` moves with it.
+
+        Asserted as a window around the call rather than ``>= before``: the
+        latter also passes when the stamp is never written at all, since the
+        value left behind by ``resolve_decision`` is itself ``>=`` the
+        pre-call read.
+        """
+        queue.queue_decision(question="Approve?")
+        queue.resolve_decision("decision-1", "approve")
+        resolved_at = queue._load_pipeline().updated_at
+
+        window_start = datetime.now(UTC)
+        queue.record_resolution_outcome("decision-1", "approved")
+        window_end = datetime.now(UTC)
+
+        stamped = queue._load_pipeline().updated_at
+        assert window_start <= stamped <= window_end
+        assert stamped > resolved_at
 
 
 # ---------------------------------------------------------------------------

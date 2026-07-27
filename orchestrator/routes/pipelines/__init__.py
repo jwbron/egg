@@ -219,7 +219,7 @@ except ImportError:
 try:
     from .. import agent_salvage
     from ..container_spawner import ContainerSpawnError, SpawnFailureError, get_container_spawner
-    from ..decision_queue import get_decision_queue
+    from ..decision_queue import DecisionNotFoundError, get_decision_queue
     from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
     from ..gateway_client import (
         GatewayError,
@@ -270,8 +270,9 @@ except ImportError:
         SpawnFailureError,  # noqa: F401 — retained for _pkg re-export / patch seam
         get_container_spawner,  # noqa: F401 — retained for _pkg re-export / patch seam
     )
-    from decision_queue import (
-        get_decision_queue,  # type: ignore  # noqa: F401 — retained for _pkg re-export / patch seam
+    from decision_queue import (  # type: ignore
+        DecisionNotFoundError,  # noqa: F401 — retained for _pkg re-export / patch seam
+        get_decision_queue,  # noqa: F401 — retained for _pkg re-export / patch seam
     )
     from docker_client import (  # type: ignore
         ContainerNotFoundError,  # noqa: F401 — retained for _pkg re-export / patch seam
@@ -1435,7 +1436,9 @@ from ._run_pipeline_support import (  # noqa: E402,F401
     _sync_session_phases_best_effort,
 )
 from ._run_support import (  # noqa: E402,F401
+    _classify_bare_gate_resolution,
     _clear_stale_impasses_for_producers,
+    _coerce_gate_resolution_text,
     _park_at_gate_unless_cancelled,
     _parse_resolution,
     _pipeline_cancelled,

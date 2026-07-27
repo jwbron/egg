@@ -417,6 +417,126 @@ def _spawn_and_wait(
     return final_info.exit_code, container_logs
 
 
+def _classify_bare_gate_resolution(resolution: str | None) -> tuple[bool, str | None, str]:
+    """Classify a legacy bare-string phase-gate resolution (#3636).
+
+    A phase gate offers ``["approve", "request changes"]``, so answering
+    with the literal option word *plus* a justification is the natural
+    operator behaviour; and at a phase gate, justification is the whole
+    point. Matching the **entire** resolution string against
+    ``_APPROVE_KEYWORDS`` classified every such answer as free-text change
+    requests: the gate silently took the revision branch, re-ran the
+    phase, burned an ``max_hitl_review_cycles`` slot, and fed the
+    operator's approval back to the producers as revision feedback.
+
+    Match the **first line** instead and carry the remainder as context.
+    That mirrors how the structured ``{"action": "approve", "context":
+    ...}`` payload already behaves, and it makes the natural bare-string
+    shape correct by construction. A first line that is anything other
+    than a bare option word (e.g. ``"approve the rewrite but drop X"``)
+    still falls through to the free-text branch, so only the
+    option-word-plus-context shape changes meaning.
+
+    Returns ``(is_approved, revision_feedback, approve_context)``:
+
+    * ``(True, None, context)``: approved; ``context`` is the operator's
+      note after the option word (``""`` when there was none).
+    * ``(False, None, "")``: bare "request changes" with no specifics;
+      the caller asks a follow-up.
+    * ``(False, feedback, "")``: change request with actionable feedback.
+    """
+    text = (resolution or "").strip()
+
+    # An entirely empty resolution is the historical reason ``""`` is a
+    # member of ``_APPROVE_KEYWORDS``: there is nothing to approve or
+    # reject, so the gate advances. Settle that case *before* deriving
+    # ``head``, so a first line that merely collapses to ``""`` under the
+    # punctuation strip below (".", "!!!") can never reach the approve
+    # branch — that would be #3636 inverted, silently approving a
+    # rejection whose first line happens to be stray punctuation.
+    if not text:
+        return True, None, ""
+
+    # ``\r\n`` / lone ``\r`` are line separators too; splitting on ``\n``
+    # alone left a CR-only body unsplit. A tab is deliberately *not* a
+    # separator — it is horizontal whitespace, not a new line.
+    parts = _pkg.re.split(r"\r\n|\r|\n", text, maxsplit=1)
+    first_line = parts[0]
+    remainder = parts[1].strip() if len(parts) > 1 else ""
+    # Trailing sentence punctuation is noise on a one-word selection
+    # ("Approved." / "LGTM!"), never part of the option label itself.
+    head = first_line.strip().rstrip(".!").strip().lower()
+
+    if head and head in _pkg._APPROVE_KEYWORDS:
+        return True, None, remainder
+    if head in _pkg._BARE_OPTION_LABELS:
+        # The option word carries no information the producers need; the
+        # remainder (if any) is the actionable part.
+        return False, remainder or None, ""
+
+    # A structured payload the JSON-first parsers rejected (unknown
+    # ``action``, or no ``action`` field at all) still arrives here as
+    # "bare" text. Returning the blob verbatim hands producers raw JSON
+    # as revision feedback; extract the operator's own prose instead, and
+    # when there is none fall back to "no specifics" so the caller asks a
+    # follow-up rather than re-running the phase against a serialisation.
+    try:
+        payload = _pkg.json.loads(text)
+    except ValueError, TypeError:  # JSONDecodeError is a ValueError
+        payload = None
+    if isinstance(payload, dict):
+        prose = payload.get("feedback") or payload.get("context") or ""
+        prose = prose.strip() if isinstance(prose, str) else ""
+        return False, prose or None, ""
+
+    return False, text, ""
+
+
+def _coerce_gate_resolution_text(value: object) -> str:
+    """Coerce a structured resolution's ``feedback`` / ``context`` to text.
+
+    Nothing on the resolution path type-checks these fields. ``provide_input``
+    stores whatever JSON the client sends, and the gate's JSON-first parser
+    only tests ``isinstance(payload, dict) and "action" in payload`` — so
+    ``{"action": "approve", "context": {"note": "ship it"}}`` and
+    ``{"action": "request_changes", "feedback": 42}`` are both accepted and
+    the non-string value reaches ``.strip()`` / ``feedback[:200]`` intact.
+    That raises ``AttributeError`` / ``KeyError`` out of
+    ``_run_hitl_gate_converge``, which is called unguarded from the phase
+    loop, so the pipeline is marked ``FAILED`` at the exact moment the
+    operator answered — with the decision already ``resolved`` and its
+    ``resolution_outcome`` already stamped (#3636 review).
+
+    Strings pass through unchanged. Anything else is rendered as JSON so the
+    operator's content still reaches the producers instead of crashing the
+    driver; an unserialisable object degrades to ``repr``-ish ``str()``.
+
+    **Falsy in, empty out.** Every falsy value — ``None``, ``{}``, ``[]``,
+    ``False``, ``0`` — is the empty string, matching the
+    ``payload.get("feedback", "")`` default this replaces. Serialising them
+    instead would return the *truthy* strings ``"{}"`` / ``"[]"`` /
+    ``"false"`` / ``"0"`` and flip the "did the operator actually give us
+    specifics?" guard: a client that posts ``{"action": "request_changes",
+    "feedback": {}}`` for an empty field would skip the follow-up prompt and
+    re-run the whole phase against a two-character serialisation
+    (#3636 review). ``_classify_bare_gate_resolution`` above already drops
+    non-string prose the same way.
+    """
+    if isinstance(value, str):
+        return value
+    if not value:
+        return ""
+    try:
+        return _pkg.json.dumps(value)
+    except ValueError, TypeError:
+        # Unreachable from the four production call sites — every input
+        # originates in ``json.loads`` and is JSON-serialisable by
+        # construction. Kept because this helper's contract is "never raise
+        # on the gate path": a future caller passing a live object must not
+        # be able to strand a pipeline the way #3636's ``.strip()`` did.
+        return str(value)
+
+
 def _parse_resolution(resolution: str | None) -> tuple[bool, str | None]:
     """Parse a HITL phase_gate resolution into (is_approved, feedback).
 
@@ -438,7 +558,9 @@ def _parse_resolution(resolution: str | None) -> tuple[bool, str | None]:
         payload = _pkg.json.loads(resolution)
         if isinstance(payload, dict) and "action" in payload:
             action = payload["action"]
-            feedback_text = payload.get("feedback", "") or None
+            # Coerced for the same reason as the gate's own parse: the return
+            # is annotated ``str | None`` but nothing upstream enforces it.
+            feedback_text = _coerce_gate_resolution_text(payload.get("feedback")) or None
 
             if action in ("approve", "select", "submit_feedback"):
                 return True, None
@@ -448,13 +570,6 @@ def _parse_resolution(resolution: str | None) -> tuple[bool, str | None]:
     except _pkg.json.JSONDecodeError, TypeError, AttributeError:
         pass
 
-    # Legacy bare-string resolution
-    if resolution.lower() in _pkg._APPROVE_KEYWORDS:
-        return True, None
-    elif resolution.lower() in _pkg._BARE_OPTION_LABELS:
-        return False, None
-    elif resolution:
-        # Free-text feedback — treat as request_changes
-        return False, resolution
-
-    return True, None
+    # Legacy bare-string resolution: first-line option-word matching (#3636)
+    _approved, _feedback, _ = _pkg._classify_bare_gate_resolution(resolution)
+    return _approved, _feedback

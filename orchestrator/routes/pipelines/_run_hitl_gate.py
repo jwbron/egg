@@ -455,6 +455,10 @@ def _run_hitl_gate_converge(
                 and d.phase == current_phase
                 and d.status == _pkg.DecisionStatus.PENDING
             )
+            # The reused decision already carries the gate content the
+            # operator is looking at; reuse it as the follow-up's context
+            # rather than re-reading the draft off the worktree.
+            draft_content = decision.context
         else:
             question = (
                 f"The {current_phase.value} phase has completed. "
@@ -609,12 +613,24 @@ def _run_hitl_gate_converge(
         _is_approved = False
         _needs_revision = False
         _revision_feedback: str | None = None
+        # Operator note attached to a bare-string approve ("approve\n\n<why>"),
+        # threaded to the re-run below exactly like the JSON form's
+        # ``context`` field (#3636).
+        _bare_approve_context = ""
+        _parse_path = "json"
 
         try:
             payload = _pkg.json.loads(resolution)
             if isinstance(payload, dict) and "action" in payload:
                 action = payload["action"]
-                feedback_text = payload.get("feedback", "")
+                # ``feedback`` is whatever JSON the client stored — there is
+                # no type check anywhere on this path, and ``_revision_feedback``
+                # is annotated ``str | None`` on the strength of that annotation
+                # alone. A dict/int would reach ``_revision_feedback[:200]``
+                # below and raise out of the gate, failing the pipeline at the
+                # moment the operator answered. Enforce the annotation here
+                # rather than trusting it (#3636 review).
+                feedback_text = _pkg._coerce_gate_resolution_text(payload.get("feedback"))
 
                 if action == "approve":
                     _is_approved = True
@@ -640,17 +656,36 @@ def _run_hitl_gate_converge(
                 # Valid JSON but no action field — fall through to legacy
                 raise _pkg.json.JSONDecodeError("no action field", resolution, 0)
         except _pkg.json.JSONDecodeError, TypeError, AttributeError:
-            # Legacy bare-string resolution — existing keyword matching
-            if resolution.lower() in _pkg._APPROVE_KEYWORDS:
-                _is_approved = True
-            elif resolution.lower() in _pkg._BARE_OPTION_LABELS:
-                # Bare "request changes" without feedback
-                _needs_revision = True
-                _revision_feedback = None
-            elif resolution:
-                # Free-text feedback
-                _needs_revision = True
-                _revision_feedback = resolution
+            # Legacy bare-string resolution: first-line option-word
+            # matching, remainder carried as context (#3636). Matching the
+            # whole string meant "approve\n\n<justification>" silently took
+            # the revision branch.
+            _parse_path = "bare-string"
+            _is_approved, _revision_feedback, _bare_approve_context = (
+                _pkg._classify_bare_gate_resolution(resolution)
+            )
+            _needs_revision = not _is_approved
+
+        # Make the branch greppable at the point of divergence (#3636): the
+        # decision record alone cannot distinguish "approved and advanced"
+        # from "approved-looking text routed to revision".
+        _pkg.logger.info(
+            "HITL gate: resolution parsed",
+            pipeline_id=pipeline_id,
+            phase=current_phase.value,
+            decision_id=decision.id,
+            parse_path=_parse_path,
+            outcome="approved" if _is_approved else "needs_revision",
+            has_feedback=bool(_revision_feedback),
+            # A leading bare "approve"/"yes"/"lgtm" makes everything after
+            # it advisory: the remainder is persisted to the contract and
+            # draft, but on the plain-advance path (no decisions resolved
+            # this round) it is not fed back to the producers. Log it so a
+            # conditional approval — "yes\nbut only after you fix X" — is
+            # greppable rather than invisible.
+            approve_context_preview=_bare_approve_context[:200],
+            resolution_preview=resolution[:200],
+        )
 
         # Holds the operator's resolution from the "bare request →
         # asked for specifics → approve-with-context" follow-up path,
@@ -659,6 +694,13 @@ def _run_hitl_gate_converge(
         # gate approval, so the convergence re-run below must thread it
         # rather than the stale original resolution (#3392 review).
         followup_resolution: str | None = None
+        # The follow-up decision, when the "you didn't provide specifics"
+        # path is taken. It — not the primary gate decision — is what
+        # produced the final branch, so the parsed outcome is recorded on
+        # it too; otherwise an audit of the primary decision reads
+        # ``resolution: "request changes"`` with ``outcome: approved``
+        # and no record of the answer that actually decided it.
+        followup_decision_id: str | None = None
 
         if _needs_revision and _revision_feedback is None:
             # Bare request without actionable feedback — ask for specifics.
@@ -706,6 +748,7 @@ def _run_hitl_gate_converge(
                 decision_type="phase_gate",
                 phase=current_phase,
             )
+            followup_decision_id = followup.id
             dq.wait_for_decision(followup.id)
             resolved_followup = dq.get_decision(followup.id)
             if _pkg._gate_wait_cancelled(store, pipeline_id):
@@ -727,7 +770,8 @@ def _run_hitl_gate_converge(
                         _is_approved = True
                         _needs_revision = False
                     elif fa in ("request_changes", "change_approach"):
-                        ft = fp.get("feedback", "")
+                        # Same untyped-field hazard as the primary parse above.
+                        ft = _pkg._coerce_gate_resolution_text(fp.get("feedback"))
                         if ft:
                             _revision_feedback = ft
                         else:
@@ -738,19 +782,61 @@ def _run_hitl_gate_converge(
                 else:
                     raise _pkg.json.JSONDecodeError("no action", followup_resolution, 0)
             except _pkg.json.JSONDecodeError, TypeError, AttributeError:
-                if (
-                    followup_resolution.lower() in _pkg._APPROVE_KEYWORDS
-                    or followup_resolution.lower() in _pkg._BARE_OPTION_LABELS
-                ):
-                    _pkg.logger.info(
-                        "HITL follow-up: no actionable feedback, treating as approval",
-                        pipeline_id=pipeline_id,
-                        phase=current_phase,
-                    )
+                # Same first-line matching as the primary gate (#3636), so
+                # "approve\n\n<why>" on the follow-up is an approval too.
+                _fa, _ff, _fc = _pkg._classify_bare_gate_resolution(followup_resolution)
+                if _fa or not _ff:
+                    # Two distinct shapes land here and they must not share
+                    # one log line: an explicit approval (possibly carrying
+                    # a justification, which *is* actionable prose), and a
+                    # repeat "request changes" that still names nothing to
+                    # act on. Both advance; only the second is a fallback.
+                    if _fa:
+                        _pkg.logger.info(
+                            "HITL follow-up: operator approved",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase,
+                            has_context=bool(_fc),
+                        )
+                    else:
+                        _pkg.logger.info(
+                            "HITL follow-up: change request repeated with no "
+                            "specifics, treating as approval",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase,
+                        )
                     _is_approved = True
                     _needs_revision = False
-                elif followup_resolution:
-                    _revision_feedback = followup_resolution
+                    _bare_approve_context = _fc
+                else:
+                    _revision_feedback = _ff
+
+        # Persist the parsed branch on the decision record so the decision
+        # API shows how the gate read the resolution, not just the raw text
+        # (#3636). Recorded on the follow-up decision as well when that
+        # path ran, since it is the answer that produced the branch.
+        _outcome = "approved" if _is_approved else "needs_revision"
+        for _outcome_target in (decision.id, followup_decision_id):
+            if _outcome_target is None:
+                continue
+            try:
+                dq.record_resolution_outcome(_outcome_target, _outcome)
+            except Exception as outcome_err:  # noqa: BLE001
+                # Deliberately broad, matching every other best-effort block
+                # in this file: an observability write must never strand the
+                # gate. The narrow form missed the write's real failure
+                # surface — ``_save_pipeline`` re-raises raw ``OSError``
+                # (ENOSPC/EROFS), which is not a ``StateStoreError``, so a
+                # full state volume would have propagated out of the gate at
+                # exactly the moment the operator's answer was recorded.
+                # Same lesson as #2219, in this same function.
+                _pkg.logger.warning(
+                    "Failed to record gate resolution outcome (continuing)",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase.value,
+                    decision_id=_outcome_target,
+                    error=str(outcome_err),
+                )
 
         if _needs_revision and _revision_feedback:
             # Human provided feedback — re-run the phase with corrections
@@ -859,13 +945,34 @@ def _run_hitl_gate_converge(
             # answer), not the stale original ``resolution`` — prefer
             # it so that context is not silently dropped (#3392 review).
             _context_source = followup_resolution if followup_resolution is not None else resolution
-            _approve_context = ""
             try:
                 _ap = _pkg.json.loads(_context_source)
-                if isinstance(_ap, dict):
-                    _approve_context = (_ap.get("context") or _ap.get("feedback") or "").strip()
             except _pkg.json.JSONDecodeError, TypeError, AttributeError:
-                _approve_context = ""
+                _ap = None
+            if isinstance(_ap, dict):
+                # ``.strip()`` sits outside the ``try`` above, so the
+                # ``AttributeError`` arm no longer covers it: a non-string
+                # ``context`` (``{"action": "approve", "context": {"note":
+                # "x"}}``) would unwind to ``_run_pipeline``'s outer handler
+                # and mark the pipeline FAILED on an approving answer. Coerce
+                # rather than relying on a handler that no longer wraps this
+                # expression (#3636 review).
+                _approve_context = _pkg._coerce_gate_resolution_text(
+                    _ap.get("context") or _ap.get("feedback")
+                ).strip()
+            else:
+                # Bare-string approve-with-context: the remainder after the
+                # leading option word is the operator's note, and dropping
+                # it here would silently discard exactly the prose the
+                # first-line fix exists to preserve (#3636). A non-mapping
+                # JSON scalar/list lands here too — it carries no ``context``
+                # field, so the bare remainder is the only context there is.
+                # (No approving resolution parses to a non-mapping today: an
+                # approval is either an ``{"action": ...}`` mapping or is not
+                # valid JSON at all. The previous ``raise "not a mapping"``
+                # to reach this branch was therefore dead code; falling
+                # through keeps the same behaviour without it.)
+                _approve_context = _bare_approve_context
 
             _rerun_feedback = (
                 f"The operator resolved {_decisions_resolved_this_round} HITL "

@@ -126,9 +126,18 @@ async def _check_orchestrator_reachability(self, pipeline_data: dict, phase_data
 async def _check_rerun_anomaly(self, decisions: list[dict], phase_data: dict) -> None:
     """Detect agents that completed suspiciously fast after request_changes.
 
-    Flags phase_gate decisions where the resolution contains
-    ``request_changes``, ``content_changed`` is ``False``, and the
-    subsequent work cycle lasted less than ``overseer_rerun_min_work_seconds``.
+    Flags phase_gate decisions the gate read as a change request, where
+    ``content_changed`` is ``False`` and the subsequent work cycle lasted
+    less than ``overseer_rerun_min_work_seconds``.
+
+    The kickback signal is ``resolution_outcome == "needs_revision"`` — the
+    branch the gate actually took (#3636). For decisions resolved before
+    that field existed, the fallback is a substring test on the raw
+    resolution, widened here to normalize spaces to underscores: the
+    pre-#3636 test looked for ``request_changes`` and so never fired for
+    the bare ``"request changes"`` (space) form that the gate's own
+    ``options=["approve", "request changes"]`` produce. Both spellings now
+    match.
     """
     import datetime as _dt
 
@@ -142,9 +151,15 @@ async def _check_rerun_anomaly(self, decisions: list[dict], phase_data: dict) ->
             continue
         if d.get("decision_type") != "phase_gate":
             continue
-        resolution = d.get("resolution") or ""
-        if "request_changes" not in resolution.lower():
-            continue
+        outcome = d.get("resolution_outcome")
+        if outcome is not None:
+            if outcome != "needs_revision":
+                continue
+        else:
+            resolution = d.get("resolution") or ""
+            normalized = resolution.lower().replace(" ", "_")
+            if "request_changes" not in normalized and "change_approach" not in normalized:
+                continue
         if d.get("content_changed") is not False:
             continue
 
@@ -241,7 +256,34 @@ async def _check_status_consistency(self, pipeline_data: dict) -> None:
 
 
 async def _check_hitl_resolution_propagation(self, decisions: list[dict]) -> None:
-    """Detect resolved phase_gate decisions not propagated to the contract."""
+    """Detect resolved phase_gate decisions not propagated to the contract.
+
+    .. warning::
+
+       **FIXME (#3636 review) — this detector will false-alarm on every phase
+       gate if ``_poll_cycle`` is ever revived.** The ``did == cd["id"]``
+       correlation in the second pass cannot succeed today, for two
+       independent reasons:
+
+       * The two sides allocate ids from separate namespaces. The contract
+         side uses ``decision-{max_existing + 1}`` from the contract's own
+         counter (``routes/pipelines/_ledger.py``); the queue side allocates
+         its own. A queue id never appears in the contract.
+       * ``_persist_phase_gate_resolution`` returns early and writes *nothing*
+         when the gate resolution carries no context — the common bare
+         ``approve`` case. "Absent from the contract" is then the designed
+         outcome, not a propagation failure.
+
+       So every resolved gate would escalate (broadcast + spurious HITL
+       decision + Slack ping) ``overseer_hitl_propagation_timeout_seconds``
+       after the overseer first saw it. This is latent rather than live only
+       because ``_poll_cycle`` has no production construction site (see
+       ``_queries._query_decisions``) — but it stopped being *doubly* latent
+       when the #3636 envelope unwrap made ``_query_decisions`` return real
+       data instead of ``[]``. Give the two sides a shared correlation key
+       (and skip the deliberately-unpersisted context-free resolutions)
+       before reviving the loop.
+    """
     timeout = getattr(self.config, "overseer_hitl_propagation_timeout_seconds", 300)
     now = time.time()
 
@@ -275,7 +317,11 @@ async def _check_hitl_resolution_propagation(self, decisions: list[dict]) -> Non
 
     for did, elapsed in timed_out:
         propagated = any(
-            cd.get("id") == did and cd.get("status") == "resolved" for cd in contract_decisions
+            # The contract ``Decision`` model carries ``resolved: bool``, not
+            # ``status`` (``shared/egg_contracts/models.py``) — the ``status``
+            # test alone was never satisfiable. Accept either spelling.
+            cd.get("id") == did and (cd.get("resolved") is True or cd.get("status") == "resolved")
+            for cd in contract_decisions
         )
 
         if propagated:

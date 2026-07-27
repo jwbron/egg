@@ -256,6 +256,52 @@ class DecisionQueue:
 
             raise DecisionNotFoundError(f"Decision {decision_id} not found")
 
+    def record_resolution_outcome(
+        self, decision_id: str, outcome: Literal["approved", "needs_revision"]
+    ) -> HITLDecision:
+        """Record which branch a resolved decision's parser took (#3636).
+
+        ``resolution`` stores the operator's raw text; it cannot tell an
+        approval that advanced apart from approval-shaped text that was
+        read as change requests. Persisting the parsed outcome makes that
+        divergence readable from the decision API rather than inferrable
+        only from the phase failing to advance.
+
+        Args:
+            decision_id: Decision ID
+            outcome: ``"approved"`` or ``"needs_revision"``
+
+        Returns:
+            Updated HITLDecision
+
+        Raises:
+            DecisionNotFoundError: If decision not found
+        """
+        with self._lock:
+            pipeline = self._load_pipeline()
+
+            for decision in pipeline.decisions:
+                if decision.id == decision_id:
+                    if decision.status != DecisionStatus.RESOLVED:
+                        # The field describes how a *resolved* decision's
+                        # text was read, so stamping a pending or cancelled
+                        # one means a mis-sequenced caller. Warn rather than
+                        # raise: the write is observability, and the caller
+                        # treats it as best-effort.
+                        logger.warning(
+                            "Recording resolution outcome on a non-resolved decision",
+                            pipeline_id=self.pipeline_id,
+                            decision_id=decision_id,
+                            status=decision.status.value,
+                            outcome=outcome,
+                        )
+                    decision.resolution_outcome = outcome
+                    pipeline.updated_at = datetime.now(UTC)
+                    self._save_pipeline(pipeline)
+                    return decision
+
+            raise DecisionNotFoundError(f"Decision {decision_id} not found")
+
     def cancel_decision(self, decision_id: str) -> HITLDecision:
         """Cancel a pending decision.
 

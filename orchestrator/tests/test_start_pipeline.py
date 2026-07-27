@@ -446,6 +446,91 @@ class TestStartAwaitingHumanPipeline:
     @patch("routes.pipelines._run_pipeline")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
+    def test_recovery_stamps_approved_outcome_on_the_gate_decision(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """The recovery path records how it read the stored resolution (#3636).
+
+        This is the path where a divergence is hardest to reconstruct after
+        the fact — the driver that would have logged it at gate time is
+        gone — so ``resolution_outcome`` is the only durable record of the
+        branch taken. It is the exact shape that used to be misrouted: an
+        approve keyword followed by a justification.
+        """
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution="approve\n\nApproved. The analysis is sound; advance to plan.",
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        assert pipeline.decisions[0].resolution_outcome == "approved"
+        # Raw operator text is the audit trail and stays untouched.
+        assert pipeline.decisions[0].resolution.startswith("approve\n\nApproved.")
+        assert pipeline.current_phase == PipelinePhase.PLAN
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_recovery_stamps_needs_revision_outcome_on_the_gate_decision(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution="The rollback path is missing from the risk section.",
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        assert pipeline.decisions[0].resolution_outcome == "needs_revision"
+        assert pipeline.current_phase == PipelinePhase.REFINE
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_recovery_stamps_the_latest_gate_decision(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """The stamp and the parse must read the *same* decision.
+
+        ``latest_resolution`` comes from ``reversed(pipeline.decisions)[0]``,
+        so a stamp written to any other index would attribute the branch to
+        the wrong operator answer.
+        """
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution="The rollback path is missing.",
+        )
+        pipeline.decisions.append(
+            HITLDecision(
+                id="decision-2",
+                question="Approve phase?",
+                decision_type="phase_gate",
+                status=DecisionStatus.RESOLVED,
+                resolution="approve\n\nAddressed; advance.",
+            )
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        # Latest (decision-2) drove the branch and carries the stamp; the
+        # superseded one is left alone.
+        assert pipeline.decisions[1].resolution_outcome == "approved"
+        assert pipeline.decisions[0].resolution_outcome is None
+        assert pipeline.current_phase == PipelinePhase.PLAN
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
     def test_recovery_bumps_run_epoch(
         self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
     ):

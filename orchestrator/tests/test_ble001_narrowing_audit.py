@@ -1,7 +1,8 @@
 """Spot-coverage for the slice-3 BLE001 audit (#2777 TASK-3-5).
 
 The slice-3 coder audited the 20 ``# noqa: BLE001`` swallow-all
-handlers in ``orchestrator/routes/pipelines.py`` and narrowed
+handlers in ``orchestrator/routes/pipelines`` (then a single
+``pipelines.py``; a sub-package since #3312 slice-4) and narrowed
 4 sites to a specific exception tuple; the remaining 15 sites
 retain a documented-bare-except with an inline comment naming
 what's caught. Per the plan task-3-11 (8):
@@ -162,11 +163,12 @@ def test_audit_window_retains_documented_ble001_population() -> None:
     noqa_lines = [i for i, line in enumerate(lines) if "noqa: BLE001" in line]
     assert len(noqa_lines) >= 40, (
         f"Found only {len(noqa_lines)} documented ``# noqa: BLE001`` swallow "
-        f"sites in routes/pipelines.py — the BLE001 audit population appears to "
-        f"have silently collapsed toward bare ``except Exception``."
+        f"sites across the routes/pipelines package — the BLE001 audit "
+        f"population appears to have silently collapsed toward bare "
+        f"``except Exception``."
     )
     # Upper bound guards against a future PR re-introducing swallow-all handlers
-    # en masse without re-running the audit. The file has carried ~80 documented
+    # en masse without re-running the audit. The package has carried ~80 documented
     # swallows through the overhaul; a jump well past that needs an audit pass.
     # Raised 120 -> 121 by #3597, which added one audited site: the restart
     # route's bounded teardown wait catches a raising ``wait_for_job_gone`` so
@@ -187,9 +189,16 @@ def test_audit_window_retains_documented_ble001_population() -> None:
     #     comparison folded into ``_phase_bail_reason_impl``, which resolves
     #     both bail conditions from a single load — taking its own
     #     ``store.load_pipeline`` swallow with it.
-    assert len(noqa_lines) <= 123, (
+    # Raised 123 -> 124 by #3636, which added one audited site: the phase-gate's
+    # ``record_resolution_outcome`` write in ``_run_hitl_gate`` was guarded on
+    # ``StateStoreError`` only, but ``_save_pipeline`` re-raises raw ``OSError``
+    # (ENOSPC/EROFS), so a full state volume propagated out of the gate at the
+    # moment the operator's answer was recorded. Broadened to match every other
+    # best-effort block in that file — an observability write must never strand
+    # the gate.
+    assert len(noqa_lines) <= 124, (
         f"Found {len(noqa_lines)} ``# noqa: BLE001`` swallows in "
-        f"routes/pipelines.py, well past the documented population — a future "
-        f"PR appears to have re-introduced swallow-all handlers without "
-        f"re-running the audit."
+        f"the routes/pipelines package, well past the documented "
+        f"population — a future PR appears to have re-introduced swallow-all "
+        f"handlers without re-running the audit."
     )
