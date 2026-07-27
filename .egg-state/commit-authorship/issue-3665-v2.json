@@ -1,5 +1,13 @@
 {
   "entries": {
+    "02ba2cd6b0bb42fb7a43375e8b578becf546e679": {
+      "branch": "egg/issue-3665-v2/work",
+      "patch_id": "294c698f51a65e08fa04719bb9fdae3c2307ce31",
+      "pipeline_id": "issue-3665-v2",
+      "registered_at": "2026-07-27T08:13:28.798340+00:00",
+      "repo": null,
+      "role": "architect"
+    },
     "078555a1b9dca712f8eb32071695b2f13d9ca42e": {
       "branch": "egg/issue-3665-v2/work",
       "patch_id": "6484ce009c6e4cbc284880e12884895718f4eb32",
