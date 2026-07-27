@@ -98,13 +98,22 @@ _UNCOMMITTED_SALVAGE_MESSAGE = "[salvage] pre-crash working-tree state (#2807)"
 # there), which is the one thing a triager reading a lone commit message cannot
 # infer. The grep token — the leading ``INCOMPLETE:`` and the ``git add -A``
 # phrase — is identical in both, so one search finds every truncated snapshot
-# regardless of which path took it. Change one, change the other.
+# regardless of which path took it, and ``docs/reference/agent-recovery.md``
+# quotes it verbatim for triagers. Change one, change the other — and the
+# runbook.
+#
+# "did not complete cleanly" rather than "reported errors" (#3639 re-review
+# NB-6): the shared wording has to hold on the re-attach path too, where a
+# ``TimeoutExpired`` sets ``partial`` without git ever reporting an exit
+# status. Here the add is run with ``check=False`` and ``partial`` really is
+# ``returncode != 0``, but a claim the commit message cannot make on both
+# paths is not one worth keeping on either.
 _UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX = (
     "\n"
     "\n"
-    "INCOMPLETE: `git add -A` reported errors while staging, so files\n"
-    "present in the crashed agent's working tree may be missing from\n"
-    "this commit."
+    "INCOMPLETE: `git add -A` did not complete cleanly while staging, so\n"
+    "files present in the crashed agent's working tree may be missing\n"
+    "from this commit."
 )
 _SALVAGE_COMMIT_NAME = "egg-salvage"
 _SALVAGE_COMMIT_EMAIL = "egg-salvage@localhost"
@@ -241,6 +250,14 @@ def _run_git(
     ``commit.gpgsign=true`` from the clone's config: there is no signing key
     in the orchestrator image, so every salvage commit would otherwise fail
     and lose the working tree it exists to save.
+
+    ``core.quotePath=true`` is pinned rather than inherited (#3639 re-review
+    NB-3). Every call here decodes with ``text=True`` and no ``errors=``, so
+    git output that echoes a filename verbatim raises ``UnicodeDecodeError``
+    the moment a path in the worktree is not valid UTF-8. The default
+    C-quote-encodes those bytes to ASCII and is what keeps that from
+    happening; a worktree that inherited ``quotePath=false`` would break it.
+    Costs nothing — this path has no ``-z`` read to make quoting a problem.
     """
     cmd = [
         "git",
@@ -248,6 +265,8 @@ def _run_git(
         "core.hooksPath=/dev/null",
         "-c",
         "commit.gpgsign=false",
+        "-c",
+        "core.quotePath=true",
         "-C",
         str(cwd),
         *args,
@@ -698,10 +717,27 @@ def commit_working_tree(worktree: AgentWorktree) -> str | None:
             return None
         head = _run_git("rev-parse", "HEAD", cwd=worktree.repo_path, check=False)
         head_sha = (head.stdout or "").strip() if head.returncode == 0 else None
-    except (OSError, subprocess.SubprocessError) as e:
+    # Deliberately broader than the ``(OSError, subprocess.SubprocessError)``
+    # the read helpers above use, and broader than it needs to be today. The
+    # docstring promises this never raises, and the class that would break
+    # that promise is not a subprocess error: ``_run_git`` decodes with
+    # ``text=True`` and no ``errors=``, so a git command that echoes a
+    # filename whose bytes are not valid UTF-8 raises ``UnicodeDecodeError``
+    # (a ``ValueError``) from inside ``subprocess.run``. Unreachable on this
+    # path today — it has no ``-z`` call and the default ``core.quotePath``
+    # keeps git's output ASCII — but the re-attach path shipped exactly that
+    # bug by adding ``-z`` (#3639 re-review B1), and letting it escape here
+    # would abort the committed-but-unpushed salvage that follows.
+    except Exception as e:
         logger.warning(
             "Salvage: capturing uncommitted working tree raised; continuing",
             worktree_id=worktree.worktree_id,
+            # The breadth above is the point, but it makes an
+            # ``AttributeError`` from a future refactor render identically to
+            # a subprocess failure. The class name is the one field that
+            # separates "the worktree was hostile" from "this code is broken"
+            # (#3639 re-review NB-5).
+            error_type=type(e).__name__,
             error=str(e),
         )
         return None

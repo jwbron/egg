@@ -202,16 +202,24 @@ Under orchestrator ownership the worktree becomes a hot path.
    record says the snapshot was *not* pushed and asks for escalation
    rather than reassuring the successor that nothing was lost. The ask
    also scales with *what* the snapshot captured: when every captured path
-   is an **orchestrator-written** state file, the record softens to "read
-   it if you need it" so a routine respawn does not train the #3509
-   message into background noise. The allowlist is
-   `.egg-state/agent-outputs/*/brc-memory*.md` (rewritten on every
-   `brc_ack`/`brc_nack`), `.egg-state/agent-outputs/consensus-confirmed`,
-   and `.egg-state/agent-outputs/<pipeline-id>-apply-handoff.json`;
-   matching is segment-wise so `*` does not cross `/`. Files written by
-   *agents* into the same directory — `<pipeline>-wontdo.json`,
-   `<identifier>-tester-output.json` — are deliberately excluded: they are
-   agent output, and losing them warrants the imperative. Anything else —
+   is a **state file the next event regenerates and some other store
+   durably holds**, the record softens to "read it if you need it" so a
+   routine respawn does not train the #3509 message into background noise.
+   The membership test is regeneration, not authorship — the dominant
+   member is written by the *sandbox* on the agent's own tool call and
+   holds agent-authored prose. The allowlist is
+   `.egg-state/agent-outputs/*/brc-memory*.md` (rewritten by
+   `sandbox/egg_agent_tools/handlers/brc_memory.py` on every
+   `brc_ack`/`brc_nack`, with the orchestrator message history as the
+   durable backstop — see
+   [brc-memory.md](brc-memory.md)),
+   `.egg-state/agent-outputs/consensus-confirmed`, and
+   `.egg-state/agent-outputs/<pipeline-id>-apply-handoff.json`;
+   matching is segment-wise so `*` does not cross `/`. Agent *output* in
+   the same directory — `<pipeline>-wontdo.json`,
+   `<identifier>-tester-output.json` — is deliberately excluded: nothing
+   rewrites it on the next event and no other store holds it, so losing it
+   warrants the imperative. Anything else —
    including an unrecognised or unknown file set — keeps the imperative
    "inspect it before starting work", as does a snapshot flagged partial
    (a truncated capture's path list omits whatever failed to stage, so it
@@ -223,8 +231,19 @@ Under orchestrator ownership the worktree becomes a hot path.
    reconstruct the decision instead of regexing the prose; the two derived
    fields diverge whenever a machine-state-only path set is disqualified
    by a commit stack, a truncated capture, or a failed salvage push. The
-   threshold selects wording only; the snapshot itself is always taken. A
-   snapshot whose `git add -A` reported errors is marked incomplete in
+   threshold selects wording only; the snapshot itself is always taken —
+   including when the path list cannot be read at all. The staged-path
+   read uses `-z` so `wip_paths` carries real bytes rather than
+   `core.quotePath` C-quoted tokens, which means a filename that is not
+   valid UTF-8 would be undecodable under `subprocess`'s strict `text=True`
+   decode; the read passes `errors="replace"`, so one bad name costs one
+   name (a U+FFFD in `wip_paths`, which matches no softening glob) rather
+   than the whole path set. Anything that still defeats that read — a
+   timeout on a large staged set, a non-zero `diff` against a locked index
+   — logs a WARNING and commits blind (`wip_paths`/`wip_files` become
+   `null`, so the record takes the imperative) rather than letting a
+   metadata read cost the working tree. A
+   snapshot whose `git add -A` did not complete cleanly is marked incomplete in
    both its commit message and the bus record, since a truncated snapshot
    is otherwise indistinguishable downstream from a complete one. The same
    marker rides the #2807 crash-salvage commit

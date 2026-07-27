@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import shutil
 import statistics
 import subprocess
@@ -4238,6 +4239,51 @@ class TestDirtyTreePreservedBeforeReset:
         assert email == agent_salvage._SALVAGE_COMMIT_EMAIL
         assert subject.startswith("[salvage]")
 
+    def test_partial_suffixes_share_one_grep_token(self):
+        """One search must find a truncated snapshot from either path (R7 N3).
+
+        The two ``INCOMPLETE:`` suffixes are deliberate near-duplicates —
+        they differ only in naming whose working tree was truncated — and
+        both comment blocks instruct "change one, change the other". A
+        comment does not fail when someone edits one of them, and
+        ``docs/reference/agent-recovery.md`` tells triagers to grep for this
+        exact token, so pin the shared prefix instead.
+
+        The runbook is pinned too (R8 B2). Coupling the two constants to
+        each other but not to the doc is what let the doc's copy of the
+        token drift into a pattern that matches nothing — a false negative
+        that reads exactly like "no truncated snapshots", which is the one
+        conclusion that paragraph exists to prevent.
+        """
+        import agent_salvage
+        from kubernetes_spawner import _worktree
+
+        shared = "\n\nINCOMPLETE: `git add -A` did not complete cleanly while staging, so\nfiles "
+        assert _worktree._WIP_COMMIT_PARTIAL_SUFFIX.startswith(shared)
+        assert agent_salvage._UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX.startswith(shared)
+        # Near-duplicate, not duplicate: the provenance clause is the one
+        # thing a triager reading a lone commit message cannot infer.
+        assert (
+            _worktree._WIP_COMMIT_PARTIAL_SUFFIX
+            != agent_salvage._UNCOMMITTED_SALVAGE_PARTIAL_SUFFIX
+        )
+
+        # The runbook must quote the token verbatim — backticks included.
+        # ``git log --grep`` matches the commit message, so a copy that lost
+        # them in transit (a single-backtick code span cannot contain a
+        # backtick; backslash escapes do not work inside code spans) renders
+        # a command that silently finds nothing.
+        runbook = (
+            Path(__file__).resolve().parents[2] / "docs" / "reference" / "agent-recovery.md"
+        ).read_text()
+        quoted = shared.strip().split(", so")[0]
+        assert quoted in runbook, f"agent-recovery.md no longer quotes: {quoted!r}"
+        assert "git log --all --grep 'INCOMPLETE: `git add -A`'" in runbook
+        # ``--all`` is local refs only and both snapshot paths push to origin,
+        # so the runbook must name the fetch or the grep is a false negative
+        # on a fresh clone.
+        assert "refs/heads/egg/recovered/*:refs/remotes/origin/egg/recovered/*" in runbook
+
     def test_no_branch_takes_no_snapshot(self, spawner, mock_gateway, tmp_path):
         """``branch is None`` ⇒ no snapshot commit, and HEAD does not move.
 
@@ -4418,6 +4464,246 @@ class TestDirtyTreePreservedBeforeReset:
         diff_args = next(a for a in seen if a[0] == "diff")
         assert "-z" in diff_args
 
+    def test_undecodable_staged_path_does_not_cost_the_commit(self, tmp_path):
+        """An undecodable filename degrades the metadata, never the snapshot.
+
+        The unit half of R7 B1. ``-z`` is what makes ``wip_paths`` mean real
+        paths, but it also hands raw bytes to the caller's
+        ``subprocess.run(..., text=True)``, which decodes as strict UTF-8 —
+        so a filename that is not valid UTF-8 raises ``UnicodeDecodeError``
+        *inside* ``run``, before the ``split("\\0")``. Letting that reach the
+        outer handler would abandon the commit and hand the whole working
+        tree to the reset: #3639 reintroduced, over a filename.
+
+        The closure below raises exactly what ``subprocess.run`` raises, so
+        the assertion is about the layer the ``-z`` change moved the failure
+        into, not about a pre-decoded fixture.
+        """
+        from kubernetes_spawner._worktree import _preserve_dirty_tree
+
+        seen = []
+
+        def _undecodable_git(_repo_dir, *args, **_kwargs):
+            seen.append(args)
+            if args[0] == "diff":
+                raise UnicodeDecodeError(
+                    "utf-8", b"src/caf\xe9.md", 7, 8, "invalid continuation byte"
+                )
+            return SimpleNamespace(stdout="deadbeefcafe\n", returncode=0)
+
+        snapshot = _preserve_dirty_tree(
+            _undecodable_git, tmp_path, agent_worktree_id=_WT_ID, repo="repo", n_entries=33
+        )
+
+        # The commit is the point: it must exist.
+        assert snapshot is not None
+        assert snapshot.sha == "deadbeefcafe"
+        assert any("commit" in a for a in seen)
+        # Only the path metadata degrades — and it degrades to "unknown",
+        # which ``_record_discarded_tip`` reads as "take the imperative".
+        assert snapshot.paths is None
+        assert snapshot.n_files is None
+        # An unreadable path list is not a truncated capture: ``partial``
+        # means ``git add -A`` did not complete cleanly, and it did here.
+        assert snapshot.partial is False
+
+    @pytest.mark.parametrize(
+        "read_error",
+        [
+            pytest.param(
+                subprocess.TimeoutExpired(cmd=["git", "diff", "--cached"], timeout=60),
+                id="timeout",
+            ),
+            pytest.param(
+                subprocess.CalledProcessError(
+                    returncode=128, cmd=["git", "diff", "--cached"], stderr="index.lock exists"
+                ),
+                id="nonzero-exit",
+            ),
+            pytest.param(RuntimeError("closure blew up"), id="unexpected"),
+        ],
+    )
+    def test_any_failed_staged_path_read_keeps_the_commit(self, tmp_path, read_error):
+        """*Any* failure of the metadata read degrades metadata, not the tree.
+
+        R8 B1. The R7 fix caught ``UnicodeDecodeError`` specifically, which
+        left two production triggers still costing the whole working tree:
+        the read is ``git diff --cached --name-only -z`` with ``timeout=60``
+        run immediately after ``git add -A`` staged the entire dirty tree
+        (33 files was the small case), and it inherits ``check=True`` while
+        the preceding add's own failure is swallowed into ``partial`` — so a
+        contended node or a still-held ``index.lock`` reaches the outer
+        handler, which abandons the commit and hands the tree to
+        ``reset --hard``. That is #3639 with the trigger moved from "one bad
+        filename" to "the metadata read was slow".
+
+        Parametrised over the classes rather than pinned to one: the
+        invariant is about the *category* of failure (this read is metadata,
+        the commit is the point), and a test named for the invariant that
+        covers a single exception class is what made the gap invisible.
+        """
+        from kubernetes_spawner._worktree import _preserve_dirty_tree
+
+        seen = []
+
+        def _failing_read_git(_repo_dir, *args, **_kwargs):
+            seen.append(args)
+            if args[0] == "diff":
+                raise read_error
+            return SimpleNamespace(stdout="deadbeefcafe\n", returncode=0)
+
+        snapshot = _preserve_dirty_tree(
+            _failing_read_git, tmp_path, agent_worktree_id=_WT_ID, repo="repo", n_entries=33
+        )
+
+        assert snapshot is not None
+        assert snapshot.sha == "deadbeefcafe"
+        assert any("commit" in a for a in seen)
+        # "Could not tell", not "nothing was there" — the record then takes
+        # the imperative rather than reassuring the agent.
+        assert snapshot.paths is None
+        assert snapshot.n_files is None
+        assert snapshot.partial is False
+
+    def test_undecodable_bytes_cost_one_name_not_the_path_set(self, tmp_path):
+        """A latin-1 filename degrades its own entry and no others (R8 NB-2).
+
+        The read passes ``errors="replace"``, so the strict-UTF-8 decode
+        that used to raise inside ``subprocess.run`` now yields U+FFFD for
+        the bad bytes. Discarding all 33 paths for one bad byte was
+        avoidable; ``routes/pipelines/_worktree_sync`` already reads its own
+        ``-z`` output this way. A replaced name still fails every glob in
+        ``_path_matches_glob``, so this can only cost the softened wording,
+        never grant it.
+        """
+        from kubernetes_spawner._worktree import _preserve_dirty_tree
+
+        # What ``subprocess.run(..., text=True, errors="replace")`` hands
+        # back for ``b"caf\\xe9.md\\0good.py\\0"``.
+        replaced = b"caf\xe9.md\0good.py\0".decode("utf-8", errors="replace")
+
+        def _replacing_git(_repo_dir, *args, **kwargs):
+            if args[0] == "diff":
+                assert kwargs.get("errors") == "replace", "the read must not decode strictly"
+                return SimpleNamespace(stdout=replaced, returncode=0)
+            return SimpleNamespace(stdout="deadbeefcafe\n", returncode=0)
+
+        snapshot = _preserve_dirty_tree(
+            _replacing_git, tmp_path, agent_worktree_id=_WT_ID, repo="repo", n_entries=2
+        )
+
+        assert snapshot is not None
+        assert snapshot.n_files == 2
+        assert snapshot.paths is not None
+        # The good name survives intact — that is the whole point.
+        assert "good.py" in snapshot.paths
+        assert snapshot.paths[0].startswith("caf") and snapshot.paths[0].endswith(".md")
+        assert "�" in snapshot.paths[0]
+
+    def test_undecodable_filename_is_salvaged_end_to_end(self, spawner, mock_gateway, tmp_path):
+        """Real git, real non-UTF-8 filename: the 33 files still survive.
+
+        The regression R7 B1 describes needs no exotic setup — one file whose
+        name is latin-1 (an extracted archive, a fixture written with raw
+        bytes) alongside hours of ordinary work. ``status --porcelain``
+        honours ``core.quotePath`` so the entry point still sees ASCII and
+        enters the dirty path; the ``-z`` read is where the bytes escape.
+        This is the only real-git coverage of ``-z``: both other seeds are
+        ASCII, so a fixture-level test cannot fail on this. Since R8 NB-2
+        the read decodes with ``errors="replace"``, so the assertion moved
+        from "the path list degrades to ``None``" to "the *other* names
+        survive and only the bad one is replaced" — a strictly smaller
+        degradation for the same commit.
+        """
+        repo, origin_head = self._seed_dirty(tmp_path)
+        # ``os.fsdecode`` of invalid UTF-8 yields surrogate escapes, which the
+        # filesystem round-trips back to the original bytes on Linux.
+        (repo / os.fsdecode(b"caf\xe9.md")).write_bytes(b"latin-1 name\n")
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            cleaned = spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX)
+
+        assert cleaned is True
+        msg = get_store.return_value.add_message.call_args.args[0]
+        wip = msg.metadata["wip_commit"]
+        # The snapshot exists and holds the work, not just the odd filename.
+        assert wip is not None
+        assert _git(repo, "show", f"{wip}:seed.txt").stdout == "hours of uncommitted edits\n"
+        assert "def added():" in _git(repo, "show", f"{wip}:new_module.py").stdout
+        # ... and it was pushed to a recovery ref like any other snapshot.
+        mock_gateway.push_worktree_branch.assert_called_once()
+        # Only the bad name degrades: the other two are reported as-is and
+        # the count is complete, so the agent is told what it actually has.
+        paths = msg.metadata["wip_paths"]
+        assert msg.metadata["wip_files"] == 3
+        assert set(paths) >= {"seed.txt", "new_module.py"}
+        assert any("�" in p for p in paths), paths
+        # A replaced name matches no softening glob, so the record still
+        # takes the imperative — the safe default is unchanged by NB-2.
+        assert msg.metadata["wip_machine_state_only"] is False
+        assert msg.metadata["wip_softened"] is False
+        assert "inspect it before starting work" in msg.body
+        assert "3 file(s) of uncommitted work" in msg.body
+        # R6 still holds: the successor starts clean at the origin tip.
+        assert _git(repo, "rev-parse", "HEAD").stdout.strip() == origin_head
+        assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+
+    def test_discard_warning_carries_snapshot_completeness(self, spawner, mock_gateway, tmp_path):
+        """The discard WARNING's ``wip_*`` fields are the query surface (R8 NB-4).
+
+        "Which recovery refs are truncated, and which hold an unknown file
+        set" has to be answerable from this one line — that is why the
+        completeness fields ride with the sha instead of living on the
+        earlier ``_preserve_dirty_tree`` line. Two things have to hold for
+        that to work: the names must match the bus record's metadata keys
+        (``wip_files``, not ``preserved_files``), and "unknown" must be
+        distinguishable from "zero", since a bare ``None`` renders as
+        ``wip_files=`` and reads as *nothing was preserved*.
+
+        The snapshot is stubbed rather than provoked: the read-failure path
+        it represents is covered by
+        :meth:`test_any_failed_staged_path_read_keeps_the_commit`, and what
+        is under test here is the log line, not how the metadata went
+        missing.
+        """
+        from kubernetes_spawner import _worktree
+
+        repo, _origin_head = self._seed_dirty(tmp_path)
+        # The WARNING is gated on `if orphans:`, so the worktree needs a real
+        # commit ahead of origin as well as the dirt.
+        (repo / "ahead.txt").write_text("committed but unpushed\n")
+        _git(repo, "add", "ahead.txt")
+        _git(repo, "commit", "-m", "ahead of origin")
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        unknown = _worktree._DirtySnapshot(
+            sha="beefbeefbeef", n_files=None, paths=None, partial=True
+        )
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store"),
+            patch("kubernetes_spawner._worktree._preserve_dirty_tree", return_value=unknown),
+            patch("kubernetes_spawner._worktree.logger") as log,
+        ):
+            assert spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX) is True
+
+        discard = next(
+            c for c in log.warning.call_args_list if "unpushed local commits" in c.args[0]
+        )
+        assert discard.kwargs["wip_commit"] == "beefbeefbeef"
+        assert discard.kwargs["wip_partial"] is True
+        assert discard.kwargs["wip_files"] is None
+        # The whole point: unknown, not zero.
+        assert discard.kwargs["wip_files_unknown"] is True
+        # The off-pattern name must not come back — a consumer querying
+        # `wip_files` on the bus and `preserved_files` in the log is the
+        # failure this rename fixed.
+        assert "preserved_files" not in discard.kwargs
+
     def test_ignored_only_dirt_is_discarded_without_a_commit(self, spawner, mock_gateway, tmp_path):
         """Build output is not agent work: no snapshot, nothing salvaged.
 
@@ -4551,7 +4837,7 @@ class TestDiscardedTipMessageWording:
         assert "build on it (cherry-pick or reset)" in body
 
     def test_machine_state_only_snapshot_is_softened(self):
-        """A capture that is nothing but orchestrator-written state relaxes.
+        """A capture that is nothing but regenerated state relaxes.
 
         The softening has to hold across the *whole* body: a trailing "treat
         it as a WIP checkpoint to review" would put an imperative in the last
@@ -4604,10 +4890,13 @@ class TestDiscardedTipMessageWording:
     def test_unknown_paths_are_treated_as_substantial(self):
         """No path set ⇒ the imperative. Soft wording is opt-in, never a default.
 
-        Defensive only: ``wip_paths`` and ``wip_commit`` are assigned together
-        off ``_DirtySnapshot``, so production never reaches this. It pins that
-        a future caller that knows the sha but not the contents degrades to
-        the loud branch rather than the quiet one.
+        This is a live production path, not merely defensive (R7 B1): a
+        filename whose bytes are not valid UTF-8 makes the staged-path read
+        undecodable, and ``_preserve_dirty_tree`` commits blind rather than
+        lose the tree over a name — so the record knows the sha but not the
+        contents. It must degrade to the loud branch rather than the quiet
+        one. The end-to-end path is pinned by
+        ``TestDirtyTreePreservedBeforeReset``'s undecodable-filename cases.
         """
         body = self._body(
             n_commits=1,
@@ -4735,7 +5024,7 @@ class TestDiscardedTipMessageWording:
             wip_files=len(paths),
             wip_paths=paths,
         )
-        assert "holds only 5 files — orchestrator-written state" in msg.body
+        assert "holds only 5 files — machine-maintained coordination state" in msg.body
         for path in paths:
             assert f"`{path}`" not in msg.body
         assert "read it if you need it" in msg.body
