@@ -244,10 +244,11 @@ lived only on the shared worktree's file; the `git reset --hard
 origin/<branch>` that runs at phase-(re)start silently reverted it, letting
 the next bootstrap re-mint reuse the same id and clobber an
 already-resolved decision. The best-effort commit+push
-(`persist_contract_statefiles`, `orchestrator/routes/pipelines.py`) runs
-inline with the resolution route
-(`orchestrator/routes/decisions/_resolve.py`) and the Layer-C HITL
-escalation path (`orchestrator/routes/pipelines.py`) — both calling it
+(`persist_contract_statefiles`,
+`orchestrator/routes/pipelines/_statefiles.py`) runs inline with the
+resolution route (`orchestrator/routes/decisions/_resolve.py`) and the
+Layer-C HITL escalation path
+(`orchestrator/routes/pipelines/_slice_state.py`) — both calling it
 directly — and with the contract mutate route via the
 `_persist_durable_mutation` wrapper (`orchestrator/routes/contracts.py`,
 #3470), which covers decision registration and contract task-row mutations
@@ -1070,9 +1071,10 @@ will not import, and downgrades contract load/save failures to a warning. The #3
 durability push that follows the write (`persist_contract_statefiles`) is best-effort too:
 a decision is live on the shared worktree's contract file immediately, but until it is
 committed *and* pushed to the work branch, the `git reset --hard origin/<work>` that a
-phase (re)start runs reverts it — the same restart step 2 below prescribes. Such a
-decision returns only if the gate re-fires and goes red again. A blocked close can
-therefore leave *no* decision behind; that is why `run_slice_green_gate` phrases its
+phase (re)start runs reverts it — the same restart step 2 below prescribes. That is a
+*later* loss, not an at-close absence, and such a decision returns only if the gate
+re-fires and goes red again. The two in-function paths above are the ones that can leave
+*no* decision behind at close time, and they are why `run_slice_green_gate` phrases its
 failure string's remedy block conditionally ("If this close raised a green-gate decision
 on the contract, resolve it; otherwise fix the named checks…") rather than promising a
 decision its caller may never have landed. If the phase failed on one of these gates and
@@ -1122,7 +1124,7 @@ new `cq-N`, so the operator sees one decision per incident rather than one per r
 - `orchestrator/routes/decisions/` — Decision API endpoints (create, list, resolve), the `POST .../feedback/answer` route for contract-scoped feedback (`answer_feedback` MCP tool; #3007), the contract-decision fallback in `resolve_decision` that writes pre-gate `cq-N` resolutions directly to the contract when the id is not in the queue (#3071), the executable task-completion dispatch (`_maybe_complete_task_from_resolution`) that auto-executes `complete_task_as_operator` when the resolution matches "Mark task `<id>` complete" (#3124), orphaned-driver revival on `phase_gate` resolution: when no live `_run_pipeline` driver thread owns an `AWAITING_HUMAN` pipeline (e.g. after an orchestrator restart), the resolve path re-launches the driver via `start_pipeline`'s recovery branch so the resolution self-heals rather than hanging silently; an `OVERSEER_ALERT` is broadcast on the bus when the orphaned park is detected (before the `start_pipeline` re-launch, so it fires even if that re-launch returns non-200 or raises) (#3233), and the first-principles redirect accept-path (`_maybe_apply_first_principles_redirect`, in `_handlers.py` and re-exported through the package barrel `__init__.py`): when the operator resolves a `first_principles_reviewer` refine-phase decision with "Adopt the redirect", this handler rewrites the pipeline seed via `rewrite_task_description_as_operator` and re-runs the refine phase; "Don't build this" cancels the pipeline; "Proceed as-is" is a no-op (#3385); the consensus-timeout retry dispatch (`_maybe_dispatch_consensus_timeout_resolution`, in `_handlers.py`) that auto-executes `restart_phase` when a `consensus_timeout_incomplete` decision is resolved with "Retry phase" (#3421); and the arms-exhausted retry dispatch (`_maybe_dispatch_arms_exhausted_resolution`, sharing the `_execute_restart_phase` helper with the consensus-timeout path) that clears exhausted spawn budgets in-band, restarts the phase, or records an abort when an `event_arms_exhausted` decision is resolved (#3496); its no-op-park sibling (`_maybe_dispatch_arms_parked_resolution`) that releases no-op-parked keys in-band, restarts the phase, or records an abort when an `event_arms_parked` decision is resolved (#3548)
 - `orchestrator/operator_actions.py` — Operator-grade contract mutations; `complete_task_as_operator` applies task-status mutations as `Role.HUMAN`, bypassing the implementer/reviewer field-ownership restriction (#3124); `rewrite_task_description_as_operator` rewrites `contract.task_description` as `Role.HUMAN` for the first-principles redirect accept-path (#3385); `add_task_as_operator` appends a task to a slice as `Role.HUMAN` for the executable `adds_task` decision option and the direct `POST /api/v1/contracts/<id>/tasks` route (#3428)
 - `orchestrator/mcp_tools.py` — `answer_feedback` MCP tool (`_handle_answer_feedback`) for host-side answering of pre-proposal contract feedback
-- `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing; `persist_contract_statefiles` commits and pushes a contract decision write to the work branch at write time so a phase-(re)start worktree reset cannot revert it (#3427)
+- `orchestrator/routes/pipelines/` — Phase gate resolution with JSON payload parsing; `persist_contract_statefiles` (`_statefiles.py`) commits and pushes a contract decision write to the work branch at write time so a phase-(re)start worktree reset cannot revert it (#3427)
 - `orchestrator/routes/pipelines/_slice_state.py` — `_escalate_layer_c_hitl` (the shared `cq-N` minter, dedupe guard, and the inert three-option set) plus its close-path wrappers `_escalate_evidence_gate_to_hitl` (#3572) and `_escalate_green_gate_to_hitl` (#3398), both passing `carry_forward=False`; also `_check_slice_evidence_reachability`, the #3125 gate whose failure text the evidence-gate escalation embeds (the green-gate escalation embeds `slice_green_gate.failure_headline` instead)
 - `orchestrator/routes/pipelines/_run_implement_support.py` — `_slice_close_evidence_gate` / `_slice_close_green_gate`, the two close-path wrappers that run each gate and fire its escalation before `_run_implement.py` calls `scheduler.record_failure`
 - `orchestrator/slice_green_gate.py` — Per-slice green gate; `failure_headline` extracts the deterministic first block (slice id + integration branch + red check names) that the green-gate escalation embeds, so retries of one unanswered incident dedupe instead of minting a fresh `cq-N` per close (#3398)
