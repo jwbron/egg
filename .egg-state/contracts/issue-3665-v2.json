@@ -9,7 +9,173 @@
   "pipeline_id": "issue-3665-v2",
   "current_phase": "plan",
   "acceptance_criteria": [],
-  "slices": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Integrate Supervision-Layer Fixes",
+      "goal": "Integrate commit 6ffe97c8e which implements all three supervision fixes \u2014 livelock detection, two-hour timeout visibility, and false convergence-stall suppression. Verify the integration is correct and complete.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Integrate orchestrator/health_checks/tier1/loop_detection.py (detect_agent_livelock + AgentLivelockCheck). Verify registration in DetectionPlane.default(), tier1/__init__.py, and cli.py. Verify the detector parses Claude Code tool-call lines from agent_log_store transcripts and fires on zero new unique tool inputs.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "loop_detection.py exists and is correct; detect_agent_livelock returns Finding on livelock, None on normal; AgentLivelockCheck implements HealthCheck protocol; registered in DetectionPlane.default() and tier1/__init__.py; registered in cli.py health check runner; test_loop_detection.py passes",
+          "files_affected": [
+            "orchestrator/health_checks/tier1/loop_detection.py",
+            "orchestrator/health_checks/detection_plane.py",
+            "orchestrator/health_checks/tier1/__init__.py",
+            "orchestrator/cli.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-3",
+          "description": "Integrate health_monitor.py get_agent_activity_ages(), event_loop/_loop.py _has_recent_agent_activity(), and detection_plane.py snapshot enrichment for last_tool_call_age_s/last_heartbeat_age_s. Verify detect_heartbeat_stall registration in DetectionPlane.default().",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "get_agent_activity_ages returns correct ages; convergence-stall check consults activity before firing; snapshot builder populates tool-call/heartbeat ages; detect_heartbeat_stall registered and fires in live path; test_convergence_stall_suppression.py passes",
+          "files_affected": [
+            "orchestrator/health_monitor.py",
+            "orchestrator/event_loop/_loop.py",
+            "orchestrator/health_checks/detection_plane.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-2",
+      "name": "Two-Hour Timeout Visibility",
+      "goal": "Integrate agent_timeout_seconds config, EGG_AGENT_TIMEOUT_SECONDS env passing, active_deadline_seconds on K8s Job, and exit 143 classification as JOB_OUTCOME_LEGITIMATE.",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-2",
+          "description": "Integrate agent_timeout_seconds field in PipelineConfig. Pass EGG_AGENT_TIMEOUT_SECONDS to sandbox in concurrent_executor.py. Pass active_deadline_seconds to K8s Job in kubernetes_spawner/_spawn.py. Add _failed_with_timeout_sigterm to _EventJobStatusView and classify exit 143 as JOB_OUTCOME_LEGITIMATE. Update _classify_exit in kubernetes_monitor.py to treat 143 as clean during RUNNING phase.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "agent_timeout_seconds config field exists and serializes; EGG_AGENT_TIMEOUT_SECONDS passed to sandbox; active_deadline_seconds passed to K8s Job; exit 143 classified as JOB_OUTCOME_LEGITIMATE not ABNORMAL; _classify_exit treats 143 as clean; test_agent_timeout_config.py and test_timeout_sigterm.py pass",
+          "files_affected": [
+            "orchestrator/models/_config.py",
+            "orchestrator/concurrent_executor.py",
+            "orchestrator/kubernetes_spawner/_spawn.py",
+            "orchestrator/kubernetes_spawner/_models.py",
+            "orchestrator/kubernetes_monitor.py",
+            "sandbox/llm/claude/config.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-4",
+      "name": "Tests",
+      "goal": "Verify test coverage for all three changes",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-4",
+          "description": "Verify test_loop_detection.py, test_agent_timeout_config.py, test_convergence_stall_suppression.py, and test_timeout_sigterm.py all pass. These tests were included in commit 6ffe97c8e.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All four test files exist and pass; test coverage is complete for all three supervision fixes",
+          "files_affected": [
+            "orchestrator/tests/test_loop_detection.py",
+            "orchestrator/tests/test_agent_timeout_config.py",
+            "orchestrator/tests/test_convergence_stall_suppression.py",
+            "orchestrator/tests/test_timeout_sigterm.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-2"
+      ],
+      "serialized_chain_order": [
+        "slice-1",
+        "slice-2"
+      ],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "decision-1",
@@ -136,24 +302,28 @@
         {
           "id": "opt-1",
           "label": "Nudge the agent",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-2",
           "label": "Respawn the agent",
-          "description": null
+          "description": null,
+          "adds_task": null
         },
         {
           "id": "opt-3",
           "label": "Other (explain in reply)",
-          "description": null
+          "description": null,
+          "adds_task": null
         }
       ],
       "resolved": false,
       "resolution": null,
       "resolved_by": null,
       "resolved_at": null,
-      "debounce_until": null
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
@@ -288,7 +458,14 @@
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
-  "pr": null,
+  "pr": {
+    "title": "Supervision layer second pass: integrate livelock detection, timeout visibility, false-stall suppression",
+    "description": "Integrates commit 6ffe97c8e from the issue-3665-supervision-gaps branch,\nwhich implements all three supervision fixes: (1) agent livelock/repetition-loop\ndetection via a deterministic detector that analyzes agent log transcripts for\nzero new unique tool inputs over a trailing window; (2) two-hour timeout\nvisibility \u2014 add agent_timeout_seconds config, pass it through the spawn path,\nclassify exit 143 (SIGTERM) as a legitimate outcome rather than a crash;\n(3) false convergence-stall suppression \u2014 consult health monitor per-agent\nactivity data before firing stall alerts, and enrich the detection-plane\nsnapshot builder to populate tool-call/heartbeat ages.",
+    "test_plan": "",
+    "manual_steps": "",
+    "context_pr_number": null,
+    "deferred_actions": []
+  },
   "feedback": null,
   "phase_configs": null,
   "agent_executions": []
