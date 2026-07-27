@@ -12,8 +12,8 @@
   "slices": [
     {
       "id": "slice-1",
-      "name": "Integrate Supervision-Layer Fixes",
-      "goal": "Integrate commit 6ffe97c8e which implements all three supervision fixes \u2014 livelock detection, two-hour timeout visibility, and false convergence-stall suppression. Verify the integration is correct and complete.",
+      "name": "Integrate Supervision-Layer Fixes with Corrections",
+      "goal": "Integrate commit 68b185ca which implements all three supervision fixes, with corrections to the livelock detector per cq-1/cq-3 (live session transcript, novelty metric, HITL escalation with respawn)",
       "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
@@ -22,12 +22,12 @@
       "tasks": [
         {
           "id": "task-1-1",
-          "description": "Integrate orchestrator/health_checks/tier1/loop_detection.py (detect_agent_livelock + AgentLivelockCheck). Verify registration in DetectionPlane.default(), tier1/__init__.py, and cli.py. Verify the detector parses Claude Code tool-call lines from agent_log_store transcripts and fires on zero new unique tool inputs.",
+          "description": "Integrate orchestrator/health_checks/tier1/loop_detection.py with CORRECTIONS per cq-1/cq-3: read live session transcript at $HOME/.claude/projects/<cwd>/<session>.jsonl (NOT agent_log_store), key on FULL untruncated (tool_name, input) pair (NOT 80-char truncation), implement novelty metric (count of inputs never issued before in session, fire at zero \u2014 NOT ratio), escalate to HITL with looping input quoted (NOT nudge). Verify registration in DetectionPlane.default(), tier1/__init__.py, and cli.py.",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "loop_detection.py exists and is correct; detect_agent_livelock returns Finding on livelock, None on normal; AgentLivelockCheck implements HealthCheck protocol; registered in DetectionPlane.default() and tier1/__init__.py; registered in cli.py health check runner; test_loop_detection.py passes",
+          "acceptance_criteria": "loop_detection.py reads live session transcript; keys on full untruncated (tool_name, input); implements novelty metric (zero new inputs = livelock); escalates to HITL with looping input quoted; registered in DetectionPlane.default() and tier1/__init__.py; registered in cli.py; test_loop_detection.py passes",
           "files_affected": [
             "orchestrator/health_checks/tier1/loop_detection.py",
             "orchestrator/health_checks/detection_plane.py",
@@ -90,12 +90,12 @@
       "tasks": [
         {
           "id": "task-2-2",
-          "description": "Integrate agent_timeout_seconds field in PipelineConfig. Pass EGG_AGENT_TIMEOUT_SECONDS to sandbox in concurrent_executor.py. Pass active_deadline_seconds to K8s Job in kubernetes_spawner/_spawn.py. Add _failed_with_timeout_sigterm to _EventJobStatusView and classify exit 143 as JOB_OUTCOME_LEGITIMATE. Update _classify_exit in kubernetes_monitor.py to treat 143 as clean during RUNNING phase.",
+          "description": "Integrate agent_timeout_seconds field in PipelineConfig (default 7200, ge=60). Pass EGG_AGENT_TIMEOUT_SECONDS to sandbox in concurrent_executor.py. Pass active_deadline_seconds to K8s Job in kubernetes_spawner/_spawn.py. Add _failed_with_timeout_sigterm to _EventJobStatusView and classify exit 143 as JOB_OUTCOME_LEGITIMATE. Update _classify_exit in kubernetes_monitor.py to treat 143 as clean during RUNNING phase. Update sandbox/llm/claude/config.py to use EGG_AGENT_TIMEOUT_SECONDS.",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "agent_timeout_seconds config field exists and serializes; EGG_AGENT_TIMEOUT_SECONDS passed to sandbox; active_deadline_seconds passed to K8s Job; exit 143 classified as JOB_OUTCOME_LEGITIMATE not ABNORMAL; _classify_exit treats 143 as clean; test_agent_timeout_config.py and test_timeout_sigterm.py pass",
+          "acceptance_criteria": "agent_timeout_seconds config field exists and serializes; EGG_AGENT_TIMEOUT_SECONDS passed to sandbox; active_deadline_seconds passed to K8s Job; exit 143 classified as JOB_OUTCOME_LEGITIMATE not ABNORMAL; _classify_exit treats 143 as clean; sandbox config uses EGG_AGENT_TIMEOUT_SECONDS; test_agent_timeout_config.py and test_timeout_sigterm.py pass",
           "files_affected": [
             "orchestrator/models/_config.py",
             "orchestrator/concurrent_executor.py",
@@ -126,9 +126,9 @@
       "review_feedback": []
     },
     {
-      "id": "slice-4",
-      "name": "Tests",
-      "goal": "Verify test coverage for all three changes",
+      "id": "slice-5",
+      "name": "Alert Evidence Bundling",
+      "goal": "Restore priority 4 \u2014 enrich OVERSEER_ALERT payloads with structured evidence (heartbeat/tool-call ages, progress events, blocking agents, consensus state) so operators can act without hand-investigation.",
       "status": "pending",
       "review_cycles": 0,
       "max_cycles": 3,
@@ -136,13 +136,59 @@
       "escalation_reason": null,
       "tasks": [
         {
-          "id": "task-4-4",
-          "description": "Verify test_loop_detection.py, test_agent_timeout_config.py, test_convergence_stall_suppression.py, and test_timeout_sigterm.py all pass. These tests were included in commit 6ffe97c8e.",
+          "id": "task-5-4",
+          "description": "Enrich OVERSEER_ALERT payloads with latest_heartbeat_age_s, latest_tool_call_age_s, last_progress_event, blocking_agents, consensus_state. The overseer already fetches container logs at _poll.py:78-85, so most data is in hand. Modify health_monitor.py escalation dicts, event_loop/_loop.py convergence-stall anomaly payloads, and overseer/monitor/_alerting.py OVERSEER_ALERT payloads.",
           "status": "pending",
           "commit": null,
           "checkpoint_id": null,
           "notes": "",
-          "acceptance_criteria": "All four test files exist and pass; test coverage is complete for all three supervision fixes",
+          "acceptance_criteria": "OVERSEER_ALERT payloads carry structured evidence fields; convergence-stall alerts include agent activity ages; livelock alerts include the looping input; unit tests pass",
+          "files_affected": [
+            "orchestrator/health_monitor.py",
+            "orchestrator/event_loop/_loop.py",
+            "orchestrator/overseer/monitor/_alerting.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [
+        "slice-1"
+      ],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    },
+    {
+      "id": "slice-6",
+      "name": "Tests",
+      "goal": "Verify test coverage for all changes, with corrected livelock detector tests",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-6-5",
+          "description": "Update test_loop_detection.py to test novelty metric (not ratio), live session transcript parsing (not agent_log_store), and HITL escalation (not nudge). Verify test_agent_timeout_config.py, test_convergence_stall_suppression.py, and test_timeout_sigterm.py all pass.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All test files exist and pass; livelock detector tests verify novelty metric and live transcript parsing; timeout tests verify exit 143 classification; convergence-stall tests verify activity-based suppression",
           "files_affected": [
             "orchestrator/tests/test_loop_detection.py",
             "orchestrator/tests/test_agent_timeout_config.py",
@@ -165,7 +211,8 @@
       ],
       "serialized_chain_order": [
         "slice-1",
-        "slice-2"
+        "slice-2",
+        "slice-5"
       ],
       "parent_branch_at_creation": null,
       "integration_base_sha": null,
@@ -470,8 +517,8 @@
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": {
-    "title": "Supervision layer second pass: integrate livelock detection, timeout visibility, false-stall suppression",
-    "description": "Integrates commit 6ffe97c8e from the issue-3665-supervision-gaps branch,\nwhich implements all three supervision fixes: (1) agent livelock/repetition-loop\ndetection via a deterministic detector that analyzes agent log transcripts for\nzero new unique tool inputs over a trailing window; (2) two-hour timeout\nvisibility \u2014 add agent_timeout_seconds config, pass it through the spawn path,\nclassify exit 143 (SIGTERM) as a legitimate outcome rather than a crash;\n(3) false convergence-stall suppression \u2014 consult health monitor per-agent\nactivity data before firing stall alerts, and enrich the detection-plane\nsnapshot builder to populate tool-call/heartbeat ages.",
+    "title": "Supervision layer second pass: integrate fix commit 68b185ca with livelock corrections + restore priority 4",
+    "description": "Integrates commit 68b185ca from the issue-3665-supervision-gaps branch,\nwith corrections to the livelock detector per operator feedback (cq-1,\ncq-3): reads live session transcripts instead of pod logs, uses novelty\nmetric instead of ratio, and escalates to HITL with respawn instead of\nnudge. Also restores priority 4 (alert evidence bundling) that was\ndropped in v2.",
     "test_plan": "",
     "manual_steps": "",
     "context_pr_number": null,
