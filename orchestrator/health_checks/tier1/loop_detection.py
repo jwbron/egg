@@ -256,17 +256,36 @@ def detect_agent_livelock(
     if not running_agents:
         return None
 
+    # The detector reads the live session transcript (per cq-1). For the
+    # calibration corpus, the snapshot's ``raw`` dict may carry a
+    # ``tool_calls_by_role`` field — a dict mapping role -> list of
+    # signature strings — so the corpus can drive the detector without
+    # mocking file I/O. In production this field is absent and the detector
+    # reads the live transcript.
+    #
+    # The ``raw`` field on EventStreamSnapshot is the full source dict; the
+    # ``tool_calls_by_role`` key is nested inside the inner ``raw`` sub-dict
+    # (which is itself a field on the snapshot JSON). So we look in
+    # ``raw["raw"]["tool_calls_by_role"]``.
+    raw = dict(getattr(snapshot, "raw", {}) or {})
+    inner_raw = raw.get("raw", {}) if isinstance(raw.get("raw"), dict) else {}
+    tool_calls_by_role = inner_raw.get("tool_calls_by_role", {})
+
     # Check each running agent for livelock
     for agent in running_agents:
         role = getattr(agent, "role", "")
         if not role:
             continue
 
-        transcript = _get_agent_logs(pipeline_id, role)
-        if not transcript:
-            continue
-
-        signatures = _extract_tool_signatures(transcript)
+        # Corpus path: tool_calls provided directly in the snapshot
+        if role in tool_calls_by_role:
+            signatures = list(tool_calls_by_role[role])
+        else:
+            # Production path: read the live session transcript
+            transcript = _get_agent_logs(pipeline_id, role)
+            if not transcript:
+                continue
+            signatures = _extract_tool_signatures(transcript)
 
         # Need at least min_tool_calls to have enough history to judge
         if len(signatures) < min_tool_calls:
