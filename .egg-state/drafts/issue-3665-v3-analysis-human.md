@@ -22,7 +22,7 @@ the detection plane from issue #2270 — is **completely unwired** in production
 
 1. **The detection plane exists but never runs.** The function
    `snapshot_from_health_context()` builds a data snapshot for the detectors, but it
-   only fills in 3 of 12 fields. The other 9 fields — including `consensus`,
+   only fills in 5 of 13 fields. The other 8 fields — including `consensus`,
    `container_transitions`, `runtime`, `midturn_messages`, and `decision_state` — are
    all left empty. Every detector that reads those fields is silently inert.
    Additionally, the function that would actually invoke the detection plane
@@ -43,7 +43,8 @@ LLM-based overseer that does run has no reliable input pipeline.
 
 ## What has already been fixed (do not rebuild)
 
-All 9 items the issue says have already landed are confirmed present in the tree:
+All 9 items the issue says have already landed are confirmed present in the tree, verified via
+file-and-symbol citations (the per-item citations are the real evidence, not commit messages):
 
 | Item | What it does |
 |------|-------------|
@@ -61,8 +62,8 @@ All 9 items the issue says have already landed are confirmed present in the tree
 
 ### Area 1: Signals that exist but are not consulted
 
-**The problem:** The detection plane's snapshot builder fills in only 3 of 12 fields.
-The other 9 are empty, making every detector that reads them silently inert.
+**The problem:** The detection plane's snapshot builder fills in only 5 of 13 fields.
+The other 8 are empty, making every detector that reads them silently inert.
 
 **Proposed work (in order):**
 
@@ -223,7 +224,7 @@ code path; "unwired" means it exists but is never called.
 
 | # | Improvement | File-and-symbol citation | Present? | Wired? |
 |---|------------|--------------------------|----------|--------|
-| 9 | Classify timeout-killed pods (exit -1 from `asyncio.timeout`) as clean timeout, not crash | `kubernetes_monitor.py:_classify_exit()` (line 1164) | Present (bug) | Yes |
+| 9 | Classify timeout-killed pods (exit -1 from `asyncio.timeout`) as clean timeout, not crash | `kubernetes_monitor.py:_classify_exit()` (line 1148) | Present (bug) | Yes |
 | 10 | Surface the 2-hour `ClaudeConfig.timeout` to the agent via heartbeat before expiry | `sandbox/egg_lib/orch_cli/_message.py:cmd_message_heartbeat` + `sandbox/llm/claude/config.py:23` | Present (not surfaced) | No |
 | 11 | Make agent timeout configurable per-pipeline | `models/_config.py:PipelineConfig` + `sandbox/llm/claude/config.py:ClaudeConfig.timeout` | Present (hardcoded 7200) | No |
 | 12 | Unify convergence-stall alert and alive-signal gate timestamp sources | `event_loop/_loop.py:_check_convergence_stall()` (line 859) vs `health_monitor.py:_has_recent_peer_progress()` (line 388) | Present (divergent) | Yes (both) |
@@ -248,8 +249,8 @@ code path; "unwired" means it exists but is never called.
 | 21 | Populate `git_state` in snapshot for worktree corruption detection | `health_checks/detection_plane.py:snapshot_from_health_context()` + `health_checks/context.py:git_log` | Present (unused) | No |
 | 22 | Wire `detect_duration_drift()` with `expected_duration_s` from pipeline config | `health_checks/tier1/runtime_liveness.py:138` + `models/_config.py` | Present (field absent) | No |
 | 23 | Implement `detect_auto_advance_wedge()` detector | `health_checks/tier1/decision_queue.py:detect_auto_advance_wedge` | Present (unpopulated) | No |
-| 24 | Add `EGG_HEARTBEAT_RATE_LIMIT` config to PipelineConfig | `sandbox/egg_lib/orch_cli/_message.py:633` (hardcoded 60s) | Present (hardcoded) | No |
-| 25 | Surface `noop_park_report()` and `exhausted_report()` in get_status | `event_loop/_supervisor.py:558` / `584` | Present (not surfaced) | No |
+| 24 | Add `EGG_HEARTBEAT_RATE_LIMIT` config to PipelineConfig | `sandbox/egg_lib/orch_cli/_message.py:cmd_message_heartbeat` (line 588) + `EGG_HEARTBEAT_RATE_LIMIT` env (line 633 is 429 retry-after backoff, not heartbeat cadence) | Present (hardcoded) | No |
+| 25 | Surface `noop_park_report()` and `exhausted_report()` in get_status | `event_loop/_supervisor.py:558` / `610` | Present (not surfaced) | No |
 
 ## Tier 5 — Won't do (out of scope or already handled)
 
