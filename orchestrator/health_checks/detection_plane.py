@@ -575,7 +575,9 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
     slice_id = _context_slice_id(context, pipeline, phase_value)
     if slice_id:
         raw["slice_id"] = slice_id
-    tool_calls_by_role = _extract_tool_calls_by_role(pipeline_id, slice_id, live_ids)
+    # Use live_roles (container ID -> role name mapping) to look up transcripts
+    # from the session_state_store, which is keyed by role name.
+    tool_calls_by_role = _extract_tool_calls_by_role(pipeline_id, slice_id, set(live_roles.values()))
     if tool_calls_by_role:
         raw["tool_calls_by_role"] = tool_calls_by_role
 
