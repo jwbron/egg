@@ -428,6 +428,7 @@ def _register_coverage_gap_detectors(plane: DetectionPlane) -> None:
         detect_brc_thrash,
         detect_incomplete_consensus_deferral,
     )
+    from health_checks.tier1.consensus_stall import detect_heartbeat_stall
     from health_checks.tier1.container_k8s import (
         detect_container_death,
         detect_container_oom_evicted,
@@ -492,6 +493,7 @@ def _register_coverage_gap_detectors(plane: DetectionPlane) -> None:
         detect_anthropic_5xx_sustained,
         detect_overseer_self_health,
         detect_agent_livelock,
+        detect_heartbeat_stall,
     )
 
     existing = set(plane.detectors)
@@ -559,13 +561,83 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
         for cid in live_ids
     )
 
+    # #3665: enrich the snapshot's ``raw`` field with the slice_id and
+    # ``tool_calls_by_role`` so the agent_livelock detector can read the
+    # live session transcript from the session_state_store. The
+    # ``tool_calls_by_role`` maps role -> list of signature strings
+    # (parsed from the transcript), enabling the detector to run without
+    # mocking file I/O in tests.
+    raw: dict[str, Any] = {}
+    slice_id = _context_slice_id(context, pipeline, phase_value)
+    if slice_id:
+        raw["slice_id"] = slice_id
+    tool_calls_by_role = _extract_tool_calls_by_role(pipeline_id, slice_id, live_ids)
+    if tool_calls_by_role:
+        raw["tool_calls_by_role"] = tool_calls_by_role
+
     return EventStreamSnapshot(
         snapshot_id=f"{pipeline_id}:{phase_value}",
         pipeline_id=str(pipeline_id),
         phase=str(phase_value),
         running_agents=running_agents,
         phase_state=phase_state,
+        raw=raw,
     )
+
+
+def _context_slice_id(
+    context: Any, pipeline: Any, phase_value: str
+) -> str | None:
+    """Extract the slice_id from the pipeline context.
+
+    The slice_id lives on the PhaseExecution model (not Pipeline), so we
+    look it up from the pipeline's phases dict.
+    """
+    try:
+        phases = getattr(pipeline, "phases", {}) or {}
+        phase_exec = phases.get(phase_value)
+        if phase_exec is not None:
+            return getattr(phase_exec, "slice_id", None)
+    except Exception:
+        pass
+    return None
+
+
+def _extract_tool_calls_by_role(
+    pipeline_id: str,
+    slice_id: str | None,
+    live_ids: set[str],
+) -> dict[str, list[str]]:
+    """Read session transcripts from session_state_store and extract tool signatures.
+
+    #3665: the livelock detector reads the live session transcript from the
+    session_state_store (Redis-backed, populated by the sandbox's
+    ``session-state push``). This function reads the transcript for each
+    running agent and extracts tool-call signatures, returning a dict
+    mapping role -> list of signature strings.
+
+    Returns an empty dict if the session state store is unavailable or no
+    transcripts are found.
+    """
+    if not live_ids:
+        return {}
+    try:
+        from session_state_store import get_session_state_store
+
+        store = get_session_state_store()
+        result: dict[str, list[str]] = {}
+        for role in live_ids:
+            record = store.get(pipeline_id, slice_id, str(role))
+            if record is not None and record.transcript:
+                # Lazy import to avoid circular dependency
+                from health_checks.tier1.loop_detection import _extract_tool_signatures
+
+                signatures = _extract_tool_signatures(record.transcript)
+                if signatures:
+                    result[str(role)] = signatures
+        return result
+    except Exception:
+        return {}
 
 
 def _agent_age(

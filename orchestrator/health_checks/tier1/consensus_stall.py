@@ -267,3 +267,7 @@ def detect_heartbeat_stall(
             detector_key="heartbeat_stall",
         )
     return None
+
+
+detect_heartbeat_stall.detector_key = "heartbeat_stall"  # type: ignore[attr-defined]
+detect_heartbeat_stall.name = "heartbeat_stall_detector"  # type: ignore[attr-defined]
