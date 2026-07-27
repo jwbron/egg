@@ -88,6 +88,14 @@
       "repo": null,
       "role": "architect"
     },
+    "7d20e38a0e9915e3499e64f196e91734aea471cf": {
+      "branch": "egg/issue-3665-v3/work",
+      "patch_id": "1701fa51ef7c05b7d7a621c83de0b0c22730220a",
+      "pipeline_id": "issue-3665-v3",
+      "registered_at": "2026-07-27T23:49:04.946968+00:00",
+      "repo": null,
+      "role": "risk_analyst"
+    },
     "8671067f6c40239ee0e46fcb82482d61751e818e": {
       "branch": "egg/issue-3665-v3/work",
       "patch_id": "daf835ecf2698b2b0a8e730e9d103e607769f643",
@@ -143,6 +151,14 @@
       "registered_at": "2026-07-27T23:42:49.102139+00:00",
       "repo": null,
       "role": "architect"
+    },
+    "a4e0a99335c7fe7c60ba72422e1f281ac423d71c": {
+      "branch": "egg/issue-3665-v3/work",
+      "patch_id": "bc519f779d025b866a4ef22a53e2e7011a1fd348",
+      "pipeline_id": "issue-3665-v3",
+      "registered_at": "2026-07-27T23:49:04.942516+00:00",
+      "repo": null,
+      "role": "risk_analyst"
     },
     "b3a9efcbb0adb96b07a161f388074f4b9eb45292": {
       "branch": "egg/issue-3665-v3/work",
