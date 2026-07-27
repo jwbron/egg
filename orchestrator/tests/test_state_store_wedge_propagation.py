@@ -378,6 +378,19 @@ class TestHealthEndpointReflectsStateStoreFailure:
         git repo, so the probe reported it wedged and the test failed
         (#3670).
 
+        Note what this does *not* pin any more.  The old test's stated
+        contract — "calling the probe outside a Flask request context
+        must be treated as a configuration issue, not a wedge" — is
+        now not merely unpinned but **false**: post-#2903 the
+        no-context call resolves to ``EGG_REPO_PATH`` / CWD and can
+        report that directory wedged.  That is safe only because
+        ``_probe_state_store`` has no production callers (the kubelet
+        path reads the BG probe cache, and that thread resolves its
+        base path via ``state_store_probe._resolve_base_path()``,
+        which is env-only and returns ``None`` when ``EGG_REPO_PATH``
+        is unset).  Anyone restoring a production caller must re-check
+        that assumption.
+
         The guard in ``_probe_state_store`` is still live and still
         worth pinning, so raise from ``get_repo_path`` explicitly
         rather than depending on a call site that no longer raises.

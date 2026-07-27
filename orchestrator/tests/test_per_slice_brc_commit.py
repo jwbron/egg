@@ -951,12 +951,21 @@ class TestGatewayAllowlistCompatibility:
         it is typically a symlink into the developer's home, so
         realpath lands outside the allowlist and the assertion fails
         for a reason that says nothing about drift.  Stub realpath down
-        to lexical normalization for the duration of the call: the
-        allowlist policy — the thing this test is about — still runs
-        for real, and ``abspath`` keeps collapsing ``..`` so a
-        traversal-shaped constant would still be rejected.  Same seam
-        the gateway's own allowlist tests neutralize
-        (``gateway/tests/test_git_validation.py``).
+        to lexical normalization for the duration of the call.
+
+        The stub *reproduces* production semantics rather than
+        neutralizing a security control: in the deployed topology
+        ``/home/egg/.egg-worktrees`` is a volume mount point
+        (``k8s/overlays/local/patches/gateway-volumes.yaml:26-27``,
+        ``k8s/overlays/local/patches/orchestrator-volumes.yaml:58``;
+        the orchestrator base backs it with the ``home`` emptyDir),
+        never a symlink — so ``realpath`` is the identity function
+        exactly where the gateway actually calls
+        ``validate_repo_path``.  The allowlist policy — the thing this
+        test is about — still runs for real, and ``abspath`` keeps
+        collapsing ``..`` so a traversal-shaped constant would still
+        be rejected.  Same seam the gateway's own allowlist tests
+        neutralize (``gateway/tests/test_git_validation.py``).
         """
         import os
 
