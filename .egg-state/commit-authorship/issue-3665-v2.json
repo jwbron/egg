@@ -224,6 +224,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "c57ef44d7289f6eec59475d54d972aa16f7eb2fd": {
+      "branch": "egg/issue-3665-v2/work",
+      "patch_id": "f3e517152abad7d23858a337f6d8f39f521e2679",
+      "pipeline_id": "issue-3665-v2",
+      "registered_at": "2026-07-27T08:36:35.205505+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "c5abc9740996513d7cdcba4d776add93f3879803": {
       "branch": "egg/issue-3665-v2/work",
       "patch_id": "94f90dccdee31b2966c03dda67246ce7a5e43948",
