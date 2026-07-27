@@ -3,17 +3,17 @@
   "phase": "plan",
   "agent": "task_planner",
   "title": "Supervision second pass: wire detection plane + loop detector + timeout classification + alert evidence",
-  "version": 1,
-  "summary": "Four independent slices across the four analysis areas: (1) wire the #2270 detection plane into RUNTIME_TICK by populating all 13 EventStreamSnapshot fields and calling _run_overseer_detection_plane() from _run_runtime_tick_checks(); (2) implement a deterministic unique-tool-input loop detector reading midturn_messages from the snapshot; (3) classify timeout-killed pods (exit -1 from asyncio.timeout) as clean timeouts not crashes, surface the 2h timeout to agents via heartbeat, and make the timeout configurable per-pipeline; (4) enrich OVERSEER_ALERT payloads with evidence and fix the convergence-stall false positive by unifying timestamp sources. All four slices touch disjoint file sets. Tier 3-5 from the 30-item candidate list are input to the gate, not a work queue.",
+  "version": 2,
+  "summary": "Five linear slices across the four analysis areas from issue #3665: (1) populate all 13 EventStreamSnapshot fields in snapshot_from_health_context(); (2) wire _run_overseer_detection_plane() into RUNTIME_TICK with double-evaluation guard + route findings to alert surface; (3) implement a deterministic unique-tool-input loop detector reading midturn_messages from the snapshot; (4) classify timeout-killed pods (exit -1 from asyncio.timeout) as clean timeouts not crashes, surface the 2h timeout to agents via heartbeat, and make the timeout configurable per-pipeline; (5) enrich OVERSEER_ALERT payloads with evidence and fix the convergence-stall false positive by unifying timestamp sources. Slices are linear because they share overlapping files (kubernetes_monitor.py, detection_plane.py, health_monitor.py).",
   "scope_notes": {
-    "tier_1_2_only": "Per the gate's scope discipline: Tier 1 and Tier 2 items from the candidate list are implemented; Tier 3-5 are input to the gate only.",
-    "disjoint_slices": "slice-1 (detection_plane.py, kubernetes_monitor.py, _overseer.py), slice-2 (tier1/loop_detection.py, detection_plane.py, agent_log_store.py, kubernetes_client.py), slice-3 (kubernetes_monitor.py, _models.py, _supervisor.py, _config.py, _spawn.py, config.py, _message.py), slice-4 (_alerting.py, _loop.py, health_monitor.py, runner.py). No shared files across slices.",
-    "soft_dependency": "slice-4 TASK-4-4 (route findings to alert surface) depends on slice-1 TASK-1-5 (wire detection plane into RUNTIME_TICK). The alerting code can be written first; the wiring makes it live."
+    "linear_chain": "Slices are a linear chain (1->2->3->4->5) because they share overlapping files. The #3046 overlap validator requires overlapping slices to be ordered along one dependency chain.",
+    "tier_1_2_only": "Per the gate's scope discipline: Tier 1 and Tier 2 items from the 30-item candidate list are implemented; Tier 3-5 are input to the gate only.",
+    "soft_dependency": "slice-5 TASK-5-3 (timeout naming in alerts) depends on slice-4 TASK-4-3 (timeout classification)."
   },
   "grounding": {
     "base": "main @ 1cd0c8ad7 (2026-07-27)",
-    "detection_plane": "snapshot_from_health_context() at health_checks/detection_plane.py:511 populates only 5 of 13 EventStreamSnapshot fields (snapshot_id, pipeline_id, phase, running_agents, phase_state). RunningAgent(role=str(cid)) at line 536 uses container ID as role. _run_overseer_detection_plane() at routes/pipelines/_overseer.py:309 has zero call sites. run_detection_plane() at health_checks/runner.py:159 exists but is never invoked.",
-    "runtime_tick": "_run_runtime_tick_checks() at kubernetes_monitor.py:221 is called from _check_pod (line 218) and _reconciliation_sweep (line 616). Currently calls runner.run(ctx, HealthTrigger.RUNTIME_TICK) but never run_detection_plane(). Must guard against double-evaluation.",
+    "detection_plane": "snapshot_from_health_context() at health_checks/detection_plane.py:511 populates only 5 of 13 EventStreamSnapshot fields. RunningAgent(role=str(cid)) at line 536 uses container ID as role. _run_overseer_detection_plane() at routes/pipelines/_overseer.py:309 has zero call sites. run_detection_plane() at health_checks/runner.py:159 exists but is never invoked.",
+    "runtime_tick": "_run_runtime_tick_checks() at kubernetes_monitor.py:221 is called from _check_pod (line 218) and _reconciliation_sweep (line 616). Must guard against double-evaluation.",
     "driver_heartbeat": "driver_heartbeat.py:41/54/67 — record_tick(), record_spawn(), tick_age_seconds(), spawn_age_seconds().",
     "peer_consensus": "peer_consensus/__init__.py:250 — get_peer_consensus_tracker(). _queries.py:110 — get_latest_progress_timestamp(). _queries.py:68 — consensus_state_fingerprint(). _queries.py:262 — get_fully_acked_producers().",
     "timeout": "sandbox/llm/claude/config.py:23 — ClaudeConfig.timeout=7200. shared/egg_agent/client.py:765 — asyncio.timeout(timeout). client.py:903-921 — TimeoutError handler returns returncode=-1. kubernetes_monitor.py:1148 — _classify_exit() treats -1 as FAILED. event_loop/_supervisor.py:145 — record_abort() increments _streaks.",
@@ -24,17 +24,16 @@
     {
       "id": "phase-1",
       "slice": "slice-1",
-      "name": "Wire the detection plane into RUNTIME_TICK",
-      "risk": "high (hot-loop path)",
+      "name": "Populate EventStreamSnapshot fields in snapshot_from_health_context()",
+      "risk": "medium",
       "dependency": null,
       "files": [
         "orchestrator/health_checks/detection_plane.py",
-        "orchestrator/kubernetes_monitor.py",
-        "orchestrator/routes/pipelines/_overseer.py",
         "orchestrator/driver_heartbeat.py",
         "orchestrator/peer_consensus/__init__.py",
-        "orchestrator/peer_consensus/_queries.py",
-        "orchestrator/health_monitor.py"
+        "orchestrator/kubernetes_monitor.py",
+        "orchestrator/health_monitor.py",
+        "orchestrator/agent_log_store.py"
       ],
       "tasks": [
         {
@@ -79,19 +78,18 @@
         },
         {
           "id": "TASK-1-5",
-          "description": "Wire _run_overseer_detection_plane() into RUNTIME_TICK path. Call it from _run_runtime_tick_checks() after building the snapshot, routing requires_adjudication findings to the overseer agent and routine findings to the corrective executor. Guard against double-evaluation (two call sites: _check_pod and _reconciliation_sweep).",
-          "acceptance_criteria": "Detection plane runs on every RUNTIME_TICK sweep; findings with requires_adjudication escalate to overseer; routine findings emit to event bus; no double-evaluation on dual call sites.",
+          "description": "Populate midturn_messages in snapshot. Wire agent tool-call logs into snapshot_from_health_context() as midturn_messages tuples. This is the prerequisite for the loop detector in slice-3.",
+          "acceptance_criteria": "snapshot.midturn_messages contains tool-call records with tool_name and input_hash; populated from agent_log_store or live pod logs.",
           "role": "coder",
           "files_affected": [
-            "orchestrator/kubernetes_monitor.py",
-            "orchestrator/routes/pipelines/_overseer.py",
-            "orchestrator/health_checks/runner.py"
+            "orchestrator/health_checks/detection_plane.py",
+            "orchestrator/agent_log_store.py"
           ]
         },
         {
           "id": "TASK-1-6",
-          "description": "Tests for snapshot population + detection plane wiring. Verify all 13 EventStreamSnapshot fields are populated; verify _run_overseer_detection_plane is called from RUNTIME_TICK; verify no double-evaluation.",
-          "acceptance_criteria": "Tests assert all 13 fields populated; detection plane invoked on RUNTIME_TICK; double-evaluation guard prevents duplicate findings.",
+          "description": "Tests for snapshot population. Verify all 13 EventStreamSnapshot fields are populated.",
+          "acceptance_criteria": "Tests assert all 13 fields populated; runtime, consensus, container_transitions, midturn_messages all non-empty.",
           "role": "tester",
           "files_affected": [
             "orchestrator/tests/test_detection_plane_wiring.py"
@@ -102,29 +100,61 @@
     {
       "id": "phase-2",
       "slice": "slice-2",
-      "name": "Deterministic loop detector + midturn_messages population",
-      "risk": "medium",
-      "dependency": null,
+      "name": "Wire the detection plane into RUNTIME_TICK",
+      "risk": "high (hot-loop path)",
+      "dependency": "phase-1",
       "files": [
-        "orchestrator/health_checks/detection_plane.py",
-        "orchestrator/health_checks/tier1/loop_detection.py",
-        "orchestrator/agent_log_store.py",
-        "orchestrator/kubernetes_client.py",
-        "shared/egg_agent/client.py"
+        "orchestrator/kubernetes_monitor.py",
+        "orchestrator/routes/pipelines/_overseer.py",
+        "orchestrator/health_checks/runner.py"
       ],
       "tasks": [
         {
           "id": "TASK-2-1",
-          "description": "Populate midturn_messages in snapshot. Wire agent tool-call logs (from client.py logger.info at lines 819-830) into snapshot_from_health_context() as midturn_messages tuples. This is the prerequisite for the loop detector.",
-          "acceptance_criteria": "snapshot.midturn_messages contains tool-call records with tool_name and input_hash; populated from agent_log_store or live pod logs.",
+          "description": "Wire _run_overseer_detection_plane() into RUNTIME_TICK path. Call it from _run_runtime_tick_checks() after building the snapshot, routing requires_adjudication findings to the overseer agent and routine findings to the corrective executor. Guard against double-evaluation (two call sites: _check_pod and _reconciliation_sweep).",
+          "acceptance_criteria": "Detection plane runs on every RUNTIME_TICK sweep; findings with requires_adjudication escalate to overseer; routine findings emit to event bus; no double-evaluation on dual call sites.",
           "role": "coder",
           "files_affected": [
-            "orchestrator/health_checks/detection_plane.py",
-            "orchestrator/agent_log_store.py"
+            "orchestrator/kubernetes_monitor.py",
+            "orchestrator/routes/pipelines/_overseer.py",
+            "orchestrator/health_checks/runner.py"
           ]
         },
         {
           "id": "TASK-2-2",
+          "description": "Route detection-plane findings to the operator alert surface. Route findings to the same OVERSEER_ALERT / HITL / Slack surfaces the overseer uses, so the operator sees one consistent alert stream.",
+          "acceptance_criteria": "Detection-plane findings appear on the OVERSEER_ALERT surface; requires_adjudication findings escalate to overseer; routine findings emit to event bus.",
+          "role": "coder",
+          "files_affected": [
+            "orchestrator/health_checks/runner.py",
+            "orchestrator/routes/pipelines/_overseer.py"
+          ]
+        },
+        {
+          "id": "TASK-2-3",
+          "description": "Tests for detection plane wiring. Verify the detection plane is called from RUNTIME_TICK; verify no double-evaluation; verify findings are routed to the alert surface.",
+          "acceptance_criteria": "Tests assert detection plane invoked on RUNTIME_TICK; double-evaluation guard prevents duplicate findings; findings routed to alert surface.",
+          "role": "tester",
+          "files_affected": [
+            "orchestrator/tests/test_detection_plane_wiring.py"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "slice": "slice-3",
+      "name": "Deterministic loop detector",
+      "risk": "medium",
+      "dependency": "phase-2",
+      "files": [
+        "orchestrator/health_checks/tier1/loop_detection.py",
+        "orchestrator/kubernetes_client.py",
+        "orchestrator/agent_log_store.py"
+      ],
+      "tasks": [
+        {
+          "id": "TASK-3-1",
           "description": "Implement detect_tool_input_loop() in health_checks/tier1/. Read midturn_messages from the snapshot, count distinct tool-input strings over a trailing window (e.g. 5 polls). If the count is zero for N consecutive polls, fire tool_input_loop / high with requires_adjudication=False. Must handle variable cycle shapes (1-, 2-, 3-, 8-cycles) — not keyed on a fixed shape.",
           "acceptance_criteria": "Detector fires on zero-new-input windows of any cycle shape; does not fire on productive agents; evidence includes the tool input hash and window size.",
           "role": "coder",
@@ -133,7 +163,7 @@
           ]
         },
         {
-          "id": "TASK-2-3",
+          "id": "TASK-3-2",
           "description": "Increase log capture fidelity for one-shot event pods. The k8s log API truncates at ~100 chars per line (kubernetes_client.py:455 read_job_log_snapshot with tail_lines=2000). Increase fidelity so the unique-tool-input counter has enough data to distinguish distinct tool calls sharing a prefix.",
           "acceptance_criteria": "Tool call log lines are captured at full length (not truncated to 100 chars); the loop detector can distinguish distinct tool calls sharing a prefix.",
           "role": "coder",
@@ -143,7 +173,7 @@
           ]
         },
         {
-          "id": "TASK-2-4",
+          "id": "TASK-3-3",
           "description": "Tests for the loop detector. Verify it fires on zero-new-input windows, does not fire on productive agents, handles variable cycle shapes (1-, 2-, 3-, 8-cycles).",
           "acceptance_criteria": "Tests cover single-input, 2-cycle, 3-cycle, and 8-cycle loops; productive agent with new tool inputs does not trigger; evidence payload is correct.",
           "role": "tester",
@@ -154,11 +184,11 @@
       ]
     },
     {
-      "id": "phase-3",
-      "slice": "slice-3",
+      "id": "phase-4",
+      "slice": "slice-4",
       "name": "Timeout visibility and classification",
       "risk": "medium",
-      "dependency": null,
+      "dependency": "phase-3",
       "files": [
         "orchestrator/kubernetes_monitor.py",
         "orchestrator/kubernetes_spawner/_models.py",
@@ -171,7 +201,7 @@
       ],
       "tasks": [
         {
-          "id": "TASK-3-1",
+          "id": "TASK-4-1",
           "description": "Add agent_timeout_seconds to PipelineConfig (default 7200).",
           "acceptance_criteria": "PipelineConfig.agent_timeout_seconds field exists with default 7200; validated >= 60.",
           "role": "coder",
@@ -180,7 +210,7 @@
           ]
         },
         {
-          "id": "TASK-3-2",
+          "id": "TASK-4-2",
           "description": "Pass EGG_AGENT_TIMEOUT env through the spawner so the agent can self-report its remaining budget.",
           "acceptance_criteria": "Spawner sets EGG_AGENT_TIMEOUT env var from PipelineConfig.agent_timeout_seconds; agent reads it and can self-report remaining budget.",
           "role": "coder",
@@ -190,7 +220,7 @@
           ]
         },
         {
-          "id": "TASK-3-3",
+          "id": "TASK-4-3",
           "description": "Classify timeout-killed pods distinctly. When exit_code == -1 and the timeout fired (detectable via agent result error message 'Timed out after {timeout} seconds'), classify as a clean timeout, not a crash. Add JOB_OUTCOME_TIMEOUT outcome and route to record_timeout (not record_abort).",
           "acceptance_criteria": "Timeout-killed pods classified as clean timeout; failure streak NOT incremented; alert says 'killed by 2h agent timeout'.",
           "role": "coder",
@@ -202,7 +232,7 @@
           ]
         },
         {
-          "id": "TASK-3-4",
+          "id": "TASK-4-4",
           "description": "Surface the timeout to the agent via heartbeat. Emit a HEARTBEAT with state WAITING_FOR_EVENT and body 'approaching 2h timeout' at 90-minute intervals.",
           "acceptance_criteria": "Agent receives a heartbeat warning at 90 minutes; message is readable and actionable.",
           "role": "coder",
@@ -212,7 +242,7 @@
           ]
         },
         {
-          "id": "TASK-3-5",
+          "id": "TASK-4-5",
           "description": "Tests for timeout classification. Verify timeout-killed pods don't increment the failure streak; verify the agent receives the warning heartbeat.",
           "acceptance_criteria": "Tests assert streak untouched by timeout; heartbeat warning emitted at 90 minutes; exit classification distinguishes timeout from crash.",
           "role": "tester",
@@ -223,11 +253,11 @@
       ]
     },
     {
-      "id": "phase-4",
-      "slice": "slice-4",
+      "id": "phase-5",
+      "slice": "slice-5",
       "name": "Alert evidence + false-positive fixes",
       "risk": "medium",
-      "dependency": null,
+      "dependency": "phase-4",
       "files": [
         "orchestrator/overseer/monitor/_alerting.py",
         "orchestrator/event_loop/_loop.py",
@@ -237,7 +267,7 @@
       ],
       "tasks": [
         {
-          "id": "TASK-4-1",
+          "id": "TASK-5-1",
           "description": "Enrich OVERSEER_ALERT payloads with evidence. Add structured evidence (container logs, BRC state, tracker evaluation) to _broadcast_alert().",
           "acceptance_criteria": "Alert payloads include evidence dict with container logs, BRC state, and tracker evaluation; operator can diagnose without grepping.",
           "role": "coder",
@@ -246,7 +276,7 @@
           ]
         },
         {
-          "id": "TASK-4-2",
+          "id": "TASK-5-2",
           "description": "Fix the convergence-stall false positive. Unify the timestamp source between _check_convergence_stall() (event_loop/_loop.py:859) and _has_recent_peer_progress() (health_monitor.py:388). Both should use the same 'bus activity' signal.",
           "acceptance_criteria": "Convergence-stall alert does not fire when peer heartbeat is seconds old and health monitor logs the agent as alive; same timestamp source used for both alerting and deferral.",
           "role": "coder",
@@ -256,8 +286,8 @@
           ]
         },
         {
-          "id": "TASK-4-3",
-          "description": "Name the 2-hour timeout explicitly in exit classification. When a pod is killed by timeout, the alert should say 'killed by 2h agent timeout' not 'container exited with code -1.' (Depends on TASK-3-3.)",
+          "id": "TASK-5-3",
+          "description": "Name the 2-hour timeout explicitly in exit classification. When a pod is killed by timeout, the alert should say 'killed by 2h agent timeout' not 'container exited with code -1.' (Depends on TASK-4-3.)",
           "acceptance_criteria": "Exit classification message for timeout-killed pods says 'killed by 2h agent timeout'; distinct from crash classification.",
           "role": "coder",
           "files_affected": [
@@ -265,17 +295,7 @@
           ]
         },
         {
-          "id": "TASK-4-4",
-          "description": "Route detection-plane findings to the operator alert surface. Once slice-1 is wired, route findings to the same OVERSEER_ALERT / HITL / Slack surfaces the overseer uses, so the operator sees one consistent alert stream.",
-          "acceptance_criteria": "Detection-plane findings appear on the OVERSEER_ALERT surface; requires_adjudication findings escalate to overseer; routine findings emit to event bus.",
-          "role": "coder",
-          "files_affected": [
-            "orchestrator/health_checks/runner.py",
-            "orchestrator/routes/pipelines/_overseer.py"
-          ]
-        },
-        {
-          "id": "TASK-4-5",
+          "id": "TASK-5-4",
           "description": "Tests for alert evidence and false-positive fixes. Verify alerts carry evidence; verify convergence-stall doesn't fire when peer heartbeat is recent.",
           "acceptance_criteria": "Tests assert evidence in alert payloads; convergence-stall does not fire when peer heartbeat is recent; timeout classification message is correct.",
           "role": "tester",
@@ -294,20 +314,20 @@
     "Tier 3-5 from the candidate list (input to the gate, not a work queue)."
   ],
   "risks_for_reviewers": [
-    "slice-1 TASK-1-5 adds a new code path on the hot loop (_run_runtime_tick_checks). Must be exception-isolated and guarded against double-evaluation (two call sites: _check_pod and _reconciliation_sweep).",
-    "slice-1 TASK-1-2 (consensus section) depends on get_peer_consensus_tracker() which may return None — must handle gracefully.",
-    "slice-1 TASK-1-3 (container_transitions) requires reading _pod_states from KubernetesMonitor — must verify thread safety.",
-    "slice-2 TASK-2-1 (midturn_messages) depends on parsing agent logs — the k8s log API truncates at ~100 chars, so TASK-2-3 must be done to get full tool input data.",
-    "slice-3 TASK-3-3 (timeout classification) must distinguish timeout-killed pods (exit -1 from asyncio.timeout) from real crashes (also exit -1). The agent result error message 'Timed out after {timeout} seconds' is the discriminator.",
-    "slice-3 TASK-3-3 adds JOB_OUTCOME_TIMEOUT — must verify it doesn't interfere with the existing EX_AUTH_FATAL / EX_RATE_LIMITED exit code chain (#3364 PR C).",
-    "slice-4 TASK-4-2 (timestamp unification) must not regress the #2242 progress gate behavior — the same tracker.get_latest_progress_timestamp() is used by both, but with different gate windows.",
-    "slice-4 TASK-4-4 depends on slice-1 TASK-1-5 being wired — findings can only be routed to the alert surface once the detection plane actually runs."
+    "slice-1 TASK-1-5 adds midturn_messages population — depends on parsing agent logs which are truncated at ~100 chars in the k8s log API. slice-3 TASK-3-2 addresses this by increasing log fidelity.",
+    "slice-2 TASK-2-1 adds a new code path on the hot loop (_run_runtime_tick_checks). Must be exception-isolated and guarded against double-evaluation (two call sites: _check_pod and _reconciliation_sweep).",
+    "slice-2 TASK-2-1 (consensus section) depends on get_peer_consensus_tracker() which may return None — must handle gracefully.",
+    "slice-4 TASK-4-3 (timeout classification) must distinguish timeout-killed pods (exit -1 from asyncio.timeout) from real crashes (also exit -1) via the agent result's error message ('Timed out after {timeout} seconds').",
+    "slice-4 TASK-4-3 adds JOB_OUTCOME_TIMEOUT — must verify it doesn't interfere with the existing EX_AUTH_FATAL / EX_RATE_LIMITED exit code chain (#3364 PR C).",
+    "slice-5 TASK-5-2 (timestamp unification) must not regress the #2242 progress gate behavior — the same tracker.get_latest_progress_timestamp() is used by both, but with different gate windows.",
+    "slice-5 TASK-5-3 depends on slice-4 TASK-4-3 (timeout classification) for the 'killed by 2h agent timeout' message."
   ],
   "ordering": {
-    "cross_slice": "slice-1 (detection plane wiring) is the prerequisite for slice-2 (loop detector) and slice-4 TASK-4-4 (alert routing). slice-3 (timeout) is fully independent. slice-2 can be developed in parallel with slice-1 since the detector can be tested against a manually-populated snapshot.",
-    "intra_slice_1": "TASK-1-1 (runtime) -> TASK-1-2 (consensus) -> TASK-1-3 (container_transitions) -> TASK-1-4 (running_agents fix) -> TASK-1-5 (wire into RUNTIME_TICK) -> TASK-1-6 (tests). Steps 1-4 populate snapshot fields; step 5 wires the plane; step 6 tests.",
-    "intra_slice_2": "TASK-2-1 (midturn_messages) -> TASK-2-2 (loop detector) -> TASK-2-3 (log fidelity) -> TASK-2-4 (tests). Step 1 is prerequisite for step 2; step 3 improves data quality for step 2.",
-    "intra_slice_3": "TASK-3-1 (config field) -> TASK-3-2 (env passthrough) -> TASK-3-3 (classification) -> TASK-3-4 (heartbeat warning) -> TASK-3-5 (tests). Steps 1-2 are prerequisites for step 3; step 4 is independent.",
-    "intra_slice_4": "TASK-4-1 (evidence) -> TASK-4-2 (timestamp fix) -> TASK-4-3 (timeout naming, depends on TASK-3-3) -> TASK-4-4 (route findings, depends on slice-1 TASK-1-5) -> TASK-4-5 (tests)."
+    "cross_slice": "Linear chain: slice-1 -> slice-2 -> slice-3 -> slice-4 -> slice-5. Slices share overlapping files (kubernetes_monitor.py, detection_plane.py, health_monitor.py) so they cannot be independent parallel slices per #3046.",
+    "intra_slice_1": "TASK-1-1 (runtime) -> TASK-1-2 (consensus) -> TASK-1-3 (container_transitions) -> TASK-1-4 (running_agents) -> TASK-1-5 (midturn_messages) -> TASK-1-6 (tests). All populate snapshot fields; order is by increasing complexity.",
+    "intra_slice_2": "TASK-2-1 (wire detection plane) -> TASK-2-2 (route to alert surface) -> TASK-2-3 (tests). Step 1 is prerequisite for step 2.",
+    "intra_slice_3": "TASK-3-1 (loop detector) -> TASK-3-2 (log fidelity) -> TASK-3-3 (tests). Step 2 improves data quality for step 1; step 3 tests both.",
+    "intra_slice_4": "TASK-4-1 (config) -> TASK-4-2 (env passthrough) -> TASK-4-3 (classification) -> TASK-4-4 (heartbeat warning) -> TASK-4-5 (tests). Steps 1-2 are prerequisites for step 3; step 4 is independent.",
+    "intra_slice_5": "TASK-5-1 (evidence) -> TASK-5-2 (timestamp fix) -> TASK-5-3 (timeout naming, depends on TASK-4-3) -> TASK-5-4 (tests)."
   }
 }
