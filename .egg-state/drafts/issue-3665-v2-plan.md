@@ -110,6 +110,7 @@ Add test coverage for all three changes:
 | 9 | **Convergence-stall suppression for reviewers** — The `_has_recent_agent_activity` check applies to all roles. Reviewers legitimately wait on producers; their activity pattern differs. Consider role-specific suppression logic. | `orchestrator/event_loop/_loop.py:_check_convergence_stall` | Absent (uniform suppression) |
 | 10 | **Two-hour timeout config validation** — `agent_timeout_seconds` defaults to 7200 but the K8s `active_deadline_seconds` default is 14400. If an operator sets a custom timeout, both must stay in sync. Consider a validation that warns when they diverge. | `orchestrator/kubernetes_client.py:350` (hardcoded 14400) | Absent |
 
+```yaml
 # yaml-tasks
 pr:
   title: "Supervision layer second pass: livelock detection, timeout visibility, false-stall suppression"
@@ -171,3 +172,4 @@ phases:
           - orchestrator/tests/test_event_loop_legitimate_outcome.py
           - orchestrator/tests/test_convergence_stall_suppression.py
           - orchestrator/tests/overseer_calibration/fixtures.json
+```
