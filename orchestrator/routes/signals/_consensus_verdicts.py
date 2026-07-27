@@ -712,6 +712,34 @@ def handle_consensus_propose_signal(
             if gate_rejection is not None:
                 return gate_rejection
 
+            # Propose-time check gate (#3669): run the repo's configured
+            # checks against the proposed tree, once, in the system —
+            # never per reviewer. BRC consensus validates coherence, not
+            # correspondence (#3595 root cause 6): run 5 reached 8-of-8
+            # consensus on both slices while carrying three mechanical
+            # defects that the configured commands find without judgment.
+            # Rejecting here, before the tracker records anything, charges
+            # the cost to the producer that created the breakage instead
+            # of to five reviewers' attention, and keeps a red proposal
+            # from being reviewable at all. Runs last among the propose
+            # validators: it is the only one that costs minutes, so the
+            # cheap content/artifact/contract checks reject first.
+            #
+            # Complements — never replaces — the #3398 per-slice green
+            # gate: slice-2 of run 5 introduced none of the three defects
+            # and inherited all of them from slice-1's integration, which
+            # only a check at the integration tip sees.
+            gate_rejection = _pkg._propose_check_rejection(
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                producer_role=agent_role,
+                commit_sha=commit_sha,
+                payload=payload,
+                pipeline_state=pipeline_state,
+            )
+            if gate_rejection is not None:
+                return gate_rejection
+
         # Check if this is a re-proposal
         changed_artifacts = data.get("changed_artifacts")
         if changed_artifacts:

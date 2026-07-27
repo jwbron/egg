@@ -174,12 +174,24 @@ def validate_checks(checks: list[Any]) -> list[dict[str, str]]:
     gate runs it at the slice tip and commits the result (#3409). A
     ``fix`` that is present but empty/None is dropped from the entry.
 
+    An optional ``full_command`` key names the **ground-truth** form of
+    the same check, for repos whose ``command`` is deliberately narrowed
+    (#3669). egg's ``test`` check is ``make test``, which is
+    changeset-aware by design and selects only the tests statically
+    reachable from the diff; ``make test-all`` is the CI ground truth.
+    The propose-time check gate runs ``full_command`` when present and
+    records the exact string it ran, so a narrowed run can never be
+    mistaken for a full one. A ``full_command`` that is present but
+    empty/None is dropped from the entry, leaving ``command`` as the
+    only form of the check.
+
     Args:
         checks: Raw list of check entries (e.g. from YAML or JSON).
 
     Returns:
-        List of {"name": "...", "command": "..."} dicts (plus "fix"
-        when configured) with only valid entries retained.
+        List of {"name": "...", "command": "..."} dicts (plus "fix" /
+        "full_command" when configured) with only valid entries
+        retained.
     """
     if not isinstance(checks, list):
         return []
@@ -190,6 +202,8 @@ def validate_checks(checks: list[Any]) -> list[dict[str, str]]:
         entry = {"name": str(c["name"]), "command": str(c["command"])}
         if c.get("fix"):
             entry["fix"] = str(c["fix"])
+        if c.get("full_command"):
+            entry["full_command"] = str(c["full_command"])
         result.append(entry)
     return result
 

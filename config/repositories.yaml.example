@@ -122,6 +122,19 @@ readable_repos:
 #     the tester step ignores it, and it never runs on a check excluded by
 #     EGG_SLICE_GREEN_GATE_SKIP_CHECKS (default: "security").
 #     See docs/architecture/slice-dag.md for the rollout switch.
+#     An entry may also carry an optional "full_command" (#3669): the
+#     ground-truth form of a check whose "command" is deliberately
+#     narrowed. egg's "test" check is "make test", which is
+#     changeset-aware by design and runs only the tests statically
+#     reachable from the diff; "make test-all" is the CI ground truth.
+#     The propose-time check gate (EGG_PROPOSE_CHECK_GATE) runs
+#     "full_command" when present, falls back to "command" when it is
+#     not, and records the exact string it ran alongside the commit SHA
+#     in the proposal's checks_verified attestation — so a narrowed run
+#     is visibly narrow rather than silently incomplete. A repo whose
+#     "command" narrows MUST declare "full_command" or the gate will
+#     certify a narrowed run. The per-slice green gate is unaffected and
+#     keeps running "command" (a slice tip wants the narrowed run).
 #   - build_commands: Commands to run during Docker image build to install
 #     project-specific dependencies. Results are baked into the image so
 #     containers start with dependencies pre-installed (critical for private
@@ -185,7 +198,8 @@ repo_settings:
   #       command: make lint
   #       fix: make lint-fix  # optional green-gate auto-remediation (#3409)
   #     - name: test
-  #       command: make test
+  #       command: make test        # changeset-aware (inner loop / green gate)
+  #       full_command: make test-all  # CI ground truth (propose gate, #3669)
   # some-org/external-repo:
   #   auth_mode: user  # Use personal identity for this repo
   #   checks:

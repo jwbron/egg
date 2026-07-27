@@ -397,6 +397,39 @@ A producer's declared deferral ("remaining tasks will land in later proposals") 
 
 Scope and posture: implement phase only (plan/refine contracts are expected to have pending rows; the apply phase tracks lifecycle in `jira_action_status`). The gate fails **open** on orchestrator-side read failures (state store, worktree, contract load, unknown slice id) so an infrastructure glitch cannot deadlock in-flight consensus — same graceful-degradation posture as the propose-time validators ([#3081](https://github.com/jwbron/egg/issues/3081)). `EGG_CONTRACT_ACK_GATE=off` is the operator kill switch. Complementing the gate, reviewer task-status writes are demote-only (`shared/egg_contracts/validator.py`): a reviewer may flag a row `incomplete`/`blocked`/`pending` but only the implementer may set `complete`, so the enforcer cannot satisfy its own gate.
 
+### Propose-Time Check Gate (#3669)
+
+**Consensus among agents measures coherence; only execution measures correspondence.** Run 5 of the `laguna-s-2.1` assessment ([#3595](https://github.com/jwbron/egg/issues/3595) root cause 6) reached full 8-of-8 consensus on both slices with zero unresolved NACKs while carrying three purely mechanical defects: a file 84 lines over the hard cap, a missing `FINDING_CLASS_REMEDIATIONS` key whose test already existed and named the exact failure in its own assertion message, and a SIGTERM/143 reclassification that left a contradicting test in the tree. Adding reviewers raises coherence and carries no information about correspondence.
+
+So the fix is **not** more reviewers, and **not** a mandate that each reviewer run the checks — the same run's five NACK rounds caught four genuine semantic defects no linter finds, and that attention is scarce. The seam is manned by the system instead: `orchestrator/propose_check_gate.py` runs the repo's configured checks **once per proposed tree**, before any reviewer is dispatched.
+
+| | propose gate (#3669) | per-slice green gate ([#3398](https://github.com/jwbron/egg/issues/3398)) |
+|---|---|---|
+| when | before a proposal becomes reviewable | before a slice PR opens |
+| tree checked | the proposed `commit_sha` | the integration-branch tip |
+| `test` command | `full_command` (`make test-all`) | `command` (`make test`) |
+| on red | proposal rejected; producer fixes and re-proposes | PR withheld; HITL decision |
+| default | `off` (see rollout below) | `on` |
+
+The two are complementary and **neither replaces the other**: slice-2 of run 5 introduced none of the three defects and inherited all of them from slice-1's integration, which only a check at the integration tip sees.
+
+**A narrowed run is never evidence.** `make test` is changeset-aware by design; `make test-all` is CI ground truth. The run-5 handoff reported "3751 passed, 1 failed" from a narrowed run where the full suite at the same tip reports 8833 and surfaces the third defect — which lives in an unrelated file about rate limiting, exactly what the import graph will not reach. The gate therefore resolves each configured check to its `full_command` when `repositories.yaml` declares one, and records **the exact command string** plus **the SHA it ran against** in `attestation.checks_verified` on the accepted proposal (`verified_by: "system"`, so it can never be confused with the agent self-report `checks_passed` has always been).
+
+> **Operator action required before enabling.** `repositories.yaml` lives outside this repo (`~/.config/egg/repositories.yaml`), so egg's own `test` check does **not** get `full_command: make test-all` from this codebase — you must add it. Until you do, the gate runs `make test` for that check, which is the narrowed form. The gate cannot detect this, so it does not pretend to: each entry in `checks_verified.checks` carries `narrowed: "false"` when the repo declared a ground-truth form and `narrowed: "unknown"` when it did not. Treat `"unknown"` as "this may be a narrowed run", not as a full-suite claim.
+
+**Rejections.** Both are `409` and both mean *the proposal was not recorded and no reviewer was dispatched*:
+
+- `checks_red` — a configured check failed at the proposed commit. The envelope names each failing check with its command, exit code and output tail; the runner pod name and gate id reach the full output.
+- `checks_running` — the checks are executing against this tree. The sandbox posts `CONSENSUS_PROPOSE` with a 15s HTTP timeout, so the run cannot happen inside the request; it happens in a background thread against a sandboxed runner Job. Wait and propose again with the same `commit_sha`. Because the ledger is keyed on `(pipeline_id, slice_id, commit_sha)`, retries and second producers on the same tree share one run — the gate never re-spawns a runner for a tree already in flight.
+
+**Fail open on infra, closed on real failures.** A check that could not run is not a check that passed. The infra vocabulary is [#3621](https://github.com/jwbron/egg/issues/3621)'s, imported literally from `slice_green_gate` so the two gates cannot drift, and applied uniformly to every red this gate produces. Fail-open covers: gate off, a phase outside `EGG_PROPOSE_CHECK_GATE_PHASES` (default `implement` — refine/plan producers author drafts), a no-op propose, no configured checks, unresolvable pipeline state, worktree/session/spawn failure, a pod that never reaches a terminal state, an unparseable verdict, a checkout that cannot materialise the proposed SHA, and a red verdict whose every failed check is infra-tagged. It never covers a check that ran and failed. An infra fail-open still stamps `checks_verified` with `status: "infra"` and the reason, so "we did not verify this" is recorded rather than implied.
+
+**Budget.** Per [#3622](https://github.com/jwbron/egg/issues/3622), the check budget is a **pod-level** `activeDeadlineSeconds` (`spec.template.spec`), counted by the kubelet from pod start, so scheduling and image-pull latency are added to the wait rather than deducted from the checks. The Job-level deadline is a strictly larger outer ceiling that only stops a never-scheduled pod from leaking.
+
+**Rollout.** `EGG_PROPOSE_CHECK_GATE`: `off` (**the default**) → `log` (run the checks, log the verdict, never reject) → `on`. It ships `off` deliberately: [#3670](https://github.com/jwbron/egg/issues/3670) records that a clean `origin/main` is red on two non-hermetic tests off-container, and a gate enabled against a red baseline rejects every proposal on day one. **Do not flip the default until #3670 is green.** Other switches: `EGG_PROPOSE_CHECK_GATE_SKIP_CHECKS` (default `security`), `EGG_PROPOSE_CHECK_GATE_TIMEOUT_SECONDS` (default 3600 — the full suite, not the narrowed one), `EGG_PROPOSE_CHECK_GATE_INFRA_FAIL_OPEN` (default `on`).
+
+**Optional reviewer attestation.** `ReviewerCodeAttestation` / `ReviewerContractAttestation` / `TesterAttestation` carry an optional `checks_run: [{name, command, commit_sha, passed}]`. It is **never required** — nothing asks a reviewer to run anything — but a *volunteered* check claim must name the exact command and the tree it ran against, so a narrowed run is visibly narrow rather than silently incomplete.
+
 ### Pre-Proposal ACK Protection
 
 When agents work at different speeds, a faster reviewer may ACK a producer before the producer has submitted its proposal. The BRC protocol handles this automatically:
