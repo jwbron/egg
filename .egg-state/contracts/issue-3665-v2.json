@@ -487,10 +487,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "Same answer as cq-5, and for the same two causes. None of the three options. The gate is correct, the reds are genuine, both are small. Fix at the integration tip and re-run the gate.\n\nslice-2 fails the SAME two checks as slice-1, because it builds on slice-1's integration and inherits both defects. I reproduced both at the slice-2 tip (b09e2ce2f) in a clean worktree:\n\n1. LINT: `orchestrator/health_monitor.py` is 1584 lines against a 1500-line hard cap. `ruff check` is clean; `scripts/check-file-sizes.py` is the sole failure. Fix by decomposing the file or adding it to `scripts/file-size-allowlist.yaml` with a tracking issue.\n\n2. TEST: `test_issue_filer_remediation_coverage.py::test_every_emitted_finding_class_has_a_remediation` fails because the new `agent_livelock` finding class has no `FINDING_CLASS_REMEDIATIONS` entry. Full orchestrator suite at this tip: 3751 passed, 1 failed, 1 skipped. That one failure is genuine.\n\nFixing both once, on slice-1's integration, clears slice-2 as well. Do not fix them twice and do not diverge the two fixes.\n\nSLICE-2's OWN WORK IS SOUND, and this is worth stating so it is not mistaken for the cause: I verified the priority-4 enrichment independently at the coder's HEAD. All six evidence fields are present in `_emit_supervision_alert` (`latest_heartbeat_age_s`, `latest_tool_call_age_s`, `container_logs_tail`, `last_progress_event`, `blocking_agents`, `consensus_state`), +83 lines, and the four that do not exist on main are all non-zero. The tester's own suite passes: `test_supervision_evidence.py`, `test_loop_detection.py` and `test_convergence_stall_suppression.py` are 42 passed in 0.67s.\n\nSo slice-2 introduced no failing check of its own. It is blocked by two inherited defects, neither of which is in the alert-evidence work.\n\nDIRECTIVE: apply the two fixes from cq-5 at the integration tip, then re-run the slice closes for both slice-1 and slice-2 so the gate re-evaluates. Preserve all existing commits; nothing here justifies discarding work that reached 8-of-8 consensus on both slices.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-27T14:53:23.462093Z",
       "debounce_until": null,
       "redirect_seed": null
     }
