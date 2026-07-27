@@ -248,7 +248,12 @@ class TestReReview:
             assert "changed since your last review" in prompt
 
     def test_includes_full_pr_context_fallback(self) -> None:
-        """Re-review includes fallback to full PR diff if needed."""
+        """Re-review keeps the wider-context escape hatch, but requires justification.
+
+        The reviewer may still pull the full diff when the delta alone cannot be
+        judged; it must say why. Routine re-verification of untouched files is
+        what drove the runaway re-review rounds (#3648, #3653).
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             returncode, stdout, stderr = run_build_review_prompt(
                 pr_number="123",
@@ -260,10 +265,18 @@ class TestReReview:
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "123")
             assert "gh pr diff 123" in prompt
-            assert "full pr context" in prompt.lower()
+            # The prompt is hard-wrapped, so match against unwrapped text.
+            unwrapped = " ".join(prompt.split())
+            assert "why the delta alone was insufficient" in unwrapped
+            assert "Do not re-verify files the delta does not touch" in unwrapped
 
-    def test_rereview_emphasizes_thoroughness(self) -> None:
-        """Re-review also emphasizes thorough review of new changes."""
+    def test_rereview_is_blocking_only(self) -> None:
+        """Re-review raises blocking issues only — advisory nits are out of scope.
+
+        Advisory items on a re-review keep the feedback loop from converging:
+        every round's fix supplies the next round's nit, so the loop runs to its
+        round cap instead of merging.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             returncode, stdout, stderr = run_build_review_prompt(
                 pr_number="123",
@@ -274,9 +287,188 @@ class TestReReview:
 
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "123")
-            # Check for thoroughness emphasis
-            assert "thorough" in prompt.lower()
-            assert "ALL issues" in prompt or "all issues" in prompt.lower()
+            assert "blocking issues only" in prompt.lower()
+            assert "Do **not** raise advisory items on a re-review" in prompt
+            # The re-review must not re-arm initial-review "find everything" framing.
+            assert "Find ALL issues in the new code" not in prompt
+
+    def test_rereview_neutralizes_every_surviving_thoroughness_mandate(self) -> None:
+        """Each "find everything" mandate still in the prompt is named and overridden.
+
+        ``${review_rules}`` (``shared/prompts/code-review-criteria.md``) and
+        ``${conventions}`` (``action/review-conventions.md``) are shared with the
+        initial review and appended to the re-review prompt verbatim, so their
+        thoroughness mandates survive into it and cannot simply be asserted
+        absent. The blocking-only floor holds only because the overrides section
+        quotes each surviving mandate and scopes it to the initial review. If
+        someone adds a new mandate to either shared file, this fails — which is
+        the point.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            overrides = prompt.split("## Re-review Overrides", 1)
+            assert len(overrides) == 2, "Re-review Overrides section is missing"
+            # Both the overrides section and the shared text are hard-wrapped,
+            # so compare against whitespace-normalized copies.
+            overrides_body = " ".join(overrides[1].split())
+            unwrapped = " ".join(prompt.split())
+
+            # Every thoroughness mandate that survives from the shared files must
+            # be quoted verbatim in the overrides section.
+            for mandate in (
+                "be extremely thorough",
+                "identify ALL issues in the first pass",
+                "report every issue you find",
+                "be comprehensive",
+            ):
+                assert mandate.lower() in unwrapped.lower(), (
+                    f"{mandate!r} no longer appears in the rendered prompt — "
+                    "drop it from the overrides list too"
+                )
+                assert f'"{mandate}"' in overrides_body, (
+                    f"{mandate!r} survives in the prompt but the overrides "
+                    "section does not scope it to the initial review"
+                )
+
+            # The advisory severity category is the other half of the conflict.
+            assert "**Non-blocking** (suggestions)" in unwrapped
+            assert "**Non-blocking (suggestions)** severity category" in overrides_body
+
+    def test_rereview_overrides_are_the_last_word(self) -> None:
+        """The blocking-only floor must outrank the shared text, so it comes last.
+
+        The floor sits near the top of the prompt, ~200 lines above
+        ``${review_rules}`` and ``${conventions}``, which push the other way.
+        The overrides section reconciles that by rendering after both — closest
+        to the model's output.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            assert "## Re-review Overrides" in prompt, "overrides section is missing"
+            overrides_at = prompt.index("## Re-review Overrides")
+            assert overrides_at > prompt.index("## Review Rules")
+            assert overrides_at > prompt.index("## Review Conventions")
+
+            # Stronger than "after those two headings": the overrides must be
+            # the final section, so no later text can contradict them. Any new
+            # `## ` section appended to the re-review branch fails here.
+            tail = prompt[overrides_at + len("## Re-review Overrides") :]
+            later_sections = [line for line in tail.splitlines() if line.startswith("## ")]
+            assert not later_sections, (
+                f"sections render after the overrides and take the last word: {later_sections}"
+            )
+
+    def test_rereview_prompt_never_emits_workflow_trigger_tokens(self) -> None:
+        """The prompt must not hand the model the strings the trigger greps for.
+
+        ``on-review-feedback.yml`` substring-matches ``verdict=approve-with-
+        suggestions`` against the whole review body, and its ``issue_comment``
+        arm regex-extracts the first ``verdict=<word>`` in the body. The `gh`
+        wrapper appends the real marker to that same body, so a reviewer that
+        echoes a ``verdict=`` token in prose can flip the trigger either way.
+        Describe the mechanism; never quote the token.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            assert "verdict=" not in prompt
+            assert "approve-with-suggestions" not in prompt
+
+    def test_rereview_closes_previously_approved_work(self) -> None:
+        """Re-review must not re-open lines it already signed off on."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            assert "Previously approved work is closed" in prompt
+            assert "because you asked for" in prompt
+
+    def test_rereview_directs_clean_approval_via_the_real_controls(self) -> None:
+        """A clean approval must be described by the levers the reviewer actually has.
+
+        The reviewer never writes the verdict token — `sandbox/scripts/gh`
+        derives it from the posted review action and promotes an approval to
+        the suggestions form whenever the body carries the `has-suggestions`
+        marker, which re-triggers the feedback workflow. So the prompt has to
+        name `--approve` plus marker omission, not the token.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            unwrapped = " ".join(prompt.split())
+            assert "approve cleanly" in unwrapped
+            assert "gh pr review 123 --approve" in unwrapped
+            assert "`has-suggestions` HTML comment" in unwrapped
+            assert "the marker must never appear" in unwrapped
+
+    def test_initial_review_still_allows_advisory_items(self) -> None:
+        """The blocking-only floor applies to re-reviews, not the initial review."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            assert "Find ALL issues" in prompt
+            assert "Do **not** raise advisory items on a re-review" not in prompt
+
+    def test_initial_review_carries_no_rereview_scope_text(self) -> None:
+        """No re-review scoping may leak into the initial-review prompt.
+
+        The re-review rules live in the re-review branch of the builder, not in
+        the shared `review-conventions.md`, precisely so the initial review —
+        where advisory feedback is wanted — never sees them.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                runner_temp=tmpdir,
+            )
+
+            assert returncode == 0
+            prompt = read_prompt_file(tmpdir, "123")
+            assert "## Re-review Overrides" not in prompt
+            assert "re-review" not in prompt.lower()
 
     def test_rereview_instructs_direct_feedback(self) -> None:
         """Re-review instructs direct, unsoftened feedback."""
