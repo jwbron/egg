@@ -1093,7 +1093,10 @@ class ConcurrentPhaseExecutor:
         * ``last_progress_event`` — the agent's most recent progress event data
         * ``blocking_agents`` — the BRC consensus blocking set
         * ``consensus_state`` — the BRC consensus status dict
-        * ``container_logs_tail`` — last N lines of container logs (best-effort)
+
+        Note: ``container_logs_tail`` is fetched by the overseer monitor
+        (``_poll.py:78-85``) and is not duplicated here — the concurrent
+        executor has no direct container-backend handle.
         """
         try:
             if evidence is None:
@@ -1181,21 +1184,11 @@ class ConcurrentPhaseExecutor:
         except Exception:
             pass
 
-        # Container logs tail (best-effort — the overseer fetches these at
-        # _poll.py:78-85; we attempt the same for the alert payload).
-        try:
-            from container_backend import get_container_backend
-
-            backend = get_container_backend()
-            if backend is not None:
-                # Try to get logs for the most recently active agent.
-                if "agent_role" in evidence:
-                    logs = backend.get_container_logs(evidence["agent_role"], tail=50)
-                    if logs:
-                        evidence["container_logs_tail"] = logs[-5000:]  # cap size
-        except Exception:
-            pass
-
+        # Container logs tail: the overseer monitor fetches these at
+        # _poll.py:78-85 and includes them in its alert payloads. The
+        # concurrent executor does not have direct container-backend access
+        # (it spawns via a closure), so we omit this field here — the overseer
+        # path already carries it.
         return evidence
 
     def _unresolved_contract_decision_ids(self) -> frozenset[str] | None:
