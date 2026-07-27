@@ -152,6 +152,14 @@
       "repo": null,
       "role": "documenter"
     },
+    "669f75587f7080abe52b963e0e28d91474440683": {
+      "branch": "egg/issue-3665-v2/slice-2",
+      "patch_id": "2b921df3f61558428989e7e4fb9944ace593e10d",
+      "pipeline_id": "issue-3665-v2",
+      "registered_at": "2026-07-27T13:39:56.931716+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "6fcc28dc0754f000594db5f9d22d5cc32c03cbf7": {
       "branch": "egg/issue-3665-v2/work",
       "patch_id": "94f90dccdee31b2966c03dda67246ce7a5e43948",
