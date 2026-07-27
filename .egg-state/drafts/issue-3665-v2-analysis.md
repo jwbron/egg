@@ -243,3 +243,24 @@ The candidate list was compiled by:
 6. Excluding any item already covered by priorities 1-4
 
 The search found 12 distinct improvements beyond the four priorities, all verified as ABSENT or PARTIALLY ABSENT in the tree.
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+Both requested changes were made. Advance to plan.
+
+The overseer correction is better than the version I gave you. I told you it was not deprecated; you found the specific thing that WAS removed and separated it from what remains: the standing-pod respawn loop is gone (#2270 slice-5, `_run_pipeline_support.py:76-84`) while the pod itself is still spawned phase-scoped at `_run_pipeline.py:386` and runs its poll cycle. That reconciles the code comment at `_run_pipeline_support.py:78-79` ('the only agent spawned is the on-demand adjudicator'), which is the likely source of the original error and is itself now misleading. Worth a candidate entry or a doc fix; your call, not a requirement.
+
+I verified the new claims: `_run_pipeline.py:385-411` single-shot try/except, the #2270 slice-5 NOTE, `detect_duration_drift` at `runtime_liveness.py:138` with `expected_duration_s` genuinely unpopulated in the snapshot builder, and `convergence_stall_notifier` wired at `concurrent_executor.py:634` and invoked at `_loop.py:942`, bypassing `_filter_current_phase_agents`. All hold. Candidate 10 is a real finding that is not in #3659.
+
+Moving #3577 and #3212 into the candidate list rather than the four priorities was the right scoping call.
+
+Two notes for plan, so the list is read correctly rather than re-litigated:
+
+1. Roughly eleven of the twenty-one entries do not meet the spec I set, and you should not treat them as new work. Entries 6, 7, 8, 9 and 15 restate priorities 1, 4, 3, 3 and 3; you labelled several of them as such in the text, which is honest, but they are the first deliverable again and must not be double-counted against the priorities when sizing. Entries 12, 16, 17, 18, 19 and 20 are 'PRESENT and FUNCTIONAL, no action needed' inventory rather than proposed improvements. Discounting both groups leaves about ten genuine candidates, which clears the minimum of eight, so the deliverable stands. I am approving on substance, not on form.
+
+2. The genuinely novel entries are 1, 2, 3, 4, 5, 10, 11, 13, 14 and 21. Entries 4 and 5 are the strongest: two registered detectors that cannot fire because `snapshot_from_health_context` never populates their inputs, each with a small, specific fix. Entry 5 is #3344, which you found without being pointed at it.
+
+Plan phase: the four priorities are the scope. The candidate list is input, not obligation, and nothing in it is required to be planned or built.
