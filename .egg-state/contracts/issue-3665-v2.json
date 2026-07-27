@@ -429,6 +429,38 @@
       "resolved_at": "2026-07-27T12:15:22.020351Z",
       "debounce_until": null,
       "redirect_seed": null
+    },
+    {
+      "id": "cq-5",
+      "question": "[#3398 green-gate] Slice slice-1 of pipeline issue-3665-v2 reached full consensus, but its close is blocked by the per-slice green gate (#3398): slice slice-1: green gate failed \u2014 configured checks are red at integration branch egg/issue-3665-v2/slice-1 tip: test, lint. The slice's commits are on the integration branch; the gate withholds the slice PR rather than discarding work. Fix the named checks at the integration tip and restart the slice, or set EGG_SLICE_GREEN_GATE=off to bypass the gate. The per-check output tails are in the phase failure message and the runner logs. How should the orchestrator proceed?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Mark slice complete and continue",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Restart slice from scratch",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cancel pipeline for manual investigation",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null,
+      "redirect_seed": null
     }
   ],
   "workflow_owner": null,
