@@ -4279,9 +4279,11 @@ class TestDirtyTreePreservedBeforeReset:
         quoted = shared.strip().split(", so")[0]
         assert quoted in runbook, f"agent-recovery.md no longer quotes: {quoted!r}"
         assert "git log --all --grep 'INCOMPLETE: `git add -A`'" in runbook
-        # ``--all`` is local refs only and both snapshot paths push to origin,
-        # so the runbook must name the fetch or the grep is a false negative
-        # on a fresh clone.
+        # ``--all`` does include ``refs/remotes/``, which is precisely why the
+        # fetch matters: both snapshot paths push to origin, so a fresh clone
+        # has no ref under ``refs/remotes/origin/egg/recovered/`` until the
+        # namespace is fetched and ``--all`` walks nothing. The runbook must
+        # name the fetch or the grep is a false negative there (R9 NB-4).
         assert "refs/heads/egg/recovered/*:refs/remotes/origin/egg/recovered/*" in runbook
 
     def test_no_branch_takes_no_snapshot(self, spawner, mock_gateway, tmp_path):
@@ -4572,9 +4574,11 @@ class TestDirtyTreePreservedBeforeReset:
         that used to raise inside ``subprocess.run`` now yields U+FFFD for
         the bad bytes. Discarding all 33 paths for one bad byte was
         avoidable; ``routes/pipelines/_worktree_sync`` already reads its own
-        ``-z`` output this way. A replaced name still fails every glob in
-        ``_path_matches_glob``, so this can only cost the softened wording,
-        never grant it.
+        ``-z`` output this way. The replacement does not move the softening
+        decision either way (R9 NB-2): every non-``*`` character in
+        ``_MACHINE_STATE_FILE_GLOBS`` is ASCII and replacement only ever
+        substitutes non-ASCII for non-ASCII, so a replaced path matches
+        exactly the globs its raw bytes would.
         """
         from kubernetes_spawner._worktree import _preserve_dirty_tree
 
@@ -4642,8 +4646,11 @@ class TestDirtyTreePreservedBeforeReset:
         assert msg.metadata["wip_files"] == 3
         assert set(paths) >= {"seed.txt", "new_module.py"}
         assert any("�" in p for p in paths), paths
-        # A replaced name matches no softening glob, so the record still
-        # takes the imperative — the safe default is unchanged by NB-2.
+        # The imperative here is earned by ``seed.txt``/``new_module.py``,
+        # which match no softening glob — NOT by the replaced name, which
+        # matches whatever its raw bytes would (R9 NB-2). This asserts the
+        # end-to-end default is unchanged, not the replacement's effect;
+        # ``test_replacement_does_not_move_the_softening_decision`` covers that.
         assert msg.metadata["wip_machine_state_only"] is False
         assert msg.metadata["wip_softened"] is False
         assert "inspect it before starting work" in msg.body
@@ -4959,7 +4966,7 @@ class TestDiscardedTipMessageWording:
     def test_partial_machine_state_snapshot_keeps_the_imperative(self):
         """A truncated capture cannot earn the soft branch (R4 blocking #1).
 
-        When ``git add -A`` reports errors, ``wip_paths`` is by construction
+        When ``git add -A`` does not complete cleanly, ``wip_paths`` is by construction
         only the subset that reached the index — whatever failed to stage is
         absent from it. "Every captured path is a state file" then says
         nothing about the working tree, so this is the same missing evidence
@@ -5130,6 +5137,49 @@ class TestDiscardedTipMessageWording:
                 wip_paths=(path,),
             )
             assert "inspect it before starting work" in body, path
+
+    def test_replacement_does_not_move_the_softening_decision(self):
+        """A U+FFFD in a path matches exactly what its raw bytes would (R9 NB-2).
+
+        The comment on the ``errors="replace"`` read used to claim a replaced
+        name "still fails every glob", which is false — the ``*`` in
+        ``brc-memory*.md`` swallows a U+FFFD happily, and the first case here
+        softens. The property that actually holds is neutrality: every
+        non-``*`` character in ``_MACHINE_STATE_FILE_GLOBS`` is ASCII and
+        replacement only ever substitutes non-ASCII (U+FFFD) for non-ASCII
+        (bytes >= 0x80), so a literal position can neither gain nor lose a
+        match and ``*`` regions are length-agnostic. Segment count survives
+        for the same reason: ``/`` is 0x2F and never appears inside an
+        invalid sequence. Keep the globs ASCII and a new entry inherits this.
+        """
+        replaced_memory = b".egg-state/agent-outputs/coder/brc-memory-caf\xe9.md".decode(
+            "utf-8", errors="replace"
+        )
+        replaced_output = b".egg-state/agent-outputs/pipe-caf\xe9-wontdo.json".decode(
+            "utf-8", errors="replace"
+        )
+        assert "�" in replaced_memory and "�" in replaced_output
+
+        # A state file whose name went through replacement still softens...
+        soft = self._body(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=1,
+            wip_paths=(replaced_memory,),
+        )
+        assert "read it if you need it" in soft
+        assert "inspect it before starting work" not in soft
+
+        # ...and agent output whose name did still takes the imperative.
+        hard = self._body(
+            n_commits=1,
+            recovery_ref="egg/recovered/x",
+            wip_commit="aaaa1111",
+            wip_files=1,
+            wip_paths=(replaced_output,),
+        )
+        assert "inspect it before starting work" in hard
 
     def test_trivial_snapshot_with_failed_push_still_names_the_snapshot(self):
         """The opening-clause suppression is conditional on ``recovery_ref`` (R4 #4).
