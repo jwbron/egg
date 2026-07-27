@@ -8,6 +8,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "0dc389d54b4409ac04de9946d00ddd9b38682662": {
+      "branch": "egg/issue-3665-v3/work",
+      "patch_id": "c3ae741394718d97353dbbf4856cbd99905a584b",
+      "pipeline_id": "issue-3665-v3",
+      "registered_at": "2026-07-27T23:51:53.814601+00:00",
+      "repo": null,
+      "role": "simplifier"
+    },
     "257aa4f0f4784c360d58401677e6a0e4cb8c33c9": {
       "branch": "egg/issue-3665-v3/work",
       "patch_id": "20121fc7a5e3e17a515b1161ba35e2be14b75a8f",
