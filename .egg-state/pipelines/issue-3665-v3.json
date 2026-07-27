@@ -146,28 +146,14 @@
       "phase_start_sha": "4c19c5a23b2a58a9342b25c48ab5b7f7a6141a7d",
       "agent_exits": [],
       "decision_ledger": {
-        "registered": [],
-        "resolved": 0,
-        "explicit_none": true,
-        "attested_by": "refiner",
+        "registered": [
+          "decision-1"
+        ],
+        "resolved": 1,
+        "explicit_none": false,
+        "attested_by": null,
         "missing": false,
-        "candidates_considered": [
-          {
-            "question": "Should the detection plane replace the HealthMonitor tripwires?",
-            "disposition": "not_operator_grade",
-            "why": "HealthMonitor tripwires ARE wired into the kubernetes_monitor RUNTIME_TICK path and working. The detection plane should complement them, not replace them. Replacing would create a gap during the transition."
-          },
-          {
-            "question": "Should the 2-hour timeout be shortened?",
-            "disposition": "not_operator_grade",
-            "why": "7200s is a reasonable budget for long-running agent work. The fix is to make it visible to the agent and to classify timeout-kills distinctly, not to shorten the budget."
-          },
-          {
-            "question": "Should LLM classification be added to the hot path?",
-            "disposition": "not_operator_grade",
-            "why": "classify_stall() and classify_activity_pattern() use Haiku calls which are expensive. They belong in the overseer agent, not in the deterministic detection plane which must be LLM-free for the routine majority."
-          }
-        ]
+        "candidates_considered": []
       }
     }
   },
@@ -210,7 +196,7 @@
     }
   ],
   "created_at": "2026-07-27T20:11:36.638844Z",
-  "updated_at": "2026-07-27T22:07:24.871217Z",
+  "updated_at": "2026-07-27T22:07:29.399694Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -223,7 +209,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
