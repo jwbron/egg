@@ -246,13 +246,19 @@ def detect_agent_livelock(
     # mocking file I/O. In production this field is absent and the detector
     # reads the live transcript.
     #
-    # The ``raw`` field on EventStreamSnapshot is the full source dict; the
-    # ``tool_calls_by_role`` key is nested inside the inner ``raw`` sub-dict
-    # (which is itself a field on the snapshot JSON). So we look in
-    # ``raw["raw"]["tool_calls_by_role"]``.
+    # The ``raw`` field on EventStreamSnapshot is set directly by
+    # ``snapshot_from_health_context`` to a dict that may contain
+    # ``tool_calls_by_role`` and ``slice_id`` keys. In the corpus, the
+    # ``raw`` field is the full source dict (which itself has a ``raw``
+    # key containing these fields). We check both locations.
     raw = dict(getattr(snapshot, "raw", {}) or {})
-    inner_raw = raw.get("raw", {}) if isinstance(raw.get("raw"), dict) else {}
-    tool_calls_by_role = inner_raw.get("tool_calls_by_role", {})
+    # Production path: raw is set directly by snapshot_from_health_context
+    tool_calls_by_role = raw.get("tool_calls_by_role", {})
+    if not tool_calls_by_role:
+        # Corpus path: raw is the full source dict, tool_calls_by_role
+        # is nested inside the inner "raw" sub-dict
+        inner_raw = raw.get("raw", {}) if isinstance(raw.get("raw"), dict) else {}
+        tool_calls_by_role = inner_raw.get("tool_calls_by_role", {})
 
     # Check each running agent for livelock
     for agent in running_agents:
