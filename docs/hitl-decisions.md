@@ -1044,9 +1044,9 @@ A slice can reach full consensus and still fail to close, on either of two gates
   verdict from the repo's configured checks at the integration-branch tip. It escalates
   far more narrowly than "any red": `off` and `log` modes never block, infra-signature-tagged
   reds fail open (#3417, under the default `EGG_SLICE_GREEN_GATE_INFRA_FAIL_OPEN=on` — set
-  that switch to `off` and every red blocks, infra-tagged or not), and a red fully remediated
-  by the #3409 autofix is committed to the integration branch instead of blocking. Only a red
-  that survives all of that reaches the escalation.
+  that switch to `off` and every red, infra-tagged or not, must carry a fix that re-ran
+  green), and a red fully remediated by the #3409 autofix is committed to the integration
+  branch instead of blocking. Only a red that survives all of that reaches the escalation.
 
 Both gates land an unresolved HITL `Decision` on the contract before the phase fails
 (`_escalate_evidence_gate_to_hitl`, `_escalate_green_gate_to_hitl`, both wrapping
@@ -1066,9 +1066,8 @@ they appear in `get_status(...)` under **`pending_contract_decisions`**, not
 for that field and the `provide_input` resolution flow.
 
 **The escalation is best-effort.** `_escalate_layer_c_hitl` no-ops when `egg_contracts`
-will not import, adopts an existing open decision instead of minting a new one, and
-downgrades contract load/save failures to a warning. A blocked close can therefore leave
-*no* decision behind; that is why `run_slice_green_gate` phrases the remedy block of its
+will not import, and downgrades contract load/save failures to a warning. A blocked close
+can therefore leave *no* decision behind; that is why `run_slice_green_gate` phrases the remedy block of its
 failure string conditionally ("If this close raised a green-gate decision on the contract,
 resolve it; otherwise fix the named checks…") rather than promising a decision its caller
 may never have landed. If the phase failed on one of these gates and nothing is pending,
@@ -1087,7 +1086,9 @@ Layer-C bootstrap classifier):
 Because resolving has no mechanical effect, a red that recurs *after* the operator
 answered raises a fresh decision rather than reusing the resolved one — the escalation
 opts out of the resolved-question half of the #3427 dedupe guard. A retry of the same
-*unanswered* incident still dedupes to one decision.
+*unanswered* incident still dedupes to one decision: `_escalate_layer_c_hitl` finds the
+still-open question via `find_duplicate_open_question` and adopts it instead of minting a
+new `cq-N`, so the operator sees one decision per incident rather than one per retry.
 
 **Recovery steps for operators:**
 
