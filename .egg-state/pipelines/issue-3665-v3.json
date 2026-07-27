@@ -176,11 +176,11 @@
       "resolution": "request changes\n\nStrong work overall. The structural diagnosis is correct and well-evidenced: the DetectionPlane is dormant, `_run_overseer_detection_plane` has zero call sites, and you correctly identified that the only reference to it (`routes/pipelines/__init__.py:1277`) is an **import, not a call site**. That exact distinction misled a previous operator into asserting the plane was already wired, so getting it right unprompted is the strongest thing in this artifact. Your `_poll_cycle` dormancy claim is likewise correct and is independently corroborated by the repo's own comment at `overseer/monitor/_anomaly_checks.py:280`. Roughly ten of your line anchors are exact. The tiering, the dependency ordering, and the explicit \"what to leave out\" are all sound and I am not asking you to change them.\n\nFour correspondence defects need fixing. All four passed five reviewers with zero NACKs, so treat this as a verification failure, not a writing failure.\n\n**1. The snapshot field count is wrong, and it is your headline number.**\nYou state \"populates only 3 of 12 fields\" in the executive summary, in Area 1, and again in the plain-English summary as \"the other 9 fields\". Verified against `cf0e5a6fa`: `EventStreamSnapshot` has **13** fields, and `snapshot_from_health_context()` populates **5** of them. The constructor is:\n\n```python\nreturn EventStreamSnapshot(\n    snapshot_id=..., pipeline_id=..., phase=..., running_agents=..., phase_state=...,\n)\n```\n\nSo it is **5 of 13 populated, 8 empty** — not 3 of 12 with 9 empty. #3595 states 5 of 13 correctly, so this is a claim you could have checked against both the tree and the prior write-up and it disagrees with both. Correct every occurrence, including the plain-English summary.\n\n**2. Candidate #24 cites the wrong code.**\nYou cite `sandbox/egg_lib/orch_cli/_message.py:633` as a \"hardcoded 60s\" heartbeat rate limit and propose an `EGG_HEARTBEAT_RATE_LIMIT` config for it. Line 633 is inside 429 error handling:\n\n```python\nif err.status_code == 429:\n    retry_after = 60\n```\n\nThat is a rate-limit **retry-after backoff**, not a heartbeat cadence. Either re-anchor the candidate to the actual heartbeat interval (`cmd_message_heartbeat` is at `_message.py:588`) or withdraw #24. Do not leave a candidate pointing at unrelated code.\n\n**3. Two line anchors are off.**\n- `noop_park_report()` is at `event_loop/_supervisor.py:610`, not 584. (`exhausted_report()` at 558 is correct.)\n- `_classify_exit()` is at `kubernetes_monitor.py:1148`. You cite 1164 in candidate #9 and 1148 in candidate #14 — same symbol, two different anchors. Make them consistent at 1148.\n\n**4. Add a verification method column, or state it.**\nYou wrote that the nine already-landed items were \"verified via `git log --oneline --all`\". A git log proves a commit message exists; it does not prove the code is present in the tree. Your per-item file-and-symbol citations are the real evidence and they look right on spot-check. Say that instead, so the next reader knows what was actually checked.\n\n**Constraint for the revision: do not re-derive the whole artifact.** Fix the four items above and re-propose. Everything else stands, including all Tier 1 through Tier 5 rankings and the ordering. Do not expand scope, do not add candidates, and do not re-read files you have already read to satisfy this feedback; every correction above carries the verified answer inline.",
       "phase": "refine",
       "content_changed": null,
-      "resolution_outcome": null
+      "resolution_outcome": "needs_revision"
     }
   ],
   "created_at": "2026-07-27T20:11:36.638844Z",
-  "updated_at": "2026-07-27T21:45:25.216441Z",
+  "updated_at": "2026-07-27T21:45:27.103790Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -193,7 +193,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16,
+  "version": 17,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
