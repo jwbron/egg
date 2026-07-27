@@ -10,7 +10,34 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "slices": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "The refiner attests the refine phase deliberately raises no operator decisions (#3462):\n\n> This refine phase produces an analysis artifact, not a code change. No HITL decisions are required \u2014 the four areas and the candidate list are the deliverable, and the gate (plan phase) will decide what to build.\n\nCandidates considered and dispositioned away:\n\n- **Should the detection plane replace the HealthMonitor tripwires?** (not_operator_grade): HealthMonitor tripwires ARE wired into the kubernetes_monitor RUNTIME_TICK path and working. The detection plane should complement them, not replace them. Replacing would create a gap during the transition.\n- **Should the 2-hour timeout be shortened?** (not_operator_grade): 7200s is a reasonable budget for long-running agent work. The fix is to make it visible to the agent and to classify timeout-kills distinctly, not to shorten the budget.\n- **Should LLM classification be added to the hot path?** (not_operator_grade): classify_stall() and classify_activity_pattern() use Haiku calls which are expensive. They belong in the overseer agent, not in the deterministic detection plane which must be LLM-free for the routine majority.\n\nConfirm to proceed to the phase gate, or choose \u201cRe-run phase to register decisions\u201d to send the phase back so its agents register the decisions as first-class contract entries (cq-N). Any free-text reply is treated as a re-run directive and forwarded to the agents.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Confirm \u2014 no open decisions this phase",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Re-run phase to register decisions",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Confirm \u2014 no open decisions this phase",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-27T21:44:00.556112Z",
+      "debounce_until": null,
+      "redirect_seed": null
+    }
+  ],
   "workflow_owner": null,
   "audit_log": [],
   "refine_review_cycles": 0,
