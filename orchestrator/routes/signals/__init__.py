@@ -152,6 +152,7 @@ from ._validation import (  # noqa: E402,F401
     _DEFERRAL_COVERAGE_ROLES,
     _artifact_human_label,
     _extract_attested_decision_fields,
+    _propose_check_rejection,
     _reject_extra_simplifier_drafts,
     _require_route_version,
     _validate_brc_content,

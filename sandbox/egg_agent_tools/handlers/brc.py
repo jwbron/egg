@@ -570,6 +570,31 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
                 "message": exc.message,
                 "rejection": exc.details,
             }
+        # Propose-time check gate (#3669). Two structured 409s, both
+        # meaning "this proposal was not recorded and no reviewer was
+        # dispatched":
+        #   * checks_running — the system is executing the repo's
+        #     configured checks against your tree. Exit cleanly; the
+        #     orchestrator holds the producer arm until the verdict
+        #     lands and then re-dispatches this propose (the agent
+        #     never waits — see docs/reference/agent-wait-patterns.md).
+        #   * checks_red — a configured check failed at your commit.
+        #     ``rejection.failed_checks`` carries the command, exit code
+        #     and output tail per check, so the fix needs no log dig.
+        # Surfaced as data rather than stderr so the agent reads the
+        # failing command instead of parsing an exception string.
+        if (
+            getattr(exc, "status_code", None) == 409
+            and isinstance(exc.details, dict)
+            and exc.details.get("status") in ("checks_running", "checks_red")
+        ):
+            return {
+                "ok": False,
+                "role": role,
+                "status": exc.details["status"],
+                "message": exc.message,
+                "rejection": exc.details,
+            }
         raise
     if not result.get("success"):
         raise GatewayError(result.get("message", "propose failed"))

@@ -365,14 +365,17 @@ except ImportError:
 
         Filters out malformed entries and coerces values to strings.
         Mirrors ``egg_config.validators.validate_checks``, including
-        the optional ``fix`` auto-remediation command (#3409).
+        the optional ``fix`` auto-remediation command (#3409) and the
+        optional ``full_command`` ground-truth form of a deliberately
+        narrowed check (#3669).
 
         Args:
             checks: Raw list of check entries (e.g. from YAML or JSON).
 
         Returns:
             List of {"name": "...", "command": "..."} dicts (plus
-            "fix" when configured) with only valid entries retained.
+            "fix" / "full_command" when configured) with only valid
+            entries retained.
         """
         if not isinstance(checks, list):
             return []
@@ -383,6 +386,8 @@ except ImportError:
             entry = {"name": str(c["name"]), "command": str(c["command"])}
             if c.get("fix"):
                 entry["fix"] = str(c["fix"])
+            if c.get("full_command"):
+                entry["full_command"] = str(c["full_command"])
             result.append(entry)
         return result
 
@@ -580,14 +585,19 @@ def get_repo_checks(repo: str) -> list[dict[str, str]]:
     tester step. Each check has a "name" (display label) and "command"
     (shell command to execute). They run sequentially. A check may also
     carry an optional "fix" command — an auto-remediation the per-slice
-    green gate runs when the check is red at the slice tip (#3409).
+    green gate runs when the check is red at the slice tip (#3409) — and
+    an optional "full_command", the ground-truth form of a deliberately
+    narrowed check that the propose-time check gate runs instead of
+    "command" (#3669; egg's ``test`` is changeset-aware ``make test``
+    while ``make test-all`` is the CI ground truth).
 
     Args:
         repo: Repository in "owner/repo" format
 
     Returns:
-        List of {"name": "...", "command": "..."} dicts (plus "fix"
-        when configured), or empty list if no checks configured.
+        List of {"name": "...", "command": "..."} dicts (plus "fix" /
+        "full_command" when configured), or empty list if no checks
+        configured.
     """
     checks = get_repo_setting(repo, "checks", [])
     result: list[dict[str, str]] = validate_checks(checks)

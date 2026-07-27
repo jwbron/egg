@@ -201,3 +201,71 @@ class TestStructuredGateRejections:
         assert result["ok"] is False
         assert result["status"] == "contract_incomplete"
         assert result["rejection"]["incomplete_tasks"] == [{"id": "task-2-3", "role": "documenter"}]
+
+    @pytest.mark.parametrize("status", ["checks_running", "checks_red"])
+    def test_propose_surfaces_check_gate_rejection(self, status: str) -> None:
+        """Propose-time check gate 409s surface as data (#3669).
+
+        Both statuses mean "not recorded, no reviewer dispatched". The
+        agent needs the failing command and output tail as structured
+        data — a red it has to scrape out of a stderr string is a red it
+        will re-propose against.
+        """
+        from egg_agent_tools.handlers import brc as handlers
+        from egg_agent_tools.handlers.errors import GatewayError
+
+        err = GatewayError(
+            "propose rejected by the check gate",
+            status_code=409,
+            details={
+                "status": status,
+                "commit_sha": "abc1234def",
+                "failed_checks": [
+                    {
+                        "name": "test",
+                        "command": "make test-all",
+                        "exit_code": 1,
+                        "output_tail": "FAILED orchestrator/tests/test_x.py::test_y",
+                    }
+                ],
+            },
+        )
+
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            side_effect=err,
+        ):
+            result = handlers.brc_propose(
+                {
+                    "pipeline_id": "pipeline-3669",
+                    "role": "coder",
+                    "summary": "implemented the detection plane wiring and its unit tests",
+                    "commit_sha": "a" * 40,
+                    "artifacts": ["orchestrator/health_monitor.py"],
+                }
+            )
+        assert result["ok"] is False
+        assert result["status"] == status
+        assert result["rejection"]["failed_checks"][0]["command"] == "make test-all"
+
+    def test_propose_other_409s_still_raise(self):
+        """The unwrap is status-specific, not a blanket 409 swallow."""
+        from egg_agent_tools.handlers import brc as handlers
+        from egg_agent_tools.handlers.errors import GatewayError
+
+        err = GatewayError("boom", status_code=409, details={"status": "something_else"})
+
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            side_effect=err,
+        ):
+            with pytest.raises(GatewayError):
+                handlers.brc_propose(
+                    {
+                        "pipeline_id": "pipeline-3669",
+                        "role": "coder",
+                        "summary": "implemented the detection plane wiring and its unit tests",
+                        "commit_sha": "a" * 40,
+                        "artifacts": ["orchestrator/health_monitor.py"],
+                    }
+                )

@@ -160,6 +160,76 @@ def _validate_tester_check_coverage(
         )
 
 
+def _propose_check_rejection(
+    *,
+    pipeline_id: str,
+    slice_id: str | None,
+    producer_role: str,
+    commit_sha: str,
+    payload: dict[str, Any] | None,
+    pipeline_state: Any | None,
+) -> tuple[Response, int] | None:
+    """Propose-time execution gate for the repo's configured checks (#3669).
+
+    Thin Flask-boundary wrapper over
+    ``propose_check_gate.propose_check_rejection``. The gate itself
+    holds every policy decision (mode, phase scope, ledger, infra
+    classification); this function only resolves the pipeline's repo /
+    branch / phase from the already-loaded ``pipeline_state`` and turns
+    the gate's ``(message, status, details)`` into an error response.
+
+    The sibling of ``_validate_tester_check_coverage`` above, and the
+    reason it is not enough: that validator compares the tester's
+    *self-reported* ``checks_passed`` names against the configured
+    checks and never executes anything, so a proposal whose tree does
+    not build sails into review (#3595 root cause 6). This one runs the
+    checks, once per proposed tree, in the system.
+
+    Fails open on anything it cannot resolve: no pipeline state, no
+    repo, no branch. A propose must never be rejected because the
+    orchestrator could not read its own state.
+    """
+    if pipeline_state is None:
+        return None
+
+    try:
+        import propose_check_gate
+    except ImportError:  # pragma: no cover — packaging guard
+        _pkg.logger.warning(
+            "Propose check gate unavailable (module not importable); proceeding (#3669)",
+            pipeline_id=pipeline_id,
+        )
+        return None
+
+    phase_attr = getattr(pipeline_state, "current_phase", None)
+    current_phase = phase_attr.value if phase_attr is not None else None
+
+    try:
+        rejection = propose_check_gate.propose_check_rejection(
+            pipeline_id=pipeline_id,
+            repo=getattr(pipeline_state, "repo", "") or "",
+            slice_id=slice_id,
+            producer_role=producer_role,
+            commit_sha=commit_sha,
+            branch=getattr(pipeline_state, "branch", "") or "",
+            current_phase=current_phase,
+            payload=payload,
+        )
+    except Exception as exc:  # noqa: BLE001 — gate faults must not block a propose
+        _pkg.logger.warning(
+            "Propose check gate raised; proceeding without it (#3669)",
+            pipeline_id=pipeline_id,
+            role=producer_role,
+            error=str(exc),
+        )
+        return None
+
+    if rejection is None:
+        return None
+    message, status_code, details = rejection
+    return make_error_response(message, status_code=status_code, details=details)
+
+
 def _validate_plan_extensions(
     *,
     pipeline_id: str,

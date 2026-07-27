@@ -21,6 +21,69 @@ class AttestationStrictness(StrEnum):
     RELAXED = "relaxed"  # Partial fields allowed
 
 
+class CheckRunAttestation(BaseModel):
+    """One configured check an agent claims to have executed (#3669).
+
+    A bare check *name* is not evidence. ``make test`` is changeset-aware
+    by design and narrows to the tests statically reachable from the
+    diff; ``make test-all`` is the CI ground truth. The run-5 handoff
+    (#3595) reported "3751 passed, 1 failed" from a narrowed run where
+    the full suite at the same tip reports 8833 and surfaces a
+    regression the import graph never reaches — reported, in good faith,
+    with the confidence of a full run.
+
+    So an agent that cites a check result records **the exact command**
+    and **the SHA it ran against**. That does not make a narrowed run
+    wrong; it makes it *visible*, which is the property the bare name
+    lacks.
+
+    This is deliberately **optional everywhere**. Nothing in the
+    protocol requires a reviewer to run anything: the review loop's
+    scarce and demonstrated value is semantic (five NACK rounds in run 5
+    caught four genuine semantic defects no linter finds), and the
+    mechanical half is the system's job via the propose-time check gate.
+    The field exists so that a *volunteered* claim is auditable, not to
+    solicit one.
+    """
+
+    name: str = Field(..., description="Configured check name (e.g. 'lint', 'test')")
+    command: str = Field(
+        ...,
+        description=(
+            "The exact command executed, verbatim (e.g. 'make test-all'). "
+            "Not a paraphrase and not the check name — a narrowed run must "
+            "be readable as narrowed."
+        ),
+    )
+    commit_sha: str = Field(
+        ...,
+        description="The commit SHA the command ran against (the tree, not the branch)",
+    )
+    passed: bool = Field(default=True, description="Whether the command exited zero")
+
+    @model_validator(mode="after")
+    def validate_fields_substantive(self) -> CheckRunAttestation:
+        """Reject empty/placeholder command or SHA.
+
+        An entry that names neither a real command nor a real tree is
+        worse than no entry: it reads as evidence and carries none.
+        """
+        if not self.name.strip():
+            raise ValueError("checks_run entry requires a non-empty check name")
+        if not self.command.strip():
+            raise ValueError(
+                f"checks_run entry for '{self.name}' requires the exact command that "
+                f"ran (e.g. 'make test-all'), not just the check name"
+            )
+        sha = self.commit_sha.strip()
+        if not _COMMIT_SHA_PATTERN.fullmatch(sha):
+            raise ValueError(
+                f"checks_run entry for '{self.name}' requires the commit SHA the "
+                f"command ran against (7-64 chars); got {self.commit_sha!r}"
+            )
+        return self
+
+
 # --- Producer attestations ---
 
 
@@ -54,6 +117,17 @@ class TesterAttestation(BaseModel):
     checks_passed: list[str] = Field(
         default_factory=list,
         description="Names of configured checks that passed (e.g. ['lint', 'test'])",
+    )
+    checks_run: list[CheckRunAttestation] = Field(
+        default_factory=list,
+        description=(
+            "Optional structured companion to ``checks_passed`` (#3669): the "
+            "exact command run and the commit SHA it ran against, per check. "
+            "``checks_passed`` carries names only, so a changeset-narrowed run "
+            "and a full-suite run are indistinguishable in it. Never required "
+            "— the propose-time check gate is what makes check results "
+            "load-bearing; this only makes a volunteered claim auditable."
+        ),
     )
 
 
@@ -212,6 +286,22 @@ class DecisionSurfacingAttestation(BaseModel):
 # --- Reviewer attestations ---
 
 
+# Shared description for the optional ``checks_run`` field on reviewer
+# ACK/NACK attestations (#3669). Kept as one string so the two reviewer
+# schemas cannot drift on what the field means — and, more importantly,
+# on what it does *not* mean: it is never required, and a reviewer that
+# ran nothing leaves it empty and is complete.
+_REVIEWER_CHECKS_RUN_DESCRIPTION = (
+    "Optional. If — and only if — you actually executed a configured "
+    "check while reviewing, record the exact command and the commit SHA "
+    "it ran against here (#3669). You are NOT asked to run checks: the "
+    "system runs them once per proposal at propose time, and your "
+    "attention is better spent on semantics no linter finds. This field "
+    "exists so a volunteered check claim is auditable and a "
+    "changeset-narrowed run is visibly narrow. Leave it empty otherwise."
+)
+
+
 class ReviewerCodeAttestation(BaseModel):
     """Attestation for code reviewer ACK/NACK."""
 
@@ -221,6 +311,9 @@ class ReviewerCodeAttestation(BaseModel):
     issues_found: int = Field(default=0, description="Issues found")
     issues_resolved: int = Field(default=0, description="Issues resolved")
     risk_considered: str = Field(default="", description="One risk considered")
+    checks_run: list[CheckRunAttestation] = Field(
+        default_factory=list, description=_REVIEWER_CHECKS_RUN_DESCRIPTION
+    )
 
 
 class ReviewerContractAttestation(BaseModel):
@@ -231,6 +324,9 @@ class ReviewerContractAttestation(BaseModel):
         default_factory=list, description="Criteria checked"
     )
     gaps_identified: list[str] = Field(default_factory=list, description="Gaps found")
+    checks_run: list[CheckRunAttestation] = Field(
+        default_factory=list, description=_REVIEWER_CHECKS_RUN_DESCRIPTION
+    )
 
 
 # --- Payload wrappers ---

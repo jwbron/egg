@@ -24,6 +24,12 @@ respawn would ever derive. These tests pin the fixes:
 * ``OrchestratorEventLoop.invalidate_role_arms`` drops a restarted role's
   keys from ``_live_keys`` / ``_key_meta`` and retires their supervisor
   state, so the restart route's delegation claim is actually true.
+
+Plus the #3669 companion: the propose-time check gate defers a propose
+rather than rejecting it, and the loop holds that producer's arm
+(``blocked="checks_running"``) instead of respawning it into the same
+409 every poll — which is exactly the clean-zero-progress-exit shape
+that trips the park threshold above.
 """
 
 from __future__ import annotations
@@ -394,6 +400,120 @@ class TestArmsParkedThroughLoop:
             supervisor.record_success(key, action="propose", role="coder")
         loop.poll_once(loop._roles)
         assert len(notifier.calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# Loop: the propose-time check hold (#3669) is not a park
+# ---------------------------------------------------------------------------
+
+
+class TestProposeCheckHold:
+    """The #3669 gate defers a propose; the loop must hold the arm.
+
+    Without the hold the loop respawns the producer into the same 409
+    ``checks_running`` rejection on every poll. Each of those is a clean
+    zero-progress exit, so at the default 5s poll interval the arm
+    crosses the #3425 no-op-park threshold in ~15s — long before a real
+    check suite finishes — and the gate doing its job is misreported as
+    a wedged agent.
+    """
+
+    def test_gate_hold_blocks_the_spawn_and_tags_the_decision(self, monkeypatch):
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        spawner = _RecordingSpawner()
+        loop = _make_loop(spawner, supervisor=supervisor)
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "scripted")})
+        monkeypatch.setattr(
+            event_loop, "_propose_check_block_reason", lambda *a, **kw: "checks_running"
+        )
+
+        decisions = loop.poll_once(loop._roles)
+        assert len(decisions) == 1
+        assert decisions[0].blocked == "checks_running"
+        assert decisions[0].spawned is False
+        assert spawner.calls == []
+
+    def test_the_held_arm_never_climbs_the_noop_streak(self, monkeypatch):
+        """A held arm spawns nothing, so there is no no-op to count."""
+        import event_loop
+        import supervision_policy
+
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        spawner = _RecordingSpawner()
+        loop = _make_loop(spawner, supervisor=supervisor)
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "scripted")})
+        monkeypatch.setattr(
+            event_loop, "_propose_check_block_reason", lambda *a, **kw: "checks_running"
+        )
+
+        key = _key_for(loop, "coder", "propose", _PROPOSE_PAYLOAD)
+        for _ in range(supervision_policy.SUPERVISION_NOOP_STREAK_PARK + 2):
+            loop.poll_once(loop._roles)
+
+        assert not supervisor.noop_parked(key)
+        assert supervisor.noop_park_report() == []
+
+    def test_the_arm_spawns_again_once_the_verdict_lands(self, monkeypatch):
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        spawner = _RecordingSpawner()
+        loop = _make_loop(spawner, supervisor=supervisor)
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "scripted")})
+
+        held = {"reason": "checks_running"}
+        monkeypatch.setattr(
+            event_loop, "_propose_check_block_reason", lambda *a, **kw: held["reason"]
+        )
+        loop.poll_once(loop._roles)
+        assert spawner.calls == []
+
+        held["reason"] = None
+        loop.poll_once(loop._roles)
+        assert [c["role"] for c in spawner.calls] == ["coder"]
+
+    def test_only_the_propose_arm_is_held(self, monkeypatch):
+        """The gate is about proposals; an ACK must not be collateral."""
+        import event_loop
+
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        spawner = _RecordingSpawner()
+        loop = _make_loop(spawner, supervisor=supervisor, roles=["reviewer_code"])
+        _script(monkeypatch, {"reviewer_code": ("ack", _PROPOSE_PAYLOAD, "scripted")})
+        monkeypatch.setattr(
+            event_loop, "_propose_check_block_reason", lambda *a, **kw: "checks_running"
+        )
+
+        decisions = loop.poll_once(loop._roles)
+        assert decisions[0].blocked is None
+        assert [c["action"] for c in spawner.calls] == ["ack"]
+
+    def test_a_probe_failure_spawns_rather_than_stalling_the_loop(self, monkeypatch):
+        """The gate must never be able to wedge the event loop.
+
+        ``_propose_check_block_reason`` swallows its own exceptions, so
+        this pins the fail-open: a broken gate degrades to the pre-#3669
+        behaviour (spawn, get the 409) instead of silently holding the
+        arm forever.
+        """
+        import event_loop
+        import propose_check_gate
+
+        supervisor = event_loop.JobSupervisor(clock=_ManualClock())
+        spawner = _RecordingSpawner()
+        loop = _make_loop(spawner, supervisor=supervisor)
+        _script(monkeypatch, {"coder": ("propose", _PROPOSE_PAYLOAD, "scripted")})
+        monkeypatch.setattr(
+            propose_check_gate,
+            "propose_spawn_block_reason",
+            MagicMock(side_effect=RuntimeError("gate exploded")),
+        )
+
+        decisions = loop.poll_once(loop._roles)
+        assert decisions[0].blocked is None
+        assert [c["role"] for c in spawner.calls] == ["coder"]
 
 
 # ---------------------------------------------------------------------------
