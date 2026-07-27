@@ -10,17 +10,27 @@
 ## Why we decompose
 
 The `make lint` check added in #2250 (closing #2248) caps each Python
-source file at **1,500 lines / 100 KB**. The Read tool's soft 25k-token
+source file at **1,000 code lines** (blank lines, comment-only lines and
+module/class/function docstrings are excluded; re-baselined from
+1,500 raw lines in #3671). A secondary **150 KB byte backstop** still
+applies, deliberately set far above where any healthy file sits: it is a
+pathology check on what reading the file actually costs, not a design
+constraint, so it never makes trimming prose a rational move. The Read
+tool's soft 25k-token
 budget is the floor under that cap: an agent that has to load a 16k-line
 module to understand a single function pays the same context cost on
 every BRC cycle. Decomposing a file once amortises that cost across all
 future agents that touch the area.
 
 Files that exceed the cap are grandfathered in
-`scripts/file-size-allowlist.yaml`. The lint enforces a **ratchet**:
-each PR that touches an allowlisted file must reduce its size, never
-grow it. The decomposition program drives those baselines down to
-zero.
+`scripts/file-size-allowlist.yaml`. The lint enforces a **ratchet** on
+the exemptions themselves rather than on per-file baselines: an entry
+whose file has dropped back under the caps (or no longer exists) is
+reported as stale and **fails** the lint, so an exemption cannot outlive
+the condition it was granted for. Per-file baselines were dropped
+because every unrelated PR touching a listed file needed a baseline bump,
+which conflicted with every other in-flight PR. The decomposition
+program drives the entry list down to zero.
 
 The complete acceptance contract for this program lives in issue
 [#2261](https://github.com/jwbron/egg/issues/2261); the HITL decisions
@@ -251,7 +261,7 @@ multiple agents have to navigate the route surface in parallel.
 
 ## (g) When to further-split a submodule
 
-If a submodule lands at-or-over the 1,500-line / 100-KB cap, **split
+If a submodule lands at-or-over the 1,000-code-line cap, **split
 it further within the same slice**. The plan's slice descriptions
 pre-allocate the canonical further-splits expected per cluster, e.g.
 `_prompt_building/` is itself a sub-sub-package nested inside
@@ -294,7 +304,7 @@ anything more invasive is a follow-up.
 - [ ] Each cluster commit re-exports every external-referenced
       symbol through `__init__.py`.
 - [ ] `git grep` audit (section (d)) ran for every cluster.
-- [ ] No submodule lands over the 1,500-line / 100-KB cap; further
+- [ ] No submodule lands over the 1,000-code-line cap; further
       splits are in-slice (section (g)).
 - [ ] Allowlist entry for the file is removed (section (e)).
 - [ ] Module layout section in CLAUDE.md is updated with the new

@@ -33,15 +33,20 @@ Coverage:
   ``sys.path`` for the path-style form.
 * ``test_submodules_under_hard_size_cap`` — slice-1's allowlist
   drop is only valid if every submodule is below
-  ``hard_lines: 1500`` / ``hard_bytes: 100000``.  This is a
+  the ``hard_code_lines`` cap.  The cap is read from
+  ``scripts/file-size-allowlist.yaml`` and the count comes from the
+  lint itself, so this never drifts from ``make lint``.  This is a
   belt-and-braces guard against future growth re-tripping the
   global cap and re-introducing an allowlist entry.
 """
 
 from __future__ import annotations
 
+import functools
+import importlib.util
 import os
 import subprocess
+import sys
 
 import pytest
 
@@ -181,32 +186,55 @@ def test_dunder_main_path_style_invocation_works() -> None:
         assert d in proc.stdout, f"missing test-root {d!r} in stdout: {proc.stdout!r}"
 
 
+@functools.cache
+def _load_file_size_checker():
+    """Load ``scripts/check-file-sizes.py`` as a module.
+
+    Measuring with the lint's own helpers (rather than re-implementing a
+    line count here) keeps this test honest: the cap and the counting
+    rule both come from the thing ``make lint`` actually runs.
+
+    Cached: the caller is parametrized, and re-executing the module (and
+    rebinding ``sys.modules``) once per case buys nothing.
+    """
+    path = REPO_ROOT / "scripts" / "check-file-sizes.py"
+    spec = importlib.util.spec_from_file_location("check_file_sizes_shape", path)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["check_file_sizes_shape"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
 @pytest.mark.parametrize(
     "submodule",
     ["__init__.py", "__main__.py", "_constants.py", "_io.py", "_graph.py", "_cli.py"],
 )
 def test_submodules_under_hard_size_cap(submodule: str) -> None:
     """Every ``scripts/select_tests/<submodule>`` is under the global
-    ``check-file-sizes`` hard cap (1,500 lines / 100 KB).
+    ``check-file-sizes`` hard cap.
 
     Slice-1's allowlist drop only holds if every new file ships under
     the cap.  This is a belt-and-braces guard so future commits that
     bloat ``_cli.py`` or ``_graph.py`` past the cap fail the unit
     sweep before they hit ``make lint``.
+
+    The cap counts code lines only (#3671): docstrings, comment-only
+    lines and blank lines are excluded, so documenting these modules
+    cannot trip this assertion and trimming their prose cannot rescue
+    one that has genuinely outgrown the cap.
     """
     pkg_dir = REPO_ROOT / "scripts" / "select_tests"
     target = pkg_dir / submodule
     assert target.is_file(), f"missing submodule: {target}"
-    line_count = sum(1 for _ in target.read_text(encoding="utf-8").splitlines())
-    byte_count = target.stat().st_size
-    # Caps mirror scripts/file-size-allowlist.yaml ``caps`` block.
-    assert line_count < 1500, (
-        f"{submodule}: {line_count} lines >= 1500 hard-line cap; "
-        f"split further or restore the allowlist entry."
-    )
-    assert byte_count < 100_000, (
-        f"{submodule}: {byte_count} bytes >= 100,000 hard-byte cap; "
-        f"split further or restore the allowlist entry."
+    checker = _load_file_size_checker()
+    cap = checker.load_config().caps.hard_code_lines
+    code_lines = checker.measure(target).code_lines
+    # This assertion reads the cap only, never allowlist membership, so
+    # re-adding an exemption cannot make it pass -- splitting is the only
+    # way out, which is the point of the belt-and-braces guard.
+    assert code_lines <= cap, (
+        f"{submodule}: {code_lines} code lines > {cap} hard cap; split it further."
     )
 
 
