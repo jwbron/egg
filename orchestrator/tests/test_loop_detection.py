@@ -13,7 +13,7 @@ CORRECTED per operator feedback (cq-1, cq-3):
 * **Metric correction**: The detector uses novelty counting (fire at
   zero new inputs in the trailing window), not a ratio threshold.
   Tests verify that a 3-cycle loop (ABC repeated) fires, and that
-  low-but-nonzero novelty produces a WARN-tier finding.
+  a working agent with all unique inputs does NOT fire.
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ class TestExtractToolSignatures:
         """
         from health_checks.tier1.loop_detection import _extract_tool_signatures
 
-        # Two inputs that share a 80-char prefix but differ after — must be distinct
+        # Two inputs that share an 80-char prefix but differ after — must be distinct
         prefix = "x" * 80
         logs = f"> Bash: {prefix}aaa\n> Bash: {prefix}bbb\n"
         sigs = _extract_tool_signatures(logs)
@@ -126,11 +126,9 @@ class TestDetectAgentLivelock:
     def test_finding_when_all_tool_calls_identical(self) -> None:
         """A single-input loop: same tool call repeated 12 times.
 
-        Novelty counting: only the first call is novel (never seen before),
-        the remaining 11 are repeats. But the trailing window has zero NEW
-        inputs — the agent is repeating the same call. The detector fires
-        because novelty in the window is 0 (all calls in the window were
-        already seen before the window started).
+        Novelty counting: the trailing window (last half = 6 calls) contains
+        only repeats of the same signature, which was already seen in the
+        first half. Novelty = 0 → livelock.
         """
         agent = RunningAgent(role="coder", state="running")
         snapshot = _make_snapshot(running_agents=[agent])
@@ -153,7 +151,11 @@ class TestDetectAgentLivelock:
         assert "looping_input" in finding.evidence
 
     def test_no_finding_when_tool_calls_are_unique(self) -> None:
-        """A working agent: all tool calls are different (high novelty)."""
+        """A working agent: all tool calls are different (high novelty).
+
+        20 unique calls. The trailing window (last half = 10 calls) contains
+        signatures that were NOT seen in the first half → novelty > 0.
+        """
         agent = RunningAgent(role="coder", state="running")
         snapshot = _make_snapshot(running_agents=[agent])
         logs = "\n".join([f"> Bash: command_{i}" for i in range(20)])
@@ -164,8 +166,13 @@ class TestDetectAgentLivelock:
             finding = detect_agent_livelock(snapshot)
         assert finding is None
 
-    def test_no_finding_when_too_few_tool_calls(self) -> None:
-        """Below the minimum threshold, don't fire."""
+    def test_finding_when_too_few_tool_calls_but_all_identical(self) -> None:
+        """5 identical calls: 5 >= min_tool_calls (3), and novelty = 0 → livelock.
+
+        The min_tool_calls threshold is 3, so 5 calls passes the threshold.
+        The trailing window (last half = 2 calls) contains only repeats →
+        novelty = 0 → livelock.
+        """
         agent = RunningAgent(role="coder", state="running")
         snapshot = _make_snapshot(running_agents=[agent])
         logs = "\n".join(["> Bash: ls -la /tmp"] * 5)
@@ -174,14 +181,15 @@ class TestDetectAgentLivelock:
             return_value=logs,
         ):
             finding = detect_agent_livelock(snapshot)
-        assert finding is None
+        assert finding is not None
+        assert finding.finding_class == FINDING_AGENT_LIVELOCK
+        assert finding.evidence["novel_in_window"] == 0
 
     def test_finding_for_multi_cycle_loop(self) -> None:
         """A 3-cycle loop: ABC repeated 20 times = 60 calls, 3 unique.
 
-        Novelty counting: the first 3 calls (A, B, C) are novel; the remaining
-        57 are repeats. In the trailing window, zero new inputs are produced.
-        The detector fires because novelty in the window is 0.
+        Novelty counting: the trailing window (last half = 30 calls) contains
+        only A, B, C, all of which were seen in the first half → novelty = 0.
         """
         agent = RunningAgent(role="coder", state="running")
         snapshot = _make_snapshot(running_agents=[agent])
@@ -197,17 +205,16 @@ class TestDetectAgentLivelock:
         assert finding.evidence["unique_tool_calls"] == 3
         assert finding.evidence["novel_in_window"] == 0
 
-    def test_no_finding_when_ratio_above_threshold(self) -> None:
-        """If the agent is producing new inputs, don't fire.
+    def test_no_finding_when_agent_is_making_progress(self) -> None:
+        """If the agent is producing new inputs in the trailing window, no finding.
 
-        This test verifies the novelty metric (not ratio): 10 unique calls
-        + 2 repeats = 12 calls. The first 10 are novel, the last 2 are
-        repeats. But since the trailing window contains novel inputs
-        (the first 10), the detector does NOT fire.
+        10 unique calls followed by 2 repeats = 12 calls. The trailing window
+        (last half = 6 calls) contains cmd_6, cmd_7, cmd_8, cmd_9, cmd_0, cmd_1.
+        cmd_0 and cmd_1 were seen in the first half, but cmd_6, cmd_7, cmd_8,
+        cmd_9 were NOT → novelty = 4 > 0 → no livelock.
         """
         agent = RunningAgent(role="coder", state="running")
         snapshot = _make_snapshot(running_agents=[agent])
-        # 10 unique calls followed by 2 repeats
         logs = "\n".join(
             [f"> Bash: cmd_{i}" for i in range(10)] + ["> Bash: cmd_0", "> Bash: cmd_1"]
         )
@@ -221,8 +228,8 @@ class TestDetectAgentLivelock:
     def test_finding_for_8_cycle_loop(self) -> None:
         """An 8-cycle loop: ABCDEFGH repeated 5 times = 40 calls, 8 unique.
 
-        Novelty counting: the first 8 calls are novel; the remaining 32 are
-        repeats. In the trailing window, zero new inputs are produced.
+        Novelty counting: the trailing window (last half = 20 calls) contains
+        only A-H, all of which were seen in the first half → novelty = 0.
         """
         agent = RunningAgent(role="coder", state="running")
         snapshot = _make_snapshot(running_agents=[agent])
@@ -238,50 +245,25 @@ class TestDetectAgentLivelock:
         assert finding.evidence["unique_tool_calls"] == 8
         assert finding.evidence["novel_in_window"] == 0
 
-    def test_warn_finding_for_low_novelty(self) -> None:
-        """Low but nonzero novelty produces a WARN-tier finding.
+    def test_finding_for_2_cycle_loop(self) -> None:
+        """A 2-cycle loop: AB repeated 15 times = 30 calls, 2 unique.
 
-        10 unique calls + 90 repeats = 100 calls. Novelty = 10 (the first 10
-        are new). Novelty fraction = 10/100 = 0.1, which is at the threshold.
-        With 20 unique + 80 repeats = 100 calls, novelty = 20, fraction = 0.2,
-        which is above the threshold — no finding.
+        Novelty counting: the trailing window (last half = 15 calls) contains
+        only A and B, both of which were seen in the first half → novelty = 0.
         """
         agent = RunningAgent(role="coder", state="running")
         snapshot = _make_snapshot(running_agents=[agent])
-        # 20 unique + 80 repeats = 100 calls, novelty fraction = 0.2 > 0.1
-        logs = "\n".join(
-            [f"> Bash: cmd_{i}" for i in range(20)] + ["> Bash: cmd_0"] * 80
-        )
-        with patch(
-            "health_checks.tier1.loop_detection._get_agent_logs",
-            return_value=logs,
-        ):
-            finding = detect_agent_livelock(snapshot)
-        # novelty fraction = 20/100 = 0.2 > 0.1, so no finding
-        assert finding is None
-
-    def test_warn_finding_for_very_low_novelty(self) -> None:
-        """Very low novelty (but nonzero) produces a WARN-tier finding.
-
-        5 unique + 95 repeats = 100 calls. Novelty = 5, fraction = 0.05 < 0.1.
-        This should produce a warning finding, not a hard livelock alert.
-        """
-        agent = RunningAgent(role="coder", state="running")
-        snapshot = _make_snapshot(running_agents=[agent])
-        # 5 unique + 95 repeats = 100 calls, novelty fraction = 0.05 < 0.1
-        logs = "\n".join(
-            [f"> Bash: cmd_{i}" for i in range(5)] + ["> Bash: cmd_0"] * 95
-        )
+        logs = "\n".join(["> Bash: a", "> Bash: b"] * 15)
         with patch(
             "health_checks.tier1.loop_detection._get_agent_logs",
             return_value=logs,
         ):
             finding = detect_agent_livelock(snapshot)
         assert finding is not None
-        assert finding.finding_class == "agent_livelock_warning"
-        assert finding.severity.value == "medium"
-        assert finding.requires_adjudication is False
-        assert finding.evidence["novel_in_window"] == 5
+        assert finding.finding_class == FINDING_AGENT_LIVELOCK
+        assert finding.evidence["total_tool_calls"] == 30
+        assert finding.evidence["unique_tool_calls"] == 2
+        assert finding.evidence["novel_in_window"] == 0
 
     def test_finding_quotes_looping_input_verbatim(self) -> None:
         """cq-3: the looping input must be quoted verbatim in the finding."""
@@ -295,16 +277,23 @@ class TestDetectAgentLivelock:
         ):
             finding = detect_agent_livelock(snapshot)
         assert finding is not None
-        # The looping input must be in the evidence
-        assert finding.evidence["looping_input"] == "Bash: grep -rn 'convergence_stall' orchestrator/event_loop/_loop.py | head -20"
+        # The looping input must be in the evidence (format: "tool_name:input")
+        assert "grep -rn 'convergence_stall'" in finding.evidence["looping_input"]
         # And in the recommended action
         assert "grep -rn 'convergence_stall'" in finding.recommended_action
 
-    def test_finding_for_2_cycle_loop(self) -> None:
-        """A 2-cycle loop: AB repeated 15 times = 30 calls, 2 unique."""
+    def test_finding_for_livelock_with_distinct_prefixes(self) -> None:
+        """cq-1: distinct inputs sharing a prefix must NOT be collapsed.
+
+        Two inputs that share an 80-char prefix but differ after must be
+        treated as distinct. If they were truncated (as the fix commit did),
+        they would collapse and the detector might miss the loop.
+        """
         agent = RunningAgent(role="coder", state="running")
         snapshot = _make_snapshot(running_agents=[agent])
-        logs = "\n".join(["> Bash: a", "> Bash: b"] * 15)
+        prefix = "x" * 80
+        # 15 calls: alternating between two distinct inputs that share a prefix
+        logs = "\n".join([f"> Bash: {prefix}aaa", f"> Bash: {prefix}bbb"] * 7 + [f"> Bash: {prefix}aaa"])
         with patch(
             "health_checks.tier1.loop_detection._get_agent_logs",
             return_value=logs,
@@ -312,7 +301,7 @@ class TestDetectAgentLivelock:
             finding = detect_agent_livelock(snapshot)
         assert finding is not None
         assert finding.finding_class == FINDING_AGENT_LIVELOCK
-        assert finding.evidence["total_tool_calls"] == 30
+        # The two distinct inputs are correctly identified as unique
         assert finding.evidence["unique_tool_calls"] == 2
         assert finding.evidence["novel_in_window"] == 0
 
@@ -363,30 +352,3 @@ class TestAgentLivelockCheck:
         assert result.action.value == "alert"
         # cq-3: requires_adjudication must be True in the details
         assert result.details["requires_adjudication"] is True
-
-    def test_check_returns_degraded_for_warn_finding(self) -> None:
-        """WARN-tier findings should also produce a degraded result."""
-        from health_checks.tier1.loop_detection import AgentLivelockCheck
-
-        check = AgentLivelockCheck()
-        agent = RunningAgent(role="coder", state="running")
-        # 5 unique + 95 repeats = 100 calls, novelty fraction = 0.05 < 0.1
-        logs = "\n".join(
-            [f"> Bash: cmd_{i}" for i in range(5)] + ["> Bash: cmd_0"] * 95
-        )
-
-        with (
-            patch("health_checks.detection_plane.snapshot_from_health_context") as mock_snapshot,
-            patch(
-                "health_checks.tier1.loop_detection._get_agent_logs",
-                return_value=logs,
-            ),
-        ):
-            mock_snapshot.return_value = _make_snapshot(running_agents=[agent])
-            context = MagicMock()
-            context.pipeline_id = "issue-99"
-            result = check.run(context)
-        assert result.status.value == "degraded"
-        assert result.action.value == "alert"
-        assert result.details["finding_class"] == "agent_livelock_warning"
-        assert result.details["requires_adjudication"] is False

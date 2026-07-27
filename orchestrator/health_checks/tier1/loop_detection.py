@@ -26,15 +26,15 @@ CORRECTIONS per operator feedback (cq-1, cq-3):
   verbatim.
 
 * **Metric correction:** The fix commit computed a ratio
-  (``unique / total < 0.1``). The issue specifies counting *inputs never
-  issued before in the session* over a trailing window, firing at **zero**
-  novelty. This handles single-input, 2-, 3-, and 8-cycles uniformly — any
-  loop produces no new unique signatures in the window.
+  (``unique / total < 0.1``). This detector instead counts the number of
+  inputs *never issued before in the session* within the trailing window.
+  A working agent produces new inputs (novelty > 0); a loop of any length
+  produces none (novelty == 0). This handles single-input, 2-, 3-, and
+  8-cycles uniformly.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import sys
@@ -83,11 +83,6 @@ _DEFAULT_GRACE_SECONDS = 120
 # Minimum number of tool calls an agent must have made before loop detection
 # kicks in. Prevents false positives on agents that haven't started work yet.
 _MIN_TOOL_CALLS = 3
-
-# WARN threshold: if the agent's novelty count is below this fraction of the
-# window but above zero, emit a warning-level finding (not an alert). This
-# gives an early signal before the hard zero-novelty threshold fires.
-_WARN_NOVELTY_FRACTION = 0.1
 
 # Regex to parse Claude Code tool-call emission lines from the session
 # transcript. Claude Code emits lines like:
@@ -191,7 +186,9 @@ def _read_session_transcript(agent_role: str) -> str | None:
     # In production, CLAUDE_SESSION_PATH is always set; this fallback is
     # best-effort for test/debug scenarios.
     try:
-        transcript_files = sorted(claude_dir.rglob("*.jsonl"), key=os.path.getmtime, reverse=True)
+        transcript_files = sorted(
+            claude_dir.rglob("*.jsonl"), key=os.path.getmtime, reverse=True
+        )
         if transcript_files:
             with open(transcript_files[0], encoding="utf-8") as f:
                 return f.read()
@@ -246,10 +243,6 @@ def detect_agent_livelock(
     to HITL with the looping input quoted verbatim. The operator posts a
     terminating message to the bus, then the agent is respawned with a
     fresh session.
-
-    A WARN-tier finding is also emitted when novelty is low but nonzero
-    (below ``_WARN_NOVELTY_FRACTION`` of the window), giving an early signal
-    before the hard zero threshold fires.
     """
     pipeline_id = getattr(snapshot, "pipeline_id", "")
     if not pipeline_id:
@@ -280,33 +273,29 @@ def detect_agent_livelock(
             continue
 
         # Novelty metric: count inputs never issued before in the session
-        # over the trailing window. Since the transcript is an append-only
-        # log of the session, the "trailing window" is the last N signatures
-        # where N is bounded by the window duration. In practice, the
-        # transcript is the full session log, so we count how many of the
-        # recent signatures are new (not seen earlier in the session).
+        # over the trailing window.
         #
-        # The key insight from the issue: a working agent produces new tool
-        # inputs and a loop produces none. We track the set of all signatures
-        # seen so far; any signature in the trailing window that is NOT in
-        # the "seen before" set is novel.
-        seen_before: set[str] = set()
-        novel_in_window: list[str] = []
+        # The key insight from the issue: "counting *tool inputs never issued
+        # before in the session* over a trailing window separates a loop from
+        # work cleanly: a working agent produces new ones and a loop of any
+        # length produces none."
+        #
+        # We split the signature list into a "before window" prefix and a
+        # "window" suffix. A signature in the window is novel if it does NOT
+        # appear in the "before window" set. For a pure loop (e.g. "ABC"
+        # repeated 20 times = 60 calls), the first 3 calls establish the
+        # unique set {A, B, C}, and the trailing window (last half) contains
+        # only repeats → novelty = 0. For work (20 unique calls), the
+        # trailing window contains new signatures → novelty > 0.
+        #
+        # We approximate the trailing window as the last half of the
+        # signatures (a reasonable heuristic without per-call timestamps).
+        window_start = len(signatures) // 2
+        window_sigs = signatures[window_start:]
+        before_window = set(signatures[:window_start])
+        unique_signatures = set(signatures)
 
-        # Walk the signatures; the trailing window is the last `window_seconds`
-        # worth of calls. Since we don't have per-call timestamps from the
-        # transcript text, we approximate the window as the last N calls
-        # where N = len(signatures) (the full session is the window).
-        # The novelty count is: how many signatures in the window have NOT
-        # been seen before in the session.
-        for sig in signatures:
-            if sig not in seen_before:
-                novel_in_window.append(sig)
-            seen_before.add(sig)
-
-        # Novelty = count of signatures in the window that were never seen
-        # before in the session. A loop produces 0 novelty; work produces > 0.
-        novelty_count = len(novel_in_window)
+        novelty_count = sum(1 for sig in window_sigs if sig not in before_window)
 
         # Hard threshold: zero novelty = livelock (per the issue's empirical
         # finding). This fires on any cycle shape (single-input, 2-, 3-, 8-).
@@ -320,12 +309,16 @@ def detect_agent_livelock(
                     "role": role,
                     "phase": getattr(snapshot, "phase", ""),
                     "total_tool_calls": len(signatures),
-                    "unique_tool_calls": len(seen_before),
+                    "unique_tool_calls": len(unique_signatures),
                     "novel_in_window": 0,
                     "window_seconds": window_seconds,
                     "min_tool_calls": min_tool_calls,
                     "looping_input": looping_input,
-                    "looping_input_truncated": looping_input[:200] + "..." if len(looping_input) > 200 else looping_input,
+                    "looping_input_truncated": (
+                        looping_input[:200] + "..."
+                        if len(looping_input) > 200
+                        else looping_input
+                    ),
                 },
                 recommended_action=(
                     f"Agent '{role}' is in a repetition loop: {len(signatures)} tool "
@@ -336,34 +329,6 @@ def detect_agent_livelock(
                 ),
                 requires_adjudication=True,
                 detector_key="agent_livelock",
-            )
-
-        # WARN tier: low but nonzero novelty. If the agent's novelty count
-        # is below _WARN_NOVELTY_FRACTION of the total calls, emit a warning
-        # finding. This gives an early signal before the hard zero threshold.
-        novelty_fraction = novelty_count / len(signatures) if signatures else 0
-        if novelty_fraction < _WARN_NOVELTY_FRACTION and len(signatures) >= 10:
-            return Finding(
-                finding_class="agent_livelock_warning",
-                severity=Severity.MEDIUM,
-                evidence={
-                    "role": role,
-                    "phase": getattr(snapshot, "phase", ""),
-                    "total_tool_calls": len(signatures),
-                    "unique_tool_calls": len(seen_before),
-                    "novel_in_window": novelty_count,
-                    "novelty_fraction": round(novelty_fraction, 3),
-                    "window_seconds": window_seconds,
-                    "min_tool_calls": min_tool_calls,
-                },
-                recommended_action=(
-                    f"Agent '{role}' shows low novelty ({novelty_count} new inputs "
-                    f"out of {len(signatures)} calls, ratio {novelty_fraction:.1%}). "
-                    f"Monitor for convergence to zero — if it stays at zero, "
-                    f"a livelock alert will fire."
-                ),
-                requires_adjudication=False,
-                detector_key="agent_livelock_warning",
             )
 
     return None
