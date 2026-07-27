@@ -947,6 +947,22 @@ the idle budget, the operator gets escalated visibility through the overseer
 surface without the pipeline self-destructing. The operator decides whether
 the idleness is pathological.
 
+**Alive-signal gate consultation (#3665):** Before firing the
+`stuck-phase-transition` alert, the convergence-stall check consults the
+health monitor's alive-signal gates via `_has_recent_agent_activity(role)`.
+If the role has recent activity (heartbeat, progress event, or container
+activity) within `orchestrator_activity_quiet_seconds` (default: 120s), the
+alert is suppressed for that poll cycle and the stall timers are reset. This
+prevents false positives against agents that are legitimately busy but
+haven't entered the BRC protocol yet (e.g., a coder with seconds-old
+heartbeats, between BRC rounds). The gates consulted are:
+
+- `_orchestrator_skip_tripwire` — returns True if the agent has no active
+  one-shot Job (podless-between-events)
+- `_is_brc_idle` — returns True if a reviewer-only agent's upstream
+  producers are still in WORKING phase
+- `WAITING_ON_ROLE` self-report probe — consulted via `_is_brc_idle`
+
 ### 409 `stale_version` / aggregated-NACK as event-pump signals
 
 The `egg-orch brc next-action` and `consensus propose` paths can

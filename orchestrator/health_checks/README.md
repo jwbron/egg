@@ -121,6 +121,8 @@ executed by the `CorrectiveExecutor` (see
 | gateway | `gateway_token_expiry` | — |
 | BRC / thrashing | `brc_thrash` | ✅ |
 | BRC / thrashing | `incomplete_consensus_deferral` | — |
+| BRC / thrashing | `heartbeat_stall` | ✅ |
+| BRC / thrashing | `agent_livelock` | ✅ |
 | cost / budget | `cost_anomaly` | — |
 | LLM substrate | `llm_substrate_unreachable` | — |
 | LLM substrate | `effective_model_drift` | — |
@@ -305,6 +307,35 @@ Detects BRC consensus-*incomplete*-and-not-progressing conditions: most agents h
 - **DEGRADED** (+ ALERT): The same set of blocking (unconfirmed) agents persists for `stall_tick_threshold` consecutive ticks (default 10), after the phase grace period (default 300s) and post-proposal grace period have elapsed
 - **HEALTHY**: Pipeline not running, phase not using concurrent execution, within a grace period, no blocking agents, the blocking set is still changing, or blocking agents show recent progress activity
 - Purely diagnostic — recovery is escalated to the overseer (`details.recovery_action = escalate_to_overseer`)
+
+### AgentLivelockCheck (`tier1/loop_detection.py`)
+
+Detects agent repetition loops / livelocks — the same tool call (or a short
+cycle of them) repeated until something outside the system intervened (#3665).
+
+- **Triggers:** RUNTIME_TICK, ON_DEMAND
+- **DEGRADED** (+ ALERT): An agent in a RUNNING phase produces zero *new unique
+  tool inputs* over a trailing window (default: 300s). The detector counts
+  inputs never issued before in the session within the trailing window; a
+  working agent produces new ones (novelty > 0) and a loop of any length
+  produces none (novelty == 0). This handles single-input, 2-, 3-, and 8-cycle
+  shapes uniformly.
+- **HEALTHY**: No agent shows zero-novelty over the window, or the agent hasn't
+  made enough tool calls yet (`_MIN_TOOL_CALLS = 3`)
+- **Data source:** Reads the live Claude Code session transcript from the
+  `session_state_store` (Redis-backed, populated by the sandbox's session-state
+  push), NOT from `agent_log_store` (pod stdout). The pod log truncates tool
+  inputs at ~100 chars and collapses distinct commands sharing a prefix, making
+  it unsuitable for loop detection. The session transcript preserves the full
+  `(tool_name, input)` pair without truncation.
+- **HITL escalation:** The finding sets `requires_adjudication=True` — the
+  detector escalates to HITL with the looping input quoted verbatim. The
+  operator posts a terminating message to the bus, then the agent is respawned
+  with a fresh session. Nudge-only recovery was empirically falsified twice
+  (cq-3).
+- **Configuration constants:** `_DEFAULT_WINDOW_SECONDS` (300),
+  `_DEFAULT_GRACE_SECONDS` (120, enforced via `min_tool_calls`),
+  `_MIN_TOOL_CALLS` (3)
 
 ## Integration Points
 

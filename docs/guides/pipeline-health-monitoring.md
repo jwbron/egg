@@ -289,6 +289,81 @@ When a pipeline's branch absorbs merged-main commits (the contamination shape in
 
 **False positives:** An agent legitimately including a `(#NNNN)` literal (with parentheses) in a commit subject — e.g., `"Reference benchmark suite (#2222)"` — would trigger the detector. The regex (`\(#\d+\)`) requires the literal `(` and `)` characters, so a bare `#2222` reference does not match. The alert body explains the false-positive scenario and instructs that no action is required if the diff against main looks clean.
 
+### Agent Livelock / Repetition-Loop Detection
+
+**New in #3665.** The `detect_agent_livelock` detector
+(`health_checks/tier1/loop_detection.py`) fires when an agent in a RUNNING phase
+produces zero *new unique tool inputs* over a trailing window. This is the
+empirical finding from the incident analysis: across every observed livelock
+(single-input, 2-, 3-, and 8-cycles), counting unique tool inputs never issued
+before in the session over a trailing window separates a loop from legitimate
+work cleanly — a working agent produces new ones and a loop of any length
+produces none.
+
+**Data source (per cq-1):** The detector reads the live Claude Code session
+transcript from the `session_state_store` (Redis-backed, populated by the
+sandbox's session-state push), NOT from `agent_log_store` (pod stdout). The pod
+log truncates tool inputs at ~100 chars and collapses distinct commands sharing
+a prefix, making it unsuitable for loop detection. The session transcript
+preserves the full `(tool_name, input)` pair without truncation.
+
+**Novelty metric (not ratio):** The detector counts the number of inputs *never
+issued before in the session* within the trailing window. A working agent
+produces new inputs (novelty > 0); a loop of any length produces none
+(novelty == 0). This handles single-input, 2-, 3-, and 8-cycles uniformly.
+
+**HITL escalation (per cq-3):** The detector sets
+`requires_adjudication=True` — it escalates to HITL with the looping input
+quoted verbatim, rather than nudging the agent. Nudge-only recovery was
+empirically falsified twice. The operator posts a terminating message to the
+bus, then the agent is respawned with a fresh session.
+
+**Configuration constants:**
+
+| Constant | Default | Description |
+|----------|---------|-------------|
+| `_DEFAULT_WINDOW_SECONDS` | `300` | Trailing window (5 minutes) over which tool inputs are evaluated |
+| `_DEFAULT_GRACE_SECONDS` | `120` | Grace period before detection kicks in (enforced via `min_tool_calls`) |
+| `_MIN_TOOL_CALLS` | `3` | Minimum tool calls an agent must have made before detection applies |
+
+The detector is registered in `DetectionPlane.default()` via
+`_register_coverage_gap_detectors()` and exported from
+`health_checks/tier1/__init__.py`. The `AgentLivelockCheck` class is registered
+in `cli.py` as a Tier 1 programmatic health check (triggers: `RUNTIME_TICK`,
+`ON_DEMAND`).
+
+### Convergence-Stall Suppression
+
+**New in #3665.** The convergence-stall check in
+`event_loop/_loop.py` (`_check_convergence_stall`) previously fired
+`high`-priority `stuck-phase-transition` alerts without consulting the health
+monitor's alive-signal gates. This produced false positives against agents that
+were legitimately busy but hadn't entered the BRC protocol yet (e.g., a coder
+with seconds-old heartbeats, between BRC rounds).
+
+Before firing the alert, the check now calls
+`_has_recent_agent_activity(role)`, which queries
+`HealthMonitor.get_agent_activity_ages()`. If the role has recent activity
+(heartbeat, progress event, or container activity) within the
+`orchestrator_activity_quiet_seconds` threshold (default: 120s), the alert is
+suppressed for that poll cycle and the stall timers are reset.
+
+**Alive-signal gates consulted:**
+
+- `_orchestrator_skip_tripwire` (health_monitor.py:507) — returns True if the
+  agent has no active one-shot Job (podless-between-events)
+- `_is_brc_idle` (health_monitor.py:618) — returns True if a reviewer-only
+  agent's upstream producers are still in WORKING phase
+- `WAITING_ON_ROLE` self-report probe — consulted via `_is_brc_idle`
+
+**Snapshot enrichment:** `snapshot_from_health_context` in
+`detection_plane.py` now populates `last_tool_call_age_s` and
+`last_heartbeat_age_s` on `RunningAgent` entries from the health monitor's
+`get_agent_activity_ages()` return value. This enables the previously-unwired
+`detect_heartbeat_stall` detector (`consensus_stall.py:217`) to fire in the
+live path — it was defined but unreachable because its inputs were never
+populated.
+
 ### Configuration
 
 Tripwire thresholds are configurable in `PipelineConfig`:
@@ -325,6 +400,7 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `overseer_silent_agent_threshold_seconds` | `600` | Threshold (seconds) for the migrated `detect_agent_silent` detector (running agent with zero messages). Matches the previous `/sdlc` default. |
 | `overseer_long_running_phase_seconds` | `3600` | Threshold (seconds) for the migrated `detect_phase_long_running` detector during the implement phase. Matches the previous `/sdlc` default. |
 | `overseer_nack_unresolved_seconds` | `180` | Threshold (seconds) for the migrated `detect_nack_unresolved` detector (NACK outstanding without progress). Matches the previous `/sdlc` default. |
+| `agent_timeout_seconds` | `7200` | Maximum runtime for a single agent container, in seconds. Passed as `active_deadline_seconds` to the Kubernetes Job spec and as `EGG_AGENT_TIMEOUT_SECONDS` to the sandbox container so the agent can surface the deadline. Default 7200 (2 hours). (#3665) |
 
 ## Tier 2: Overseer Agent
 
