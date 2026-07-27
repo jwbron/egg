@@ -220,6 +220,12 @@ def detect_agent_livelock(
     to HITL with the looping input quoted verbatim. The operator posts a
     terminating message to the bus, then the agent is respawned with a
     fresh session.
+
+    Note: ``grace_seconds`` is accepted for API compatibility but the actual
+    grace is enforced via ``min_tool_calls`` — an agent that hasn't made
+    enough tool calls hasn't been running long enough to be considered
+    livelocked. Per-call timestamps are not available from the transcript,
+    so a time-based grace check is not feasible.
     """
     pipeline_id = getattr(snapshot, "pipeline_id", "")
     if not pipeline_id:

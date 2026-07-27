@@ -28,6 +28,7 @@ class TestHasRecentAgentActivity:
         }
         hm._config = MagicMock()
         hm._config.orchestrator_activity_quiet_seconds = 120
+        hm._is_brc_idle.return_value = False
 
         with patch("health_monitor.get_health_monitor", return_value=hm):
             result = _has_recent_agent_activity(loop, "coder")
@@ -50,6 +51,7 @@ class TestHasRecentAgentActivity:
         }
         hm._config = MagicMock()
         hm._config.orchestrator_activity_quiet_seconds = 120
+        hm._is_brc_idle.return_value = False
 
         with patch("health_monitor.get_health_monitor", return_value=hm):
             result = _has_recent_agent_activity(loop, "coder")
@@ -72,6 +74,7 @@ class TestHasRecentAgentActivity:
         }
         hm._config = MagicMock()
         hm._config.orchestrator_activity_quiet_seconds = 120
+        hm._is_brc_idle.return_value = False
 
         with patch("health_monitor.get_health_monitor", return_value=hm):
             result = _has_recent_agent_activity(loop, "coder")

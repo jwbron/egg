@@ -536,6 +536,10 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
     }
 
     live_ids = getattr(context, "live_container_ids", None) or set()
+    # Map container IDs to role names via the ``egg.agent.role`` label (#3665).
+    # The livelock detector needs role names (not container IDs) to look up
+    # session transcripts in the session_state_store.
+    live_roles = getattr(context, "live_container_roles", None) or {}
 
     # #3665: enrich running agents with heartbeat and tool-call ages from the
     # health monitor, so detectors like ``detect_heartbeat_stall`` can actually
@@ -552,11 +556,11 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
 
     running_agents = tuple(
         RunningAgent(
-            role=str(cid),
+            role=str(live_roles.get(cid, cid)),
             state="running",
             lifecycle_owner=lifecycle_owner,
-            last_heartbeat_age_s=_agent_age(agent_activity, str(cid), "last_heartbeat_age_s"),
-            last_tool_call_age_s=_agent_age(agent_activity, str(cid), "last_activity_age_s"),
+            last_heartbeat_age_s=_agent_age(agent_activity, str(live_roles.get(cid, cid)), "last_heartbeat_age_s"),
+            last_tool_call_age_s=_agent_age(agent_activity, str(live_roles.get(cid, cid)), "last_activity_age_s"),
         )
         for cid in live_ids
     )

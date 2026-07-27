@@ -932,6 +932,13 @@ def _check_convergence_stall(self) -> None:
             # (or is between BRC rounds) can trigger a false positive here.
             # The health monitor tracks per-agent activity ages; if any signal
             # is recent, suppress the alert for this poll cycle.
+            #
+            # When activity is detected, reset the stall timers so the next
+            # poll re-anchors from the current bus timestamp rather than
+            # continuing from the original (stale) anchor. Without this reset,
+            # the stall timer would continue counting from the original event
+            # even though the agent is now active, potentially firing an alert
+            # that's still based on the original event.
             if self._has_recent_agent_activity(role):
                 logger.debug(
                     "Convergence-stall: suppressing alert for role=%s — "
@@ -940,6 +947,8 @@ def _check_convergence_stall(self) -> None:
                     pipeline_id=self.pipeline_id,
                     slice_id=self.slice_id,
                 )
+                self._stall_first_seen[role] = bus_timestamp
+                self._stall_alerted.pop(role, None)
                 continue
 
             self._stall_alerted[role] = True
@@ -1028,6 +1037,13 @@ def _has_recent_agent_activity(self, role: str) -> bool:
     A busy agent that hasn't entered the BRC protocol yet (or is between BRC
     rounds) can trigger a false convergence-stall alert; this check prevents
     that by consulting the health monitor's independent view of agent liveness.
+
+    Additionally consults BRC consensus state to distinguish "legitimately
+    waiting" from "stuck" (#3665): a reviewer-only agent whose upstream
+    producers are all still in WORKING phase is legitimately idle — it has
+    nothing to review yet. A declared no-op leaves review edges pending
+    forever — such agents should be suppressed. A NACK is a verdict and
+    discharges the obligation just as an ACK does.
     """
     try:
         from health_monitor import get_health_monitor
@@ -1050,6 +1066,13 @@ def _has_recent_agent_activity(self, role: str) -> bool:
             age = agent_info.get(age_key)
             if age is not None and age < quiet_s:
                 return True
+        # #3665: also consult BRC consensus state to distinguish "legitimately
+        # waiting" from "stuck". A reviewer-only agent whose upstream producers
+        # are all still in WORKING phase is legitimately idle — it has nothing
+        # to review yet. A NACK is a verdict and discharges the obligation
+        # just as an ACK does.
+        if hm._is_brc_idle(role):
+            return True
         return False
     except Exception:
         logger.debug(

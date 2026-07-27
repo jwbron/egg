@@ -74,6 +74,7 @@ class PipelineHealthContext:
         self._agent_outputs: dict[str, str] | None = None
         self._contract: dict[str, object] | None = None
         self._live_container_ids: set[str] | None = None
+        self._live_container_roles: dict[str, str] | None = None
 
     # ------------------------------------------------------------------
     # Cheap accessors (no IO)
@@ -192,6 +193,17 @@ class PipelineHealthContext:
             self._live_container_ids = self._fetch_live_container_ids()
         return self._live_container_ids
 
+    @property
+    def live_container_roles(self) -> dict[str, str]:
+        """Mapping of live Docker container ID -> agent role name.
+
+        Uses the ``egg.agent.role`` label set by the sandbox template.
+        Returns an empty dict if the Docker client is unavailable.
+        """
+        if self._live_container_roles is None:
+            self._live_container_roles = self._fetch_live_container_roles()
+        return self._live_container_roles
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -283,3 +295,21 @@ class PipelineHealthContext:
             return {c.container_id for c in containers}
         except Exception:
             return set()
+
+    def _fetch_live_container_roles(self) -> dict[str, str]:
+        """Query Docker for live container ID -> agent role mapping.
+
+        Uses the ``egg.agent.role`` label set by the sandbox template.
+        """
+        if self.docker_client is None:
+            return {}
+        try:
+            containers = self.docker_client.list_containers(all=False)
+            result: dict[str, str] = {}
+            for c in containers:
+                role = c.labels.get("egg.agent.role")
+                if role:
+                    result[c.container_id] = role
+            return result
+        except Exception:
+            return {}
