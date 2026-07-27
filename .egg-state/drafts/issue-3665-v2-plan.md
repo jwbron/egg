@@ -170,5 +170,6 @@ phases:
           - orchestrator/tests/test_event_loop_legitimate_outcome.py
           - orchestrator/tests/test_convergence_stall_suppression.py
           - orchestrator/tests/overseer_calibration/fixtures.json
-    dependencies: ["1", "2"]
+    dependencies: ["2"]
+    serialized_chain_order: ["1", "2"]
 ```
