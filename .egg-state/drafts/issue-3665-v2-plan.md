@@ -110,6 +110,14 @@ Add test coverage for all three changes:
 | 9 | **Convergence-stall suppression for reviewers** — The `_has_recent_agent_activity` check applies to all roles. Reviewers legitimately wait on producers; their activity pattern differs. Consider role-specific suppression logic. | `orchestrator/event_loop/_loop.py:_check_convergence_stall` | Absent (uniform suppression) |
 | 10 | **Two-hour timeout config validation** — `agent_timeout_seconds` defaults to 7200 but the K8s `active_deadline_seconds` default is 14400. If an operator sets a custom timeout, both must stay in sync. Consider a validation that warns when they diverge. | `orchestrator/kubernetes_client.py:350` (hardcoded 14400) | Absent |
 
+## Open Questions
+
+The following decisions are registered on the SDLC contract (cq-1, cq-2, cq-3) and will be resolved by the operator before or during implementation:
+
+- **cq-1**: Livelock detector tool-call signature parsing: Should we parse the existing Claude Code log format as-is, or add a structured tool-call event emitter in the sandbox for more reliable parsing? The plan defaults to parsing existing logs (agent_log_store captures full stdout).
+- **cq-2**: Two-hour timeout: Should the agent_timeout_seconds config be pipeline-level only (uniform 7200s default), or support per-role overrides? The plan defaults to pipeline-level.
+- **cq-3**: Livelock recovery action: When the detector fires, should the corrective vocabulary nudge the agent with a loop description, or respawn the agent? The plan defaults to nudge (less disruptive).
+
 ```yaml
 # yaml-tasks
 pr:
