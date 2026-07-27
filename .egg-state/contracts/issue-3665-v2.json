@@ -14,7 +14,7 @@
       "id": "slice-1",
       "name": "Integrate Supervision-Layer Fixes",
       "goal": "Integrate commit 6ffe97c8e which implements all three supervision fixes \u2014 livelock detection, two-hour timeout visibility, and false convergence-stall suppression. Verify the integration is correct and complete.",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -254,10 +254,10 @@
           "adds_task": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "Neither option as written. Do NOT parse the pod log, and you do not need a new emitter.\n\nEvidence, from the issue you are implementing: \"The pod log cannot support this, because tool inputs are truncated at about 100 characters and distinct commands sharing a prefix collapse into one key. Not fixable by parsing. Read the session transcript from the live pod.\"\n\nCommit 6ffe97c8e does exactly the thing that was ruled out: it sources from `agent_log_store` (pod stdout) AND truncates its signature to 80 chars (`sig = f\"{tool_name}:{args[:80]}\"`), which is below the ~100-char truncation it is already subject to. Two lossy steps stacked. A family of greps sharing an 80-char prefix collapses to one signature, and that is the exact shape of the loop this detector exists to catch: run 1's refiner looped on a single long `grep -rn \"repo_path\\|worktree_path\\|WORKTREE_BASE_DIR\" ...`.\n\nTHE ANSWER: read the live session transcript at `$HOME/.claude/projects/<encoded-cwd>/<session-id>.jsonl` inside the running pod, and key on the FULL untruncated `(tool_name, input)` pair with no character limit.\n\nThis is not speculative. It is running against this pipeline right now, it is what detected the architect livelock at 07:46:20Z today, and it is roughly 40 lines: list the newest jsonl under the projects dir, read it, take records where `message.content[].type == \"tool_use\"`, and build the key from `name` plus the full `input` object.\n\nTwo properties that follow and that the pod-log path cannot give you:\n- No truncation, so no prefix collapse.\n- It works on a LIVE pod, so you detect during the loop rather than after the pod is reaped. `agent_log_store` captures at removal, which is too late to intervene.\n\nA structured tool-call emitter in the sandbox (your option 2) would also work and is cleaner long-term, but it is strictly more work than reading a transcript that already exists on disk in the pod, so do not build it for this.",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-27T08:24:48.583403Z",
       "debounce_until": null,
       "redirect_seed": null
     },
@@ -451,6 +451,17 @@
         "debounce_until": null
       },
       "reason": "Created HITL decision: Livelock recovery action: When the detector fires,...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-27T08:22:46.624949Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked phase-1 as complete",
       "checkpoint_id": null
     }
   ],
