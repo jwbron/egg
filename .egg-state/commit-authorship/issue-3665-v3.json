@@ -15,6 +15,14 @@
       "registered_at": "2026-07-27T21:16:46.118500+00:00",
       "repo": null,
       "role": "simplifier"
+    },
+    "cf21381ccceed41cd62fe7b888a9ad39684d86d3": {
+      "branch": "egg/issue-3665-v3/work",
+      "patch_id": "a65cb696758f1fa0c2b755d5a80b723deea4a7ec",
+      "pipeline_id": "issue-3665-v3",
+      "registered_at": "2026-07-27T21:17:17.582680+00:00",
+      "repo": null,
+      "role": "simplifier"
     }
   },
   "version": 2
