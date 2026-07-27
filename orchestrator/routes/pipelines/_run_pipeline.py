@@ -744,7 +744,10 @@ def _run_pipeline(
             # discarded — the local commits remain pinned under the backup
             # ref for offline recovery.  ``pre_event_hook`` tears down the
             # per-phase overseer under its own lock before the public
-            # ``pipeline.failed`` event, matching the prior ordering.
+            # ``pipeline.failed`` event, matching the prior ordering.  The
+            # helper also fields the operator-cancelled-during-the-pause case
+            # (#3633), where it tears down but leaves CANCELLED persisted
+            # instead of pinning FAILED; the ``break`` below is right for both.
             if post_phase_sync_aborted and post_phase_sync_outcome is not None:
                 _pkg._fail_pipeline_after_divergence_abort(
                     pipeline_id,
@@ -942,12 +945,14 @@ def _run_pipeline(
             if _hitl_gate_action == "continue":
                 continue
             if _hitl_gate_action == "break":
-                # The operator cancelled while the gate was blocked in
-                # ``wait_for_decision`` (#3633). Leave the loop the same way
-                # the CANCELLED check at the loop head does rather than
-                # advancing the phase — the gate is the one place that
-                # overwrites the persisted status the other layers key on, so
-                # it has to bail on its own signal.
+                # The operator cancelled while the gate was blocked in one of
+                # its ``wait_for_decision`` calls (#3633). Leave the loop the
+                # same way the CANCELLED check at the loop head does rather
+                # than advancing the phase: the gate parks at AWAITING_HUMAN
+                # and writes RUNNING back on its way out, so by the time
+                # control returns here the loop-head check would be reading a
+                # status the gate itself had already overwritten. It has to
+                # bail from inside.
                 break
 
             # ----------------------------------------------------------

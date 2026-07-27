@@ -99,11 +99,15 @@ def _pipeline_cancelled(store, pipeline_id: str) -> bool:
     than walking the rest of its DAG against an operator who believes it is
     stopped.
 
-    It is not inviolable, and callers should not treat it as such: the HITL
-    gate writes ``AWAITING_HUMAN`` / ``RUNNING`` over it as it converges,
-    which is why that path bails on a cancelled *decision* of its own accord
-    (``_gate_wait_cancelled``) instead of relying on a status its own
-    approve branch would already have overwritten.
+    It is not inviolable, and callers should not treat it as such. Every
+    operator-blocking gate parks the pipeline at ``AWAITING_HUMAN`` and writes
+    ``RUNNING`` back once its wait returns, so a loop that only re-reads the
+    status *after* such a gate sees the gate's own write, not the operator's
+    cancel. That is why each of them re-checks from inside, before the write:
+    the refine/plan HITL gate (``_gate_wait_cancelled``, at all five of its
+    blocking waits), the unresolved-gap gate (``_await_unresolved_gap_gate``),
+    and the divergence-reconcile pause (``_alerts.py``). Any new
+    park-and-resume block belongs on that list.
 
     FAILED is deliberately not included: ``container_monitor``
     reconciliation can mark a live pipeline FAILED mid-poll, and the

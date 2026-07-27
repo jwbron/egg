@@ -332,6 +332,37 @@ class TestFailPipelineAfterDivergenceAbort:
         mock_report.assert_called_once()
         assert mock_report.call_args.kwargs["event_type"] == "pipeline.failed"
 
+    def test_cancelled_pipeline_keeps_cancelled_and_skips_the_broadcast(self):
+        """An operator cancel that unblocked the reconcile pause routes here
+        too (#3633). Pinning FAILED would overwrite the persisted CANCELLED
+        every driver work loop keys on, and report a failure the operator never
+        caused. The teardown hook still runs — it is wanted on either exit."""
+        pipeline = MagicMock()
+        pipeline.status = PipelineStatus.CANCELLED
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        order: list[str] = []
+
+        with (
+            patch("routes.pipelines.get_pipeline_state_lock"),
+            patch("routes.pipelines.report_pipeline_status") as mock_report,
+            patch("routes.pipelines._emit_pipeline_event") as mock_emit,
+        ):
+            mock_emit.side_effect = lambda *a, **k: order.append("event")
+            _fail_pipeline_after_divergence_abort(
+                "pipe-1",
+                store,
+                phase=PipelinePhase.PLAN,
+                backup_ref="refs/egg-backup/sync-recovery/pipe-1/9",
+                local_only_commit_shas=("abc1234 foo",),
+                pre_event_hook=lambda: order.append("hook"),
+            )
+
+        assert pipeline.status == PipelineStatus.CANCELLED
+        store.save_pipeline.assert_not_called()
+        assert order == ["hook"], "pipeline.failed was broadcast for a cancel"
+        mock_report.assert_not_called()
+
 
 class TestSyncWorktreeReconcilingDivergence:
     """The in-loop pause→reconcile→resume / abort loop (#2979)."""
@@ -426,6 +457,63 @@ class TestSyncWorktreeReconcilingDivergence:
             )
         assert aborted is True
         assert result.diverged_unreconciled is True
+        mock_sync.assert_called_once()
+
+    def test_cancel_during_the_pause_stops_without_restoring_running(self):
+        """The pause is a park-and-resume block: it writes AWAITING_HUMAN,
+        blocks, and writes RUNNING back once the wait returns. A cancel sweeps
+        that decision with no resolution, so without an inside check the RUNNING
+        write would land on top of the operator's CANCELLED and re-admit the
+        run (#3633). ``aborted=True`` is how the two callers spell "stop"."""
+        # ``load_pipeline`` hands out a fresh object per call, as the real
+        # store does — the pause mutates what it loads, so a shared return
+        # value would let its own AWAITING_HUMAN write mask the cancel.
+        persisted = {"status": PipelineStatus.RUNNING}
+        saved: list[PipelineStatus] = []
+        store = MagicMock()
+
+        def _load(_pipeline_id):
+            loaded = MagicMock()
+            loaded.status = persisted["status"]
+            return loaded
+
+        store.load_pipeline.side_effect = _load
+        store.save_pipeline.side_effect = lambda p, *a, **k: saved.append(p.status)
+        dq = MagicMock()
+
+        def _wait(_decision_id):
+            # The operator cancels while the pause is blocked here.
+            persisted["status"] = PipelineStatus.CANCELLED
+
+        dq.wait_for_decision.side_effect = _wait
+        # What the cancel route leaves behind: swept, no resolution.
+        dq.get_decision.return_value = MagicMock(resolution=None)
+        lock_p, persist_p, report_p, emit_p = self._patch_ctx()
+        with (
+            patch(
+                "routes.pipelines._sync_worktree_with_remote",
+                return_value=_diverged_outcome(),
+            ) as mock_sync,
+            patch("routes.pipelines.get_decision_queue", return_value=dq),
+            lock_p,
+            persist_p,
+            report_p,
+            emit_p,
+        ):
+            _result, aborted = _sync_worktree_reconciling_divergence(
+                MagicMock(),
+                "pipe-1",
+                store,
+                Path("/repo"),
+                worktree_repo_path=Path("/wt"),
+                phase=PipelinePhase.PLAN,
+            )
+
+        assert aborted is True
+        assert PipelineStatus.RUNNING not in saved, (
+            "the reconcile pause rewrote the operator's CANCELLED to RUNNING"
+        )
+        # Bailed before the resolution read, so no second sync attempt.
         mock_sync.assert_called_once()
 
     def test_reconcile_budget_exhausted_aborts(self):

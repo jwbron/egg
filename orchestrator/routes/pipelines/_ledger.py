@@ -555,8 +555,20 @@ def _queue_and_await_contract_decisions(
     pipeline_id: str,
     pipeline_identifier: int | str,
     phase: _pkg.PipelinePhase,
+    cancelled: _pkg.Callable[[], bool] | None = None,
 ) -> int:
     """Promote unresolved contract decisions/feedback into the orchestrator queue.
+
+    ``cancelled`` is an optional predicate the caller supplies to answer "has
+    the operator cancelled this pipeline?". It is consulted after each
+    blocking wait and stops the remaining waits when it returns True. A cancel
+    sweeps only the decisions already *in* the queue, so a cancel that lands
+    while pass 1 is still queueing this batch leaves the later entries PENDING
+    with nobody to cancel them — without this, the next
+    ``wait_for_decision`` would block for the process lifetime (#3633
+    review). Callers must still re-check the cancel themselves once this
+    returns: the early return is deliberately indistinguishable from a
+    zero-resolution round.
 
     Returns the number of contract decisions/feedback this call surfaced and
     the operator *resolved* this round — the converge-before-advance signal
@@ -717,6 +729,14 @@ def _queue_and_await_contract_decisions(
     resolved_count = 0
     for contract_id, queued in queued_decisions:
         resolved = dq.wait_for_decision(queued.id)
+        if cancelled is not None and cancelled():
+            _pkg.logger.info(
+                "Contract decision bridge abandoned: pipeline cancelled (#3633)",
+                pipeline_id=pipeline_id,
+                phase=phase_value,
+                resolved_count=resolved_count,
+            )
+            return resolved_count
         if resolved.status != _pkg.DecisionStatus.RESOLVED:
             continue
         resolved_count += 1
@@ -737,6 +757,14 @@ def _queue_and_await_contract_decisions(
     feedback_resolved = False
     if queued_feedback is not None and pending_feedback is not None:
         resolved = dq.wait_for_decision(queued_feedback.id)
+        if cancelled is not None and cancelled():
+            _pkg.logger.info(
+                "Contract feedback bridge abandoned: pipeline cancelled (#3633)",
+                pipeline_id=pipeline_id,
+                phase=phase_value,
+                resolved_count=resolved_count,
+            )
+            return resolved_count
         if resolved.status == _pkg.DecisionStatus.RESOLVED:
             feedback_resolved = True
             answers: dict[str, str] = {}
@@ -924,6 +952,20 @@ def _await_unresolved_gap_gate(
             )
 
         resolved = dq.wait_for_decision(decision.id)
+        # ...unless what unblocked the wait was the operator cancelling the
+        # pipeline, which sweeps this decision to CANCELLED. Restoring RUNNING
+        # here would overwrite the persisted CANCELLED that every driver work
+        # loop keys on, re-admitting the run the operator just stopped
+        # (#3633 review). Bail before the status write, not after it.
+        if _pkg._pipeline_cancelled(store, pipeline_id):
+            _pkg.logger.info(
+                "Unresolved-gap gate: pipeline cancelled while awaiting the "
+                "operator — leaving the persisted CANCELLED intact (#3633)",
+                pipeline_id=pipeline_id,
+                phase=phase.value,
+            )
+            return gated
+
         # Restore RUNNING now the gate cleared (re-set to AWAITING_HUMAN
         # above on the next loop if gaps remain).
         _set_status(_pkg.PipelineStatus.RUNNING)

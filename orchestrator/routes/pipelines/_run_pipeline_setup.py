@@ -690,7 +690,10 @@ def _resolve_worktree_repo(
             # Operator aborted the manual reconcile (or the pause
             # budget was exhausted).  Fail the pipeline; the local
             # commits remain pinned under the backup ref for offline
-            # recovery — nothing was discarded.
+            # recovery — nothing was discarded.  Also covers an operator
+            # cancel landing during the pause (#3633): the helper is a
+            # status no-op there, leaving CANCELLED persisted, and the
+            # ``return pipeline, True`` below stops the driver either way.
             _pkg._fail_pipeline_after_divergence_abort(
                 pipeline_id,
                 store,

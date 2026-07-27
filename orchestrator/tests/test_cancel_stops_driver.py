@@ -685,40 +685,98 @@ def _gate_decision(status, resolution=None) -> HITLDecision:
     )
 
 
-def _run_gate(resolved_decision, *, persisted_status):
+class _StatusCell:
+    """The pipeline status the fake store persists, mutable mid-run.
+
+    A cancel is not a value the gate is handed — it is a write that lands on
+    the store while the gate is parked in ``wait_for_decision``. Tests for the
+    later bail sites flip this from inside a hook to model exactly that.
+    """
+
+    def __init__(self, status):
+        self.status = status
+
+    def cancel(self):
+        self.status = PipelineStatus.CANCELLED
+
+
+def _run_gate(
+    resolved_decision,
+    *,
+    persisted_status=None,
+    cell=None,
+    pipeline=None,
+    ledger_status=("", False, None, {}),
+    attestation=None,
+    bridge=None,
+    on_wait=None,
+):
     """Drive ``_run_hitl_gate_converge`` to its phase-gate wait and back.
 
     ``load_pipeline`` hands out a *fresh* object per call, as the real store
     does: the gate mutates what it loads, and a shared MagicMock return value
     would let its own ``AWAITING_HUMAN`` write mask the persisted status the
     bail re-reads.
+
+    The hooks steer the gate onto whichever branch's bail is under test:
+    ``ledger_status`` is the ``_collect_decision_ledger_status`` 4-tuple (set
+    ``missing=True`` for the backstop, ``explicit_none`` for the attestation
+    gate), ``attestation`` / ``bridge`` stand in for the two helpers that block
+    on their own waits, and ``on_wait`` fires on every ``wait_for_decision``.
+    Each receives the ``_StatusCell`` so it can cancel from inside the wait.
     """
+    cell = cell if cell is not None else _StatusCell(persisted_status)
     saved: list[PipelineStatus] = []
     store = MagicMock()
-    store.load_pipeline.side_effect = lambda _pid: _gate_pipeline(status=persisted_status)
+    store.load_pipeline.side_effect = lambda _pid: _gate_pipeline(status=cell.status)
     store.save_pipeline.side_effect = lambda p, *a, **k: saved.append(p.status)
 
+    waits: list[str] = []
+
+    def _wait(decision_id):
+        waits.append(decision_id)
+        if on_wait is not None:
+            on_wait(len(waits), cell)
+        return resolved_decision
+
     dq = MagicMock()
-    dq.wait_for_decision.return_value = resolved_decision
+    dq.wait_for_decision.side_effect = _wait
     dq.get_decision.return_value = resolved_decision
+
+    def _attestation(**kwargs):
+        if attestation is not None:
+            attestation(cell)
+        return False, "", kwargs["pipeline"]
+
+    def _bridge(*args, **kwargs):
+        if bridge is not None:
+            return bridge(cell)
+        return 0
 
     with (
         patch.object(
             pipelines_pkg,
             "_collect_decision_ledger_status",
-            return_value=("", False, None, {}),
+            return_value=ledger_status,
         ),
         patch.object(pipelines_pkg, "_persist_decision_ledger_summary", return_value=None),
+        patch.object(
+            pipelines_pkg,
+            "_handle_explicit_none_attestation_gate",
+            side_effect=_attestation,
+        ),
         patch.object(pipelines_pkg, "get_decision_queue", return_value=dq),
         patch.object(pipelines_pkg, "get_pipeline_state_lock"),
         patch.object(pipelines_pkg, "report_pipeline_status"),
         patch.object(pipelines_pkg, "_emit_pipeline_event"),
-        patch.object(pipelines_pkg, "_queue_and_await_contract_decisions", return_value=0),
+        patch.object(pipelines_pkg, "_read_phase_draft", return_value="draft body"),
+        patch.object(pipelines_pkg, "_read_human_phase_draft", return_value=None),
+        patch.object(pipelines_pkg, "_queue_and_await_contract_decisions", side_effect=_bridge),
         patch.object(pipelines_pkg, "_persist_phase_gate_resolution"),
         patch.object(pipelines_pkg, "_commit_statefiles_to_worktree"),
     ):
         _pipeline, action = pipelines_pkg._run_hitl_gate_converge(
-            _gate_pipeline(),
+            pipeline if pipeline is not None else _gate_pipeline(),
             current_phase=PipelinePhase.PLAN,
             gateway_mode="public",
             pipeline_id=PIPELINE_ID,
@@ -770,59 +828,131 @@ def test_gate_still_advances_a_genuine_approval():
     assert PipelineStatus.RUNNING in saved
 
 
+def test_gate_still_advances_when_only_the_decision_was_cancelled():
+    """A *lone* decision cancel on a live pipeline is not a pipeline cancel.
+
+    ``routes/decisions/_lifecycle.py`` exposes a standalone endpoint that
+    cancels one decision without touching the pipeline. Keying the bail on the
+    returned decision's status would read that as a stop, exit the driver, and
+    strand a live pipeline at AWAITING_HUMAN with no waiter — which is why the
+    bail consults the persisted pipeline status only.
+    """
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.CANCELLED),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+    )
+
+    assert action is None, "a lone decision cancel must not break the driver loop"
+    assert PipelineStatus.RUNNING in saved
+
+
+def test_gate_bails_when_cancelled_at_the_ledger_backstop():
+    """The decision-ledger backstop (#3390) blocks on its own wait before the
+    phase gate is ever queued. A cancel landing there must not fall through to
+    the gate — the ``proceed`` branch treats a non-RESOLVED backstop as an
+    operator override and walks straight into the phase gate below."""
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.CANCELLED),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+        ledger_status=("no ledger", True, None, {}),
+        on_wait=lambda n, cell: cell.cancel(),
+    )
+
+    assert action == "break"
+    assert PipelineStatus.RUNNING not in saved
+
+
+def test_gate_bails_when_cancelled_at_the_attestation_gate():
+    """The explicit-none attestation gate (#3462) "fails open to the phase
+    gate" on any non-RESOLVED status — safe for a cancelled attestation, not
+    safe for a cancelled pipeline. Falling through would queue a *fresh*
+    phase_gate decision minted after the cancel route already swept the queue,
+    so nothing would ever cancel it and the wait below would never return."""
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.RESOLVED, "approve"),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+        ledger_status=("attested none", False, ("coder", "abc1234", []), {}),
+        attestation=lambda cell: cell.cancel(),
+    )
+
+    assert action == "break"
+    assert PipelineStatus.RUNNING not in saved
+
+
+def test_gate_bails_when_cancelled_at_the_followup_specifics():
+    """A bare "request changes" queues a follow-up asking for specifics and
+    blocks on it. That wait is swept by a cancel exactly like the gate's own,
+    and an unset follow-up resolution reads as an approval."""
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.RESOLVED, "request changes"),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+        # Wait 1 is the phase gate (still live); wait 2 is the follow-up.
+        on_wait=lambda n, cell: cell.cancel() if n == 2 else None,
+    )
+
+    assert action == "break"
+    assert PipelineStatus.RUNNING not in saved
+
+
+def test_gate_bails_when_cancelled_bridging_contract_decisions():
+    """The contract-decision bridge (#1889) is the longest human-latency
+    window in the gate — one blocking wait per contract question. A cancel
+    there leaves every answer unresolved, so the converge branch is skipped and
+    control falls through to "Approved — resume and advance"."""
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.RESOLVED, "approve"),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+        bridge=lambda cell: (cell.cancel(), 0)[1],
+    )
+
+    assert action == "break"
+    assert PipelineStatus.RUNNING not in saved, (
+        "the gate advanced the phase after the operator cancelled mid-bridge"
+    )
+
+
+def test_bare_request_changes_on_a_reused_gate_reaches_the_followup():
+    """Regression for the reuse path: ``draft_content`` / ``phase_label`` used
+    to be bound only on the create-a-new-gate arm, so resuming onto an existing
+    pending gate and answering with a bare "request changes" raised
+    ``UnboundLocalError`` before the follow-up could be queued."""
+    waits: list[int] = []
+    action, saved = _run_gate(
+        _gate_decision(DecisionStatus.RESOLVED, "request changes"),
+        persisted_status=PipelineStatus.AWAITING_HUMAN,
+        on_wait=lambda n, cell: waits.append(n),
+    )
+
+    assert waits == [1, 2], "the follow-up asking for specifics was never queued"
+    # The follow-up came back bare too, which the gate reads as an approval.
+    assert action is None
+    assert PipelineStatus.RUNNING in saved
+
+
 def test_gate_wait_cancelled_helper():
     """Unit coverage for the seam itself, including the store-hiccup
     tolerance it inherits from ``_pipeline_cancelled``."""
     live = _store_returning(_cancellable_pipeline())
     dead = _store_returning(_cancellable_pipeline(status=PipelineStatus.CANCELLED))
 
-    # A cancelled decision bails regardless of the persisted status — the
-    # cancel route sweeps the decision queue before the status write lands.
-    assert (
-        pipelines_pkg._gate_wait_cancelled(
-            _gate_decision(DecisionStatus.CANCELLED), store=live, pipeline_id=PIPELINE_ID
-        )
-        is True
-    )
-    # A resolved decision on a cancelled pipeline bails on the status half.
-    assert (
-        pipelines_pkg._gate_wait_cancelled(
-            _gate_decision(DecisionStatus.RESOLVED, "approve"),
-            store=dead,
-            pipeline_id=PIPELINE_ID,
-        )
-        is True
-    )
-    # A resolved decision on a live pipeline proceeds.
-    assert (
-        pipelines_pkg._gate_wait_cancelled(
-            _gate_decision(DecisionStatus.RESOLVED, "approve"),
-            store=live,
-            pipeline_id=PIPELINE_ID,
-        )
-        is False
-    )
+    # A cancelled pipeline bails. Both real cancel paths persist CANCELLED
+    # before sweeping the decision queue, so a swept wait always sees it.
+    assert pipelines_pkg._gate_wait_cancelled(dead, PIPELINE_ID) is True
+    # A live pipeline proceeds.
+    assert pipelines_pkg._gate_wait_cancelled(live, PIPELINE_ID) is False
     # FAILED is not a cancel (#1273): container_monitor can mark a live
     # pipeline FAILED mid-gate and the consensus-complete path recovers it.
     assert (
         pipelines_pkg._gate_wait_cancelled(
-            _gate_decision(DecisionStatus.RESOLVED, "approve"),
-            store=_store_returning(_cancellable_pipeline(status=PipelineStatus.FAILED)),
-            pipeline_id=PIPELINE_ID,
+            _store_returning(_cancellable_pipeline(status=PipelineStatus.FAILED)),
+            PIPELINE_ID,
         )
         is False
     )
     # A store hiccup must never invent a cancel and strand an approved gate.
     broken = MagicMock()
     broken.load_pipeline.side_effect = RuntimeError("state branch locked")
-    assert (
-        pipelines_pkg._gate_wait_cancelled(
-            _gate_decision(DecisionStatus.RESOLVED, "approve"),
-            store=broken,
-            pipeline_id=PIPELINE_ID,
-        )
-        is False
-    )
+    assert pipelines_pkg._gate_wait_cancelled(broken, PIPELINE_ID) is False
 
 
 # ---------------------------------------------------------------------------

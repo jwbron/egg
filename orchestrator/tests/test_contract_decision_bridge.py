@@ -273,6 +273,112 @@ def test_bridge_excludes_cancelled_decision_from_convergence_count(
     assert cancelled_d["resolved"] is False
 
 
+def test_bridge_abandons_remaining_waits_when_the_pipeline_is_cancelled(
+    tmp_path: Path,
+) -> None:
+    """A cancel mid-bridge must stop the remaining waits (#3633).
+
+    The cancel route sweeps only the decisions already *in* the queue. Pass 1
+    queues this whole batch up front, so a cancel that lands while pass 2 is
+    part-way through has already swept them all — but a cancel arriving
+    *between* pass 1 and pass 2, or a bridge re-entered afterwards, would leave
+    later entries PENDING with nobody left to cancel them, and the next
+    ``wait_for_decision`` would block for the process lifetime.
+    """
+    from routes.pipelines import _queue_and_await_contract_decisions
+
+    identifier = "issue-3633"
+    _make_contract_file(
+        tmp_path,
+        identifier,
+        decisions=[
+            {
+                "id": f"decision-{n}",
+                "question": f"Question {n}?",
+                "type": "hitl",
+                "phase": "refine",
+                "options": [],
+                "resolved": False,
+                "resolution": None,
+                "resolved_by": None,
+                "resolved_at": None,
+                "debounce_until": None,
+            }
+            for n in (1, 2, 3)
+        ],
+    )
+
+    class _CountingQueue(_FakeQueue):
+        def __init__(self, resolutions):
+            super().__init__(resolutions)
+            self.waits = 0
+
+        def wait_for_decision(self, decision_id: str) -> HITLDecision:
+            self.waits += 1
+            return super().wait_for_decision(decision_id)
+
+    dq = _CountingQueue(resolutions=["a", "b", "c"])
+
+    resolved_count = _queue_and_await_contract_decisions(
+        dq,
+        tmp_path,
+        "pipeline-id",
+        identifier,
+        PipelinePhase.REFINE,
+        # The operator cancels while the second question is being answered.
+        cancelled=lambda: dq.waits >= 2,
+    )
+
+    assert dq.waits == 2, "the bridge kept waiting after the pipeline was cancelled"
+    # Only the pre-cancel answer counts — the cancel check runs before the
+    # count, so the round the cancel landed in contributes nothing.
+    assert resolved_count == 1
+
+    data = json.loads((tmp_path / f".egg-state/contracts/{identifier}.json").read_text())
+    resolved_ids = [d["id"] for d in data["decisions"] if d["resolved"]]
+    assert resolved_ids == ["decision-1"]
+
+
+def test_bridge_without_a_cancelled_predicate_answers_every_decision(
+    tmp_path: Path,
+) -> None:
+    """Control: ``cancelled`` is optional and defaults to never firing, so the
+    existing callers that omit it keep answering the whole batch."""
+    from routes.pipelines import _queue_and_await_contract_decisions
+
+    identifier = "issue-3633-control"
+    _make_contract_file(
+        tmp_path,
+        identifier,
+        decisions=[
+            {
+                "id": f"decision-{n}",
+                "question": f"Question {n}?",
+                "type": "hitl",
+                "phase": "refine",
+                "options": [],
+                "resolved": False,
+                "resolution": None,
+                "resolved_by": None,
+                "resolved_at": None,
+                "debounce_until": None,
+            }
+            for n in (1, 2, 3)
+        ],
+    )
+    dq = _FakeQueue(resolutions=["a", "b", "c"])
+
+    resolved_count = _queue_and_await_contract_decisions(
+        dq,
+        tmp_path,
+        "pipeline-id",
+        identifier,
+        PipelinePhase.REFINE,
+    )
+
+    assert resolved_count == 3
+
+
 def test_bridge_promotes_unsubmitted_feedback(tmp_path: Path) -> None:
     from routes.pipelines import _queue_and_await_contract_decisions
 
