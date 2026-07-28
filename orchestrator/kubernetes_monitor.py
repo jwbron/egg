@@ -1368,7 +1368,6 @@ class KubernetesMonitor:
 
             # Build the snapshot for the escalation call.
             from health_checks.detection_plane import (
-                default_detection_plane,
                 snapshot_from_health_context,
             )
 
