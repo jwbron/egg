@@ -251,7 +251,12 @@ class TestConsensusStallDoubleFireGuard:
 
     def test_heartbeat_stall_suppressed_when_consensus_stall_fired(self):
         """When ConsensusStallCheck reports DEGRADED, heartbeat_stall findings are filtered."""
-        from health_checks.detection_plane import EventStreamSnapshot, Finding, FindingClass, Severity
+        from health_checks.detection_plane import (
+            EventStreamSnapshot,
+            Finding,
+            FindingClass,
+            Severity,
+        )
 
         ctx = _make_context()
         pipeline = ctx.pipeline
@@ -313,7 +318,6 @@ class TestConsensusStallDoubleFireGuard:
 
             # Capture the findings passed to _handle_detection_plane_findings
             captured_findings = []
-            original_handler = monitor._handle_detection_plane_findings
 
             def capture_findings(findings, *args, **kwargs):
                 captured_findings.extend(findings)
@@ -332,7 +336,12 @@ class TestConsensusStallDoubleFireGuard:
 
     def test_heartbeat_stall_not_suppressed_when_consensus_stall_healthy(self):
         """When ConsensusStallCheck is HEALTHY, heartbeat_stall findings are NOT filtered."""
-        from health_checks.detection_plane import EventStreamSnapshot, Finding, FindingClass, Severity
+        from health_checks.detection_plane import (
+            EventStreamSnapshot,
+            Finding,
+            FindingClass,
+            Severity,
+        )
 
         ctx = _make_context()
         pipeline = ctx.pipeline

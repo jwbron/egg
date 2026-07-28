@@ -44,7 +44,7 @@ class TestAgentTimeoutConfig:
         """agent_timeout_seconds must be >= 60."""
         from models import PipelineConfig
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             PipelineConfig(agent_timeout_seconds=30)
 
     def test_agent_timeout_seconds_custom(self):
@@ -65,7 +65,7 @@ class TestAgentTimeoutEnv:
 
     def test_egg_agent_timeout_env_set(self):
         """The spawner sets EGG_AGENT_TIMEOUT in the agent's environment."""
-        from kubernetes_spawner._spawn import _load_agent_timeout, _DEFAULT_AGENT_TIMEOUT_SECONDS
+        from kubernetes_spawner._spawn import _DEFAULT_AGENT_TIMEOUT_SECONDS, _load_agent_timeout
 
         # When pipeline config is unavailable, falls back to default
         with patch("state_store.get_state_store", side_effect=Exception):
@@ -87,7 +87,7 @@ class TestAgentTimeoutEnv:
 
     def test_egg_agent_timeout_fallback_on_error(self):
         """The spawner falls back to default when config read fails."""
-        from kubernetes_spawner._spawn import _load_agent_timeout, _DEFAULT_AGENT_TIMEOUT_SECONDS
+        from kubernetes_spawner._spawn import _DEFAULT_AGENT_TIMEOUT_SECONDS, _load_agent_timeout
 
         fake_store = MagicMock()
         fake_store.load_pipeline.side_effect = Exception("DB error")
@@ -161,8 +161,8 @@ class TestTimeoutClassification:
 
     def test_timeout_log_detection(self):
         """_check_timeout_in_logs detects the timeout signature in agent logs."""
-        from kubernetes_monitor import _check_timeout_in_logs
         from agent_log_store import AgentLogStore
+        from kubernetes_monitor import _check_timeout_in_logs
 
         fake_store = MagicMock(spec=AgentLogStore)
         fake_store.get.return_value = {
@@ -176,8 +176,8 @@ class TestTimeoutClassification:
 
     def test_timeout_log_detection_no_match(self):
         """_check_timeout_in_logs returns False when no timeout signature."""
-        from kubernetes_monitor import _check_timeout_in_logs
         from agent_log_store import AgentLogStore
+        from kubernetes_monitor import _check_timeout_in_logs
 
         fake_store = MagicMock(spec=AgentLogStore)
         fake_store.get.return_value = {
@@ -191,8 +191,8 @@ class TestTimeoutClassification:
 
     def test_timeout_log_detection_no_logs(self):
         """_check_timeout_in_logs returns False when no logs are available."""
-        from kubernetes_monitor import _check_timeout_in_logs
         from agent_log_store import AgentLogStore
+        from kubernetes_monitor import _check_timeout_in_logs
 
         fake_store = MagicMock(spec=AgentLogStore)
         fake_store.get.return_value = None
