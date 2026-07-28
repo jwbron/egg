@@ -404,6 +404,26 @@ def _run_implement_phase_slices(
             gateway_mode=gateway_mode,
             consensus_tracker_lookup=_pkg._lookup_peer_consensus_tracker_or_none,
         )
+        if classification in ("resume", "fresh"):
+            # Reap BEFORE the branch switch, not inside one of its arms
+            # (#3685). Cases 1 ("fresh") and 2 ("resume") both leave the
+            # slice READY, so the run loop admits it and ``spawn_all``
+            # attaches a fresh cohort to the per-role worktrees — and
+            # the only thing separating the two classifications is
+            # whether commits reached the integration branch on origin,
+            # which is orthogonal to whether an agent Job is still live.
+            # An orchestrator recycle before the slice's first push, or
+            # a transient gateway probe failure (which
+            # ``_classify_non_complete_slice`` deliberately defaults to
+            # "fresh"), both yield "fresh" with the orphan still
+            # Running. Wiring the reap to "resume" alone would leave the
+            # #3337 two-live-pods race wide open on exactly those paths,
+            # and nothing downstream covers it —
+            # ``_reap_superseded_siblings`` documents that it cannot
+            # match keys adopted across a restart. Classification
+            # decides what prompt the re-driven cohort gets; it must
+            # never decide whether orphan teardown happens.
+            _pkg._reap_orphaned_slice_jobs(spawner, pipeline_id, s.id)
         if classification == "consensus_complete":
             # Case 3 — louder than fresh-spawn but quieter than
             # case-4/5 HITL. A warning here makes the non-trivial
@@ -426,9 +446,7 @@ def _run_implement_phase_slices(
             # guard). No scheduler call: leaving the slice READY is
             # what makes the run loop admit it, which is the only path
             # that starts its BRC event loop and can ever complete it.
-            # Reap first so an orphaned Job from the dead loop is not
-            # racing the fresh cohort on the same role worktree.
-            _pkg._reap_orphaned_slice_jobs(spawner, pipeline_id, s.id)
+            # The orphan reap already ran above.
             bootstrap_redriven.append(s.id)
             continue
         if classification == "blocked":
@@ -437,7 +455,8 @@ def _run_implement_phase_slices(
         if classification == "corrupt":
             bootstrap_corrupt.append(s.id)
             continue
-        # "fresh" → no Layer-C action, scheduler re-yields READY.
+        # "fresh" → no scheduler action beyond the reap above; the
+        # scheduler re-yields the slice as READY.
 
     # The bootstrap passes above persist with ``commit_to_branch=False``
     # — one batched commit+push here covers every reconciled slice

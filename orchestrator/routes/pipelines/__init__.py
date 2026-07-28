@@ -1280,6 +1280,8 @@ from ._overseer import (  # noqa: E402,F401
     _teardown_phase_overseer,
 )
 from ._pod_liveness import (  # noqa: E402,F401
+    _REAP_TEARDOWN_WAIT_SECONDS,
+    _await_reaped_jobs_gone,
     _count_live_pods_for_pipeline,
     _get_spawner,
     _guard_live_pods_or_force,

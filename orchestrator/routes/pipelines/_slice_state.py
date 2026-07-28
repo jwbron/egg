@@ -673,9 +673,13 @@ def _classify_non_complete_slice(
             # Probe failure (gateway down, transient HTTP). Conservative
             # default: treat as has_commits=False so the slice is
             # re-yielded READY. Both the "fresh" and "resume" outcomes
-            # re-yield READY today (#3685), so the cost of guessing
-            # wrong here is only the prompt content of the re-driven
-            # cohort, not whether the slice runs at all.
+            # reap any orphaned Job and then re-yield READY today
+            # (#3685) — the Layer-C loop runs the reap above the
+            # classification switch precisely so this default stays
+            # cheap — so the cost of guessing wrong here is only the
+            # prompt content of the re-driven cohort: not whether the
+            # slice runs at all, and not whether a Job that outlived its
+            # event loop is torn down first.
             #
             # NOTE on asymmetry vs. ``_resolve_slice_base_branch``
             # (slice-4 TASK-4-3, ~line 10510): the resolver defaults

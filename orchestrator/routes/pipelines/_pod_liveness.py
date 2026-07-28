@@ -9,6 +9,16 @@ from __future__ import annotations
 
 import routes.pipelines as _pkg  # noqa: E402,F401
 
+# Budget for observing reaped slice Jobs actually gone (#3685). Job
+# deletion is asynchronous even with ``force=True``, so the reap must
+# wait for the teardown it requested before the run loop admits the
+# slice — otherwise the fresh cohort's Job attaches to a worktree the
+# orphan still holds. Mirrors ``_routes_restart._JOB_TEARDOWN_WAIT_SECONDS``
+# (20.0) and ``kubernetes_spawner._EVENT_JOB_TERMINATION_WAIT_S`` (15.0);
+# the deadline is shared across every Job reaped for one slice so a
+# pathological cohort cannot stall the bootstrap pass unboundedly.
+_REAP_TEARDOWN_WAIT_SECONDS = 20.0
+
 
 def _get_spawner():
     """Get the appropriate spawner for the current runtime.
@@ -122,6 +132,99 @@ def _live_event_agents(pipeline_id: str, slice_id: str | None) -> list[dict[str,
     return entries
 
 
+def _await_reaped_jobs_gone(
+    spawner: _pkg.Any,
+    pipeline_id: str,
+    slice_id: str,
+    job_names: list[str],
+) -> bool:
+    """Block until the reaped Jobs are observed gone, bounded (#3685).
+
+    ``remove_agent_container(force=True)`` only orders a foreground
+    delete: ``KubernetesClient.remove_container`` says so in its own
+    docstring — "the GC deletes the pods asynchronously — they are not
+    guaranteed gone by the time the call returns". Returning at that
+    point and immediately making the slice admissible re-opens the very
+    window the reap exists to close: the orphan is still ``Running``
+    inside its termination grace period with the role worktree mounted
+    when the fresh cohort's Job attaches to the same checkout and
+    ``_clean_reused_worktree`` runs ``git reset --hard && git clean -fd``
+    under it (#3337).
+
+    The spawn-side pre-spawn wait (``kubernetes_spawner._events``) does
+    not cover this: it selects on ``LABEL_EVENT_DEDUPE={dedupe_key}``,
+    and the orphan's key is not necessarily the fresh loop's first key
+    (see ``_reap_orphaned_slice_jobs``). So the wait has to happen here,
+    on the same "wait for the teardown you requested to be OBSERVED"
+    contract ``restart_agent`` uses (#3597).
+
+    Returns ``True`` only when every named Job was observed gone.
+    ``False`` means "not observed", never "the teardown failed" — it
+    under-claims by design, and each unobserved Job is logged so an
+    operator can see that the slice was admitted with the window
+    potentially still open.
+    """
+    k8s = getattr(spawner, "k8s", None)
+    waiter = getattr(k8s, "wait_for_job_gone", None)
+    namespace = getattr(k8s, "namespace", None)
+    if waiter is None or not namespace:
+        # A backend without the wait helper (or without a namespace) is
+        # a single backend-capability fact, not N per-Job failures, so
+        # it earns one log line. Defensive: ``KubernetesClient``
+        # implements ``wait_for_job_gone``, and ``ContainerSpawner`` is
+        # an alias of ``KubernetesSpawner``, so this is unreachable
+        # against the production spawner.
+        _pkg.logger.warning(
+            "Orphaned-Job reap could not observe teardown; slice admitted "
+            "with the worktree-handoff window potentially open (#3685)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            jobs=len(job_names),
+            reason="no_wait_helper",
+        )
+        return False
+
+    confirmed = True
+    deadline = _pkg.time.monotonic() + _REAP_TEARDOWN_WAIT_SECONDS
+    for name in job_names:
+        remaining = deadline - _pkg.time.monotonic()
+        if remaining <= 0:
+            confirmed = False
+            _pkg.logger.warning(
+                "Orphaned-Job reap could not observe teardown; slice admitted "
+                "with the worktree-handoff window potentially open (#3685)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                job_name=name,
+                reason="budget_exhausted",
+            )
+            continue
+        try:
+            gone = bool(waiter(name, namespace, timeout_s=remaining))
+        except Exception as wait_err:  # noqa: BLE001 — the wait is best-effort
+            confirmed = False
+            _pkg.logger.warning(
+                "Orphaned-Job reap teardown wait raised; treating the teardown "
+                "as unconfirmed (#3685)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                job_name=name,
+                error=str(wait_err),
+            )
+            continue
+        if not gone:
+            confirmed = False
+            _pkg.logger.warning(
+                "Orphaned slice Job still terminating after the teardown wait; "
+                "the re-driven cohort may attach to a worktree the orphan "
+                "still holds (#3685)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                job_name=name,
+            )
+    return confirmed
+
+
 def _reap_orphaned_slice_jobs(spawner: _pkg.Any, pipeline_id: str, slice_id: str) -> list[str]:
     """Tear down agent Jobs that outlived their event loop (#3685).
 
@@ -132,34 +235,48 @@ def _reap_orphaned_slice_jobs(spawner: _pkg.Any, pipeline_id: str, slice_id: str
     died with the previous orchestrator process, or with the previous
     driver thread), so nothing will ever observe its termination or
     re-derive its next event. Left in place it holds the role's worktree
-    while the new cohort's Job attaches to the same checkout (the #3337
-    two-live-pods race), and the spawner's live-key adoption cannot
-    collapse the duplicate because the orphan's dedupe key was derived
-    against a tracker this process does not have.
+    while the new cohort's Job attaches to the same checkout — the #3337
+    two-live-pods race.
 
-    Reaping is foreground (``force=True``) so the pod is gone rather
-    than merely terminating before the run loop admits the slice,
-    matching ``restart_phase`` step 4's teardown contract. Per-agent
-    worktrees are deliberately NOT deleted: the re-driven slice wants
-    them warm, and the respawned agent's own dirty-state clean covers
-    the handoff.
+    Why the spawner's live-key adoption is not enough to collapse that
+    duplicate: ``compute_dedupe_key`` IS deterministic across
+    orchestrator restarts, so a matching key is possible — but only when
+    the fresh loop happens to derive the same ``event_identity``, and it
+    derives that from the tracker ``spawn_all`` registers, which is a
+    fresh zeroed one superseding the reconstructed one (#2409). Where
+    the orphan was mid-round its key differs, adoption cannot see it,
+    and two pods run against one worktree. This process cannot tell the
+    two cases apart — it has no view of the dead loop's session or
+    round state — so it reaps unconditionally and accepts that a
+    matching-key orphan is killed slightly early, costing one replayed
+    round. That is the strictly safer direction: a redundant delete is
+    recoverable, a clobbered worktree is not.
 
-    Returns the container ids reaped (empty when the slice has no live
-    Jobs, which is the common case after a full pod recycle). Entirely
-    best-effort: a failed label query or a failed removal is logged and
-    swallowed, because a reap failure must never block recovery of a
-    slice that is otherwise ready to re-drive. The ``spawner`` is taken
-    as a parameter (rather than fetched via ``_get_spawner``) so tests
-    can inject a stub directly, paralleling how
-    ``_classify_non_complete_slice`` receives ``gateway``.
+    Reaping is foreground (``force=True``) and then WAITED ON: the
+    delete is asynchronous, so ``_await_reaped_jobs_gone`` observes the
+    teardown (bounded by :data:`_REAP_TEARDOWN_WAIT_SECONDS`) before the
+    caller makes the slice admissible. This is deliberately stricter
+    than ``restart_phase`` step 4, whose own teardown is unwaited — step
+    4 goes on to DELETE the per-agent worktrees (step 4b, with salvage),
+    so nothing is left for a lingering pod to corrupt. Here the
+    worktrees are deliberately kept warm for the re-driven slice, which
+    is exactly what makes the observed teardown load-bearing.
+
+    Returns the handles reaped — the Job name where the listing supplied
+    one, else the container id — empty when the slice has no live Jobs
+    (the common case after a full pod recycle). Entirely best-effort: a
+    failed label query or a failed removal is logged and swallowed,
+    because a reap failure must never block recovery of a slice that is
+    otherwise ready to re-drive. The ``spawner`` is taken as a parameter
+    (rather than fetched via ``_get_spawner``) so tests can inject a
+    stub directly, paralleling how ``_classify_non_complete_slice``
+    receives ``gateway``.
     """
     try:
-        pods = spawner.backend.list_containers(
-            labels={
-                _pkg.LABEL_PIPELINE_ID: pipeline_id,
-                _pkg.LABEL_SLICE_ID: slice_id,
-            },
-        )
+        # ``list_slice_jobs`` applies the same
+        # ``{LABEL_PIPELINE_ID, LABEL_SLICE_ID}`` pair, so the label
+        # scoping lives in one place rather than being re-derived here.
+        pods = spawner.list_slice_jobs(pipeline_id, slice_id)
     except Exception as e:  # noqa: BLE001
         _pkg.logger.warning(
             "Orphaned-Job reap skipped: slice Job query failed (#3685)",
@@ -170,31 +287,81 @@ def _reap_orphaned_slice_jobs(spawner: _pkg.Any, pipeline_id: str, slice_id: str
         return []
 
     reaped: list[str] = []
+    pending_waits: list[str] = []
+    unaddressable = 0
     for pod in pods:
+        # Status-only liveness, unlike ``_job_is_live``, which also
+        # excludes terminating Jobs via ``deletion_timestamp`` (#3597).
+        # The asymmetry is deliberate, not an oversight:
+        # ``KubernetesClient.list_containers`` never populates
+        # ``deletion_timestamp``, and a Terminating pod still reports
+        # phase ``Running``, so this filter cannot see the distinction.
+        # It does not need to — the consequence is a redundant delete on
+        # a Job already on its way out (plus an entry in the ``reaped=``
+        # audit list), whereas on the adoption path treating a corpse as
+        # live silently swallows a respawn. Waiting on it is correct
+        # either way: an already-terminating Job is precisely one whose
+        # worktree we must see released.
         if pod.status not in _pkg._LIVE_POD_STATUSES:
             continue
-        container_id = getattr(pod, "container_id", None)
-        if not container_id:
+        job_name = getattr(pod, "job_name", None)
+        handle = job_name or getattr(pod, "container_id", None)
+        if not handle:
             continue
         try:
-            spawner.remove_agent_container(container_id, force=True, cleanup_session=True)
-            reaped.append(container_id)
+            # ``job_name`` first, matching ``cleanup_pipeline`` and
+            # ``restart_agent``. ``remove_agent_container`` resolves a
+            # Job name, Job UID or Pod UID equally well for the delete,
+            # but it also forwards the handle to
+            # ``delete_session_by_container``: event-mode gateway
+            # sessions are keyed by the stable base ``container_id``
+            # (not the per-event Job name), so that call only ever
+            # reaches a legacy per-Job session here — the event-mode
+            # session is released by the phase/pipeline-end
+            # ``cleanup_pipeline`` → ``_teardown_session`` path.
+            spawner.remove_agent_container(handle, force=True, cleanup_session=True)
         except Exception as e:  # noqa: BLE001
             _pkg.logger.warning(
                 "Failed to reap orphaned slice Job during bootstrap re-drive (#3685)",
                 pipeline_id=pipeline_id,
                 slice_id=slice_id,
-                container_id=container_id,
+                container_id=handle,
                 error=str(e),
             )
-    if reaped:
-        _pkg.logger.info(
-            "Reaped orphaned slice Jobs whose BRC event loop died with the "
-            "previous orchestrator process (#3685)",
+            continue
+        reaped.append(handle)
+        if isinstance(job_name, str) and job_name:
+            pending_waits.append(job_name)
+        else:
+            # Without a Job name the only handle is a Pod UID, which
+            # ``wait_for_job_gone`` would normalize into a Job name that
+            # never existed — a 404 on the first read, reported as
+            # "gone" without observing anything. Count it as unobserved
+            # rather than claiming an observation we never made.
+            unaddressable += 1
+
+    if not reaped:
+        return []
+
+    teardown_confirmed = _await_reaped_jobs_gone(spawner, pipeline_id, slice_id, pending_waits)
+    if unaddressable:
+        teardown_confirmed = False
+        _pkg.logger.warning(
+            "Orphaned-Job reap could not observe teardown; slice admitted "
+            "with the worktree-handoff window potentially open (#3685)",
             pipeline_id=pipeline_id,
             slice_id=slice_id,
-            reaped=reaped,
+            jobs=unaddressable,
+            reason="unaddressable",
         )
+    _pkg.logger.info(
+        "Reaped orphaned slice Jobs whose BRC event loop died with the "
+        "previous orchestrator process (#3685)",
+        pipeline_id=pipeline_id,
+        slice_id=slice_id,
+        reaped=reaped,
+        teardown_confirmed=teardown_confirmed,
+    )
     return reaped
 
 

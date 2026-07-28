@@ -1089,20 +1089,27 @@ class TestClassifyNonCompleteSlice:
 # #3685: _reap_orphaned_slice_jobs(), the foreground teardown of Jobs whose
 # BRC event loop died with the previous orchestrator process
 #
-# Layer-C case 2 re-drives every non-COMPLETE slice through the run loop
-# (that is the only path that starts a slice's event loop, and the only
-# one that can ever complete it). A Job that survived the restart holds
-# the role's worktree and would race the fresh cohort's Job on the same
-# checkout (#3337), and the spawner's live-key adoption cannot collapse
-# the duplicate: the orphan's dedupe key was derived against a tracker
-# this process no longer has. So the re-drive reaps first.
+# Layer C re-drives every non-COMPLETE slice through the run loop (that
+# is the only path that starts a slice's event loop, and the only one
+# that can ever complete it). A Job that survived the restart holds the
+# role's worktree and would race the fresh cohort's Job on the same
+# checkout (#3337). ``compute_dedupe_key`` IS deterministic across
+# restarts, so the spawner's live-key adoption *may* collapse the
+# duplicate — but ``spawn_all`` registers a fresh, zeroed tracker that
+# supersedes the reconstructed one (#2409), so a mid-round orphan's key
+# differs and adoption cannot see it. This process cannot tell the two
+# apart, so the re-drive reaps unconditionally: a redundant delete is
+# recoverable, a clobbered worktree is not.
 #
 # The helper must be defensive:
 # - Removes only live pods (Pending / Creating / Running)
 # - Leaves terminal pods alone (they are already gone)
-# - Filters by both pipeline_id AND slice_id labels (not just pipeline)
-# - Swallows a failed label query and a failed removal: a reap failure
-#   must never block recovery of a slice that is ready to re-drive
+# - Scopes the query to both pipeline_id AND slice_id (delegated to
+#   ``spawner.list_slice_jobs``, which owns that label pair)
+# - Swallows a failed query and a failed removal: a reap failure must
+#   never block recovery of a slice that is ready to re-drive
+# - Waits (bounded) for each reaped Job to actually be gone before
+#   returning, since ``force=True`` only orders an async delete
 # ---------------------------------------------------------------------------
 
 
@@ -1114,23 +1121,28 @@ class TestReapOrphanedSliceJobs:
     a stub directly without patching ``routes.pipelines._get_spawner``.
     """
 
-    @staticmethod
-    def _make_container_info(container_id: str, status):
+    # Sentinel so ``job_name=None`` means "the listing supplied no Job
+    # name" rather than "use the default".
+    _AUTO_JOB_NAME = object()
+
+    @classmethod
+    def _make_container_info(cls, container_id: str, status, job_name=_AUTO_JOB_NAME):
         from models import ContainerInfo
 
         return ContainerInfo(
             container_id=container_id,
             container_name=f"egg-{container_id}",
             status=status,
+            job_name=(f"job-{container_id}" if job_name is cls._AUTO_JOB_NAME else job_name),
         )
 
-    def _make_spawner(self, returned_pods):
-        """Build a spawner stub whose backend.list_containers yields
-        the given pods."""
-        backend = MagicMock()
-        backend.list_containers.return_value = returned_pods
+    def _make_spawner(self, returned_pods, *, gone: bool = True):
+        """Build a spawner stub whose ``list_slice_jobs`` yields the
+        given pods and whose Job-teardown waiter reports ``gone``."""
         spawner = MagicMock()
-        spawner.backend = backend
+        spawner.list_slice_jobs.return_value = returned_pods
+        spawner.k8s.namespace = "egg"
+        spawner.k8s.wait_for_job_gone.return_value = gone
         return spawner
 
     def test_reaps_running_pod(self):
@@ -1140,9 +1152,9 @@ class TestReapOrphanedSliceJobs:
 
         spawner = self._make_spawner([self._make_container_info("p1", ContainerStatus.RUNNING)])
 
-        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == ["p1"]
+        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == ["job-p1"]
         spawner.remove_agent_container.assert_called_once_with(
-            "p1", force=True, cleanup_session=True
+            "job-p1", force=True, cleanup_session=True
         )
 
     def test_reaps_pending_and_creating_pods(self):
@@ -1160,7 +1172,10 @@ class TestReapOrphanedSliceJobs:
             ]
         )
 
-        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == ["p1", "p2"]
+        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == [
+            "job-p1",
+            "job-p2",
+        ]
         assert spawner.remove_agent_container.call_count == 2
 
     def test_skips_terminal_pods(self):
@@ -1187,15 +1202,14 @@ class TestReapOrphanedSliceJobs:
 
         assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == []
         spawner.remove_agent_container.assert_not_called()
+        spawner.k8s.wait_for_job_gone.assert_not_called()
 
     def test_swallows_list_error(self):
         """Defensive: a k8s API error must not abort the re-drive."""
         from routes.pipelines import _reap_orphaned_slice_jobs
 
-        backend = MagicMock()
-        backend.list_containers.side_effect = RuntimeError("k8s unreachable")
         spawner = MagicMock()
-        spawner.backend = backend
+        spawner.list_slice_jobs.side_effect = RuntimeError("k8s unreachable")
 
         assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == []
 
@@ -1213,27 +1227,147 @@ class TestReapOrphanedSliceJobs:
         )
         spawner.remove_agent_container.side_effect = [RuntimeError("boom"), None]
 
-        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == ["p2"]
+        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == ["job-p2"]
         assert spawner.remove_agent_container.call_count == 2
+        # Only the Job that was actually removed is waited on.
+        assert [c.args[0] for c in spawner.k8s.wait_for_job_gone.call_args_list] == ["job-p2"]
 
-    def test_filters_by_pipeline_and_slice_labels(self):
-        """The query must carry both labels so a sibling slice's live
-        cohort is never reaped by this slice's bootstrap."""
+    def test_scopes_the_query_to_pipeline_and_slice(self):
+        """The query must carry both the pipeline and the slice so a
+        sibling slice's live cohort is never reaped by this slice's
+        bootstrap. ``list_slice_jobs`` owns the label pair, so the
+        assertion is on the arguments handed to it."""
         from models import ContainerStatus
         from routes.pipelines import _reap_orphaned_slice_jobs
 
-        backend = MagicMock()
-        backend.list_containers.return_value = [
-            self._make_container_info("p1", ContainerStatus.RUNNING),
-        ]
-        spawner = MagicMock()
-        spawner.backend = backend
+        spawner = self._make_spawner(
+            [self._make_container_info("p1", ContainerStatus.RUNNING)],
+        )
 
         _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-2")
 
-        labels = backend.list_containers.call_args.kwargs["labels"]
-        assert labels["egg.pipeline.id"] == "pipeline-x"
-        assert labels["egg.slice.id"] == "slice-2"
+        spawner.list_slice_jobs.assert_called_once_with("pipeline-x", "slice-2")
+
+    # -- teardown wait (#3685 review round 2) --------------------------------
+    # ``remove_agent_container(force=True)`` only *orders* the delete;
+    # ``KubernetesClient.remove_container`` says so in its own docstring.
+    # Returning before the pod is gone re-opens the exact window the reap
+    # exists to close, so the reap waits for the teardown it requested to
+    # be observed — the #3597 contract. An unobserved teardown is reported
+    # honestly rather than claimed, and never blocks the re-drive.
+
+    def test_waits_for_each_reaped_job_to_be_gone(self):
+        """Every removed Job is waited on by name, in the cluster
+        namespace, with a positive remaining budget."""
+        from models import ContainerStatus
+        from routes.pipelines import _reap_orphaned_slice_jobs
+
+        spawner = self._make_spawner(
+            [
+                self._make_container_info("p1", ContainerStatus.RUNNING),
+                self._make_container_info("p2", ContainerStatus.RUNNING),
+            ]
+        )
+
+        _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1")
+
+        calls = spawner.k8s.wait_for_job_gone.call_args_list
+        assert [c.args[0] for c in calls] == ["job-p1", "job-p2"]
+        assert all(c.args[1] == "egg" for c in calls)
+        assert all(c.kwargs["timeout_s"] > 0 for c in calls)
+
+    def test_shares_one_budget_across_the_cohort(self):
+        """The deadline is per-slice, not per-Job: a pathological cohort
+        cannot stall the bootstrap pass for N x the budget."""
+        from unittest.mock import patch
+
+        from models import ContainerStatus
+        from routes.pipelines import _reap_orphaned_slice_jobs
+
+        spawner = self._make_spawner(
+            [
+                self._make_container_info("p1", ContainerStatus.RUNNING),
+                self._make_container_info("p2", ContainerStatus.RUNNING),
+            ]
+        )
+        elapsed = {"t": 0.0}
+
+        def _slow_wait(name, namespace, timeout_s):
+            elapsed["t"] += timeout_s
+            return True
+
+        spawner.k8s.wait_for_job_gone.side_effect = _slow_wait
+
+        with patch("routes.pipelines.time.monotonic", side_effect=[0.0, 0.0, 5.0]):
+            _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1")
+
+        # Second Job gets budget minus what the first consumed, not a
+        # fresh full budget.
+        second = spawner.k8s.wait_for_job_gone.call_args_list[1]
+        assert (
+            second.kwargs["timeout_s"]
+            < spawner.k8s.wait_for_job_gone.call_args_list[0].kwargs["timeout_s"]
+        )
+
+    def test_unobserved_teardown_still_returns_the_reaped_handles(self):
+        """A Job still terminating after the budget is reported as
+        unconfirmed, but the reap still succeeded and the slice must
+        still be re-driven — an unobserved teardown is not a failure to
+        reap, and blocking recovery on it would be worse than the race."""
+        from models import ContainerStatus
+        from routes.pipelines import _reap_orphaned_slice_jobs
+
+        spawner = self._make_spawner(
+            [self._make_container_info("p1", ContainerStatus.RUNNING)],
+            gone=False,
+        )
+
+        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == ["job-p1"]
+
+    def test_waiter_error_is_swallowed(self):
+        """The wait is best-effort: a raising waiter must not abort the
+        bootstrap pass."""
+        from models import ContainerStatus
+        from routes.pipelines import _reap_orphaned_slice_jobs
+
+        spawner = self._make_spawner([self._make_container_info("p1", ContainerStatus.RUNNING)])
+        spawner.k8s.wait_for_job_gone.side_effect = RuntimeError("apiserver down")
+
+        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == ["job-p1"]
+
+    def test_pod_without_job_name_is_removed_but_not_waited_on(self):
+        """A listing that supplies no ``job_name`` leaves only the
+        container id to remove by. That id is a Pod name, and
+        ``wait_for_job_gone`` would normalize it into a Job that never
+        existed — a 404 reads as "gone" and would fake a confirmation.
+        So it is removed, counted as unobserved, and not waited on."""
+        from models import ContainerStatus
+        from routes.pipelines import _reap_orphaned_slice_jobs
+
+        spawner = self._make_spawner(
+            [self._make_container_info("p1", ContainerStatus.RUNNING, job_name=None)]
+        )
+
+        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == ["p1"]
+        spawner.remove_agent_container.assert_called_once_with(
+            "p1", force=True, cleanup_session=True
+        )
+        spawner.k8s.wait_for_job_gone.assert_not_called()
+
+    def test_missing_wait_helper_does_not_break_the_reap(self):
+        """A spawner without a usable ``wait_for_job_gone`` (older
+        backend, test double) degrades to the pre-#3685-review behaviour
+        rather than raising."""
+        from models import ContainerStatus
+        from routes.pipelines import _reap_orphaned_slice_jobs
+
+        spawner = MagicMock()
+        spawner.list_slice_jobs.return_value = [
+            self._make_container_info("p1", ContainerStatus.RUNNING)
+        ]
+        spawner.k8s = None
+
+        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == ["job-p1"]
 
 
 class TestSliceHasPendingDecision:
