@@ -1,4 +1,4 @@
-"""Classification of non-retryable agent credential / quota failures (#3373).
+"""Non-crash agent exit-code contract + credential/quota classification (#3373).
 
 An agent invocation that fails because its Claude credential is unusable — a
 subscription weekly / usage limit, an expired or invalid OAuth token / API
@@ -9,7 +9,9 @@ orchestrator burns its whole agent-invocation retry budget (the streak-to-10
 in ``orchestrator.supervision_policy``) per role before it stops — turning a
 fix-the-credential problem into a multi-hour silent stall.
 
-This module is the single source of truth for that contract:
+This module is the single source of truth for that contract, and — by
+extension — for every *non-crash* agent exit code the orchestrator
+distinguishes from an ordinary crash:
 
   * :data:`EX_AUTH_FATAL` — the process exit code the agent CLI
     (``python3 -m egg_agent``) returns on such a failure. It is distinct from
@@ -19,6 +21,10 @@ This module is the single source of truth for that contract:
     retrying it.
   * :func:`is_auth_fatal_error` — the text classifier over an
     ``AgentResult.error`` string.
+  * :data:`EX_RATE_LIMITED` / :func:`is_transient_rate_limit_error` — the
+    transient-throttle counterparts (#3364).
+  * :data:`EX_SESSION_TIMEOUT` — the session-budget expiry code (#3658): the
+    agent ran out of wall clock, which is a session BOUNDARY, not a failure.
 
 Deliberately conservative: only errors that are non-retryable *for the
 credential's sake* match. Transient throttling — HTTP 429 / "rate limit" /
@@ -51,6 +57,22 @@ EX_AUTH_FATAL = 77
 # transient rate-limit outcome and paces across the cap window instead of
 # counting toward the abnormal streak.
 EX_RATE_LIMITED = 69
+
+# GNU ``timeout(1)``'s "the command timed out" code, reused here as the agent
+# CLI's session-budget expiry code (#3658). A one-shot agent runs under a hard
+# wall-clock budget (``--timeout``, default 7200s); when it expires the SDK call
+# is cancelled and the process exits. That is a session BOUNDARY, not a crash:
+# the agent was working, the clock ran out, and the next invocation re-attaches
+# to the same worktree and continues. Left on the generic non-zero path it is
+# indistinguishable from a crash loop and feeds the >=10
+# ``agent-invocation-fail-streak`` halt — a healthy long-running producer would
+# be counted toward a halt for the crime of being slow. So it carries its OWN
+# code, distinct from ``EX_AUTH_FATAL`` (77) / ``EX_RATE_LIMITED`` (69) and from
+# the consensus wrapper's reserved codes (64 ``EX_USAGE`` / 75 ``EX_TEMPFAIL``),
+# from the SIGKILL/SIGTERM codes (137 / 143) the kubernetes monitor reads, and
+# from the shells' 126/127. The orchestrator maps it to a bounded respawn that
+# does not touch the abnormal streak.
+EX_SESSION_TIMEOUT = 124
 
 # Case-insensitive patterns that mark a credential / quota failure a retry
 # cannot fix. Kept narrow and specific on purpose (see the module docstring):

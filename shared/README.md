@@ -33,6 +33,9 @@ spawner.spawn_agent_container(..., command=cmd)
 - `command.py` — `build_agent_command()` for orchestrator-spawned containers
 - `result.py` — `AgentResult` dataclass
 - `tool_interceptor.py` — pre-execution file write checks against role restrictions
+- `auth_errors.py` — the non-crash exit-code contract (`EX_AUTH_FATAL` / `EX_RATE_LIMITED` / `EX_SESSION_TIMEOUT`) the orchestrator supervises on, plus the credential and throttle classifiers
+- `session_deadline.py` — makes the session's wall-clock budget visible to the agent: an absolute UTC deadline in the prompt plus `EGG_SESSION_DEADLINE_EPOCH` for tool calls ([#3658](https://github.com/jwbron/egg/issues/3658))
+- `checkpoint.py` — best-effort in-pod `[salvage]` commit of the working tree when that budget expires, so the session boundary is clean rather than merely recoverable
 - `__main__.py` — CLI entry point (`python3 -m egg_agent "prompt"`)
 
 ### [egg_anchor](egg_anchor/README.md)

@@ -27,6 +27,7 @@ from . import (
     SUPERVISION_NOOP_STREAK_PARK,
     SUPERVISION_RATE_LIMIT_ALERT_THRESHOLD_SECONDS,
     SUPERVISION_RATE_LIMIT_LOOP_GUARD_REPEATS,
+    SUPERVISION_SESSION_TIMEOUT_BUDGET,
     RateLimitFingerprint,
     logger,
     parse_rate_limit_reset_seconds,
@@ -60,6 +61,10 @@ def record_success(self, dedupe_key: str, *, action: str = "", role: str = "") -
     # (count, backoff window, cumulative-wait threshold latch, loop-guard
     # fingerprint). No effect on the abnormal streak semantics above.
     self._clear_rate_limit_state(dedupe_key)
+    # #3658: a clean completion means this arm is finishing inside its budget —
+    # drop the session-boundary counter so a later expiry starts from a full
+    # budget instead of inheriting an old arm's spent one.
+    self._session_timeout_count.pop(dedupe_key, None)
     streak = self._noop_streaks.get(dedupe_key, 0) + 1
     self._noop_streaks[dedupe_key] = streak
     logger.debug(
@@ -121,6 +126,7 @@ def retire(self, dedupe_key: str) -> None:
     self._noop_release_context.pop(dedupe_key, None)
     self._alerted_noop.pop(dedupe_key, None)
     self._clear_rate_limit_state(dedupe_key)  # #3364 PR C
+    self._session_timeout_count.pop(dedupe_key, None)  # #3658
     logger.debug("JobSupervisor: retired key=%s — all supervision state dropped", dedupe_key)
 
 
@@ -445,6 +451,64 @@ def record_rate_limited(
                 action,
                 role,
             )
+
+
+def record_session_timeout(
+    self, dedupe_key: str, action: str, role: str, *, exit_detail: str | None = None
+) -> None:
+    """Record a session-budget expiry — a BOUNDARY, not a failure (#3658).
+
+    The agent exited ``egg_agent.auth_errors.EX_SESSION_TIMEOUT``: it was
+    working when its wall-clock budget ran out. The pod is killed mid-turn, but
+    the work is not lost — the tree is checkpointed in-pod on the way out and
+    the respawn re-attaches to the same worktree — so the honest classification
+    is "this event needs another session", not "this agent crashed".
+
+    For the first ``SUPERVISION_SESSION_TIMEOUT_BUDGET`` consecutive expiries
+    this leaves the abnormal ``_streaks`` / ``_last_abort_time`` / ``_exhausted``
+    state ENTIRELY untouched (the same contract
+    :meth:`record_rate_limited` keeps), so a genuinely productive long-running
+    producer can never trip the ``agent-invocation-fail-streak`` halt for the
+    crime of being slow, and no backoff is imposed — the arm already waited two
+    hours.
+
+    Past that budget the boundary treatment stops: further expiries are recorded
+    as ordinary aborts, handing the key back to the streak / exhaustion /
+    AGENT_FAILED path. Without this an arm that times out forever would respawn
+    forever, because the boundary path deliberately disables the only machinery
+    that stops it. The counter clears on a clean completion of the key
+    (:meth:`record_success`) or :meth:`retire` — never on the abort this method
+    itself delegates to, which would make the budget unspendable.
+    """
+    count = self._session_timeout_count.get(dedupe_key, 0) + 1
+    self._session_timeout_count[dedupe_key] = count
+
+    if count > SUPERVISION_SESSION_TIMEOUT_BUDGET:
+        logger.warning(
+            "JobSupervisor: session-budget expiry #%d for key=%s (action=%s, role=%s) "
+            "— past the %d-boundary budget; recording it as an abnormal termination "
+            "so the streak/exhaustion path can terminate a permanently over-budget arm",
+            count,
+            dedupe_key,
+            action,
+            role,
+            SUPERVISION_SESSION_TIMEOUT_BUDGET,
+        )
+        self.record_abort(dedupe_key, action, role, exit_detail=exit_detail)
+        return
+
+    self._last_action[dedupe_key] = (action, role)
+    self._record_exit(dedupe_key, "session_timeout", exit_detail)
+    logger.info(
+        "JobSupervisor: session-budget expiry %d/%d for key=%s (action=%s, role=%s) "
+        "— treating as a session boundary; respawning without touching the "
+        "abnormal streak",
+        count,
+        SUPERVISION_SESSION_TIMEOUT_BUDGET,
+        dedupe_key,
+        action,
+        role,
+    )
 
 
 def halt_rate_limited(self, dedupe_key: str) -> None:
@@ -902,6 +966,9 @@ def reconcile(self, live_dedupe_keys: Iterable[str]) -> None:
     self._rate_limit_repeat.clear()
     self._alerted_rate_limit.clear()
     self._rate_limit_escalated.clear()
+    # #3658: the session-boundary budget is process-local too — a restarted
+    # loop grants a fresh one, same stateless design as the streaks above.
+    self._session_timeout_count.clear()
     # Re-initialise live-key set if the caller provides it.
     # We only need to know which keys exist, not the full history.
     for key in live_dedupe_keys:

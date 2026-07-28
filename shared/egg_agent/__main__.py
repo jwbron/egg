@@ -11,17 +11,21 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 
 from egg_agent.auth_errors import (
     EX_AUTH_FATAL,
     EX_RATE_LIMITED,
+    EX_SESSION_TIMEOUT,
     is_auth_fatal_error,
     is_transient_rate_limit_error,
 )
+from egg_agent.checkpoint import checkpoint_working_tree
 from egg_agent.client import run_agent
 from egg_agent.measurement import record_measurement
 from egg_agent.reseed import decide_resume_session
 from egg_agent.session import write_session_state
+from egg_agent.session_deadline import export_deadline_env, render_deadline_banner
 
 
 def _stream_to_stdout(text: str) -> None:
@@ -99,6 +103,18 @@ def main() -> int:
         session_state_path=args.session_state_file,
     )
 
+    # Deadline visibility (#3658). The budget below is the same number
+    # ``run_agent`` enforces, anchored to the instant the session starts, so the
+    # agent's view of the clock and the clock that kills it cannot drift. Both
+    # surfaces are additive: the env export is inherited by every tool call and
+    # hook, and the banner is the one part of the prompt that makes "commit
+    # before the boundary" a followable instruction rather than a wish. The
+    # banner is APPENDED — its timestamps vary per invocation, and at the front
+    # it would invalidate the shared-evidence cacheable prefix.
+    started_at = time.time()
+    export_deadline_env(args.timeout, started_at)
+    prompt = prompt + render_deadline_banner(args.timeout, started_at)
+
     result = run_agent(
         prompt,
         model=args.model,
@@ -134,6 +150,21 @@ def main() -> int:
 
     if result.stderr:
         print(result.stderr, file=sys.stderr)
+
+    # #3658: the session's wall-clock budget expired. Checked FIRST and off a
+    # structured flag, not a text classifier — a timeout is the one outcome the
+    # CLI knows about with certainty rather than by inference.
+    #
+    # Two things happen here, in this order. First the checkpoint: commit the
+    # working tree as a ``[salvage]`` snapshot while we are still in the pod with
+    # the tree exactly as the agent left it, so the boundary is clean rather than
+    # merely recoverable by the next respawn's re-attach (#3644). Then the exit
+    # code: ``EX_SESSION_TIMEOUT`` marks this a session BOUNDARY, so the
+    # orchestrator respawns without counting it toward the abnormal fail-streak
+    # halt. A healthy agent that simply ran long is not a crash loop.
+    if result.timed_out:
+        checkpoint_working_tree()
+        return EX_SESSION_TIMEOUT
 
     # #3373: a credential / quota-fatal failure (subscription weekly limit,
     # expired/invalid token, 401, exhausted credit balance) is not retryable —

@@ -108,6 +108,10 @@ SUPERVISION_FAILURE_STREAK_ALERT = _supervision_policy.SUPERVISION_FAILURE_STREA
 SUPERVISION_NOOP_STREAK_PARK = _supervision_policy.SUPERVISION_NOOP_STREAK_PARK
 SUPERVISION_NOOP_PARK_RETRY_SECONDS = _supervision_policy.SUPERVISION_NOOP_PARK_RETRY_SECONDS
 
+# #3658 — how many consecutive session-budget expiries on one key are treated as
+# legitimate boundaries before further ones fall back to the abnormal path.
+SUPERVISION_SESSION_TIMEOUT_BUDGET = _supervision_policy.SUPERVISION_SESSION_TIMEOUT_BUDGET
+
 # #3364 PR C — transient rate-limit / cap-wall paced-retry policy (separate
 # from the abnormal SUPERVISION_BACKOFF_* / streak constants above; re-exported
 # here so ``_supervisor`` value-imports them through the barrel like its
@@ -169,12 +173,24 @@ AGENT_FREE_ACTIONS: frozenset[str] = frozenset({"confirm", "complete"})
 #                      untouched (so the cap wall never trips the fail-streak
 #                      halt) and PACES the respawn across the rolling cap
 #                      window instead of hammering on the 30s backoff.
+#   * ``timeout``    — the agent exited with the session-timeout code
+#                      (``egg_agent.auth_errors.EX_SESSION_TIMEOUT``): its
+#                      wall-clock budget expired mid-work (#3658). A session
+#                      BOUNDARY, not a crash — the respawn re-attaches to the
+#                      same worktree and continues. Route to
+#                      ``record_session_timeout``, which leaves the abnormal
+#                      streak untouched for the first
+#                      ``SUPERVISION_SESSION_TIMEOUT_BUDGET`` consecutive
+#                      expiries and falls back to ``record_abort`` past that, so
+#                      a productive slow agent is never called a crash loop and a
+#                      genuinely stuck one still terminates.
 JOB_OUTCOME_RUNNING = "running"
 JOB_OUTCOME_SUCCESS = "success"
 JOB_OUTCOME_LEGITIMATE = "legitimate"
 JOB_OUTCOME_ABNORMAL = "abnormal"
 JOB_OUTCOME_FATAL = "fatal"
 JOB_OUTCOME_RATE_LIMITED = "rate_limited"
+JOB_OUTCOME_TIMEOUT = "timeout"
 
 # Poll cadence (#3064 slice-2: "poll interval env-tunable (default 5s)").
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
@@ -604,6 +620,14 @@ class JobSupervisor:
         # loop-guard escalation each fire exactly once per key.
         self._alerted_rate_limit: dict[str, bool] = {}
         self._rate_limit_escalated: set[str] = set()
+        # #3658 — session-budget expiries per dedupe key SINCE THE LAST CLEAN
+        # COMPLETION of that key. Kept separate from ``_streaks`` for the same
+        # reason the rate-limit state is: a boundary must never be able to feed
+        # the abnormal fail-streak halt. Cleared by ``record_success`` /
+        # ``retire`` only — deliberately NOT by ``record_abort``, because
+        # ``record_session_timeout`` itself calls ``record_abort`` once the
+        # budget is spent, and a counter that reset there could never exhaust.
+        self._session_timeout_count: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     #  Public API (used by the orchestrator loop)
@@ -615,6 +639,7 @@ class JobSupervisor:
     record_abort = _supervisor.record_abort
     record_fatal = _supervisor.record_fatal
     record_rate_limited = _supervisor.record_rate_limited
+    record_session_timeout = _supervisor.record_session_timeout
     halt_rate_limited = _supervisor.halt_rate_limited
     _clear_rate_limit_state = _supervisor._clear_rate_limit_state
 

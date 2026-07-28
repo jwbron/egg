@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import kubernetes_spawner as _pkg
-from egg_agent.auth_errors import EX_AUTH_FATAL, EX_RATE_LIMITED
+from egg_agent.auth_errors import EX_AUTH_FATAL, EX_RATE_LIMITED, EX_SESSION_TIMEOUT
 from gateway_client import SessionInfo
 from kubernetes_spawner import (
     LABEL_EVENT_DEDUPE,
@@ -41,6 +41,7 @@ class _EventJobStatusView:
         self._ABNORMAL = _event_loop.JOB_OUTCOME_ABNORMAL
         self._FATAL = _event_loop.JOB_OUTCOME_FATAL
         self._RATE_LIMITED = _event_loop.JOB_OUTCOME_RATE_LIMITED
+        self._TIMEOUT = _event_loop.JOB_OUTCOME_TIMEOUT
 
     def outcome_for(self, dedupe_key: str) -> str:
         selector = f"{LABEL_EVENT_DEDUPE}={_pkg._dedupe_label_value(dedupe_key)}"
@@ -59,24 +60,31 @@ class _EventJobStatusView:
             return self._RUNNING
         statuses = [getattr(j, "status", None) for j in jobs]
         if any(s == ContainerStatus.FAILED for s in statuses):
-            # #3373: distinguish a non-retryable credential failure (the agent
-            # exited with EX_AUTH_FATAL) from an ordinary crash. Reading the
-            # pod's exit code costs one extra list call, but only on the cold
-            # path where a Job has already FAILED. Any read failure (or an exit
-            # code that doesn't match) falls back to ``abnormal`` — today's
-            # behaviour — so this can never manufacture a spurious fatal.
-            if self._failed_with_auth_fatal(dedupe_key):
+            # The pod's exit code separates the three NON-crash terminations from
+            # an ordinary crash. One extra list call, and only on the cold path
+            # where a Job has already FAILED. Any read failure (or an exit code
+            # that doesn't match) falls through to ``abnormal`` — today's
+            # behaviour — so none of the three can ever be manufactured.
+            #
+            # The codes are disjoint, so the order below decides nothing in
+            # practice; it is kept as written because the precedences were
+            # reasoned about when each landed:
+            #   * EX_AUTH_FATAL (#3373) — a non-retryable credential failure;
+            #     first, so a weekly cap delivered as 77 wins over any throttle
+            #     reading of it.
+            #   * EX_RATE_LIMITED (#3364) — a transient throttle the supervisor
+            #     paces across the cap window rather than counting toward the
+            #     fail-streak halt.
+            #   * EX_SESSION_TIMEOUT (#3658) — the wall-clock budget expired: a
+            #     session BOUNDARY the supervisor respawns promptly, into the
+            #     same worktree, without touching the abnormal streak.
+            codes = self._terminated_exit_codes(dedupe_key)
+            if EX_AUTH_FATAL in codes:
                 return self._FATAL
-            # #3364 PR C: a TRANSIENT throttle / cap wall (the agent exited
-            # EX_RATE_LIMITED) is neither a credential-fatal failure nor an
-            # ordinary crash — map it to a distinct rate-limit outcome the
-            # supervisor paces across the cap window instead of counting toward
-            # the abnormal fail-streak halt. Checked AFTER auth-fatal so a
-            # weekly-cap-as-77 still wins. Any other exit code falls through to
-            # ``abnormal`` (today's behaviour) — this can never manufacture a
-            # spurious rate-limit.
-            if self._failed_with_rate_limited(dedupe_key):
+            if EX_RATE_LIMITED in codes:
                 return self._RATE_LIMITED
+            if EX_SESSION_TIMEOUT in codes:
+                return self._TIMEOUT
             return self._ABNORMAL
         # Live = PENDING/CREATING/RUNNING — the same single-source set the
         # adoption filter (``_event_dedupe_key_live``) and live-pod accounting
@@ -87,13 +95,19 @@ class _EventJobStatusView:
             return self._SUCCESS
         return self._RUNNING
 
-    def _failed_with_auth_fatal(self, dedupe_key: str) -> bool:
-        """Return True iff the failed event pod exited with ``EX_AUTH_FATAL``.
+    def _terminated_exit_codes(self, dedupe_key: str) -> frozenset[int]:
+        """Return the exit codes of the terminated pod(s) for this event.
 
-        Reads the pod(s) carrying this event's dedupe-key label and checks the
-        terminated container's exit code. Best-effort: a list error, a missing
-        pod (already GC'd), or an unreadable exit code all return ``False`` so
-        the caller falls back to the ordinary ``abnormal`` classification.
+        One read serving every exit-code classification :meth:`outcome_for`
+        makes. This used to be a predicate per code, each doing its own
+        ``list_containers`` — three API calls to answer three questions about one
+        pod. Whether the answers agree is not in doubt; they come from the same
+        object.
+
+        Best-effort in every direction: a list error, a missing pod (already
+        GC'd), or an unreadable exit code all yield an empty set, so every
+        caller falls back to the ordinary ``abnormal`` classification and no
+        special classification can be manufactured from a failed read.
         """
         try:
             containers = self._spawner.k8s.list_containers(
@@ -105,35 +119,12 @@ class _EventJobStatusView:
                 dedupe_key=dedupe_key,
                 error=str(exc),
             )
-            return False
+            return frozenset()
         if not isinstance(containers, (list, tuple)):
-            return False
-        return any(getattr(c, "exit_code", None) == EX_AUTH_FATAL for c in containers)
-
-    def _failed_with_rate_limited(self, dedupe_key: str) -> bool:
-        """Return True iff the failed event pod exited with ``EX_RATE_LIMITED``.
-
-        Mirrors :meth:`_failed_with_auth_fatal` for the #3364 transient
-        rate-limit path: reads the pod(s) carrying this event's dedupe-key
-        label and checks the terminated container's exit code. Best-effort: a
-        list error, a missing pod (already GC'd), or an unreadable exit code
-        all return ``False`` so the caller falls back to the ordinary
-        ``abnormal`` classification.
-        """
-        try:
-            containers = self._spawner.k8s.list_containers(
-                labels={LABEL_EVENT_DEDUPE: _pkg._dedupe_label_value(dedupe_key)}
-            )
-        except Exception as exc:  # noqa: BLE001 — best-effort; fall back to abnormal
-            logger.warning(
-                "Failed to read pod exit code for rate-limit supervision",
-                dedupe_key=dedupe_key,
-                error=str(exc),
-            )
-            return False
-        if not isinstance(containers, (list, tuple)):
-            return False
-        return any(getattr(c, "exit_code", None) == EX_RATE_LIMITED for c in containers)
+            return frozenset()
+        return frozenset(
+            code for c in containers if (code := getattr(c, "exit_code", None)) is not None
+        )
 
     def exit_detail_for(self, dedupe_key: str) -> str | None:
         """Return a short operator-facing exit description for a dead pod (#3496).
