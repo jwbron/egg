@@ -68,7 +68,7 @@
           "id": "task-1-3",
           "description": "Populate consensus section of snapshot. Wire\npeer_consensus.get_peer_consensus_tracker().evaluate() into the snapshot\nbuilder. This activates detect_brc_thrash(), detect_incomplete_consensus_deferral(),\nand consensus field readers in PhaseStallDetector.",
           "status": "pending",
-          "commit": null,
+          "commit": "f0d766673",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- snapshot.consensus contains tracker.evaluate() output\n- detectors reading consensus field fire correctly",
@@ -888,6 +888,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-28T01:41:45.796790Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "f0d766673",
+      "reason": "Linked commit f0d7666 to task-1-3",
       "checkpoint_id": null
     }
   ],
