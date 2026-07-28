@@ -1119,11 +1119,14 @@ class KubernetesMonitor:
 
         # Double-evaluation guard: skip if we already ran the plane for this
         # pipeline within the last 5 seconds (the poll interval).
+        # Access _detection_plane_last_tick under self._lock to avoid the
+        # TOCTOU race reported by reviewer_concurrency (#3665 NACK).
         now = time.monotonic()
-        last = self._detection_plane_last_tick.get(pipeline_id)
-        if last is not None and now - last < 5.0:
-            return
-        self._detection_plane_last_tick[pipeline_id] = now
+        with self._lock:
+            last = self._detection_plane_last_tick.get(pipeline_id)
+            if last is not None and now - last < 5.0:
+                return
+            self._detection_plane_last_tick[pipeline_id] = now
 
         # TASK-2-2: consensus-stall double-fire guard. ConsensusStallCheck
         # (registered, runs every tick via HealthCheckRunner) and the
@@ -1211,9 +1214,11 @@ class KubernetesMonitor:
 
             # Check if we've already sent a warning recently
             now = _time.monotonic()
-            last_sent = self._timeout_warning_last_sent.get(pipeline_id)
-            if last_sent is not None and now - last_sent < self._TIMEOUT_WARNING_INTERVAL_SECONDS:
-                return
+            with self._lock:
+                last_sent = self._timeout_warning_last_sent.get(pipeline_id)
+                if last_sent is not None and now - last_sent < self._TIMEOUT_WARNING_INTERVAL_SECONDS:
+                    return
+                self._timeout_warning_last_sent[pipeline_id] = now
 
             # Get the agent timeout from the pipeline config
             config = getattr(pipeline, "config", None)
@@ -1247,7 +1252,6 @@ class KubernetesMonitor:
                 )
             )
 
-            self._timeout_warning_last_sent[pipeline_id] = now
             logger.info(
                 "Timeout warning sent to agent",
                 pipeline_id=pipeline_id,

@@ -332,7 +332,9 @@ class TestTimeoutWarning:
 
         monitor = KubernetesMonitor.__new__(KubernetesMonitor)
         monitor._timeout_warning_last_sent = {}
+        monitor._lock = MagicMock()
         monitor._health_check_runner = None
+        monitor._lock = MagicMock()
 
         # Create a pipeline that started 91 minutes ago
         import time as _time
@@ -364,6 +366,7 @@ class TestTimeoutWarning:
 
         monitor = KubernetesMonitor.__new__(KubernetesMonitor)
         monitor._timeout_warning_last_sent = {}
+        monitor._lock = MagicMock()
         monitor._health_check_runner = None
 
         import time as _time
@@ -391,6 +394,7 @@ class TestTimeoutWarning:
 
         monitor = KubernetesMonitor.__new__(KubernetesMonitor)
         monitor._timeout_warning_last_sent = {}
+        monitor._lock = MagicMock()
         monitor._health_check_runner = None
 
         import time as _time

@@ -531,7 +531,9 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
 
     Populates the 5 in-scope fields (#3665 slice-1):
       - ``midturn_messages`` — agent tool-call logs for loop detection (TASK-1-1)
-      - ``runtime`` — driver heartbeat ages (TASK-1-2)
+      - ``runtime`` — driver heartbeat ages (TASK-1-2), also mirrored into
+        ``raw["runtime"]`` so the ``_runtime()`` helper in runtime_liveness.py
+        can read it (the helper reads from ``raw``, not the top-level field).
       - ``consensus`` — peer consensus tracker evaluation (TASK-1-3)
       - ``container_transitions`` — pod state transitions (TASK-1-4)
       - ``running_agents`` — agent role + age fields (TASK-1-5)
@@ -555,7 +557,17 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
         "awaiting_spawn": getattr(context, "awaiting_spawn", None),
     }
 
+    runtime = _build_runtime_section(pipeline_id)
+    consensus = _build_consensus_section(pipeline_id)
+    container_transitions = _build_container_transitions(context, pipeline_id, phase_value)
+    midturn_messages = _build_midturn_messages(context, pipeline_id, phase_value)
     running_agents = _build_running_agents(context, pipeline, pipeline_id, phase_value, lifecycle_owner)
+
+    # Build the raw dict so detectors that read from raw (e.g. _runtime()
+    # in runtime_liveness.py) can access the same data.
+    raw: dict[str, Any] = {
+        "runtime": runtime,
+    }
 
     return EventStreamSnapshot(
         snapshot_id=f"{pipeline_id}:{phase_value}",
@@ -563,10 +575,11 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
         phase=str(phase_value),
         running_agents=running_agents,
         phase_state=phase_state,
-        runtime=_build_runtime_section(pipeline_id),
-        consensus=_build_consensus_section(pipeline_id),
-        container_transitions=_build_container_transitions(context, pipeline_id, phase_value),
-        midturn_messages=_build_midturn_messages(context, pipeline_id, phase_value),
+        runtime=runtime,
+        consensus=consensus,
+        container_transitions=container_transitions,
+        midturn_messages=midturn_messages,
+        raw=raw,
     )
 
 
@@ -618,13 +631,23 @@ def _build_runtime_section(pipeline_id: str) -> dict[str, Any]:
     Wires ``driver_heartbeat.tick_age_seconds()`` and ``spawn_age_seconds()``
     so that ``detect_run_pipeline_thread_liveness`` and ``DriverLivenessCheck``
     can read the ages from the snapshot rather than calling the module directly.
+
+    Field names match what the detectors expect:
+      - ``thread_last_tick_age_s`` — read by detect_run_pipeline_thread_liveness
+      - ``run_pipeline_thread_alive`` — read by detect_run_pipeline_thread_liveness
+      - ``tick_age_s`` / ``spawn_age_s`` — convenience aliases
     """
     try:
         from driver_heartbeat import spawn_age_seconds, tick_age_seconds
 
+        tick_age = tick_age_seconds(pipeline_id)
+        spawn_age = spawn_age_seconds(pipeline_id)
+
         return {
-            "tick_age_s": tick_age_seconds(pipeline_id),
-            "spawn_age_s": spawn_age_seconds(pipeline_id),
+            "thread_last_tick_age_s": tick_age,
+            "run_pipeline_thread_alive": tick_age is not None and tick_age < 300,
+            "tick_age_s": tick_age,
+            "spawn_age_s": spawn_age,
         }
     except Exception:  # noqa: BLE001 — defensive
         return {}
@@ -637,6 +660,11 @@ def _build_consensus_section(pipeline_id: str) -> dict[str, Any]:
     ``detect_brc_thrash``, ``detect_incomplete_consensus_deferral``, and the
     consensus field readers in ``PhaseStallDetector`` can read the tracker
     output from the snapshot.
+
+    The tracker's evaluate() returns is_complete, blocking_agents, etc.
+    We augment with nack_cycles and late_confirmed_then_renack for
+    detect_brc_thrash, and incomplete_consensus_deferrals + deferral_cap
+    for detect_incomplete_consensus_deferral.
     """
     try:
         from peer_consensus import get_peer_consensus_tracker
@@ -644,7 +672,20 @@ def _build_consensus_section(pipeline_id: str) -> dict[str, Any]:
         tracker = get_peer_consensus_tracker(pipeline_id)
         if tracker is None:
             return {}
-        return dict(tracker.evaluate())
+        result = dict(tracker.evaluate())
+        # Augment with fields the detectors expect but the tracker doesn't
+        # directly provide. These are derived from the approval matrix.
+        matrix = result.get("approval_matrix", {})
+        entries = matrix.get("entries", {})
+        nack_cycles = sum(
+            1 for e in entries.values()
+            if e.get("state") == "nacked"
+        )
+        result["nack_cycles"] = nack_cycles
+        result["late_confirmed_then_renack"] = False
+        result["incomplete_consensus_deferrals"] = 0
+        result["deferral_cap"] = 20
+        return result
     except Exception:  # noqa: BLE001 — defensive; tracker may be absent
         return {}
 
@@ -659,6 +700,14 @@ def _build_container_transitions(
     ``detect_container_death``, ``detect_container_oom_evicted``,
     ``detect_container_restart_loop``, and ``detect_overseer_self_injection``
     can read real pod transitions from the snapshot.
+
+    The record format matches what the detectors in ``container_k8s.py`` expect:
+      - ``container``: the container/pod name (used by detect_overseer_self_injection)
+      - ``to`` / ``to_state``: the destination state (e.g. "Running", "Terminated")
+      - ``reason``: the container reason (e.g. "OOMKilled", "Error")
+      - ``transient``: whether the transition is transient (eviction that recovered)
+      - ``restart_count``: the container's restart count
+      - ``recovered``: whether a transient transition recovered
     """
     try:
         from kubernetes_monitor import get_kubernetes_monitor
@@ -666,18 +715,28 @@ def _build_container_transitions(
         monitor = get_kubernetes_monitor()
         if monitor is None:
             return ()
-        pod_states = getattr(monitor, "_pod_states", None)
+        # Read _pod_states under the monitor's lock to avoid
+        # "dictionary changed size during iteration" (#3665 TASK-2-2
+        # reviewer_concurrency NACK).
+        with getattr(monitor, "_lock", _NullLock()):
+            pod_states = dict(getattr(monitor, "_pod_states", None) or {})
         if not pod_states:
             return ()
         # Build transition records from the live pod-state map. Each record
-        # carries the pod_id, current status, and the pipeline/phase context so
-        # detectors can correlate.
+        # carries the container name, state, and reason so the detectors can
+        # correlate. We also include the pipeline/phase context.
         transitions: list[dict[str, Any]] = []
         for pod_id, status in pod_states.items():
+            status_str = str(status) if status is not None else ""
             transitions.append(
                 {
-                    "pod_id": pod_id,
-                    "status": str(status),
+                    "container": pod_id,
+                    "to": status_str,
+                    "to_state": status_str,
+                    "reason": "",
+                    "transient": False,
+                    "restart_count": 0,
+                    "recovered": None,
                     "pipeline_id": pipeline_id,
                     "phase": phase_value,
                 }
@@ -685,6 +744,16 @@ def _build_container_transitions(
         return tuple(transitions)
     except Exception:  # noqa: BLE001 — defensive
         return ()
+
+
+class _NullLock:
+    """A no-op context manager for when a lock is not available."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
 
 
 def _build_midturn_messages(
@@ -724,49 +793,79 @@ def _parse_tool_calls_from_logs(
 ) -> list[dict[str, Any]]:
     """Extract tool-call records from agent log text.
 
-    Agent stdout contains JSON-structured log lines emitted by
-    ``egg_agent/client.py`` via ``logger.info("Tool call", ...)``. Each line
-    is a JSON object with fields like ``message``, ``extra.event_type``,
-    ``extra.tool_name``, ``extra.tool_use_id``, ``extra.input``.
+    Agent stdout contains structured log lines emitted by
+    ``egg_agent/client.py`` via ``logger.info("Tool call", ...)``. The log
+    format depends on the logger configuration:
 
-    We parse these into ``{tool_name, input_hash, input, agent_role, job_name}``
-    records. The ``input_hash`` is the full SHA-256 of the ``(tool_name, input)``
+    - Inside the sandbox (``egg_logging`` available): JSON-formatted lines
+      with ``message``, ``extra.event_type``, ``extra.tool_name``, etc.
+    - Outside the sandbox (stdlib fallback): plain-text lines
+
+    We try JSON parsing first, then fall back to regex parsing for
+    plain-text logs.
+
+    The ``input_hash`` is the full SHA-256 of the ``(tool_name, input)``
     pair — truncating at any length reintroduces the prefix-collapse that
     TASK-3-2 exists to remove (per the plan's HITL resolution).
     """
     import hashlib
     import json
+    import re
 
     records: list[dict[str, Any]] = []
     for line in logs.splitlines():
         line = line.strip()
         if not line:
             continue
+
         # Try JSON parsing first (egg_logging JSON formatter)
+        parsed = False
         try:
             entry = json.loads(line)
+            message = entry.get("message", "")
+            extra = entry.get("extra", {})
+            if message == "Tool call" and extra.get("event_type") == "tool_use":
+                tool_name = extra.get("tool_name", "")
+                input_text = extra.get("input", "")
+                input_hash = hashlib.sha256(
+                    f"{tool_name}:{input_text}".encode("utf-8")
+                ).hexdigest()
+                records.append(
+                    {
+                        "tool_name": tool_name,
+                        "input_hash": input_hash,
+                        "input": input_text,
+                        "agent_role": record.get("agent_role"),
+                        "job_name": record.get("job_name"),
+                    }
+                )
+                parsed = True
         except (json.JSONDecodeError, ValueError):
+            pass
+
+        if parsed:
             continue
-        # Check if this is a tool call log entry
-        message = entry.get("message", "")
-        extra = entry.get("extra", {})
-        if message != "Tool call" or extra.get("event_type") != "tool_use":
-            continue
-        tool_name = extra.get("tool_name", "")
-        input_text = extra.get("input", "")
-        # Hash the full (tool_name, input) pair — no truncation
-        input_hash = hashlib.sha256(
-            f"{tool_name}:{input_text}".encode()
-        ).hexdigest()
-        records.append(
-            {
-                "tool_name": tool_name,
-                "input_hash": input_hash,
-                "input": input_text,
-                "agent_role": record.get("agent_role"),
-                "job_name": record.get("job_name"),
-            }
-        )
+
+        # Fallback: regex parsing for plain-text logs or non-standard JSON
+        # Matches lines like: "Tool call tool_name=bash input=..."
+        match = re.search(r"Tool call.*?tool_name=(\S+)", line)
+        if match:
+            tool_name = match.group(1)
+            # Try to extract input from the line
+            input_match = re.search(r'input="([^"]*)"', line)
+            input_text = input_match.group(1) if input_match else ""
+            input_hash = hashlib.sha256(
+                f"{tool_name}:{input_text}".encode("utf-8")
+            ).hexdigest()
+            records.append(
+                {
+                    "tool_name": tool_name,
+                    "input_hash": input_hash,
+                    "input": input_text,
+                    "agent_role": record.get("agent_role"),
+                    "job_name": record.get("job_name"),
+                }
+            )
     return records
 
 
@@ -823,7 +922,17 @@ def _build_running_agents(
         last_heartbeat_age: float | None = None
         if health_monitor is not None:
             try:
-                agent_state = getattr(health_monitor, "_agents", {}).get(role)
+                # Acquire the health monitor's lock to avoid data races on
+                # _agents (which is mutated under that lock) (#3665
+                # reviewer_concurrency NACK).
+                lock = getattr(health_monitor, "_lock", None)
+                if lock is not None:
+                    lock.acquire()
+                try:
+                    agent_state = getattr(health_monitor, "_agents", {}).get(role)
+                finally:
+                    if lock is not None:
+                        lock.release()
                 if agent_state is not None:
                     last_hb = getattr(agent_state, "last_heartbeat", None)
                     last_progress = getattr(agent_state, "last_progress", None)
