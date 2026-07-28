@@ -4,6 +4,7 @@ Private submodule of the ``kubernetes_spawner`` sub-package; import through
 the barrel (``from kubernetes_spawner import ...``), not directly.
 """
 
+import json
 from datetime import datetime
 from typing import Any
 
@@ -14,6 +15,7 @@ from kubernetes_spawner import (
     ENV_EVENT_ACTION,
     ENV_EVENT_DEDUPE_KEY,
     ENV_EVENT_PAYLOAD_REFS,
+    ENV_WORKTREE_RECOVERY,
     LABEL_EVENT_ACTION,
     LABEL_EVENT_DEDUPE,
     logger,
@@ -278,6 +280,26 @@ def create_event_job_status_view(self) -> _pkg._EventJobStatusView:
     return _pkg._EventJobStatusView(self)
 
 
+def _recovery_env_json(notices: list[dict[str, Any]]) -> str:
+    """Serialize the #3684 worktree-recovery notices for the pod env, capped.
+
+    Every field is a sha, a count, or a ref name, so a single notice is well
+    under 300 bytes and the cap only bites on a pathological many-repo
+    discard. Overshoot drops whole trailing entries rather than truncating
+    the JSON: a half-serialised value decodes to nothing on the pod side,
+    which would lose the ref for repo 1 to save bytes on repo 8. Dropping
+    from the tail keeps the earliest (and, on a multi-repo pipeline, the
+    primary) recovery ref intact; the bus record still carries all of them.
+    """
+    kept = list(notices)
+    while kept:
+        raw = json.dumps(kept, ensure_ascii=False)
+        if len(raw.encode("utf-8")) <= _pkg._WORKTREE_RECOVERY_ENV_MAX_BYTES:
+            return raw
+        kept.pop()
+    return "[]"
+
+
 def spawn_event_job(
     self,
     pipeline_id: str,
@@ -361,6 +383,11 @@ def spawn_event_job(
 
     # Build the candidate worktree id matching the existing convention.
     candidate_id = self._build_agent_worktree_id(pipeline_id, agent_role, slice_id=slice_id)
+    # #3684: filled by the re-attach when its hard-reset moves unpushed work
+    # onto an ``egg/recovered/...`` ref. The salvage itself has been reliable
+    # since #3639/#3644; what was missing is telling the agent, and the agent
+    # this spawn is about to create is the one that needs to hear it.
+    recovery_notices: list[dict[str, Any]] = []
     if repos:
         # Use the composed method that validates AND cleans dirty state
         # (R6 dirty-state policy) so re-attached worktrees always start
@@ -377,6 +404,8 @@ def spawn_event_job(
             agent_role=agent_role.value,
             slice_id=slice_id,
             mode=mode,
+            phase=spawn_kwargs.get("phase"),
+            recovery_out=recovery_notices,
         )
         if result is not None:
             reuse_worktree_id = candidate_id
@@ -443,6 +472,23 @@ def spawn_event_job(
     }
     if event_payload_refs:
         event_env[ENV_EVENT_PAYLOAD_REFS] = event_payload_refs
+    # #3684: this spawn's worktree re-attach moved unpushed work off the tree.
+    # Carry the recovery ref into the pod so the prompt composer can lead with
+    # it. Without this the only record is a bus message the agent must think to
+    # go read, and an agent that has just found its files missing does not
+    # think to read a BRC transcript — it re-implements (the #3684 incident:
+    # 8 commits / 3072 insertions re-derived from scratch while the ref sat on
+    # the remote). Set on the discard spawn only; every ordinary spawn leaves
+    # the key unset and renders byte-identically.
+    if recovery_notices:
+        event_env[ENV_WORKTREE_RECOVERY] = _recovery_env_json(recovery_notices)
+        logger.info(
+            "Event spawn: injecting worktree-recovery notice into pod env",
+            pipeline_id=pipeline_id,
+            role=agent_role.value,
+            slice_id=slice_id,
+            recovery_refs=[n.get("recovery_ref") for n in recovery_notices],
+        )
     # Merge with any caller-supplied extra_env (caller's non-event keys
     # win for their own keys; event identity keys are set by us).
     caller_env = spawn_kwargs.pop("extra_env", None) or {}

@@ -196,6 +196,22 @@ ENV_EVENT_ACTION = "EGG_EVENT_ACTION"
 ENV_EVENT_DEDUPE_KEY = "EGG_EVENT_DEDUPE_KEY"
 ENV_EVENT_PAYLOAD_REFS = "EGG_EVENT_PAYLOAD_REFS"
 
+# Recovery notice for work this spawn's worktree re-attach just moved off the
+# tree and onto an ``egg/recovered/...`` ref (#3684). JSON list, one entry per
+# repo that hit the discard path; set ONLY on the spawn that follows such a
+# discard, so every ordinary spawn renders a byte-identical prompt. Read by
+# ``routes/event_prompt/_cli.py`` and rendered as the leading prompt section —
+# the push half of the delivery, complementing the ``Message.phase``-gated bus
+# record that an agent has to go looking for. Same shape and same contract as
+# #3537's ``EGG_EVENT_RELEASE_CONTEXT``.
+ENV_WORKTREE_RECOVERY = "EGG_WORKTREE_RECOVERY"
+
+# Byte budget for ``ENV_WORKTREE_RECOVERY``. The composer's whole prompt
+# envelope is 10 KiB (``PROMPT_ENVELOPE_MAX_BYTES``); these entries are a
+# fixed set of shas and counts, so the cap only ever bites on a pathological
+# multi-repo discard, where dropping the tail beats dropping the ref.
+_WORKTREE_RECOVERY_ENV_MAX_BYTES = 2048
+
 # A short, deterministic Job-name discriminator so distinct events for one
 # role get distinct Job names (the same event always yields the same name,
 # which keeps the pre-spawn cleanup + adoption coherent). 8 hex chars of the
@@ -537,6 +553,7 @@ KubernetesSpawner.spawn_event_job = _events.spawn_event_job
 # through the barrel like the rest of the private surface.
 _job_is_live = _events._job_is_live
 _job_is_terminating = _events._job_is_terminating
+_recovery_env_json = _events._recovery_env_json
 KubernetesSpawner.stop_agent_job = _jobs.stop_agent_job
 KubernetesSpawner.remove_agent_job = _jobs.remove_agent_job
 # Module-level (not a class method) so ``remove_agent_job`` reaches it via the
@@ -571,6 +588,7 @@ __all__ = [
     "get_kubernetes_spawner",
     "WORKTREE_BASE_DIR",
     "LABEL_EVENT_DEDUPE",
+    "ENV_WORKTREE_RECOVERY",
     "_PROTECTED_ENV_KEYS",
     "_ROLES_WITHOUT_WORKTREE",
     "ContainerInfo",
@@ -587,6 +605,7 @@ __all__ = [
     "_dedupe_label_value",
     "_job_is_live",
     "_job_is_terminating",
+    "_recovery_env_json",
     "_forwarded_discipline_env",
     "_resolve_live_phase",
     "_resolve_wait_producer_allowlist",
