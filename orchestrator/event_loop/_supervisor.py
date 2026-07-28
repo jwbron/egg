@@ -142,6 +142,33 @@ def record_legitimate_outcome(self, dedupe_key: str, outcome: str) -> None:
     )
 
 
+def record_timeout(
+    self, dedupe_key: str, action: str, role: str, *, exit_detail: str | None = None
+) -> None:
+    """Record a clean agent timeout outcome (#3665 TASK-4-3).
+
+    The agent was killed by the 2-hour ``ClaudeConfig.timeout`` /
+    ``asyncio.timeout`` wrapper (exit code -1 with "Timed out after" in the
+    log). This is NOT a crash — it is a budget exhaustion that the agent
+    could not see coming. Unlike :meth:`record_abort` this leaves the
+    abnormal ``_streaks`` / ``_last_abort_time`` / ``_exhausted`` state
+    ENTIRELY untouched (mirroring :meth:`record_legitimate_outcome`'s "streak
+    untouched" contract) so a timeout can never trip the fail-streak halt.
+
+    The timeout IS recorded in the per-key exit history so operators can see
+    "killed by 2h agent timeout" in the exhaustion report rather than the
+    opaque "exit code -1".
+    """
+    self._record_exit(dedupe_key, "timeout", exit_detail)
+    logger.info(
+        "JobSupervisor: timeout outcome for key=%s (action=%s, role=%s) — "
+        "streak untouched, respawn after backoff",
+        dedupe_key,
+        action,
+        role,
+    )
+
+
 def record_abort(
     self, dedupe_key: str, action: str, role: str, *, exit_detail: str | None = None
 ) -> None:

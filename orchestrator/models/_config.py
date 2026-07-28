@@ -187,6 +187,19 @@ class PipelineConfig(BaseModel):
     agent_idle_timeout_minutes: int = Field(
         default=60, ge=1, description="Timeout for idle agents before termination"
     )
+    agent_timeout_seconds: int = Field(
+        default=7200,
+        ge=60,
+        description=(
+            "Maximum execution time for a single agent invocation in seconds "
+            "(#3665 TASK-4-1). The agent CLI's asyncio.timeout wrapper kills "
+            "the process at this point with exit code -1; the orchestrator "
+            "classifies this as a clean timeout (not a crash) so it does not "
+            "consume the failure-streak budget. The agent receives a heartbeat "
+            "warning at 90 minutes so it can wrap up. Override per-pipeline "
+            "to shorten or extend the budget."
+        ),
+    )
     # Overseer and tripwire configuration
     overseer_enabled: bool = Field(
         default=True, description="Enable the overseer agent for pipeline health monitoring"

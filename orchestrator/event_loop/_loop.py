@@ -31,6 +31,7 @@ from . import (
     JOB_OUTCOME_LEGITIMATE,
     JOB_OUTCOME_RATE_LIMITED,
     JOB_OUTCOME_SUCCESS,
+    JOB_OUTCOME_TIMEOUT,
     SPAWN_ACTIONS,
     EventDecision,
     logger,
@@ -145,6 +146,34 @@ def _observe_jobs(self) -> None:
                 except Exception as exc:  # noqa: BLE001 — reaping is best-effort
                     logger.warning(
                         "event-loop: reap of rate-limited job failed",
+                        pipeline_id=self.pipeline_id,
+                        slice_id=self.slice_id,
+                        dedupe_key=key,
+                        error=str(exc),
+                    )
+            self._live_keys.discard(key)
+        elif outcome == JOB_OUTCOME_TIMEOUT:
+            # #3665 TASK-4-3: a timeout-killed pod (exit code -1 from
+            # asyncio.timeout) is NOT a crash. Route to ``record_timeout`` —
+            # NOT ``record_abort`` — so the abnormal streak is NEVER touched
+            # (AC-C1: a timeout cannot trip the fail-streak halt). The timeout
+            # IS recorded in the per-key exit history so operators can see
+            # "killed by 2h agent timeout" in the exhaustion report.
+            #
+            # Reap the terminated Job and drop the key from the live set
+            # exactly like the abnormal branch, so the next poll re-derives
+            # and respawns once the backoff window elapses; ``_key_meta`` is
+            # kept so the respawn re-labels the same arm.
+            self.supervisor.record_timeout(
+                key, action, role, exit_detail=self._exit_detail(key)
+            )
+            reaper = getattr(self._job_status_view, "reap_terminated", None)
+            if reaper is not None:
+                try:
+                    reaper(key)
+                except Exception as exc:  # noqa: BLE001 — reaping is best-effort
+                    logger.warning(
+                        "event-loop: reap of timed-out job failed",
                         pipeline_id=self.pipeline_id,
                         slice_id=self.slice_id,
                         dedupe_key=key,

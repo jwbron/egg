@@ -41,6 +41,7 @@ class _EventJobStatusView:
         self._ABNORMAL = _event_loop.JOB_OUTCOME_ABNORMAL
         self._FATAL = _event_loop.JOB_OUTCOME_FATAL
         self._RATE_LIMITED = _event_loop.JOB_OUTCOME_RATE_LIMITED
+        self._TIMEOUT = _event_loop.JOB_OUTCOME_TIMEOUT
 
     def outcome_for(self, dedupe_key: str) -> str:
         selector = f"{LABEL_EVENT_DEDUPE}={_pkg._dedupe_label_value(dedupe_key)}"
@@ -67,6 +68,15 @@ class _EventJobStatusView:
             # behaviour — so this can never manufacture a spurious fatal.
             if self._failed_with_auth_fatal(dedupe_key):
                 return self._FATAL
+            # #3665 TASK-4-3: a timeout-killed pod (exit code -1 from
+            # asyncio.timeout in the agent client) is NOT a crash. The agent's
+            # log output contains "Timed out after {timeout} seconds". Classify
+            # it as a clean timeout so it does not consume the failure-streak
+            # budget. Checked AFTER auth-fatal (which uses a different exit
+            # code) and BEFORE rate-limited (which also uses a different exit
+            # code), so neither can mask a timeout.
+            if self._failed_with_timeout(dedupe_key):
+                return self._TIMEOUT
             # #3364 PR C: a TRANSIENT throttle / cap wall (the agent exited
             # EX_RATE_LIMITED) is neither a credential-fatal failure nor an
             # ordinary crash — map it to a distinct rate-limit outcome the
@@ -135,6 +145,65 @@ class _EventJobStatusView:
             return False
         return any(getattr(c, "exit_code", None) == EX_RATE_LIMITED for c in containers)
 
+    def _failed_with_timeout(self, dedupe_key: str) -> bool:
+        """Return True iff the failed event pod was killed by the agent timeout.
+
+        #3665 TASK-4-3: the agent CLI's ``asyncio.timeout`` wrapper kills the
+        process with exit code -1 (not a custom exit code), and the agent's
+        log output contains "Timed out after {timeout} seconds". We detect
+        this by checking the exit code is -1 AND the captured logs contain
+        the timeout signature.
+
+        Mirrors :meth:`_failed_with_auth_fatal` and
+        :meth:`_failed_with_rate_limited` for the timeout path: reads the
+        pod(s) carrying this event's dedupe-key label and checks the exit
+        code and log output. Best-effort: a list error, a missing pod
+        (already GC'd), or an unreadable exit code all return ``False`` so
+        the caller falls back to the ordinary ``abnormal`` classification.
+        """
+        # First check: exit code must be -1 (the asyncio.timeout exit code)
+        try:
+            containers = self._spawner.k8s.list_containers(
+                labels={LABEL_EVENT_DEDUPE: _pkg._dedupe_label_value(dedupe_key)}
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort; fall back to abnormal
+            logger.warning(
+                "Failed to read pod exit code for timeout supervision",
+                dedupe_key=dedupe_key,
+                error=str(exc),
+            )
+            return False
+        if not isinstance(containers, (list, tuple)):
+            return False
+        has_timeout_exit = any(
+            getattr(c, "exit_code", None) == -1 for c in containers
+        )
+        if not has_timeout_exit:
+            return False
+        # Second check: the agent's log output must contain the timeout
+        # signature. Read from the agent_log_store (which persists pod logs
+        # at removal via read_job_log_snapshot).
+        try:
+            from agent_log_store import get_agent_log_store
+
+            store = get_agent_log_store()
+            # The dedupe_key maps to a job_name via the label; we need to
+            # find the job_name for this dedupe_key. Use list_records to
+            # find the matching record.
+            pipeline_id = None
+            for c in containers:
+                pipeline_id = getattr(c, "pipeline_id", None) or pipeline_id
+            if not pipeline_id:
+                return False
+            records = store.list_records(pipeline_id, include_logs=True)
+            for record in records:
+                logs = record.get("logs", "")
+                if logs and "Timed out after" in logs:
+                    return True
+        except Exception:  # noqa: BLE001 — best-effort; fall back to abnormal
+            pass
+        return False
+
     def exit_detail_for(self, dedupe_key: str) -> str | None:
         """Return a short operator-facing exit description for a dead pod (#3496).
 
@@ -164,6 +233,9 @@ class _EventJobStatusView:
         )
         if not codes:
             return None
+        # #3665 TASK-5-3: name the timeout explicitly in the exit detail.
+        if self._failed_with_timeout(dedupe_key):
+            return "killed by 2h agent timeout (exit_code=-1)"
         return "exit_code=" + ",".join(str(code) for code in codes)
 
     def reap_terminated(self, dedupe_key: str) -> int:
