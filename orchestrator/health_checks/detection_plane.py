@@ -431,14 +431,13 @@ def _register_coverage_gap_detectors(plane: DetectionPlane) -> None:
         detect_brc_thrash,
         detect_incomplete_consensus_deferral,
     )
+    from health_checks.tier1.consensus_stall import detect_heartbeat_stall
     from health_checks.tier1.container_k8s import (
         detect_container_death,
         detect_container_oom_evicted,
         detect_container_restart_loop,
         detect_overseer_self_injection,
     )
-    from health_checks.tier1.consensus_stall import detect_heartbeat_stall
-    from health_checks.tier1.loop_detection import detect_tool_input_loop
     from health_checks.tier1.cost_budget import detect_cost_anomaly
     from health_checks.tier1.decision_queue import (
         detect_approved_decision_orphaned,
@@ -456,6 +455,7 @@ def _register_coverage_gap_detectors(plane: DetectionPlane) -> None:
         detect_effective_model_drift,
         detect_llm_substrate_unreachable,
     )
+    from health_checks.tier1.loop_detection import detect_tool_input_loop
     from health_checks.tier1.runtime_liveness import (
         detect_agent_restart_propagation,
         detect_duration_drift,
@@ -555,7 +555,6 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
         "awaiting_spawn": getattr(context, "awaiting_spawn", None),
     }
 
-    live_ids = getattr(context, "live_container_ids", None) or set()
     running_agents = _build_running_agents(context, pipeline, pipeline_id, phase_value, lifecycle_owner)
 
     return EventStreamSnapshot(
@@ -621,7 +620,7 @@ def _build_runtime_section(pipeline_id: str) -> dict[str, Any]:
     can read the ages from the snapshot rather than calling the module directly.
     """
     try:
-        from driver_heartbeat import tick_age_seconds, spawn_age_seconds
+        from driver_heartbeat import spawn_age_seconds, tick_age_seconds
 
         return {
             "tick_age_s": tick_age_seconds(pipeline_id),
@@ -757,7 +756,7 @@ def _parse_tool_calls_from_logs(
         input_text = extra.get("input", "")
         # Hash the full (tool_name, input) pair — no truncation
         input_hash = hashlib.sha256(
-            f"{tool_name}:{input_text}".encode("utf-8")
+            f"{tool_name}:{input_text}".encode()
         ).hexdigest()
         records.append(
             {
@@ -798,7 +797,6 @@ def _build_running_agents(
 
     # Build a lookup from container_id to agent role using the pipeline model.
     role_by_container: dict[str, str] = {}
-    age_by_container: dict[str, dict[str, float]] = {}
     try:
         phases = getattr(pipeline, "phases", {}) or {}
         phase_exec = phases.get(phase_value)

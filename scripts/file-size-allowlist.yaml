@@ -69,3 +69,7 @@ files:
   sandbox/egg_lib/orch_cli/_parser.py:
     issue: '3678'
     note: The orch-CLI argument-parser table.
+  # 1156 code lines of 1412 raw, 65KB.
+  orchestrator/kubernetes_monitor.py:
+    issue: '3665'
+    note: Kubernetes pod monitoring + RUNTIME_TICK health-check dispatch + detection plane wiring + timeout classification (#3665 slice-2/4).
