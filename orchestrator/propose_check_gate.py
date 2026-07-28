@@ -63,7 +63,14 @@ then visibly narrow rather than silently incomplete.
 **This codebase cannot declare one** (#3681). ``repositories.yaml`` is
 operator-owned config living outside the repo
 (``~/.config/egg/repositories.yaml``); ``config/repositories.yaml.example``
-shows the declaration but is a template, not a live config. Until an
+shows the declaration but is a template, not a live config.
+``config.repo_config._get_config_path`` does list a third, in-tree
+fallback (``~/repos/egg/config/repositories.yaml``), but the deployed
+orchestrator never reaches it: ``k8s/base/orchestrator-deployment.yaml``
+pins ``EGG_REPO_CONFIG=/etc/egg-config/repositories.yaml``, an
+``items``-projection of the ``gateway-secrets`` Secret built from the
+operator's host config, and the env override wins over both fallbacks.
+So the file this gate reads is one no commit here can change. Until an
 operator adds it, egg's own ``test`` check resolves to ``make test``:
 the narrowed form this gate was written to avoid. As shipped at the time
 of writing, no repo declared one. The gate cannot detect that a bare
@@ -322,30 +329,36 @@ def gate_checks(repo: str) -> list[dict[str, str]]:
     skip = {name.strip().lower() for name in raw_skip.split(",") if name.strip()}
 
     resolved: list[dict[str, str]] = []
+    undeclared: list[dict[str, str]] = []
     for check in configured:
         if check["name"].strip().lower() in skip:
             continue
         full = check.get("full_command")
-        resolved.append(
-            {
-                "name": check["name"],
-                "command": full or check["command"],
-                # "narrowed" is about *evidence quality*, not about the
-                # command's content: the gate cannot know whether a repo's
-                # ``command`` narrows, only whether the repo declared a
-                # ground-truth form it could have run instead. Recording
-                # the honest answer is the point — see the module
-                # docstring's "Narrowed runs are not evidence".
-                "narrowed": "false" if full else "unknown",
-            }
-        )
+        entry = {
+            "name": check["name"],
+            "command": full or check["command"],
+            # "narrowed" is about *evidence quality*, not about the
+            # command's content: the gate cannot know whether a repo's
+            # ``command`` narrows, only whether the repo declared a
+            # ground-truth form it could have run instead. Recording
+            # the honest answer is the point — see the module
+            # docstring's "Narrowed runs are not evidence".
+            "narrowed": "false" if full else "unknown",
+        }
+        resolved.append(entry)
+        if not full:
+            # Collected on the same falsiness that decides the flag,
+            # rather than re-derived from the stringified flag below, so
+            # the two cannot drift.
+            undeclared.append(entry)
 
     # Make the gap audible (#3681). Without this, the only trace that the
     # gate ran a possibly-narrowed command is a ``narrowed: "unknown"``
     # buried in the accepted proposal's attestation, which is how egg's
     # own ``test`` check ran ``make test`` unnoticed through the #3595
-    # assessment runs. One line per gated tree, naming the checks.
-    undeclared = [c for c in resolved if c["narrowed"] == "unknown"]
+    # assessment runs. One line per gate evaluation, naming the checks —
+    # roughly twice per proposed tree, since a deferred propose re-enters
+    # ``gate_checks`` when the producer re-proposes on the verdict.
     if undeclared:
         logger.warning(
             "Propose check gate: no full_command declared; running the "
