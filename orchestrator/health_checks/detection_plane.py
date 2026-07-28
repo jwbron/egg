@@ -438,6 +438,7 @@ def _register_coverage_gap_detectors(plane: DetectionPlane) -> None:
         detect_overseer_self_injection,
     )
     from health_checks.tier1.consensus_stall import detect_heartbeat_stall
+    from health_checks.tier1.loop_detection import detect_tool_input_loop
     from health_checks.tier1.cost_budget import detect_cost_anomaly
     from health_checks.tier1.decision_queue import (
         detect_approved_decision_orphaned,
@@ -498,6 +499,10 @@ def _register_coverage_gap_detectors(plane: DetectionPlane) -> None:
         # double-fire guard (TASK-2-2) can check whether ConsensusStallCheck
         # has already reported for this snapshot before firing.
         detect_heartbeat_stall,
+        # detect_tool_input_loop is the #3665 slice-3 primary deliverable:
+        # a deterministic detector for repetition loops that fires when an
+        # agent produces zero new tool inputs over a trailing window.
+        detect_tool_input_loop,
     )
 
     existing = set(plane.detectors)
