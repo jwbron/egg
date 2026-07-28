@@ -90,7 +90,7 @@
           "id": "task-1-4",
           "description": "Populate container_transitions from kubernetes_monitor pod-state log.\nWire KubernetesMonitor._pod_states into the snapshot. This activates\ndetect_container_death(), detect_container_oom_evicted(),\ndetect_container_restart_loop(), detect_overseer_self_injection().",
           "status": "pending",
-          "commit": null,
+          "commit": "f0d766673",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- snapshot.container_transitions contains pod state transitions\n- container death/oom/restart detectors fire on real transitions",
@@ -910,6 +910,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-28T01:41:51.556963Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.3.commit",
+      "old_value": null,
+      "new_value": "f0d766673",
+      "reason": "Linked commit f0d7666 to task-1-4",
       "checkpoint_id": null
     }
   ],
