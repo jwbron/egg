@@ -30,6 +30,7 @@ pipelines can be tracked independently.
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from collections import deque
 from pathlib import Path
@@ -93,6 +94,11 @@ class ToolInputLoopTracker:
         self._per_pipeline: dict[str, deque[tuple[float, set[str]]]] = {}
         # pipeline_id -> set of all hashes ever seen
         self._seen: dict[str, set[str]] = {}
+        # CRITICAL (reviewer_concurrency): protect mutable state from concurrent
+        # observe() calls. The detection plane runs on the event loop, but the
+        # tracker is a module-level singleton that can be accessed from multiple
+        # threads (e.g. during orchestrator restart or test parallelism).
+        self._lock = threading.Lock()
 
     def observe(
         self, pipeline_id: str, current_hashes: set[str]
@@ -102,33 +108,39 @@ class ToolInputLoopTracker:
         Returns ``(is_looping, zero_count)`` where ``is_looping`` is True when
         the trailing ``window`` polls have all produced zero new inputs, and
         ``zero_count`` is the current consecutive zero-new-input count.
+
+        Thread-safe: acquires ``self._lock`` to prevent concurrent
+        ``observe()`` calls from computing ``new_hashes`` from stale ``seen``
+        state and losing updates.
         """
-        seen = self._seen.setdefault(pipeline_id, set())
-        new_hashes = current_hashes - seen
-        seen.update(current_hashes)
+        with self._lock:
+            seen = self._seen.setdefault(pipeline_id, set())
+            new_hashes = current_hashes - seen
+            seen.update(current_hashes)
 
-        history = self._per_pipeline.setdefault(pipeline_id, deque(maxlen=self._history_max))
-        history.append((time.monotonic(), new_hashes))
+            history = self._per_pipeline.setdefault(pipeline_id, deque(maxlen=self._history_max))
+            history.append((time.monotonic(), new_hashes))
 
-        # Count consecutive trailing polls with zero new inputs.
-        zero_count = 0
-        for _ts, hashes in reversed(history):
-            if not hashes:
-                zero_count += 1
-            else:
-                break
+            # Count consecutive trailing polls with zero new inputs.
+            zero_count = 0
+            for _ts, hashes in reversed(history):
+                if not hashes:
+                    zero_count += 1
+                else:
+                    break
 
-        is_looping = zero_count >= self._window
-        return is_looping, zero_count
+            is_looping = zero_count >= self._window
+            return is_looping, zero_count
 
     def reset(self, pipeline_id: str | None = None) -> None:
         """Clear tracking state for one pipeline or all."""
-        if pipeline_id is None:
-            self._per_pipeline.clear()
-            self._seen.clear()
-        else:
-            self._per_pipeline.pop(pipeline_id, None)
-            self._seen.pop(pipeline_id, None)
+        with self._lock:
+            if pipeline_id is None:
+                self._per_pipeline.clear()
+                self._seen.clear()
+            else:
+                self._per_pipeline.pop(pipeline_id, None)
+                self._seen.pop(pipeline_id, None)
 
 
 # Module-level singleton tracker. The DetectionPlane holds one instance

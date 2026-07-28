@@ -1119,11 +1119,14 @@ class KubernetesMonitor:
 
         # Double-evaluation guard: skip if we already ran the plane for this
         # pipeline within the last 5 seconds (the poll interval).
+        # CRITICAL (reviewer_concurrency): acquire self._lock to prevent a
+        # TOCTOU race between _check_pod and _reconciliation_sweep threads.
         now = time.monotonic()
-        last = self._detection_plane_last_tick.get(pipeline_id)
-        if last is not None and now - last < 5.0:
-            return
-        self._detection_plane_last_tick[pipeline_id] = now
+        with self._lock:
+            last = self._detection_plane_last_tick.get(pipeline_id)
+            if last is not None and now - last < 5.0:
+                return
+            self._detection_plane_last_tick[pipeline_id] = now
 
         # TASK-2-2: consensus-stall double-fire guard. ConsensusStallCheck
         # (registered, runs every tick via HealthCheckRunner) and the

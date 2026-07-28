@@ -12,6 +12,7 @@ These tests use lightweight stubs rather than the full orchestrator stack.
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -101,11 +102,15 @@ class TestDetectionPlaneInvocation:
         # Create a monitor with a mock runner
         from kubernetes_monitor import KubernetesMonitor
 
+        import threading
+
         monitor = KubernetesMonitor.__new__(KubernetesMonitor)
         monitor._health_check_runner = MagicMock()
         monitor._detection_plane_last_tick = {}
         monitor._reconciliation_stores = []
         monitor.k8s_client = MagicMock()
+        monitor._lock = threading.Lock()
+        monitor._lock = threading.Lock()
 
         # Mock the runner.run_detection_plane to return findings
         mock_finding = MagicMock()
@@ -151,6 +156,7 @@ class TestDetectionPlaneInvocation:
         monitor._detection_plane_last_tick = {}
         monitor._reconciliation_stores = []
         monitor.k8s_client = MagicMock()
+        monitor._lock = threading.Lock()
 
         # Should not raise
         monitor._run_detection_plane_for_pipeline(ctx, pipeline, store, "issue-3665")
@@ -179,6 +185,7 @@ class TestDoubleEvaluationGuard:
         monitor._detection_plane_last_tick = {}
         monitor._reconciliation_stores = []
         monitor.k8s_client = MagicMock()
+        monitor._lock = threading.Lock()
 
         fake_snapshot = EventStreamSnapshot(snapshot_id="test:implement")
 
@@ -215,6 +222,7 @@ class TestDoubleEvaluationGuard:
         monitor._detection_plane_last_tick = {}
         monitor._reconciliation_stores = []
         monitor.k8s_client = MagicMock()
+        monitor._lock = threading.Lock()
 
         fake_snapshot = EventStreamSnapshot(snapshot_id="test:implement")
 
@@ -269,6 +277,7 @@ class TestConsensusStallDoubleFireGuard:
         monitor._detection_plane_last_tick = {}
         monitor._reconciliation_stores = []
         monitor.k8s_client = MagicMock()
+        monitor._lock = threading.Lock()
 
         # Create a heartbeat_stall finding
         hb_finding = Finding(
@@ -354,6 +363,7 @@ class TestConsensusStallDoubleFireGuard:
         monitor._detection_plane_last_tick = {}
         monitor._reconciliation_stores = []
         monitor.k8s_client = MagicMock()
+        monitor._lock = threading.Lock()
 
         hb_finding = Finding(
             finding_class=FindingClass.HEARTBEAT_STALL,
@@ -425,6 +435,7 @@ class TestFindingRouting:
         monitor._detection_plane_last_tick = {}
         monitor._reconciliation_stores = []
         monitor.k8s_client = MagicMock()
+        monitor._lock = threading.Lock()
 
         routine_finding = Finding(
             finding_class=FindingClass.CONTAINER_DEATH,
@@ -474,6 +485,7 @@ class TestFindingRouting:
         monitor._detection_plane_last_tick = {}
         monitor._reconciliation_stores = []
         monitor.k8s_client = MagicMock()
+        monitor._lock = threading.Lock()
 
         adjudication_finding = Finding(
             finding_class=FindingClass.PHASE_STALL,

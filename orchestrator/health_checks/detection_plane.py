@@ -666,7 +666,15 @@ def _build_container_transitions(
         monitor = get_kubernetes_monitor()
         if monitor is None:
             return ()
-        pod_states = getattr(monitor, "_pod_states", None)
+        # HIGH (reviewer_concurrency): acquire the monitor's lock to prevent
+        # RuntimeError: dictionary changed size during iteration when
+        # _check_pod or _check_all_pods mutates _pod_states concurrently.
+        monitor_lock = getattr(monitor, "_lock", None)
+        if monitor_lock is not None:
+            with monitor_lock:
+                pod_states = dict(getattr(monitor, "_pod_states", None) or {})
+        else:
+            pod_states = dict(getattr(monitor, "_pod_states", None) or {})
         if not pod_states:
             return ()
         # Build transition records from the live pod-state map. Each record
@@ -823,14 +831,30 @@ def _build_running_agents(
         last_heartbeat_age: float | None = None
         if health_monitor is not None:
             try:
-                agent_state = getattr(health_monitor, "_agents", {}).get(role)
-                if agent_state is not None:
-                    last_hb = getattr(agent_state, "last_heartbeat", None)
-                    last_progress = getattr(agent_state, "last_progress", None)
-                    if last_hb is not None:
-                        last_heartbeat_age = max(0.0, now - float(last_hb))
-                    if last_progress is not None:
-                        last_tool_call_age = max(0.0, now - float(last_progress))
+                # HIGH (reviewer_concurrency): acquire the health monitor's lock
+                # to prevent a data race on _agents, which is mutated under
+                # that lock by the health monitor's event handlers.
+                monitor_lock = getattr(health_monitor, "_lock", None)
+                if monitor_lock is not None:
+                    with monitor_lock:
+                        agent_state = getattr(health_monitor, "_agents", {}).get(role)
+                        if agent_state is not None:
+                            last_hb = getattr(agent_state, "last_heartbeat", None)
+                            last_progress = getattr(agent_state, "last_progress", None)
+                            if last_hb is not None:
+                                last_heartbeat_age = max(0.0, now - float(last_hb))
+                            if last_progress is not None:
+                                last_tool_call_age = max(0.0, now - float(last_progress))
+                else:
+                    # No lock available — fall back to lockless read (defensive)
+                    agent_state = getattr(health_monitor, "_agents", {}).get(role)
+                    if agent_state is not None:
+                        last_hb = getattr(agent_state, "last_heartbeat", None)
+                        last_progress = getattr(agent_state, "last_progress", None)
+                        if last_hb is not None:
+                            last_heartbeat_age = max(0.0, now - float(last_hb))
+                        if last_progress is not None:
+                            last_tool_call_age = max(0.0, now - float(last_progress))
             except Exception:  # noqa: BLE001 — defensive
                 pass
 
