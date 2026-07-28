@@ -1396,11 +1396,14 @@ class KubernetesMonitor:
 
             # Guard against double-evaluation: only escalate if we haven't
             # already done so for this pipeline in the current tick.
+            # Access _detection_plane_last_tick under self._lock to avoid
+            # the TOCTOU race (#3665 reviewer_code NACK).
             now = time.monotonic()
-            last_escalation = self._detection_plane_last_tick.get(f"escalate:{pipeline_id}")
-            if last_escalation is not None and now - last_escalation < 5.0:
-                return
-            self._detection_plane_last_tick[f"escalate:{pipeline_id}"] = now
+            with self._lock:
+                last_escalation = self._detection_plane_last_tick.get(f"escalate:{pipeline_id}")
+                if last_escalation is not None and now - last_escalation < 5.0:
+                    return
+                self._detection_plane_last_tick[f"escalate:{pipeline_id}"] = now
 
             _run_overseer_detection_plane(
                 snapshot,

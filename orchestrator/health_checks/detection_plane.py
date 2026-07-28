@@ -828,7 +828,7 @@ def _parse_tool_calls_from_logs(
                 tool_name = extra.get("tool_name", "")
                 input_text = extra.get("input", "")
                 input_hash = hashlib.sha256(
-                    f"{tool_name}:{input_text}".encode("utf-8")
+                    f"{tool_name}:{input_text}".encode()
                 ).hexdigest()
                 records.append(
                     {
@@ -855,7 +855,7 @@ def _parse_tool_calls_from_logs(
             input_match = re.search(r'input="([^"]*)"', line)
             input_text = input_match.group(1) if input_match else ""
             input_hash = hashlib.sha256(
-                f"{tool_name}:{input_text}".encode("utf-8")
+                f"{tool_name}:{input_text}".encode()
             ).hexdigest()
             records.append(
                 {
