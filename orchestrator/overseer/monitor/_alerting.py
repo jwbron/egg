@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from typing import Any
 
 from . import logger
 
@@ -54,7 +55,13 @@ def _cleanup_infra_error_dedup(self) -> None:
 
 
 async def _broadcast_alert(
-    self, anomaly_type: str, agent_role: str, message: str, priority: str = "medium"
+    self,
+    anomaly_type: str,
+    agent_role: str,
+    message: str,
+    priority: str = "medium",
+    *,
+    evidence: dict[str, Any] | None = None,
 ) -> None:
     """Broadcast an anomaly alert to all agents and the operator.
 
@@ -67,8 +74,21 @@ async def _broadcast_alert(
         agent_role: The agent (or component) the anomaly relates to.
         message: Human-readable description of the anomaly.
         priority: Alert priority (low/medium/high/critical).
+        evidence: Structured evidence (container logs, BRC state, tracker
+            evaluation) so the operator can diagnose without grepping
+            (#3665 TASK-5-1). Optional — when absent, the alert body is
+            the only evidence.
     """
     subject = f"{anomaly_type}: {agent_role} [{priority}]"
+    # Enrich the body with evidence so the alert is self-describing (#3665
+    # TASK-5-1). The operator should not need to grep logs to understand
+    # why the alert fired.
+    body = message
+    if evidence:
+        import json
+
+        evidence_str = json.dumps(evidence, default=str, indent=2)
+        body = f"{message}\n\nEvidence:\n{evidence_str}"
     try:
         await self._run_cli(
             "egg-orch",
@@ -84,7 +104,7 @@ async def _broadcast_alert(
             "--subject",
             subject,
             "--body",
-            message,
+            body,
         )
     except Exception:
         logger.debug("Failed to broadcast alert for %s", agent_role, exc_info=True)
