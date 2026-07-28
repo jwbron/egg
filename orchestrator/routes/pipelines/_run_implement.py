@@ -350,12 +350,31 @@ def _run_implement_phase_slices(
     #       action; the scheduler will re-yield the slice as READY and
     #       the run loop spawns fresh agents.
     #   (2) IN_PROGRESS, commits on integration branch, consensus
-    #       NOT reached → call ``scheduler.mark_spawned`` so the run
-    #       loop does NOT respawn. Per-slice tracker reconstruction
-    #       is handled at orchestrator boot by
-    #       startup_reconciliation.py (slice-4 TASK-4-5); the
-    #       producer pods (if alive) or the lazy spawn-on-need path
-    #       carry the slice forward.
+    #       NOT reached → reap any orphaned Jobs and take no scheduler
+    #       action, so the slice re-yields READY and the run loop
+    #       re-drives it (#3685). This branch used to call
+    #       ``scheduler.mark_spawned`` on the theory that "the producer
+    #       pods (if alive) or the lazy spawn-on-need path carry the
+    #       slice forward". Neither exists: post-#3164 the ONLY thing
+    #       that dispatches work for a slice is the orchestrator-owned
+    #       BRC event loop, which ``spawn_all`` starts and which died
+    #       with the previous process; and the ONLY caller of
+    #       ``scheduler.record_complete`` for a running slice is
+    #       ``_run_one_slice``. So ``mark_spawned`` here parked the
+    #       slice in scheduler-RUNNING with no dispatcher and no
+    #       completer: ``iter_ready`` never re-yields it, it holds a
+    #       ``max_parallel_slices`` slot, ``all_done()`` never turns
+    #       true, and the pipeline reports ``running`` with zero pods
+    #       forever. Re-driving is cheap and is what "resume" already
+    #       means post-#3164: ``spawn_all`` spawns no agents up front,
+    #       it starts the event loop, and the loop's one-shot Jobs pick
+    #       the slice up where its branch left off (the integration
+    #       branch resumes in place via ``integration_base_sha``,
+    #       #2947). The per-slice tracker reconstructed at boot
+    #       (slice-4 TASK-4-5) is superseded by the fresh one
+    #       ``spawn_all`` registers, so the slice replays one BRC round
+    #       against commits already on its branch rather than making no
+    #       progress at all.
     #   (3) IN_PROGRESS, commits on integration branch, consensus
     #       REACHED, slice PR NOT opened → mark COMPLETE so the
     #       slice-PR opener path (with TASK-3-2 idempotency
@@ -367,11 +386,10 @@ def _run_implement_phase_slices(
     #   (5) Unknown / corrupt state (impossible status enum value)
     #       → surface an OVERSEER_ALERT instead of silently
     #       re-yielding as READY.
-    bootstrap_resumed: list[str] = []
     bootstrap_consensus_complete: list[str] = []
     bootstrap_blocked: list[str] = []
     bootstrap_corrupt: list[str] = []
-    bootstrap_reclassified_fresh: list[str] = []  # resume-but-dead → fresh (#2914)
+    bootstrap_redriven: list[str] = []  # resume-classified → re-driven (#3685)
     layer_b_marked_complete = set(bootstrap_merged)
     for s in layer_b_candidates:
         if s.id in layer_b_marked_complete:
@@ -386,6 +404,26 @@ def _run_implement_phase_slices(
             gateway_mode=gateway_mode,
             consensus_tracker_lookup=_pkg._lookup_peer_consensus_tracker_or_none,
         )
+        if classification in ("resume", "fresh"):
+            # Reap BEFORE the branch switch, not inside one of its arms
+            # (#3685). Cases 1 ("fresh") and 2 ("resume") both leave the
+            # slice READY, so the run loop admits it and ``spawn_all``
+            # attaches a fresh cohort to the per-role worktrees — and
+            # the only thing separating the two classifications is
+            # whether commits reached the integration branch on origin,
+            # which is orthogonal to whether an agent Job is still live.
+            # An orchestrator recycle before the slice's first push, or
+            # a transient gateway probe failure (which
+            # ``_classify_non_complete_slice`` deliberately defaults to
+            # "fresh"), both yield "fresh" with the orphan still
+            # Running. Wiring the reap to "resume" alone would leave the
+            # #3337 two-live-pods race wide open on exactly those paths,
+            # and nothing downstream covers it —
+            # ``_reap_superseded_siblings`` documents that it cannot
+            # match keys adopted across a restart. Classification
+            # decides what prompt the re-driven cohort gets; it must
+            # never decide whether orphan teardown happens.
+            _pkg._reap_orphaned_slice_jobs(spawner, pipeline_id, s.id)
         if classification == "consensus_complete":
             # Case 3 — louder than fresh-spawn but quieter than
             # case-4/5 HITL. A warning here makes the non-trivial
@@ -404,21 +442,12 @@ def _run_implement_phase_slices(
             bootstrap_consensus_complete.append(s.id)
             continue
         if classification == "resume":
-            # Verify agents are actually live before marking as spawned (#2914).
-            # On restart_phase, agents were torn down but contract still shows
-            # IN_PROGRESS with commits — we must not mark_spawned when cohort
-            # is absent, or the pipeline wedges with no agents running.
-            if _pkg._slice_agents_alive(spawner, pipeline_id, s.id):
-                scheduler.mark_spawned(s.id)
-                bootstrap_resumed.append(s.id)
-            else:
-                _pkg.logger.warning(
-                    "Layer-C resume classification but no live agents; "
-                    "treating as fresh to force re-spawn (#2914)",
-                    pipeline_id=pipeline_id,
-                    slice_id=s.id,
-                )
-                bootstrap_reclassified_fresh.append(s.id)
+            # Case 2: re-drive (#3685, supersedes the #2914 liveness
+            # guard). No scheduler call: leaving the slice READY is
+            # what makes the run loop admit it, which is the only path
+            # that starts its BRC event loop and can ever complete it.
+            # The orphan reap already ran above.
+            bootstrap_redriven.append(s.id)
             continue
         if classification == "blocked":
             bootstrap_blocked.append(s.id)
@@ -426,7 +455,8 @@ def _run_implement_phase_slices(
         if classification == "corrupt":
             bootstrap_corrupt.append(s.id)
             continue
-        # "fresh" → no Layer-C action, scheduler re-yields READY.
+        # "fresh" → no scheduler action beyond the reap above; the
+        # scheduler re-yields the slice as READY.
 
     # The bootstrap passes above persist with ``commit_to_branch=False``
     # — one batched commit+push here covers every reconciled slice
@@ -444,13 +474,7 @@ def _run_implement_phase_slices(
             already_complete_on_contract=bootstrap_complete,
             detected_merged_on_origin=bootstrap_merged,
         )
-    if (
-        bootstrap_resumed
-        or bootstrap_consensus_complete
-        or bootstrap_blocked
-        or bootstrap_corrupt
-        or bootstrap_reclassified_fresh
-    ):
+    if bootstrap_consensus_complete or bootstrap_blocked or bootstrap_corrupt or bootstrap_redriven:
         # NOTE: include ``bootstrap_blocked`` in the gate (reviewer_code
         # v3 NACK fix) — a bootstrap pass whose only Layer-C activity is
         # BLOCKED slices was previously suppressing the audit-trail line
@@ -458,19 +482,22 @@ def _run_implement_phase_slices(
         # the structured "we saw a blocked slice" log to spot
         # pending-HITL backlogs without grepping for the side-effect.
         #
-        # Also include ``bootstrap_reclassified_fresh`` (#2914) — resume-
-        # classified slices that were re-verified against k8s and found
-        # to have no live agents. Surfacing the reclassification here
-        # gives operators a structured audit trail for the
-        # ``restart_phase``-recovery path.
+        # ``redriven`` replaces the old ``resumed`` / ``reclassified_fresh``
+        # pair (#3685). The distinction those two drew (mark-spawned vs
+        # re-yielded) no longer exists: mark-spawning a slice at bootstrap
+        # could never make progress, so every case-2 slice now takes the
+        # re-drive path. Operators should read ``redriven`` as "these
+        # slices will be admitted again on a following tick"; a slice id
+        # here that never shows up in a subsequent spawn is a real
+        # anomaly, whereas the old ``resumed`` was indistinguishable
+        # from a wedge.
         _pkg.logger.info(
             "Slice bootstrap reconciliation classified non-COMPLETE slices (slice-4 TASK-4-4)",
             pipeline_id=pipeline_id,
-            resumed=bootstrap_resumed,
+            redriven=bootstrap_redriven,
             consensus_complete_unrecorded=bootstrap_consensus_complete,
             blocked=bootstrap_blocked,
             corrupt=bootstrap_corrupt,
-            reclassified_fresh=bootstrap_reclassified_fresh,
         )
     # Case 5 — escalate via HITL so the pipeline pauses until the
     # operator picks an option (reviewer_contract / reviewer_code v1
