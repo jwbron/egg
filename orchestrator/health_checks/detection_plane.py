@@ -923,23 +923,25 @@ def _build_running_agents(
         if health_monitor is not None:
             try:
                 # Acquire the health monitor's lock to avoid data races on
-                # _agents (which is mutated under that lock) (#3665
-                # reviewer_concurrency NACK).
+                # _agents and AgentState fields (which are mutated under that
+                # lock) (#3665 reviewer_concurrency NACK). The lock must
+                # cover BOTH the dict lookup AND the attribute reads, since
+                # HealthMonitor mutates AgentState fields under the same lock.
                 lock = getattr(health_monitor, "_lock", None)
                 if lock is not None:
                     lock.acquire()
                 try:
                     agent_state = getattr(health_monitor, "_agents", {}).get(role)
+                    if agent_state is not None:
+                        last_hb = getattr(agent_state, "last_heartbeat", None)
+                        last_progress = getattr(agent_state, "last_progress", None)
+                        if last_hb is not None:
+                            last_heartbeat_age = max(0.0, now - float(last_hb))
+                        if last_progress is not None:
+                            last_tool_call_age = max(0.0, now - float(last_progress))
                 finally:
                     if lock is not None:
                         lock.release()
-                if agent_state is not None:
-                    last_hb = getattr(agent_state, "last_heartbeat", None)
-                    last_progress = getattr(agent_state, "last_progress", None)
-                    if last_hb is not None:
-                        last_heartbeat_age = max(0.0, now - float(last_hb))
-                    if last_progress is not None:
-                        last_tool_call_age = max(0.0, now - float(last_progress))
             except Exception:  # noqa: BLE001 — defensive
                 pass
 
