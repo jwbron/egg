@@ -628,6 +628,12 @@ class JobSupervisor:
         # ``record_session_timeout`` itself calls ``record_abort`` once the
         # budget is spent, and a counter that reset there could never exhaust.
         self._session_timeout_count: dict[str, int] = {}
+        # #3658 — once-per-key sticky latch for the budget-consumed alert fired
+        # on the LAST free boundary, so the operator hears about an arm that is
+        # one expiry away from being handed to the fail-streak path. Same
+        # lifecycle as the counter above (cleared by ``record_success`` /
+        # ``retire`` / ``reconcile``), mirroring ``_alerted_rate_limit``.
+        self._alerted_session_timeout: dict[str, bool] = {}
 
     # ------------------------------------------------------------------
     #  Public API (used by the orchestrator loop)
@@ -674,6 +680,7 @@ class JobSupervisor:
     # ------------------------------------------------------------------
 
     _emit_alert = _supervisor._emit_alert
+    _emit_session_timeout_alert = _supervisor._emit_session_timeout_alert
     _emit_noop_alert = _supervisor._emit_noop_alert
     _emit_fatal_alert = _supervisor._emit_fatal_alert
 

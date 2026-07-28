@@ -17,6 +17,21 @@ from kubernetes_spawner import (
 from models import LIVE_POD_STATUSES, AgentRole, ContainerInfo, ContainerStatus
 
 
+def _terminated_at(container: Any) -> Any:
+    """Return a pod's termination timestamp for ordering, or ``None``.
+
+    ``exited_at`` is the exact answer; ``started_at`` is the tie-break for a pod
+    whose exit time never made it into ``ContainerInfo`` (a k8s status the
+    adapter read before the terminated state was populated). A pod with neither
+    is unorderable and is reported as such, so the caller can decline to rank.
+    """
+    for attr in ("exited_at", "started_at"):
+        value = getattr(container, attr, None)
+        if value is not None:
+            return value
+    return None
+
+
 class _EventJobStatusView:
     """Maps a one-shot event Job's k8s status onto the loop's outcome vocabulary.
 
@@ -96,13 +111,25 @@ class _EventJobStatusView:
         return self._RUNNING
 
     def _terminated_exit_codes(self, dedupe_key: str) -> frozenset[int]:
-        """Return the exit codes of the terminated pod(s) for this event.
+        """Return the exit codes of the NEWEST terminated pod for this event.
 
         One read serving every exit-code classification :meth:`outcome_for`
         makes. This used to be a predicate per code, each doing its own
         ``list_containers`` — three API calls to answer three questions about one
         pod. Whether the answers agree is not in doubt; they come from the same
         object.
+
+        The dedupe-key label is respawn-stable, so this selector can match a
+        lingering *earlier* attempt's pod as well as the one that just died.
+        Unioning across them lets a stale code outrank the current attempt's, and
+        the two directions are not symmetric: contamination by 77 fails closed
+        (the arm halts loudly and an operator sees it), while contamination by
+        124 would fail OPEN — a free boundary granted for a crash, with the
+        failure streak suppressed and nothing emitted. So the set is narrowed to
+        the newest terminated attempt, ordered by the pod's exit time (falling
+        back to its start time). Only when NO pod carries a usable timestamp does
+        this fall back to the union, which is the pre-#3658 shape and no worse
+        than it.
 
         Best-effort in every direction: a list error, a missing pod (already
         GC'd), or an unreadable exit code all yield an empty set, so every
@@ -122,9 +149,20 @@ class _EventJobStatusView:
             return frozenset()
         if not isinstance(containers, (list, tuple)):
             return frozenset()
-        return frozenset(
-            code for c in containers if (code := getattr(c, "exit_code", None)) is not None
-        )
+        terminated = [c for c in containers if getattr(c, "exit_code", None) is not None]
+        if not terminated:
+            return frozenset()
+        stamped = [(stamp, c) for c in terminated if (stamp := _terminated_at(c)) is not None]
+        if stamped:
+            try:
+                newest = max(stamped, key=lambda pair: pair[0])[1]
+            except TypeError:
+                # Naive and aware datetimes are not orderable against each
+                # other. Falling back to the union is honest; picking an
+                # arbitrary one would not be.
+                return frozenset(c.exit_code for c in terminated)
+            return frozenset({newest.exit_code})
+        return frozenset(c.exit_code for c in terminated)
 
     def exit_detail_for(self, dedupe_key: str) -> str | None:
         """Return a short operator-facing exit description for a dead pod (#3496).

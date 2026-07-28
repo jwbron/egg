@@ -24,6 +24,12 @@ relies on for its prompt-cache hit (``evidence_gatherer``, #3523 S7) and destroy
 it. As a suffix it cannot invalidate any prefix, and the deadline lands in the
 recency position where an operational constraint reads best anyway.
 
+The instant is **absolute** for a second reason beyond staleness: a warm resume
+accumulates one banner per one-shot invocation, so the transcript ends up holding
+several. A stack of "1800s remaining" figures is a stack of contradictions with
+no way to tell which is current; a stack of UTC instants is self-ordering, and
+every superseded one is visibly in the past next to ``date -u``.
+
 ``EGG_SESSION_DEADLINE_BANNER=false`` disables the prompt section (the env
 export is inert and stays); the rollback restores a byte-identical prompt.
 """
@@ -77,6 +83,23 @@ def export_deadline_env(timeout_seconds: int, started_at: float) -> None:
     os.environ[DEADLINE_EPOCH_ENV] = str(int(started_at + timeout_seconds))
 
 
+def _is_event_pump_session() -> bool:
+    """Return True iff this invocation is a BRC event-pump one-shot.
+
+    The two continuation promises the banner can make — "the next invocation
+    re-attaches to this same worktree" and "record where you got to in durable
+    BRC memory" — are properties of the orchestrator's event pump, not of
+    ``python3 -m egg_agent``, which is a general CLI. Asserting them to a
+    standalone invocation would point the agent at a memory file that does not
+    exist and promise a continuation that will not happen, so they are gated on
+    the pipeline identity the orchestrator exports for every pumped pod.
+    """
+    return bool(
+        (os.environ.get("EGG_PIPELINE_ID") or "").strip()
+        and (os.environ.get("EGG_AGENT_ROLE") or "").strip()
+    )
+
+
 def render_deadline_banner(timeout_seconds: int, started_at: float) -> str:
     """Return the deadline section to APPEND to the session prompt.
 
@@ -89,6 +112,27 @@ def render_deadline_banner(timeout_seconds: int, started_at: float) -> str:
     start = datetime.fromtimestamp(started_at, UTC)
     deadline = datetime.fromtimestamp(started_at + timeout_seconds, UTC)
     stamp = "%Y-%m-%dT%H:%M:%SZ"
+    if _is_event_pump_session():
+        why_commit = (
+            "Commit your work *before* it: the next invocation re-attaches to "
+            "this same worktree and continues, so a session boundary you "
+            "committed for costs you nothing, while an in-flight edit at the "
+            "kill costs you the reasoning behind it.\n"
+        )
+        wind_down = (
+            "If you are close to the deadline, stop starting new work: commit "
+            "what you have, record where you got to in durable BRC memory, and "
+            "exit.\n"
+        )
+    else:
+        why_commit = (
+            "Commit your work *before* it: a commit survives the kill, and an "
+            "in-flight edit at the kill costs you the reasoning behind it.\n"
+        )
+        wind_down = (
+            "If you are close to the deadline, stop starting new work: commit "
+            "what you have, write down where you got to, and exit.\n"
+        )
     return (
         "\n\n---\n\n"
         "## Session budget (hard deadline)\n"
@@ -99,11 +143,7 @@ def render_deadline_banner(timeout_seconds: int, started_at: float) -> str:
         "with no further warning.\n"
         "\n"
         "Check the remaining time at any point with `date -u` and compare it "
-        "against that deadline. Commit your work *before* it: the next "
-        "invocation re-attaches to this same worktree and continues, so a "
-        "session boundary you committed for costs you nothing, while an "
-        "in-flight edit at the kill costs you the reasoning behind it.\n"
+        f"against that deadline. {why_commit}"
         "\n"
-        "If you are close to the deadline, stop starting new work: commit what "
-        "you have, record where you got to in durable BRC memory, and exit.\n"
+        f"{wind_down}"
     )
