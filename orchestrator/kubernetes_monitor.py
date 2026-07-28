@@ -270,6 +270,11 @@ class KubernetesMonitor:
                         self._run_detection_plane_for_pipeline(
                             ctx, pipeline, store, pid, health_results=results
                         )
+                        # #3665 TASK-4-4: surface the 2h timeout to agents.
+                        # Emit a HEARTBEAT with state WAITING_FOR_EVENT and
+                        # body "approaching 2h timeout" at 90-minute intervals
+                        # so the agent knows it's time-bounded.
+                        self._send_timeout_warnings(pipeline, pid)
                     except Exception as e:
                         logger.debug(
                             "RUNTIME_TICK check failed for pipeline",
@@ -1159,6 +1164,103 @@ class KubernetesMonitor:
                 error=str(e),
             )
 
+    # #3665 TASK-4-4: timeout warning state. Tracks the last warning sent
+    # per pipeline so we only warn once per 90-minute interval.
+    _timeout_warning_last_sent: dict[str, float] = {}
+    _TIMEOUT_WARNING_INTERVAL_SECONDS = 5400  # 90 minutes
+    _TIMEOUT_WARNING_AT_SECONDS = 5400  # 90 minutes (warn at 90 min of 2h budget)
+
+    def _send_timeout_warnings(self, pipeline: Any, pipeline_id: str) -> None:
+        """Send a timeout warning to agents approaching the 2h limit (#3665 TASK-4-4).
+
+        Emits a HEARTBEAT message with state WAITING_FOR_EVENT and body
+        "approaching 2h timeout" to the agent's message bus at 90-minute
+        intervals. The agent reads this and can wrap up its work before the
+        2-hour timeout kills it.
+
+        Only sends one warning per pipeline per 90-minute interval to avoid
+        spamming the message bus.
+        """
+        try:
+            from message_store import Message, MessageType, get_message_store
+
+            # Check if any agent in the current phase has been running long enough
+            # to warrant a warning. We check the phase's work_started_at timestamp.
+            phase = getattr(pipeline, "current_phase", None)
+            phase_value = getattr(phase, "value", "") if phase is not None else ""
+            phases = getattr(pipeline, "phases", {}) or {}
+            phase_exec = phases.get(phase_value)
+            if phase_exec is None:
+                return
+
+            work_started_at = getattr(phase_exec, "work_started_at", None)
+            if work_started_at is None:
+                return
+
+            import time as _time
+
+            # Calculate elapsed time since work started
+            if hasattr(work_started_at, "timestamp"):
+                elapsed = _time.time() - work_started_at.timestamp()
+            else:
+                elapsed = _time.time() - float(work_started_at)
+
+            # Only warn if we're past the warning threshold
+            if elapsed < self._TIMEOUT_WARNING_AT_SECONDS:
+                return
+
+            # Check if we've already sent a warning recently
+            now = _time.monotonic()
+            last_sent = self._timeout_warning_last_sent.get(pipeline_id)
+            if last_sent is not None and now - last_sent < self._TIMEOUT_WARNING_INTERVAL_SECONDS:
+                return
+
+            # Get the agent timeout from the pipeline config
+            config = getattr(pipeline, "config", None)
+            timeout_seconds = getattr(config, "agent_timeout_seconds", 7200) if config else 7200
+
+            remaining = timeout_seconds - int(elapsed)
+            if remaining <= 0:
+                return  # Already timed out, the timeout classification handles this
+
+            # Emit a HEARTBEAT message to the agent's message bus
+            get_message_store().add_message(
+                Message(
+                    pipeline_id=pipeline_id,
+                    from_role="orchestrator",
+                    to_role="all",
+                    message_type=MessageType.HEARTBEAT,
+                    subject="approaching agent timeout",
+                    body=(
+                        f"Approaching {timeout_seconds}s agent timeout — "
+                        f"approximately {remaining}s remaining. "
+                        "Please wrap up your work; the pod will be killed "
+                        "by the timeout if it exceeds the budget."
+                    ),
+                    metadata={
+                        "state": "WAITING_FOR_EVENT",
+                        "timeout_seconds": timeout_seconds,
+                        "remaining_seconds": remaining,
+                        "elapsed_seconds": int(elapsed),
+                    },
+                    phase=phase_value,
+                )
+            )
+
+            self._timeout_warning_last_sent[pipeline_id] = now
+            logger.info(
+                "Timeout warning sent to agent",
+                pipeline_id=pipeline_id,
+                remaining_seconds=remaining,
+                elapsed_seconds=int(elapsed),
+            )
+        except Exception as e:  # noqa: BLE001 — never wedge the monitor
+            logger.debug(
+                "Failed to send timeout warning",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+
     def _handle_detection_plane_findings(
         self,
         findings: list[Any],
@@ -1414,6 +1516,10 @@ def _classify_exit(exit_code: int | None) -> tuple[bool, str]:
     - exit_code 0 (normal exit) and 143 (SIGTERM, orchestrator-initiated
       stop) are treated as clean — these are the post-BRC and
       teardown-shutdown cases respectively.
+    - exit_code -1 may be a timeout kill (from ``asyncio.timeout`` in the
+      agent client) or a genuine crash. Use
+      :func:`_classify_exit_with_context` to disambiguate using the
+      agent's log output.
     - Anything else is a failure; the error string includes the actual
       exit code so observers can distinguish OOM, crash, etc.
 
@@ -1429,6 +1535,75 @@ def _classify_exit(exit_code: int | None) -> tuple[bool, str]:
         False,
         f"Pod exited with code {code_repr} — detected by Kubernetes runtime monitor",
     )
+
+
+# Timeout-related constants (#3665 TASK-4-3/4-4)
+# The agent CLI's asyncio.timeout wrapper kills the process with exit code -1
+# (shared/egg_agent/client.py:920). The agent's log output contains
+# "Timed out after {timeout} seconds" when this happens.
+_TIMEOUT_EXIT_CODE = -1
+_TIMEOUT_LOG_PATTERN = "Timed out after"
+
+
+def _classify_exit_with_context(
+    exit_code: int | None,
+    *,
+    container_id: str | None = None,
+    pipeline_id: str | None = None,
+) -> tuple[bool, str, bool]:
+    """Classify a container exit code with context for timeout detection.
+
+    Extends :func:`_classify_exit` by checking the agent's captured log
+    output for the timeout signature when ``exit_code == -1``.
+
+    Returns ``(is_clean, error_message, is_timeout)`` where ``is_timeout``
+    is True when the exit was caused by the agent's timeout wrapper
+    (``asyncio.timeout`` in ``egg_agent/client.py``) rather than a crash.
+
+    A timeout-killed pod is classified as a clean timeout (``is_clean=True``)
+    so it does not consume the failure-streak budget (#3665 TASK-4-3).
+    """
+    if exit_code in (0, 143):
+        return True, "", False
+
+    # Check for timeout: exit code -1 + log contains "Timed out after"
+    if exit_code == _TIMEOUT_EXIT_CODE:
+        is_timeout = _check_timeout_in_logs(container_id, pipeline_id)
+        if is_timeout:
+            return True, "killed by agent timeout (2h limit)", True
+
+    code_repr = "unknown" if exit_code is None else str(exit_code)
+    return (
+        False,
+        f"Pod exited with code {code_repr} — detected by Kubernetes runtime monitor",
+        False,
+    )
+
+
+def _check_timeout_in_logs(
+    container_id: str | None, pipeline_id: str | None
+) -> bool:
+    """Check the agent's captured logs for the timeout signature.
+
+    Reads from the ``agent_log_store`` (which persists pod logs at removal
+    via ``read_job_log_snapshot``). Best-effort: any failure returns False
+    so the caller falls back to the ordinary crash classification.
+    """
+    if not container_id or not pipeline_id:
+        return False
+    try:
+        from agent_log_store import get_agent_log_store
+
+        store = get_agent_log_store()
+        record = store.get(pipeline_id, container_id)
+        if record is None:
+            return False
+        logs = record.get("logs", "")
+        if not logs:
+            return False
+        return _TIMEOUT_LOG_PATTERN in logs
+    except Exception:  # noqa: BLE001 — best-effort; fall back to crash
+        return False
 
 
 def _reconcile_pod_state(store: Any, container_info: ContainerInfo) -> bool:
@@ -1509,7 +1684,11 @@ def _reconcile_pod_state(store: Any, container_info: ContainerInfo) -> bool:
                     if a.status == AgentExecutionStatus.COMPLETE and a.container_id
                 }
 
-                is_clean_exit, agent_error = _classify_exit(container_info.exit_code)
+                is_clean_exit, agent_error, is_timeout = _classify_exit_with_context(
+                    container_info.exit_code,
+                    container_id=container_info.container_id,
+                    pipeline_id=pipeline_id,
+                )
 
                 for ci in phase_execution.containers:
                     if (

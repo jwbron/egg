@@ -175,6 +175,11 @@ JOB_OUTCOME_LEGITIMATE = "legitimate"
 JOB_OUTCOME_ABNORMAL = "abnormal"
 JOB_OUTCOME_FATAL = "fatal"
 JOB_OUTCOME_RATE_LIMITED = "rate_limited"
+# #3665 TASK-4-3: timeout-killed pods (exit code -1 from asyncio.timeout in
+# the agent client) are classified as a clean timeout, not a crash. They
+# do not consume the failure-streak budget and are routed to
+# record_timeout instead of record_abort.
+JOB_OUTCOME_TIMEOUT = "timeout"
 
 # Poll cadence (#3064 slice-2: "poll interval env-tunable (default 5s)").
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
@@ -612,6 +617,7 @@ class JobSupervisor:
     record_success = _supervisor.record_success
     retire = _supervisor.retire
     record_legitimate_outcome = _supervisor.record_legitimate_outcome
+    record_timeout = _supervisor.record_timeout
     record_abort = _supervisor.record_abort
     record_fatal = _supervisor.record_fatal
     record_rate_limited = _supervisor.record_rate_limited

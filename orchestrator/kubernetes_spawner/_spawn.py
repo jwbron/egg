@@ -7,6 +7,7 @@ the barrel (``from kubernetes_spawner import ...``), not directly.
 import os
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import driver_heartbeat
@@ -36,6 +37,34 @@ from models import AgentRole
 
 if TYPE_CHECKING:
     from egg_container import MountSpec
+
+
+# Default agent timeout in seconds (2 hours). Matches ClaudeConfig.timeout
+# and egg_agent.client.run_agent_async's timeout parameter.
+_DEFAULT_AGENT_TIMEOUT_SECONDS = 7200
+
+
+def _load_agent_timeout(pipeline_id: str, repo_path: str) -> int:
+    """Load the agent timeout from the pipeline config (#3665 TASK-4-2).
+
+    Reads ``PipelineConfig.agent_timeout_seconds`` from the pipeline's state
+    store. Falls back to the default (7200s / 2 hours) if the pipeline
+    cannot be loaded or the config is missing. Never raises — the spawn
+    path must not be blocked by a config read failure.
+    """
+    try:
+        from state_store import get_state_store
+
+        store = get_state_store(Path(repo_path))
+        pipeline = store.load_pipeline(pipeline_id)
+        config = getattr(pipeline, "config", None)
+        if config is not None:
+            timeout = getattr(config, "agent_timeout_seconds", None)
+            if timeout is not None:
+                return int(timeout)
+    except Exception:  # noqa: BLE001 — best-effort; never block spawn
+        pass
+    return _DEFAULT_AGENT_TIMEOUT_SECONDS
 
 
 def spawn_agent_job(
@@ -527,6 +556,12 @@ def spawn_agent_job(
         # implementation plan).
         pipeline_repo = primary_repo
 
+        # Load the pipeline config to get agent_timeout_seconds (#3665 TASK-4-2).
+        # The agent reads EGG_AGENT_TIMEOUT to self-report its remaining budget
+        # and the orchestrator uses it to classify timeout-killed pods (#3665
+        # TASK-4-3/4-4).
+        agent_timeout_seconds = _load_agent_timeout(pipeline_id, repo_path)
+
         environment: dict[str, str] = {
             "CONTAINER_ID": agent_worktree_id,
             "EGG_REPO_PATH": repo_path,
@@ -538,6 +573,7 @@ def spawn_agent_job(
             "HTTPS_PROXY": PROXY_URL,
             "NO_PROXY": "gateway.egg-system.svc.cluster.local,orchestrator.egg-system.svc.cluster.local",
             "AGENT_ANCHOR_ID": agent_anchor_id,
+            "EGG_AGENT_TIMEOUT": str(agent_timeout_seconds),
             # Route Anthropic API calls through the gateway for
             # credential injection. The session-token placeholder that
             # lets the gateway's /v1/messages proxy identify the session
