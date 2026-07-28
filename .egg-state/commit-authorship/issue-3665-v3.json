@@ -272,6 +272,14 @@
       "repo": null,
       "role": "simplifier"
     },
+    "cf7b17aa35504ffc333717bab2557d5135f27438": {
+      "branch": "egg/issue-3665-v3/slice-1",
+      "patch_id": "1ef5c5aee032df38a9096082471c66378c54715a",
+      "pipeline_id": "issue-3665-v3",
+      "registered_at": "2026-07-28T01:36:53.802060+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "d2a9f8e77315f19ea142c78f5267b823bb7036d9": {
       "branch": "egg/issue-3665-v3/work",
       "patch_id": null,
