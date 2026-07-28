@@ -36,7 +36,8 @@ gates are complementary and differ deliberately:
 ============  ===================================  =========================
 when          before a proposal becomes reviewable  before a slice PR opens
 tree          the proposed ``commit_sha``           the integration-branch tip
-test command  ``full_command`` (``make test-all``)  ``command`` (``make test``)
+test command  ``full_command`` when declared,       ``command`` (``make test``)
+              else ``command``
 on red        proposal rejected; producer fixes     PR withheld; HITL decision
 ============  ===================================  =========================
 
@@ -52,13 +53,40 @@ tip reports 8833 passed and surfaces the third defect — which lives in
 an unrelated file about rate limiting, exactly the kind the import graph
 will not reach.
 
-So this gate never runs the narrowed form. Each configured check is
+So this gate prefers the ground-truth form: each configured check is
 resolved to its ``full_command`` when ``repositories.yaml`` declares one
-(egg: ``test`` → ``make test-all``) and to ``command`` otherwise, and
-the **exact command string** plus the **SHA it ran against** are
-recorded in the verdict and stamped onto the accepted proposal's
-``attestation.checks_verified``. A narrowed run is then visibly narrow
-rather than silently incomplete.
+and to ``command`` otherwise, and the **exact command string** plus the
+**SHA it ran against** are recorded in the verdict and stamped onto the
+accepted proposal's ``attestation.checks_verified``. A narrowed run is
+then visibly narrow rather than silently incomplete.
+
+**This codebase cannot declare one** (#3681). ``repositories.yaml`` is
+operator-owned config living outside the repo
+(``~/.config/egg/repositories.yaml``); ``config/repositories.yaml.example``
+shows the declaration but is a template, not a live config. Until an
+operator adds it, egg's own ``test`` check resolves to ``make test``:
+the narrowed form this gate was written to avoid. As shipped at the time
+of writing, no repo declared one. The gate cannot detect that a bare
+``command`` narrows, so it does not claim otherwise. Each resolved check
+carries ``narrowed: "false"`` when the repo declared a ground-truth form
+and ``narrowed: "unknown"`` when it did not, and ``gate_checks`` logs a
+warning naming every check with no declared ground-truth form, so the
+degradation is visible in the orchestrator log rather than only in an
+attestation a reader has to go looking for.
+
+To make the ``test`` check ground truth for egg, an operator adds::
+
+    repo_settings:
+      jwbron/egg:
+        checks:
+          - name: test
+            command: make test
+            full_command: make test-all
+
+Declaring it is a cost decision, not a formality: ``make test-all`` is
+paid on **every** propose round across every gated phase, and #3398's
+green gate at the integration tip is the other place ground truth can
+live.
 
 Fail open on infra, closed on real failures
 -------------------------------------------
@@ -253,7 +281,7 @@ def _gate_phases() -> set[str]:
 
 
 def gate_checks(repo: str) -> list[dict[str, str]]:
-    """Return the checks this gate runs for ``repo``, in ground-truth form.
+    """Return the checks this gate runs for ``repo``, ground truth preferred.
 
     Config-driven: exactly ``get_repo_checks(repo)`` minus the skip set,
     with each entry's command resolved to its ``full_command`` when the
@@ -261,6 +289,12 @@ def gate_checks(repo: str) -> list[dict[str, str]]:
     entries carry the *resolved* ``command`` plus a ``narrowed`` flag
     recording whether the repo had a ground-truth form to offer, so the
     attestation can say which one ran.
+
+    Every check that resolves to ``command`` is named in a warning
+    (#3681): that command may be changeset-narrowed, and this gate exists
+    to not mistake a narrowed run for evidence. Expect the warning to
+    fire for every check until an operator declares ``full_command`` in
+    their own ``repositories.yaml``, which no shipped config does.
 
     Returns ``[]`` — gate skips — when the repo configures no checks or
     config loading fails. A config problem must never reject a
@@ -305,6 +339,22 @@ def gate_checks(repo: str) -> list[dict[str, str]]:
                 "narrowed": "false" if full else "unknown",
             }
         )
+
+    # Make the gap audible (#3681). Without this, the only trace that the
+    # gate ran a possibly-narrowed command is a ``narrowed: "unknown"``
+    # buried in the accepted proposal's attestation, which is how egg's
+    # own ``test`` check ran ``make test`` unnoticed through the #3595
+    # assessment runs. One line per gated tree, naming the checks.
+    undeclared = [c for c in resolved if c["narrowed"] == "unknown"]
+    if undeclared:
+        logger.warning(
+            "Propose check gate: no full_command declared; running the "
+            "configured command as-is, so this evidence may be narrowed (#3681)",
+            repo=repo,
+            checks=[c["name"] for c in undeclared],
+            commands=[c["command"] for c in undeclared],
+        )
+
     return resolved
 
 

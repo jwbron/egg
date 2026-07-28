@@ -407,7 +407,7 @@ So the fix is **not** more reviewers, and **not** a mandate that each reviewer r
 |---|---|---|
 | when | before a proposal becomes reviewable | before a slice PR opens |
 | tree checked | the proposed `commit_sha` | the integration-branch tip |
-| `test` command | `full_command` (`make test-all`) | `command` (`make test`) |
+| `test` command | `full_command` (`make test-all`) when the repo declares one, else `command`; **no shipped config declares one**, see the callout below ([#3681](https://github.com/jwbron/egg/issues/3681)) | `command` (`make test`) |
 | on red | proposal rejected; producer fixes and re-proposes | PR withheld; HITL decision |
 | default | `off` (see rollout below) | `on` |
 
@@ -415,7 +415,9 @@ The two are complementary and **neither replaces the other**: slice-2 of run 5 i
 
 **A narrowed run is never evidence.** `make test` is changeset-aware by design; `make test-all` is CI ground truth. The run-5 handoff reported "3751 passed, 1 failed" from a narrowed run where the full suite at the same tip reports 8833 and surfaces the third defect — which lives in an unrelated file about rate limiting, exactly what the import graph will not reach. The gate therefore resolves each configured check to its `full_command` when `repositories.yaml` declares one, and records **the exact command string** plus **the SHA it ran against** in `attestation.checks_verified` on the accepted proposal (`verified_by: "system"`, so it can never be confused with the agent self-report `checks_passed` has always been).
 
-> **Operator action required before enabling.** `repositories.yaml` lives outside this repo (`~/.config/egg/repositories.yaml`), so egg's own `test` check does **not** get `full_command: make test-all` from this codebase — you must add it. Until you do, the gate runs `make test` for that check, which is the narrowed form. The gate cannot detect this, so it does not pretend to: each entry in `checks_verified.checks` carries `narrowed: "false"` when the repo declared a ground-truth form and `narrowed: "unknown"` when it did not. Treat `"unknown"` as "this may be a narrowed run", not as a full-suite claim.
+> **Operator action required before enabling.** `repositories.yaml` lives outside this repo (`~/.config/egg/repositories.yaml`), so egg's own `test` check does **not** get `full_command: make test-all` from this codebase — you must add it. `config/repositories.yaml.example` shows the declaration, but it is a template, not a live config. Until you add it, the gate runs `make test` for that check, which is the narrowed form. The gate cannot detect that a bare `command` narrows, so it does not pretend to: each entry in `checks_verified.checks` carries `narrowed: "false"` when the repo declared a ground-truth form and `narrowed: "unknown"` when it did not. Treat `"unknown"` as "this may be a narrowed run", not as a full-suite claim. Since [#3681](https://github.com/jwbron/egg/issues/3681), `gate_checks` also logs a warning naming every check with no declared ground-truth form, so the gap shows up in the orchestrator log instead of only in an attestation a reader has to go looking for.
+>
+> Declaring it is a cost decision, not a formality: `make test-all` is paid on **every** propose round in every gated phase (`pytest orchestrator/tests` alone is ~700s, and the full suite adds eight more test roots), against a 3600s runner budget. Leaving it undeclared and keeping ground truth at the integration tip is a defensible posture; just not one to confuse with having run the full suite.
 
 **Rejections.** Both are `409` and both mean *the proposal was not recorded and no reviewer was dispatched*:
 
