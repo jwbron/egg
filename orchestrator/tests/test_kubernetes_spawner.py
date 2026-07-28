@@ -2301,6 +2301,84 @@ class TestSpawnEventJobOneShot:
 
         assert json.loads(result.environment[ENV_WORKTREE_RECOVERY]) == [notice]
 
+    def test_event_job_does_not_claim_delivery_it_did_not_make(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """A collapsed serialisation must not set the key OR log success.
+
+        ``"[]"`` is what the composer's ``if not recovery`` guard drops
+        without a word, so setting the key would be a silent no-op while the
+        orchestrator log claimed the notice had been delivered (#3689
+        review). The env key is left unset and a WARNING is emitted instead.
+        """
+        from kubernetes_spawner import ENV_WORKTREE_RECOVERY
+
+        notice = {"repo": "repo", "recovery_ref": "egg/recovered/x", "tip_sha": "aaaa"}
+
+        def _reuse(_agent_worktree_id, _branch, _repos, **kwargs):
+            kwargs["recovery_out"].append(notice)
+            return True, {}
+
+        with (
+            patch.object(spawner, "_try_reuse_worktree", side_effect=_reuse),
+            patch("kubernetes_spawner._events._recovery_env_json", return_value="[]"),
+            patch("kubernetes_spawner._events.logger") as mock_logger,
+        ):
+            result = spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key=self._KEY,
+                slice_id="slice-2",
+                phase="implement",
+                repos=["owner/repo"],
+            )
+
+        assert ENV_WORKTREE_RECOVERY not in result.environment
+        warned = " ".join(str(c) for c in mock_logger.warning.call_args_list)
+        assert "worktree-recovery notice did NOT fit" in warned
+        infos = " ".join(str(c) for c in mock_logger.info.call_args_list)
+        assert "injecting worktree-recovery notice" not in infos
+
+    def test_event_job_logs_the_refs_it_actually_delivered(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """The success line reports the serialised set, not the input set.
+
+        The cap can drop trailing entries; a log line that echoes what was
+        handed in claims a delivery that did not happen (#3689 review).
+        """
+        notices = [
+            {"repo": f"repo-{i}", "recovery_ref": "egg/recovered/" + "x" * 200} for i in range(40)
+        ]
+
+        def _reuse(_agent_worktree_id, _branch, _repos, **kwargs):
+            kwargs["recovery_out"].extend(notices)
+            return True, {}
+
+        with (
+            patch.object(spawner, "_try_reuse_worktree", side_effect=_reuse),
+            patch("kubernetes_spawner._events.logger") as mock_logger,
+        ):
+            spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key=self._KEY,
+                slice_id="slice-2",
+                phase="implement",
+                repos=["owner/repo"],
+            )
+
+        call = next(
+            c
+            for c in mock_logger.info.call_args_list
+            if c.args and "injecting worktree-recovery notice" in str(c.args[0])
+        )
+        assert call.kwargs["notices_total"] == 40
+        assert call.kwargs["notices_delivered"] < 40
+        assert len(call.kwargs["recovery_refs"]) == call.kwargs["notices_delivered"]
+
     def test_event_job_omits_the_recovery_key_when_nothing_was_discarded(
         self, spawner, mock_k8s_client, mock_gateway
     ):
@@ -5560,6 +5638,68 @@ class TestDiscardRecordReachesTheAgent:
         decoded = json.loads(raw)
         assert 0 < len(decoded) < 40
         assert decoded[0]["repo"] == "repo-0"
+
+    def test_a_lone_oversized_notice_degrades_instead_of_vanishing(self):
+        """The drop loop must never pop the last entry (#3689 review).
+
+        Popping it yields ``"[]"``, which the composer's ``if not recovery``
+        guard renders as *no discard happened*. The only field that can
+        overflow the budget is ``salvage_error``, which is set exactly when
+        ``recovery_ref`` is ``None`` — the salvage-FAILED arm, where the
+        notice is the only thing standing between the agent and re-deriving.
+        """
+        import json
+
+        from kubernetes_spawner import _recovery_env_json
+
+        notices = [
+            {
+                "repo": "egg",
+                "recovery_ref": None,
+                "tip_sha": "a" * 40,
+                "reset_to": "b" * 40,
+                "fast_forward": True,
+                "n_commits": 8,
+                # Unclamped git-push stderr: the shape the producer-side clamp
+                # exists to stop, exercised here without it so the serialiser's
+                # own floor is proven independently.
+                "salvage_error": "remote: rejected\n" * 400,
+            }
+        ]
+        decoded = json.loads(_recovery_env_json(notices))
+
+        assert len(decoded) == 1, "the last notice must never be dropped"
+        assert decoded[0]["recovery_ref"] is None
+        assert decoded[0]["tip_sha"] == "a" * 40
+        assert decoded[0]["reset_to"] == "b" * 40
+        # The oversized field is what got dropped, not the whole notice.
+        assert "salvage_error" not in decoded[0]
+
+    def test_producer_clamps_the_one_unbounded_notice_field(self):
+        """``salvage_error`` is raw ``git push`` stderr — remote-controlled.
+
+        Clamped and whitespace-collapsed at the producer so it can neither
+        blow the 2 KiB env budget nor fabricate markdown structure inside the
+        "READ FIRST" prompt section (#3689 review).
+        """
+        from kubernetes_spawner import _SALVAGE_ERROR_NOTICE_MAX_CHARS, _clamp_salvage_error
+
+        assert _clamp_salvage_error(None) is None
+        assert _clamp_salvage_error("") is None
+        assert _clamp_salvage_error("   \n  ") is None
+        assert _clamp_salvage_error("push_rejected: hook said no") == (
+            "push_rejected: hook said no"
+        )
+
+        # Newlines collapse: a multi-line remote: dump cannot open its own
+        # markdown block in the rendered section.
+        assert "\n" not in _clamp_salvage_error("remote: a\nremote: b")
+
+        clamped = _clamp_salvage_error("remote: rejected\n" * 400)
+        assert clamped is not None
+        assert "\n" not in clamped
+        assert len(clamped) < _SALVAGE_ERROR_NOTICE_MAX_CHARS + 80
+        assert clamped.endswith("[truncated; full text in the orchestrator log]")
 
 
 class TestSpawnEventJobSessionReuse:

@@ -18,6 +18,36 @@ from kubernetes_spawner import (
 from models import AgentRole
 
 
+def _clamp_salvage_error(salvage_error: str | None) -> str | None:
+    """Bound the one free-text field carried in a #3684 recovery notice.
+
+    ``salvage_error`` is ``PushResult.describe()`` — ``"{category}: {stderr}"``
+    — and ``stderr`` is whatever the remote echoed, unbounded. Two problems
+    follow from putting that in the notice verbatim (#3689 review):
+
+    * **Size.** The notice rides in a 2 KiB pod-env budget. A single oversized
+      notice is not a "drop the tail" case — the list is a singleton, so the
+      serialiser emptied it and the successor was told *nothing*. That happens
+      on exactly the salvage-FAILED arm, where ``recovery_ref`` is ``None`` and
+      the notice is the only thing standing between the agent and re-deriving.
+    * **Provenance.** Remote ``remote:`` lines (pre-receive hook output) are
+      server-controlled text that lands in a "READ FIRST" prompt section.
+      Collapsing whitespace stops it fabricating its own markdown structure.
+
+    Nothing is lost: the untruncated string is in the re-attach WARNING log and
+    in the bus record's metadata, both of which the operator reads.
+    """
+    if not salvage_error:
+        return None
+    collapsed = " ".join(str(salvage_error).split())
+    if not collapsed:
+        return None
+    cap = _pkg._SALVAGE_ERROR_NOTICE_MAX_CHARS
+    if len(collapsed) <= cap:
+        return collapsed
+    return collapsed[:cap] + "... [truncated; full text in the orchestrator log]"
+
+
 def _validate_worktree_for_reuse(
     agent_worktree_id: str,
     repos: list[str],
@@ -788,10 +818,22 @@ def _clean_reused_worktree(
                                 "reset_to": remote_tip,
                                 "n_commits": len(orphans),
                                 "fast_forward": ff_restorable,
+                                # The operator's handle on the salvage-FAILED
+                                # arm: the tip is reachable from no ref, so
+                                # "recover it from the object store" needs to
+                                # name WHICH store. Not "this worktree" — if
+                                # the reset below fails the caller falls back
+                                # to create-with-retry and the successor runs
+                                # somewhere else entirely (#3689 review NB-4).
+                                "worktree_id": agent_worktree_id,
                                 "wip_commit": wip_commit,
                                 "wip_files": wip_files,
                                 "wip_partial": wip_partial,
-                                "salvage_error": salvage_error,
+                                # Clamped: this is the only unbounded field in
+                                # the notice (raw git push stderr), and the env
+                                # budget is 2 KiB. See
+                                # ``_SALVAGE_ERROR_NOTICE_MAX_CHARS``.
+                                "salvage_error": _clamp_salvage_error(salvage_error),
                             }
                         )
                 try:

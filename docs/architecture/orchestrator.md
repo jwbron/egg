@@ -1036,7 +1036,8 @@ section is the wait-side companion to this architecture description.
 ### Per-event prompt composer (`compose_event_prompt`)
 
 `compose_event_prompt(role, event_payload, memory_excerpt, nacks,
-git_log_delta, base_branch, *, task_description="", iteration_feedback=None) -> str` builds the
+git_log_delta, base_branch, *, task_description="", iteration_feedback=None,
+release_context=None, recovery_context=None, ...) -> str` builds the
 one-shot user prompt the wrapper invokes the agent with at each
 `case action.kind == INVOKE`
 branch of the deterministic loop (see [Deterministic loop structure](#deterministic-loop-structure)
@@ -1044,6 +1045,7 @@ above). It assembles, in order:
 
 | Position | Section | Source | Bound |
 |----------|---------|--------|-------|
+| **First** (ahead of the banner) | Worktree-recovery notice — "your previous session's work was PRESERVED, not lost" (#3684) | `EGG_WORKTREE_RECOVERY` env, set by `kubernetes_spawner._events.spawn_event_job` only on the spawn that follows a re-attach discard; decoded by `_cli.py` and rendered by `_render_recovery_section` | Env payload ≤ `_WORKTREE_RECOVERY_ENV_MAX_BYTES` (2 KiB); trailing per-repo entries drop first, and a lone oversized notice degrades to `_WORKTREE_RECOVERY_MINIMAL_FIELDS` (ref + shas) rather than to nothing. The one free-text field (`salvage_error`) is clamped to `_SALVAGE_ERROR_NOTICE_MAX_CHARS` (400) at the producer and whitespace-collapsed at the renderer — it is remote-controlled `git push` stderr. Omitted (byte-identical common path) on every ordinary spawn. Leads the *whole* prompt, ahead of the event banner: an agent that reads the event, opens the tree, and finds its files missing has already concluded "I must re-implement" by the time a later section could correct it. |
 | Top | Role banner + one-line event description | `role` + `event_payload.kind` | A few hundred bytes; identifies the producer/reviewer side of the dispatch. |
 | Top | Park-release delta — "why you were respawned" (#3537) | `EGG_EVENT_RELEASE_CONTEXT` env, set only on the probe spawn a no-op-park fingerprint-change release granted; decoded by `_cli.py` and rendered by `_render_release_context_section` | Each free-text field (question/resolution) ≤ `RELEASE_RESOLUTION_MAX_CHARS` (1200 chars); omitted (byte-identical common path) on every ordinary spawn and on heartbeat releases. See [No-op park release delta](#deterministic-loop-structure) above. |
 | Top | Task & operator directives (#3123/#3163) | The contract's `task_description`, read from the worktree contract file via the pod-inherited `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER`; populated for all pipeline types since #3163 (issue anchor + submit description); omitted only when the contract carries no task statement and no issue identity | ≤ 4 KB (`TASK_DESCRIPTION_MAX_CHARS`), truncated with a pointer to `mcp__sdlc__show_contract`. Pushes the operator's submit-time directives into every invocation instead of relying on the agent pulling them per the rules file. |

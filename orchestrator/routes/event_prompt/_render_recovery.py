@@ -19,20 +19,56 @@ from __future__ import annotations
 
 from typing import Any
 
+# Renderer-side bound on the one free-text notice field. The producer already
+# clamps ``salvage_error`` to 400 chars (``_clamp_salvage_error``); this is the
+# belt-and-braces half, because the value reaches us through a pod env var and
+# the renderer should not depend on the writer having been careful. Slightly
+# looser than the producer's cap so a producer-clamped value renders verbatim
+# (with its truncation marker) rather than being truncated twice.
+_SALVAGE_ERROR_RENDER_MAX_CHARS = 500
+
+
+def _sanitize_free_text(value: Any) -> str:
+    """Flatten remote-controlled text to a single bounded line.
+
+    ``salvage_error`` is ``git push`` stderr, which carries every ``remote:``
+    line the server echoed — pre-receive hook output, policy rejection bodies.
+    That is text a party other than the orchestrator controls, and it lands in
+    a section headed "READ FIRST" (#3689 review). Collapsing all whitespace
+    stops it fabricating its own markdown structure (headings, list items, a
+    fenced block that swallows the instructions below it), and the cap bounds
+    the blast radius on a notice that skipped the producer-side clamp.
+    """
+    if value is None:
+        return ""
+    collapsed = " ".join(str(value).split())
+    if len(collapsed) <= _SALVAGE_ERROR_RENDER_MAX_CHARS:
+        return collapsed
+    return collapsed[:_SALVAGE_ERROR_RENDER_MAX_CHARS] + "..."
+
 
 def _render_recovery_section(recovery: list[dict[str, Any]] | None) -> str:
     """Render the #3684 worktree-recovery notice, or ``""`` when absent.
 
     ``recovery`` is the decoded ``EGG_WORKTREE_RECOVERY`` JSON: a list of
     per-repo notice dicts with ``repo``, ``recovery_ref``, ``tip_sha``,
-    ``reset_to``, ``n_commits``, ``fast_forward``, ``wip_commit``,
-    ``wip_files``, ``wip_partial`` and ``salvage_error``.
+    ``reset_to``, ``n_commits``, ``fast_forward``, ``worktree_id``,
+    ``wip_commit``, ``wip_files``, ``wip_partial`` and ``salvage_error``.
+    Every field is optional at this layer: the spawner degrades an oversized
+    notice to ``repo`` / ``recovery_ref`` / ``tip_sha`` / ``reset_to`` /
+    ``fast_forward`` rather than dropping it, so the renderer must produce a
+    useful section from that subset alone.
 
     A notice whose ``recovery_ref`` is ``None`` is a salvage FAILURE, not a
-    no-op: the commits exist only in the pod-local object store until gc, so
-    that arm asks for an operator instead of naming a fetch. It is rendered
-    with the same prominence — the case with no ref is the case where
-    silently re-deriving costs the most.
+    no-op: the commits are reachable from no ref and survive at best in the
+    predecessor worktree's object store until gc, so that arm asks for an
+    operator instead of naming a fetch. It is rendered with the same
+    prominence — the case with no ref is the case where silently re-deriving
+    costs the most. "At best" is load-bearing: the notice is appended before
+    the re-attach's ``reset --hard``, and a reset failure sends the caller to
+    create-with-retry, so the worktree the successor is running in may not be
+    the one holding the tip. The rendered text names the worktree by id and
+    says so, rather than asserting "this worktree" (#3689 review).
     """
     if not recovery:
         return ""
@@ -85,18 +121,22 @@ def _render_recovery_section(recovery: list[dict[str, Any]] | None) -> str:
                 "recovery tip is a descendant of your HEAD, never an ancestor."
             )
         else:
-            error = str(notice.get("salvage_error") or "unknown error")
+            error = _sanitize_free_text(notice.get("salvage_error")) or "unknown error"
+            worktree_id = str(notice.get("worktree_id") or "").strip()
+            where = f"worktree `{worktree_id}`" if worktree_id else "the predecessor worktree"
             lines.append(
                 f"- **{repo}**: {count} were removed from the tree and the "
-                f"automatic salvage push FAILED ({error}). Tip `{tip}` survives "
-                "only in this worktree's local git object store until gc, "
-                "reachable from no ref."
+                f"automatic salvage push FAILED ({error}). Tip `{tip}` is "
+                f"reachable from no ref; it may still be in the local git "
+                f"object store of {where} until gc."
             )
             lines.append(
                 "  - Do NOT start re-deriving the work. Report this and ask an "
-                f"operator to recover `{tip}` out of the worktree "
-                "(`git reflog`) first — re-deriving destroys the reflog window "
-                "that recovery depends on."
+                f"operator to recover `{tip}` from {where} (`git reflog`) "
+                "first — re-deriving destroys the reflog window that recovery "
+                "depends on. Note the worktree you are running in now may not "
+                "be that one: a failed re-attach falls back to a fresh "
+                "worktree, whose object store does not carry the tip."
             )
         wip_commit = notice.get("wip_commit")
         if wip_commit:

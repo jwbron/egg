@@ -212,6 +212,28 @@ ENV_WORKTREE_RECOVERY = "EGG_WORKTREE_RECOVERY"
 # multi-repo discard, where dropping the tail beats dropping the ref.
 _WORKTREE_RECOVERY_ENV_MAX_BYTES = 2048
 
+# Clamp for the one free-text field in a recovery notice. ``salvage_error`` is
+# ``PushResult.describe()``, whose ``detail`` is raw ``git push`` stderr — every
+# ``remote:`` line the server echoes, including pre-receive hook output. That is
+# routinely multi-KiB, and an unbounded value in a 2 KiB budget is not a "drop
+# the tail" case: the notice is a singleton, so overshoot used to empty the list
+# and deliver nothing at all — on the salvage-FAILED arm, the one arm where the
+# agent most needs to hear "do NOT re-derive" (#3689 review). The full string
+# survives in the WARNING log and in the bus record's metadata, so clamping here
+# costs the operator nothing.
+_SALVAGE_ERROR_NOTICE_MAX_CHARS = 400
+
+# Fields kept when a single notice still will not fit the env budget after the
+# clamp above. The ref and the two shas ARE the payload — everything else is
+# elaboration — so a degraded notice beats no notice.
+_WORKTREE_RECOVERY_MINIMAL_FIELDS = (
+    "repo",
+    "recovery_ref",
+    "tip_sha",
+    "reset_to",
+    "fast_forward",
+)
+
 # A short, deterministic Job-name discriminator so distinct events for one
 # role get distinct Job names (the same event always yields the same name,
 # which keeps the pre-spawn cleanup + adoption coherent). 8 hex chars of the
@@ -528,6 +550,7 @@ from ._errors import (  # noqa: E402
 )
 from ._models import SpawnedContainer, _EventJobStatusView  # noqa: E402
 from ._worktree import (  # noqa: E402
+    _clamp_salvage_error,
     _host_to_local_volumes,
     _load_local_mount_mapping,
     _local_to_host_path,
@@ -606,6 +629,7 @@ __all__ = [
     "_job_is_live",
     "_job_is_terminating",
     "_recovery_env_json",
+    "_clamp_salvage_error",
     "_forwarded_discipline_env",
     "_resolve_live_phase",
     "_resolve_wait_producer_allowlist",

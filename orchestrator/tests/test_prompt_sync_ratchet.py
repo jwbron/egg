@@ -150,9 +150,9 @@ _ALLOWLIST: tuple[tuple[str, str, int], ...] = (
     # the gateway's off-lineage-reset guard 403s `git reset --hard` onto a
     # recovery tip (a descendant of HEAD), so naming the ff-merge is what
     # makes the instruction executable rather than a dead end.
-    ("_render_recovery.py", "git fetch", 69),
-    ("_render_recovery.py", "git merge", 70),
-    ("_render_recovery.py", "git fetch", 76),
+    ("_render_recovery.py", "git fetch", 105),
+    ("_render_recovery.py", "git merge", 106),
+    ("_render_recovery.py", "git fetch", 112),
 )
 
 

@@ -251,6 +251,18 @@ def _cli(argv: list[str] | None = None) -> int:
             decoded_recovery = None
         if isinstance(decoded_recovery, list):
             recovery_context = [n for n in decoded_recovery if isinstance(n, dict)]
+        elif decoded_recovery is not None:
+            # Well-formed JSON of the wrong shape — a dict from a caller that
+            # serialised a single notice rather than a one-element list, say.
+            # This is the *more* likely malformation of the two, and dropping
+            # it silently is the same failure as the malformed-JSON arm above,
+            # so it gets the same operator-visible warning (#3689 review).
+            print(
+                "[event-prompt] EGG_WORKTREE_RECOVERY decoded to "
+                f"{type(decoded_recovery).__name__}, expected a list of notice "
+                "objects; the recovery notice will NOT be rendered (#3684)",
+                file=sys.stderr,
+            )
 
     context_discipline = _context_discipline_enabled()
     memory_rel_path = ""
