@@ -332,8 +332,7 @@ def checkpoint_working_tree(repo_path: str | os.PathLike[str] | None = None) -> 
                 return None
             if not _staged_paths(repo):
                 logger.warning(
-                    "Timeout checkpoint: every staged path was out of phase; "
-                    "skipping the snapshot",
+                    "Timeout checkpoint: every staged path was out of phase; skipping the snapshot",
                     repo_path=str(repo),
                     blocked_paths=blocked,
                 )

@@ -7,22 +7,27 @@ the >=10 ``agent-invocation-fail-streak`` halt and the propose-arm
 ``AGENT_FAILED`` escalation. A healthy agent that ran long was indistinguishable
 from a crash loop.
 
-This file covers the orchestrator half of the fix, across three seams:
+This file covers the orchestrator half of the fix, across four seams:
 
 * ``_EventJobStatusView.outcome_for`` maps ``EX_SESSION_TIMEOUT`` (124) to
   ``JOB_OUTCOME_TIMEOUT`` without disturbing the auth-fatal / rate-limit
   precedences above it;
+* it reads that code from the *newest* terminated pod rather than the union
+  across the dedupe key's history — the label is respawn-stable, so a stale 124
+  would otherwise hand a crash a free boundary;
 * ``_observe_jobs`` routes that outcome to ``record_session_timeout`` — not
   ``record_abort`` — reaps the Job, and keeps ``_key_meta`` so the respawn
   re-labels the same arm and continues in the same worktree;
 * ``record_session_timeout`` leaves the abnormal streak untouched for the first
   ``SUPERVISION_SESSION_TIMEOUT_BUDGET`` expiries and then hands the key back to
-  the abort path, so a permanently over-budget arm still terminates.
+  the abort path, so a permanently over-budget arm still terminates — alerting
+  once on the last free boundary, so the budget is not spent silently.
 """
 
 from __future__ import annotations
 
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -43,7 +48,15 @@ from egg_agent.auth_errors import (  # noqa: E402
     EX_SESSION_TIMEOUT,
 )
 from kubernetes_spawner import _EventJobStatusView  # noqa: E402
+from kubernetes_spawner._models import _terminated_at  # noqa: E402
 from models import ContainerStatus  # noqa: E402
+
+
+def _dt(minute: int, *, aware: bool = False) -> datetime:
+    """A terminated-at stamp; ``aware`` models the tz-aware half of the k8s API."""
+    tz = UTC if aware else None
+    return datetime(2026, 7, 27, 1, minute, 0, tzinfo=tz)
+
 
 # ---------------------------------------------------------------------------
 # Job-status classification
@@ -123,6 +136,111 @@ class TestOutcomeForSessionTimeout:
     def test_running_job_is_not_classified_timeout(self):
         view = _view(job_status=ContainerStatus.RUNNING, exit_code=EX_SESSION_TIMEOUT)
         assert view.outcome_for("k") == event_loop.JOB_OUTCOME_RUNNING
+
+
+class _StampedContainer:
+    def __init__(self, exit_code: int | None, *, exited_at=None, started_at=None) -> None:
+        self.exit_code = exit_code
+        self.exited_at = exited_at
+        self.started_at = started_at
+
+
+def _view_over(containers) -> _EventJobStatusView:
+    return _EventJobStatusView(
+        _StubSpawner(_StubK8s(jobs=[_Job(ContainerStatus.FAILED)], containers=containers))
+    )
+
+
+class TestNewestTerminatedPodScoping:
+    """The dedupe-key label is respawn-stable, so the selector sees history.
+
+    Unioning exit codes across attempts lets a *stale* pod's code decide the
+    current attempt's classification, and the two directions are not symmetric:
+    a stale 77 fails closed (the arm halts loudly, an operator sees it), while a
+    stale 124 fails OPEN — a free boundary granted for a crash, with the failure
+    streak suppressed and nothing emitted at all.
+    """
+
+    def test_a_stale_boundary_cannot_excuse_the_current_crash(self):
+        """The failure this scoping exists to prevent."""
+        view = _view_over(
+            [
+                _StampedContainer(EX_SESSION_TIMEOUT, exited_at=_dt(1)),
+                _StampedContainer(1, exited_at=_dt(2)),
+            ]
+        )
+
+        assert view.outcome_for("k") == event_loop.JOB_OUTCOME_ABNORMAL
+
+    def test_the_current_boundary_is_still_honoured_over_a_stale_crash(self):
+        view = _view_over(
+            [
+                _StampedContainer(1, exited_at=_dt(1)),
+                _StampedContainer(EX_SESSION_TIMEOUT, exited_at=_dt(2)),
+            ]
+        )
+
+        assert view.outcome_for("k") == event_loop.JOB_OUTCOME_TIMEOUT
+
+    def test_pod_order_from_the_api_does_not_decide_the_outcome(self):
+        """k8s list order is not a guarantee; the timestamp is the ordering."""
+        newest = _StampedContainer(1, exited_at=_dt(2))
+        oldest = _StampedContainer(EX_SESSION_TIMEOUT, exited_at=_dt(1))
+
+        assert _view_over([newest, oldest]).outcome_for("k") == event_loop.JOB_OUTCOME_ABNORMAL
+        assert _view_over([oldest, newest]).outcome_for("k") == event_loop.JOB_OUTCOME_ABNORMAL
+
+    def test_start_time_ranks_a_pod_whose_exit_time_never_landed(self):
+        """A status read before the terminated state was populated still orders."""
+        view = _view_over(
+            [
+                _StampedContainer(EX_SESSION_TIMEOUT, started_at=_dt(1)),
+                _StampedContainer(1, started_at=_dt(2)),
+            ]
+        )
+
+        assert view.outcome_for("k") == event_loop.JOB_OUTCOME_ABNORMAL
+
+    def test_exit_time_outranks_start_time_on_the_same_pod(self):
+        assert _terminated_at(_StampedContainer(0, exited_at=_dt(2), started_at=_dt(1))) == _dt(2)
+        assert _terminated_at(_StampedContainer(0, started_at=_dt(1))) == _dt(1)
+        assert _terminated_at(_StampedContainer(0)) is None
+
+    def test_unstamped_pods_fall_back_to_the_union(self):
+        """Pre-#3658 behaviour, and no worse than it.
+
+        With nothing to order by, declining to classify would silently drop a
+        genuine boundary; the union at least still sees it.
+        """
+        view = _view_over([_StampedContainer(1), _StampedContainer(EX_SESSION_TIMEOUT)])
+
+        assert view.outcome_for("k") == event_loop.JOB_OUTCOME_TIMEOUT
+
+    def test_unorderable_stamps_fall_back_to_the_union(self):
+        """Naive and aware datetimes are not comparable.
+
+        Falling back is honest; picking an arbitrary one would not be, and a
+        raised TypeError here would turn a classification into a crash.
+        """
+        view = _view_over(
+            [
+                _StampedContainer(1, exited_at=_dt(1)),
+                _StampedContainer(EX_SESSION_TIMEOUT, exited_at=_dt(2, aware=True)),
+            ]
+        )
+
+        assert view.outcome_for("k") == event_loop.JOB_OUTCOME_TIMEOUT
+
+    def test_pods_with_no_exit_code_are_ignored_entirely(self):
+        """A still-running sibling must not out-rank the pod that actually died."""
+        view = _view_over(
+            [
+                _StampedContainer(EX_SESSION_TIMEOUT, exited_at=_dt(1)),
+                _StampedContainer(None, started_at=_dt(9)),
+            ]
+        )
+
+        assert view.outcome_for("k") == event_loop.JOB_OUTCOME_TIMEOUT
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +331,41 @@ class TestRecordSessionTimeout:
 
         assert sup._streaks.get("k", 0) == 0
 
+    def test_an_inherited_abort_stamp_does_not_hold_the_respawn(self):
+        """ "No backoff" has to survive a key that aborted before it timed out.
+
+        ``ready_to_respawn`` measures its window from ``_last_abort_time``, so an
+        expiry that left an earlier crash's stamp in place would be held inside
+        an inherited backoff — the boundary path would silently be no-backoff in
+        tests and backed-off in the one situation that produced it.
+        """
+        clock = _ManualClock()
+        sup = event_loop.JobSupervisor(clock=clock)
+        sup.record_abort("k", "propose", "coder")
+        assert sup.ready_to_respawn("k") is False
+
+        sup.record_session_timeout("k", "propose", "coder")
+
+        assert "k" not in sup._last_abort_time
+        assert sup.ready_to_respawn("k") is True
+
+    def test_dropping_the_stamp_does_not_shorten_a_later_crash_backoff(self):
+        """Safe because the streak is untouched: a later abort re-stamps itself.
+
+        The clearing is about *this* respawn, not about forgiving the arm's
+        history — an abort after the boundary must still back off on the streak
+        it had already accumulated.
+        """
+        sup = event_loop.JobSupervisor(clock=_ManualClock())
+        sup.record_abort("k", "propose", "coder")
+        streak_before = sup._streaks["k"]
+
+        sup.record_session_timeout("k", "propose", "coder")
+        sup.record_abort("k", "propose", "coder")
+
+        assert sup._streaks["k"] == streak_before + 1
+        assert sup.ready_to_respawn("k") is False
+
     def test_retire_drops_the_boundary_counter(self):
         sup = event_loop.JobSupervisor(clock=_ManualClock())
         sup.record_session_timeout("k", "propose", "coder")
@@ -220,6 +373,109 @@ class TestRecordSessionTimeout:
         sup.retire("k")
 
         assert "k" not in sup._session_timeout_count
+
+
+class TestBudgetConsumedAlert:
+    """The budget must reach an operator while it is still cheap to act on.
+
+    Everything below the budget is silent by construction, so an arm that burns
+    the whole thing and then converts to an ordinary failing key would otherwise
+    first surface as an ``agent-invocation-fail-streak`` several hours later,
+    with nothing naming the wall-clock budget as the cause.
+    """
+
+    @staticmethod
+    def _supervisor():
+        alerts: list[dict] = []
+        sup = event_loop.JobSupervisor(
+            clock=_ManualClock(),
+            overseer_alert=lambda **kw: alerts.append(kw),
+        )
+        return sup, alerts
+
+    def test_boundaries_below_the_budget_are_silent(self):
+        sup, alerts = self._supervisor()
+
+        for _ in range(supervision_policy.SUPERVISION_SESSION_TIMEOUT_BUDGET - 1):
+            sup.record_session_timeout("k", "propose", "coder")
+
+        assert alerts == []
+
+    def test_the_last_free_boundary_alerts(self):
+        """On the last FREE boundary, not the first one past it.
+
+        Past the budget the arm is already on the abort path, where the only
+        remaining surface is the streak halt; here the operator can still raise
+        the budget, narrow the event, or split the work.
+        """
+        sup, alerts = self._supervisor()
+
+        for _ in range(supervision_policy.SUPERVISION_SESSION_TIMEOUT_BUDGET):
+            sup.record_session_timeout("k", "propose", "coder")
+
+        assert len(alerts) == 1
+        assert alerts[0]["anomaly"] == "session-timeout-budget-consumed"
+        # Deliberately not ``high``: nothing is wedged — every one of these
+        # invocations was working when it was killed, and the tree is
+        # checkpointed. Escalating it would dilute the alerts that mean "stuck".
+        assert alerts[0]["priority"] == "medium"
+
+    def test_the_alert_names_the_arm_and_the_budget(self):
+        sup, alerts = self._supervisor()
+
+        for _ in range(supervision_policy.SUPERVISION_SESSION_TIMEOUT_BUDGET):
+            sup.record_session_timeout("k", "propose", "coder")
+
+        detail = alerts[0]["detail"]
+        assert "coder" in detail
+        assert "propose" in detail
+        assert str(supervision_policy.SUPERVISION_SESSION_TIMEOUT_BUDGET) in detail
+
+    def test_further_expiries_do_not_repeat_the_alert(self):
+        """Once per key: an over-budget arm times out every two hours forever."""
+        sup, alerts = self._supervisor()
+
+        for _ in range(supervision_policy.SUPERVISION_SESSION_TIMEOUT_BUDGET + 3):
+            sup.record_session_timeout("k", "propose", "coder")
+
+        assert len(alerts) == 1
+
+    def test_a_clean_completion_re_arms_the_alert(self):
+        """The latch shares the counter's lifecycle, so a fresh budget is loud."""
+        sup, alerts = self._supervisor()
+        budget = supervision_policy.SUPERVISION_SESSION_TIMEOUT_BUDGET
+
+        for _ in range(budget):
+            sup.record_session_timeout("k", "propose", "coder")
+        sup.record_success("k", action="propose", role="coder")
+        for _ in range(budget):
+            sup.record_session_timeout("k", "propose", "coder")
+
+        assert len(alerts) == 2
+
+    def test_retire_and_reconcile_clear_the_latch(self):
+        sup, _alerts = self._supervisor()
+        for _ in range(supervision_policy.SUPERVISION_SESSION_TIMEOUT_BUDGET):
+            sup.record_session_timeout("k", "propose", "coder")
+        assert sup._alerted_session_timeout.get("k") is True
+
+        sup.retire("k")
+        assert "k" not in sup._alerted_session_timeout
+
+        for _ in range(supervision_policy.SUPERVISION_SESSION_TIMEOUT_BUDGET):
+            sup.record_session_timeout("k", "propose", "coder")
+        sup.reconcile(set())
+
+        assert sup._alerted_session_timeout == {}
+
+    def test_no_alert_callback_is_not_a_crash(self):
+        """Alerting is best-effort; the boundary treatment is not."""
+        sup = event_loop.JobSupervisor(clock=_ManualClock())
+
+        for _ in range(supervision_policy.SUPERVISION_SESSION_TIMEOUT_BUDGET):
+            sup.record_session_timeout("k", "propose", "coder")
+
+        assert sup._streaks.get("k", 0) == 0
 
     def test_the_expiry_is_named_in_the_termination_history(self):
         """The operator must be able to see WHY the arm died, not just that it did."""

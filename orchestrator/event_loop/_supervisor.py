@@ -1045,8 +1045,7 @@ def _emit_session_timeout_alert(self, dedupe_key: str, count: int, action: str, 
         anomaly="session-timeout-budget-consumed",
         priority="medium",
         summary=(
-            f"agent keeps outrunning its session budget "
-            f"(action={action}, boundaries={count})"
+            f"agent keeps outrunning its session budget (action={action}, boundaries={count})"
         ),
         detail=(
             f"Event-pump for role={role} has hit {count} consecutive "

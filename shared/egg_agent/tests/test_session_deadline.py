@@ -108,3 +108,60 @@ def test_env_export_survives_the_banner_being_disabled(monkeypatch):
     import os
 
     assert os.environ[DEADLINE_EPOCH_ENV] == str(int(_START + 7200))
+
+
+# ---------------------------------------------------------------------------
+# Continuation promises are event-pump properties, not CLI properties
+# ---------------------------------------------------------------------------
+#
+# "The next invocation re-attaches to this same worktree" and "record where you
+# got to in durable BRC memory" are true of the orchestrator's event pump. They
+# are not true of ``python3 -m egg_agent``, which is a general CLI: asserting
+# them to a standalone run points the agent at a memory file that does not exist
+# and promises a continuation that will not happen. Both are therefore gated on
+# the pipeline identity the orchestrator exports for every pumped pod.
+
+
+def _as_event_pump(monkeypatch):
+    monkeypatch.setenv("EGG_PIPELINE_ID", "p-1234")
+    monkeypatch.setenv("EGG_AGENT_ROLE", "coder")
+
+
+def _as_standalone(monkeypatch):
+    monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
+    monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
+
+
+def test_event_pump_banner_promises_the_continuation(monkeypatch):
+    _as_event_pump(monkeypatch)
+
+    banner = render_deadline_banner(7200, _START)
+
+    assert "re-attaches to this same worktree" in banner
+    assert "durable BRC memory" in banner
+
+
+def test_standalone_banner_promises_nothing_it_cannot_keep(monkeypatch):
+    _as_standalone(monkeypatch)
+
+    banner = render_deadline_banner(7200, _START)
+
+    assert "re-attaches" not in banner
+    assert "BRC memory" not in banner
+    # The advice that IS true of any invocation must survive the gate — a
+    # standalone agent still benefits from committing before the kill.
+    assert "commit" in banner.lower()
+    assert "2026-07-27T03:19:58Z" in banner
+
+
+def test_a_half_set_identity_is_treated_as_standalone(monkeypatch):
+    """Both halves or neither.
+
+    The memory path is built from the pipeline id *and* the role, so one without
+    the other names a file that cannot exist. Empty-but-set counts as unset for
+    the same reason — the orchestrator exports the variable either way.
+    """
+    for pipeline_id, role in (("p-1234", ""), ("", "coder"), ("  ", "coder")):
+        monkeypatch.setenv("EGG_PIPELINE_ID", pipeline_id)
+        monkeypatch.setenv("EGG_AGENT_ROLE", role)
+        assert "BRC memory" not in render_deadline_banner(7200, _START), (pipeline_id, role)
