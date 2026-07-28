@@ -233,6 +233,39 @@ def _exit_detail(self, dedupe_key: str) -> str | None:
         return None
 
 
+def _get_latest_heartbeat_age(pipeline_id: str) -> float | None:
+    """Return the age (seconds) of the most recent peer heartbeat for a pipeline.
+
+    #3665 TASK-5-2: Unifies the timestamp source between the convergence-stall
+    check (``_check_convergence_stall``) and the health monitor's
+    ``_has_recent_peer_progress`` gate. Both now consult the same "bus
+    activity" signal — the tracker's progress timestamp PLUS peer heartbeats.
+
+    Reads from the HealthMonitor singleton's ``_last_heartbeat`` dict, which
+    is populated by CONTAINER_ACTIVITY events. Best-effort: returns ``None``
+    if the health monitor is unavailable or has no heartbeats for this
+    pipeline.
+    """
+    try:
+        from health_monitor import get_health_monitor
+
+        monitor = get_health_monitor()
+        if monitor is None:
+            return None
+        last_heartbeats = getattr(monitor, "_last_heartbeat", {})
+        if not last_heartbeats:
+            return None
+        import time as _time
+
+        now = _time.time()
+        ages = [now - ts for ts in last_heartbeats.values() if ts is not None]
+        if not ages:
+            return None
+        return min(ages)  # Most recent heartbeat (smallest age)
+    except Exception:  # noqa: BLE001 — best-effort
+        return None
+
+
 def poll_once(self, roles: list[str]) -> list[EventDecision]:
     """Run one derivation→action pass over ``roles``.
 
@@ -916,6 +949,14 @@ def _check_convergence_stall(self) -> None:
     bus_ts = self.tracker.get_latest_progress_timestamp()
     bus_timestamp: float = bus_ts.timestamp() if bus_ts is not None else now
 
+    # #3665 TASK-5-2: Also check peer heartbeats. The convergence-stall alert
+    # previously fired against a coder whose peer heartbeat was seconds old
+    # while the BRC bus was quiet — a false positive. The health monitor's
+    # _has_recent_peer_progress gate uses the same tracker timestamp PLUS
+    # peer heartbeats; we unify by also checking heartbeats here so the same
+    # "bus activity" signal is used for both alerting and deferral.
+    latest_heartbeat_age = _get_latest_heartbeat_age(self.pipeline_id)
+
     # If the bus has moved within the budget window, reset ALL per-role
     # stall state — the pipeline is clearly alive.
     if now - bus_timestamp < budget_sec:
@@ -928,6 +969,30 @@ def _check_convergence_stall(self) -> None:
             )
         self._stall_first_seen.clear()
         self._stall_alerted.clear()
+        # Do NOT return — the per-role loop below will re-anchor first-seen
+        # to the new bus_timestamp for any still-pending role, starting a
+        # fresh stall episode (the latch is cleared above).
+
+    # #3665 TASK-5-2: If any peer has a recent heartbeat (within the budget
+    # window), the pipeline is alive — reset stall state. This prevents the
+    # false positive where the BRC bus is quiet but agents are actively
+    # working (e.g. a long tool call that hasn't produced a BRC message yet).
+    # We do NOT return here either — the per-role loop below will re-anchor
+    # first-seen to the new bus_timestamp.
+    if latest_heartbeat_age is not None and latest_heartbeat_age < budget_sec:
+        if self._stall_first_seen or self._stall_alerted:
+            logger.debug(
+                "Convergence-stall: peer heartbeat %.0fs ago within budget — "
+                "resetting stall state",
+                latest_heartbeat_age,
+                pipeline_id=self.pipeline_id,
+                slice_id=self.slice_id,
+            )
+        self._stall_first_seen.clear()
+        self._stall_alerted.clear()
+        # Update bus_timestamp to the heartbeat time so per-role first-seen
+        # is anchored to the most recent activity, not the old bus timestamp.
+        bus_timestamp = now - latest_heartbeat_age
 
     for role in self._roles:
         try:
