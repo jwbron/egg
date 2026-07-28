@@ -609,9 +609,12 @@ def _classify_non_complete_slice(
       origin. No Layer-C action; the scheduler re-yields READY and
       the run loop spawns fresh agents.
     * ``"resume"`` — case (2) IN_PROGRESS with commits on origin and
-      consensus NOT reached. Caller calls
-      ``scheduler.mark_spawned(slice_id)`` so the run loop does NOT
-      respawn.
+      consensus NOT reached. Caller takes no scheduler action so the
+      slice re-yields READY and the run loop re-drives it, which is
+      what starts its BRC event loop (#3685); it reaps any orphaned
+      Job first. The label is kept as a description of the observed
+      state (the slice resumes on the commits already on its
+      integration branch), not as an instruction to mark it spawned.
     * ``"consensus_complete"`` — case (3) IN_PROGRESS with commits
       and ``tracker.evaluate()['is_complete']`` True. Caller marks
       the slice COMPLETE so the next loop iteration runs the slice-PR
@@ -669,8 +672,14 @@ def _classify_non_complete_slice(
         except Exception as probe_err:  # noqa: BLE001
             # Probe failure (gateway down, transient HTTP). Conservative
             # default: treat as has_commits=False so the slice is
-            # re-yielded READY rather than silently mark-spawned with
-            # no agents alive.
+            # re-yielded READY. Both the "fresh" and "resume" outcomes
+            # reap any orphaned Job and then re-yield READY today
+            # (#3685) — the Layer-C loop runs the reap above the
+            # classification switch precisely so this default stays
+            # cheap — so the cost of guessing wrong here is only the
+            # prompt content of the re-driven cohort: not whether the
+            # slice runs at all, and not whether a Job that outlived its
+            # event loop is torn down first.
             #
             # NOTE on asymmetry vs. ``_resolve_slice_base_branch``
             # (slice-4 TASK-4-3, ~line 10510): the resolver defaults
