@@ -267,3 +267,11 @@ def detect_heartbeat_stall(
             detector_key="heartbeat_stall",
         )
     return None
+
+
+# Register detector_key and name as function attributes so the DetectionPlane
+# can register this detector (the register method reads detector_key for
+# logging and dedup). The Finding inside the function also sets detector_key
+# for the Finding's own routing/audit.
+detect_heartbeat_stall.detector_key = "heartbeat_stall"  # type: ignore[attr-defined]
+detect_heartbeat_stall.name = "heartbeat_stall_detector"  # type: ignore[attr-defined]
