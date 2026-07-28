@@ -46,7 +46,7 @@
           "id": "task-1-2",
           "description": "Populate runtime section of EventStreamSnapshot. Wire\ndriver_heartbeat.tick_age_seconds() and spawn_age_seconds() into\nsnapshot_from_health_context() under raw[\"runtime\"]. This activates\ndetect_run_pipeline_thread_liveness() and DriverLivenessCheck.",
           "status": "pending",
-          "commit": null,
+          "commit": "f0d766673",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- snapshot.raw.runtime contains tick_age_s and spawn_age_s\n- detect_run_pipeline_thread_liveness fires when the driver thread is stale",
@@ -866,6 +866,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-28T01:41:39.522106Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "f0d766673",
+      "reason": "Linked commit f0d7666 to task-1-2",
       "checkpoint_id": null
     }
   ],
