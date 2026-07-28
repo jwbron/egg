@@ -168,6 +168,14 @@ def detect_tool_input_loop(
     — those miss most observed instances. It fires only when the trailing
     ``window`` polls have all produced zero new tool-input hashes.
 
+    **Exemption for polling supervisors (#3665 TASK-3-1 constraint):** A role
+    whose correct behaviour is unbounded repetition (e.g. the overseer polling
+    the BRC bus) has zero novel tool inputs by design. The detector scopes
+    itself to roles that carry a producer or reviewer edge — the population the
+    issue is actually about. The overseer is a supervisor, not a producer or
+    reviewer, and is exempt. This is verified by the
+    ``test_does_not_fire_on_polling_supervisor`` test case.
+
     Deterministic → ``requires_adjudication=False``.
     """
     # Only fire when the phase is RUNNING — a parked phase is not a loop.
@@ -188,6 +196,39 @@ def detect_tool_input_loop(
     pipeline_id = getattr(snapshot, "pipeline_id", "")
     if not pipeline_id:
         return None
+
+    # TASK-3-1 constraint: exempt roles that do not carry a producer or
+    # reviewer edge. A polling supervisor (e.g. the overseer) has zero novel
+    # tool inputs by design — its correct steady state is issuing the same
+    # query on a timer forever. Fire only when the agent owes the protocol
+    # something it has not delivered (an outstanding propose, or an ACK/NACK
+    # on an open review edge). The consensus section of the snapshot carries
+    # the blocking_agents list — if the agent's role is not in it, it is not
+    # a producer/reviewer with an outstanding obligation.
+    consensus = getattr(snapshot, "consensus", {}) or {}
+    if isinstance(consensus, dict):
+        blocking_agents = consensus.get("blocking_agents", [])
+        if isinstance(blocking_agents, list):
+            # TASK-3-1 constraint: exempt roles that do not carry a producer
+            # or reviewer edge. A polling supervisor (e.g. the overseer) has
+            # zero novel tool inputs by design — its correct steady state is
+            # issuing the same query on a timer forever. Fire only when the
+            # agent owes the protocol something it has not delivered (an
+            # outstanding propose, or an ACK/NACK on an open review edge).
+            #
+            # If blocking_agents is empty, no agent has an outstanding
+            # obligation — this is not a livelock we should flag.
+            if not blocking_agents:
+                return None
+            # Check if any running agent's role is in the blocking_agents list.
+            # If none of the running agents are producers/reviewers with an
+            # outstanding obligation, this is not a livelock we should flag.
+            running_agents = getattr(snapshot, "running_agents", ()) or ()
+            agent_roles = {a.role for a in running_agents if hasattr(a, "role")}
+            if agent_roles and not agent_roles.intersection(set(blocking_agents)):
+                # No running agent is a blocking producer/reviewer — this is
+                # likely a polling supervisor or an idle phase, not a livelock.
+                return None
 
     tracker = tracker or get_default_loop_tracker()
     is_looping, zero_count = tracker.observe(pipeline_id, current_hashes)
