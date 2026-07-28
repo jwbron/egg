@@ -460,6 +460,12 @@ class KubernetesClient:
         ``agent_log_store``). Returns the log tail together with the pod's
         pipeline/role/slice labels and terminated exit code, or ``None`` on any
         failure; capture must never block removal.
+
+        Uses ``limit_bytes`` instead of ``tail_lines`` for the actual log fetch
+        (#3665 TASK-3-2): the k8s log API truncates individual log lines at ~100
+        chars when only ``tail_lines`` is specified, which prevents the loop
+        detector from distinguishing distinct tool calls sharing a prefix.
+        ``limit_bytes`` returns full-length lines.
         """
         try:
             job_name = self._resolve_job_name(container_id)
@@ -471,7 +477,15 @@ class KubernetesClient:
                 cs = pod.status.container_statuses[0]
                 if cs.state and cs.state.terminated:
                     exit_code = cs.state.terminated.exit_code
-            logs = self.get_pod_logs(pod_name, self.namespace, tail_lines=tail_lines)
+            # Use limit_bytes instead of tail_lines to avoid per-line truncation
+            # (#3665 TASK-3-2). MAX_LOG_BYTES from agent_log_store is the
+            # authoritative cap; we fetch up to that many bytes so the store
+            # can persist the full log without truncation.
+            from agent_log_store import MAX_LOG_BYTES
+
+            logs = self.get_pod_logs(
+                pod_name, self.namespace, limit_bytes=MAX_LOG_BYTES
+            )
         except Exception as exc:
             logger.debug(
                 "Job log snapshot unavailable",
@@ -937,6 +951,7 @@ class KubernetesClient:
         namespace: str,
         tail_lines: int = 100,
         since_seconds: int | None = None,
+        limit_bytes: int | None = None,
     ) -> str:
         """Read logs from a pod.
 
@@ -945,6 +960,14 @@ class KubernetesClient:
             namespace: Namespace containing the pod.
             tail_lines: Number of trailing log lines to return.
             since_seconds: Only return logs newer than this many seconds.
+            limit_bytes: Maximum bytes of log content to return. When set,
+                this overrides ``tail_lines`` to avoid the k8s API's per-line
+                truncation that occurs when ``tail_lines`` is used without
+                ``limit_bytes`` (#3665 TASK-3-2). The k8s log API truncates
+                individual log lines at ~100 chars when only ``tail_lines``
+                is specified; using ``limit_bytes`` instead returns full-length
+                lines so the loop detector can distinguish distinct tool calls
+                sharing a prefix.
 
         Returns:
             Log text.
@@ -953,8 +976,11 @@ class KubernetesClient:
             kwargs: dict[str, Any] = {
                 "name": pod_name,
                 "namespace": namespace,
-                "tail_lines": tail_lines,
             }
+            if limit_bytes is not None:
+                kwargs["limit_bytes"] = limit_bytes
+            else:
+                kwargs["tail_lines"] = tail_lines
             if since_seconds is not None:
                 kwargs["since_seconds"] = since_seconds
 
