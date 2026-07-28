@@ -23,7 +23,7 @@
         {
           "id": "task-1-1",
           "description": "Populate midturn_messages in snapshot. Wire agent tool-call logs into\nsnapshot_from_health_context() as midturn_messages tuples. Sequenced first\nper the refine gate's instruction (\"Area 3 step 1 is the highest-value item...\nsequence that field first among Area 1's steps rather than last\"). This is\nthe prerequisite for the loop detector in slice-3.",
-          "status": "pending",
+          "status": "complete",
           "commit": "f0d766673",
           "checkpoint_id": null,
           "notes": "",
@@ -855,6 +855,17 @@
       "old_value": null,
       "new_value": "f0d766673",
       "reason": "Linked commit f0d7666 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-28T01:41:02.235046Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
       "checkpoint_id": null
     }
   ],
