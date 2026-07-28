@@ -32,16 +32,32 @@ def _make_snapshot(
     phase: str = "implement",
     status: str = "RUNNING",
     midturn_messages=None,
+    agent_role: str = "coder",
+    blocking_agents=None,
+    running_agents=None,
 ):
-    """Build a minimal EventStreamSnapshot for testing."""
-    from health_checks.detection_plane import EventStreamSnapshot
+    """Build a minimal EventStreamSnapshot for testing.
+
+    By default, sets up a snapshot where the agent role is in blocking_agents
+    (simulating a producer/reviewer with an outstanding obligation). Pass
+    ``blocking_agents=[]`` or ``agent_role="overseer"`` to test the exemption.
+    """
+    from health_checks.detection_plane import EventStreamSnapshot, RunningAgent
+
+    if blocking_agents is None:
+        blocking_agents = [agent_role]
+    if running_agents is None:
+        running_agents = (
+            (RunningAgent(role=agent_role, state="running"),) if agent_role else ()
+        )
 
     return EventStreamSnapshot(
         snapshot_id=f"{pipeline_id}:{phase}",
         pipeline_id=pipeline_id,
         phase=phase,
-        running_agents=(),
+        running_agents=running_agents,
         phase_state={"status": status},
+        consensus={"blocking_agents": blocking_agents},
         midturn_messages=midturn_messages or (),
     )
 
@@ -258,9 +274,90 @@ class TestProductiveAgent:
         finding = loop_detection.detect_tool_input_loop(snapshot2)
         assert finding is None  # 2 zero-new polls
 
-        # Poll 5: window reached
+        # Poll 5: window reached — but this is a productive agent that just
+        # stopped producing new inputs for 3 polls. This SHOULD fire because
+        # the agent is in blocking_agents (has an obligation).
         finding = loop_detection.detect_tool_input_loop(snapshot2)
         assert finding is not None  # 3 zero-new polls = window
+
+
+# ---------------------------------------------------------------------------
+# Polling supervisor exemption (#3665 TASK-3-1 constraint)
+# ---------------------------------------------------------------------------
+
+
+class TestPollingSupervisorExemption:
+    """Verify the detector does NOT fire on a polling supervisor (e.g. overseer).
+
+    A polling agent's correct steady state is zero novel tool inputs — it
+    issues the same query on a timer forever. The detector must exempt roles
+    that do not carry a producer or reviewer edge (i.e., roles not in
+    blocking_agents).
+    """
+
+    def test_does_not_fire_on_polling_supervisor(self):
+        """A polling supervisor with zero novel inputs over a long window is NOT flagged."""
+        # Simulate the overseer polling: same MCP calls repeated
+        msg = _msg("mcp__brc__get_state", '{"pipeline_id": "issue-3665-v3"}')
+        messages = tuple([msg] * 5)
+
+        # The overseer is NOT in blocking_agents — it has no producer/reviewer edge
+        snapshot = _make_snapshot(
+            midturn_messages=messages,
+            agent_role="overseer",
+            blocking_agents=["coder", "reviewer_code"],  # overseer NOT listed
+        )
+
+        loop_detection.reset_default_loop_tracker()
+
+        # Even after many polls with zero new inputs, should NOT fire
+        for _ in range(10):
+            finding = loop_detection.detect_tool_input_loop(snapshot)
+            assert finding is None, (
+                "Polling supervisor (overseer) must not be flagged as a loop — "
+                "its correct steady state is zero novel tool inputs"
+            )
+
+    def test_does_not_fire_when_no_blocking_agents(self):
+        """When blocking_agents is empty, no agent is a producer/reviewer, so no loop."""
+        msg = _msg("bash", "ls -la")
+        messages = tuple([msg] * 5)
+
+        snapshot = _make_snapshot(
+            midturn_messages=messages,
+            agent_role="overseer",
+            blocking_agents=[],  # No producers/reviewers
+        )
+
+        loop_detection.reset_default_loop_tracker()
+
+        for _ in range(10):
+            finding = loop_detection.detect_tool_input_loop(snapshot)
+            assert finding is None
+
+    def test_fires_when_agent_is_blocking_producer(self):
+        """When the agent IS in blocking_agents, the loop detector fires normally."""
+        msg = _msg("bash", "ls -la")
+        messages = tuple([msg] * 5)
+
+        snapshot = _make_snapshot(
+            midturn_messages=messages,
+            agent_role="coder",
+            blocking_agents=["coder"],  # coder IS a blocking producer
+        )
+
+        loop_detection.reset_default_loop_tracker()
+
+        # First poll: records the hash
+        finding = loop_detection.detect_tool_input_loop(snapshot)
+        assert finding is None
+
+        # Polls 2-4: zero new inputs, window reached
+        for _ in range(3):
+            finding = loop_detection.detect_tool_input_loop(snapshot)
+
+        assert finding is not None
+        assert finding.finding_class == "tool_input_loop"
 
 
 # ---------------------------------------------------------------------------
@@ -370,14 +467,16 @@ class TestDetectionPlaneIntegration:
 
     def test_loop_detector_fires_through_plane(self):
         """The loop detector fires when evaluated through the plane."""
-        from health_checks.detection_plane import EventStreamSnapshot
+        from health_checks.detection_plane import EventStreamSnapshot, RunningAgent
 
         msg = _msg("bash", "ls -la")
         snapshot = EventStreamSnapshot(
             snapshot_id="issue-3665:implement",
             pipeline_id="issue-3665",
             phase="implement",
+            running_agents=(RunningAgent(role="coder", state="running"),),
             phase_state={"status": "RUNNING"},
+            consensus={"blocking_agents": ["coder"]},
             midturn_messages=(msg,),
         )
 
