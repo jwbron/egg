@@ -112,7 +112,7 @@
           "id": "task-1-5",
           "description": "Fix RunningAgent role field and populate age fields. Use agent role\nfrom pipeline state instead of container ID; populate last_tool_call_age_s\nand last_heartbeat_age_s from health monitor anchors. This activates\ndetect_heartbeat_stall().",
           "status": "pending",
-          "commit": null,
+          "commit": "f0d766673",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- RunningAgent.role is the agent role (not container ID)\n- last_tool_call_age_s and last_heartbeat_age_s are populated\n- detect_heartbeat_stall fires on stale heartbeats",
@@ -932,6 +932,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-28T01:41:57.320054Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.4.commit",
+      "old_value": null,
+      "new_value": "f0d766673",
+      "reason": "Linked commit f0d7666 to task-1-5",
       "checkpoint_id": null
     }
   ],
