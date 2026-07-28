@@ -14,9 +14,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, AsyncMock
-
-import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 _tests_dir = Path(__file__).parent
 _orchestrator_dir = _tests_dir.parent
@@ -102,8 +100,8 @@ class TestAlertEvidence:
 
     def test_detection_finding_alert_includes_evidence(self):
         """Detection-plane findings broadcast as OVERSEER_ALERT include evidence."""
+        from health_checks.types import Finding, Severity
         from kubernetes_monitor import KubernetesMonitor
-        from health_checks.types import Finding, FindingClass, Severity
 
         monitor = KubernetesMonitor.__new__(KubernetesMonitor)
         monitor._detection_plane_last_tick = {}
@@ -169,9 +167,9 @@ class TestConvergenceStallFalsePositive:
 
     def test_stall_does_not_fire_when_heartbeat_within_budget(self):
         """When a peer heartbeat is within the budget window, stall is suppressed."""
-        from event_loop._loop import _get_latest_heartbeat_age
-
         import time as _time
+
+        from event_loop._loop import _get_latest_heartbeat_age
 
         now = _time.time()
         fake_monitor = SimpleNamespace(
@@ -288,8 +286,8 @@ class TestFindingRoutingIntegration:
 
     def test_routine_finding_routed_to_alert_surface(self):
         """Routine findings appear on the OVERSEER_ALERT surface."""
+        from health_checks.types import Finding, Severity
         from kubernetes_monitor import KubernetesMonitor
-        from health_checks.types import Finding, FindingClass, Severity
 
         monitor = KubernetesMonitor.__new__(KubernetesMonitor)
         monitor._detection_plane_last_tick = {}
@@ -326,8 +324,8 @@ class TestFindingRoutingIntegration:
 
     def test_adjudication_finding_not_routed_as_routine(self):
         """Adjudication findings are NOT broadcast as routine alerts."""
-        from kubernetes_monitor import KubernetesMonitor
         from health_checks.types import Finding, FindingClass, Severity
+        from kubernetes_monitor import KubernetesMonitor
 
         monitor = KubernetesMonitor.__new__(KubernetesMonitor)
         monitor._detection_plane_last_tick = {}
