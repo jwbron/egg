@@ -26,6 +26,7 @@ core) so the ``phase_stall`` corpus rows flip to strict.
 from __future__ import annotations
 
 import sys
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -125,6 +126,7 @@ class EventStreamSnapshot:
     cost_counters: dict[str, Any] = field(default_factory=dict)
     midturn_messages: tuple[dict[str, Any], ...] = ()
     git_state: dict[str, Any] = field(default_factory=dict)
+    runtime: dict[str, Any] = field(default_factory=dict)
     raw: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -142,6 +144,7 @@ class EventStreamSnapshot:
             cost_counters=dict(data.get("cost_counters", {})),
             midturn_messages=tuple(data.get("midturn_messages", [])),
             git_state=dict(data.get("git_state", {})),
+            runtime=dict(data.get("runtime", {})),
             raw=dict(data),
         )
 
@@ -515,6 +518,17 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
     must never crash on a partially-populated context. Fields the live state
     doesn't expose yet stay empty (a detector simply won't fire on them); slices
     7/8 enrich this builder as their detectors need more signal.
+
+    Populates the 5 in-scope fields (#3665 slice-1):
+      - ``midturn_messages`` — agent tool-call logs for loop detection (TASK-1-1)
+      - ``runtime`` — driver heartbeat ages (TASK-1-2)
+      - ``consensus`` — peer consensus tracker evaluation (TASK-1-3)
+      - ``container_transitions`` — pod state transitions (TASK-1-4)
+      - ``running_agents`` — agent role + age fields (TASK-1-5)
+
+    The remaining 4 fields (``decision_state``, ``gateway_error_counters``,
+    ``cost_counters``, ``git_state``) are Tier 3-4 candidates and remain
+    empty by decision.
     """
     pipeline = getattr(context, "pipeline", None)
     pipeline_id = getattr(context, "pipeline_id", "") or getattr(pipeline, "id", "")
@@ -532,10 +546,7 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
     }
 
     live_ids = getattr(context, "live_container_ids", None) or set()
-    running_agents = tuple(
-        RunningAgent(role=str(cid), state="running", lifecycle_owner=lifecycle_owner)
-        for cid in live_ids
-    )
+    running_agents = _build_running_agents(context, pipeline, pipeline_id, phase_value, lifecycle_owner)
 
     return EventStreamSnapshot(
         snapshot_id=f"{pipeline_id}:{phase_value}",
@@ -543,6 +554,10 @@ def snapshot_from_health_context(context: Any) -> EventStreamSnapshot:
         phase=str(phase_value),
         running_agents=running_agents,
         phase_state=phase_state,
+        runtime=_build_runtime_section(pipeline_id),
+        consensus=_build_consensus_section(pipeline_id),
+        container_transitions=_build_container_transitions(context, pipeline_id, phase_value),
+        midturn_messages=_build_midturn_messages(context, pipeline_id, phase_value),
     )
 
 
@@ -579,6 +594,248 @@ def _getattr_chain(obj: Any, name: str) -> Any:
         return getattr(obj, name, None)
     except Exception:  # noqa: BLE001
         return None
+
+
+# ---------------------------------------------------------------------------
+# Field builders for snapshot_from_health_context (slice-1, TASK-1-1..TASK-1-5).
+# Each is defensive: a failure in one builder yields an empty field, never a
+# crash that takes down the event loop.
+# ---------------------------------------------------------------------------
+
+
+def _build_runtime_section(pipeline_id: str) -> dict[str, Any]:
+    """Populate the ``runtime`` section from driver_heartbeat ages (TASK-1-2).
+
+    Wires ``driver_heartbeat.tick_age_seconds()`` and ``spawn_age_seconds()``
+    so that ``detect_run_pipeline_thread_liveness`` and ``DriverLivenessCheck``
+    can read the ages from the snapshot rather than calling the module directly.
+    """
+    try:
+        from driver_heartbeat import tick_age_seconds, spawn_age_seconds
+
+        return {
+            "tick_age_s": tick_age_seconds(pipeline_id),
+            "spawn_age_s": spawn_age_seconds(pipeline_id),
+        }
+    except Exception:  # noqa: BLE001 — defensive
+        return {}
+
+
+def _build_consensus_section(pipeline_id: str) -> dict[str, Any]:
+    """Populate the ``consensus`` section from the peer-consensus tracker (TASK-1-3).
+
+    Wires ``peer_consensus.get_peer_consensus_tracker().evaluate()`` so that
+    ``detect_brc_thrash``, ``detect_incomplete_consensus_deferral``, and the
+    consensus field readers in ``PhaseStallDetector`` can read the tracker
+    output from the snapshot.
+    """
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+
+        tracker = get_peer_consensus_tracker(pipeline_id)
+        if tracker is None:
+            return {}
+        return dict(tracker.evaluate())
+    except Exception:  # noqa: BLE001 — defensive; tracker may be absent
+        return {}
+
+
+def _build_container_transitions(
+    context: Any, pipeline_id: str, phase_value: str
+) -> tuple[dict[str, Any], ...]:
+    """Populate ``container_transitions`` from the kubernetes_monitor's pod-state log (TASK-1-4).
+
+    The monitor tracks ``_pod_states`` (pod_id -> ContainerStatus) on every
+    state change. We surface those as transition records so that
+    ``detect_container_death``, ``detect_container_oom_evicted``,
+    ``detect_container_restart_loop``, and ``detect_overseer_self_injection``
+    can read real pod transitions from the snapshot.
+    """
+    try:
+        from kubernetes_monitor import get_kubernetes_monitor
+
+        monitor = get_kubernetes_monitor()
+        if monitor is None:
+            return ()
+        pod_states = getattr(monitor, "_pod_states", None)
+        if not pod_states:
+            return ()
+        # Build transition records from the live pod-state map. Each record
+        # carries the pod_id, current status, and the pipeline/phase context so
+        # detectors can correlate.
+        transitions: list[dict[str, Any]] = []
+        for pod_id, status in pod_states.items():
+            transitions.append(
+                {
+                    "pod_id": pod_id,
+                    "status": str(status),
+                    "pipeline_id": pipeline_id,
+                    "phase": phase_value,
+                }
+            )
+        return tuple(transitions)
+    except Exception:  # noqa: BLE001 — defensive
+        return ()
+
+
+def _build_midturn_messages(
+    context: Any, pipeline_id: str, phase_value: str
+) -> tuple[dict[str, Any], ...]:
+    """Populate ``midturn_messages`` from agent tool-call logs (TASK-1-1).
+
+    Reads captured agent logs from ``agent_log_store`` (which persists pod
+    stdout at removal via ``read_job_log_snapshot``) and parses tool-call
+    records. Each record carries a ``tool_name`` and ``input_hash`` so that
+    the deterministic loop detector (``detect_tool_input_loop``) can count
+    distinct tool inputs over a trailing window.
+
+    The k8s log API truncates at ~100 chars per line, so we prefer the
+    full-length captured logs from ``agent_log_store`` (TASK-3-2 increases
+    fidelity further).
+    """
+    try:
+        from agent_log_store import get_agent_log_store
+
+        store = get_agent_log_store()
+        records = store.list_records(pipeline_id, include_logs=True)
+        messages: list[dict[str, Any]] = []
+        for record in records:
+            logs = record.get("logs", "")
+            if not logs:
+                continue
+            for parsed in _parse_tool_calls_from_logs(logs, record):
+                messages.append(parsed)
+        return tuple(messages)
+    except Exception:  # noqa: BLE001 — defensive
+        return ()
+
+
+def _parse_tool_calls_from_logs(
+    logs: str, record: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Extract tool-call records from agent log text.
+
+    Agent stdout contains JSON-structured log lines emitted by
+    ``egg_agent/client.py`` via ``logger.info("Tool call", ...)``. Each line
+    is a JSON object with fields like ``message``, ``extra.event_type``,
+    ``extra.tool_name``, ``extra.tool_use_id``, ``extra.input``.
+
+    We parse these into ``{tool_name, input_hash, input, agent_role, job_name}``
+    records. The ``input_hash`` is the full SHA-256 of the ``(tool_name, input)``
+    pair — truncating at any length reintroduces the prefix-collapse that
+    TASK-3-2 exists to remove (per the plan's HITL resolution).
+    """
+    import hashlib
+    import json
+
+    records: list[dict[str, Any]] = []
+    for line in logs.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Try JSON parsing first (egg_logging JSON formatter)
+        try:
+            entry = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        # Check if this is a tool call log entry
+        message = entry.get("message", "")
+        extra = entry.get("extra", {})
+        if message != "Tool call" or extra.get("event_type") != "tool_use":
+            continue
+        tool_name = extra.get("tool_name", "")
+        input_text = extra.get("input", "")
+        # Hash the full (tool_name, input) pair — no truncation
+        input_hash = hashlib.sha256(
+            f"{tool_name}:{input_text}".encode("utf-8")
+        ).hexdigest()
+        records.append(
+            {
+                "tool_name": tool_name,
+                "input_hash": input_hash,
+                "input": input_text,
+                "agent_role": record.get("agent_role"),
+                "job_name": record.get("job_name"),
+            }
+        )
+    return records
+
+
+def _build_running_agents(
+    context: Any,
+    pipeline: Any,
+    pipeline_id: str,
+    phase_value: str,
+    lifecycle_owner: str,
+) -> tuple[RunningAgent, ...]:
+    """Build RunningAgent records with proper role + age fields (TASK-1-5).
+
+    Fixes the bug where ``role`` was set to the container ID instead of the
+    agent role. Also populates ``last_tool_call_age_s`` and
+    ``last_heartbeat_age_s`` from the health monitor's anchors, which activates
+    ``detect_heartbeat_stall()``.
+    """
+    try:
+        from health_monitor import get_health_monitor
+
+        health_monitor = get_health_monitor()
+    except Exception:  # noqa: BLE001
+        health_monitor = None
+
+    live_ids = getattr(context, "live_container_ids", None) or set()
+    if not live_ids:
+        return ()
+
+    # Build a lookup from container_id to agent role using the pipeline model.
+    role_by_container: dict[str, str] = {}
+    age_by_container: dict[str, dict[str, float]] = {}
+    try:
+        phases = getattr(pipeline, "phases", {}) or {}
+        phase_exec = phases.get(phase_value)
+        if phase_exec is not None:
+            for agent_exec in getattr(phase_exec, "agents", []) or []:
+                cid = getattr(agent_exec, "container_id", None)
+                role = str(getattr(agent_exec, "role", ""))
+                if cid and role:
+                    role_by_container[cid] = role
+            for ci in getattr(phase_exec, "containers", []) or []:
+                cid = getattr(ci, "container_id", None)
+                role = getattr(ci, "agent_role", None)
+                if cid and role:
+                    role_by_container[cid] = str(role)
+    except Exception:  # noqa: BLE001 — defensive
+        pass
+
+    agents: list[RunningAgent] = []
+    now = time.time()
+    for cid in live_ids:
+        role = role_by_container.get(cid, str(cid))
+        # Try to get age fields from the health monitor
+        last_tool_call_age: float | None = None
+        last_heartbeat_age: float | None = None
+        if health_monitor is not None:
+            try:
+                agent_state = getattr(health_monitor, "_agents", {}).get(role)
+                if agent_state is not None:
+                    last_hb = getattr(agent_state, "last_heartbeat", None)
+                    last_progress = getattr(agent_state, "last_progress", None)
+                    if last_hb is not None:
+                        last_heartbeat_age = max(0.0, now - float(last_hb))
+                    if last_progress is not None:
+                        last_tool_call_age = max(0.0, now - float(last_progress))
+            except Exception:  # noqa: BLE001 — defensive
+                pass
+
+        agents.append(
+            RunningAgent(
+                role=role,
+                state="running",
+                lifecycle_owner=lifecycle_owner,
+                last_tool_call_age_s=last_tool_call_age,
+                last_heartbeat_age_s=last_heartbeat_age,
+            )
+        )
+    return tuple(agents)
 
 
 __all__ = [
