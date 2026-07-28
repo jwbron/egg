@@ -122,25 +122,36 @@ def _live_event_agents(pipeline_id: str, slice_id: str | None) -> list[dict[str,
     return entries
 
 
-def _slice_agents_alive(spawner: _pkg.Any, pipeline_id: str, slice_id: str) -> bool:
-    """Check if any live agents exist for a slice (#2914).
+def _reap_orphaned_slice_jobs(spawner: _pkg.Any, pipeline_id: str, slice_id: str) -> list[str]:
+    """Tear down agent Jobs that outlived their event loop (#3685).
 
-    Returns ``True`` if at least one pod labeled with the pipeline and
-    slice IDs is in a live state (Pending/Creating/Running). Returns
-    ``False`` if zero live pods or if the label query fails — the
-    conservative default forces re-spawn rather than risking a wedge.
+    Layer-C bootstrap re-drives every non-COMPLETE slice through the run
+    loop, and the fresh cohort's one-shot event Jobs re-attach to the
+    per-role worktrees. Any Job still live at that point belongs to a
+    BRC event loop that no longer exists (the loop is process-local and
+    died with the previous orchestrator process, or with the previous
+    driver thread), so nothing will ever observe its termination or
+    re-derive its next event. Left in place it holds the role's worktree
+    while the new cohort's Job attaches to the same checkout (the #3337
+    two-live-pods race), and the spawner's live-key adoption cannot
+    collapse the duplicate because the orphan's dedupe key was derived
+    against a tracker this process does not have.
 
-    Caller contract: callers must have already torn down stale cohorts
-    with foreground propagation (e.g. ``restart_phase`` step 4 calls
-    ``remove_agent_container(force=True)``). A pod whose Job is being
-    deleted but is still in its termination grace period still reports
-    ``phase=Running`` (``kubernetes_client.py`` maps Running → RUNNING
-    without a Terminating-specific status), so without foreground
-    teardown the helper can false-positive against terminating pods
-    and wedge again. The ``spawner`` is taken as a parameter (rather
-    than fetched via ``_get_spawner``) so tests can inject a stub
-    directly, paralleling how ``_classify_non_complete_slice``
-    receives ``gateway``.
+    Reaping is foreground (``force=True``) so the pod is gone rather
+    than merely terminating before the run loop admits the slice,
+    matching ``restart_phase`` step 4's teardown contract. Per-agent
+    worktrees are deliberately NOT deleted: the re-driven slice wants
+    them warm, and the respawned agent's own dirty-state clean covers
+    the handoff.
+
+    Returns the container ids reaped (empty when the slice has no live
+    Jobs, which is the common case after a full pod recycle). Entirely
+    best-effort: a failed label query or a failed removal is logged and
+    swallowed, because a reap failure must never block recovery of a
+    slice that is otherwise ready to re-drive. The ``spawner`` is taken
+    as a parameter (rather than fetched via ``_get_spawner``) so tests
+    can inject a stub directly, paralleling how
+    ``_classify_non_complete_slice`` receives ``gateway``.
     """
     try:
         pods = spawner.backend.list_containers(
@@ -149,16 +160,42 @@ def _slice_agents_alive(spawner: _pkg.Any, pipeline_id: str, slice_id: str) -> b
                 _pkg.LABEL_SLICE_ID: slice_id,
             },
         )
-        live_count = sum(1 for p in pods if p.status in _pkg._LIVE_POD_STATUSES)
-        return live_count > 0
     except Exception as e:  # noqa: BLE001
         _pkg.logger.warning(
-            "Slice liveness check failed; treating as not-alive to force re-spawn (#2914)",
+            "Orphaned-Job reap skipped: slice Job query failed (#3685)",
             pipeline_id=pipeline_id,
             slice_id=slice_id,
             error=str(e),
         )
-        return False
+        return []
+
+    reaped: list[str] = []
+    for pod in pods:
+        if pod.status not in _pkg._LIVE_POD_STATUSES:
+            continue
+        container_id = getattr(pod, "container_id", None)
+        if not container_id:
+            continue
+        try:
+            spawner.remove_agent_container(container_id, force=True, cleanup_session=True)
+            reaped.append(container_id)
+        except Exception as e:  # noqa: BLE001
+            _pkg.logger.warning(
+                "Failed to reap orphaned slice Job during bootstrap re-drive (#3685)",
+                pipeline_id=pipeline_id,
+                slice_id=slice_id,
+                container_id=container_id,
+                error=str(e),
+            )
+    if reaped:
+        _pkg.logger.info(
+            "Reaped orphaned slice Jobs whose BRC event loop died with the "
+            "previous orchestrator process (#3685)",
+            pipeline_id=pipeline_id,
+            slice_id=slice_id,
+            reaped=reaped,
+        )
+    return reaped
 
 
 def _guard_live_pods_or_force(

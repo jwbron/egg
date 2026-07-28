@@ -37,8 +37,11 @@ recycles:
 
   - ``"fresh"`` — IN_PROGRESS/PENDING + no commits on origin → no Layer-C
     action; scheduler re-yields READY.
-  - ``"resume"`` — IN_PROGRESS + commits + no consensus →
-    ``scheduler.mark_spawned``, no respawn.
+  - ``"resume"``: IN_PROGRESS + commits + no consensus → no scheduler
+    action, so the slice re-yields READY and the run loop re-drives it
+    (#3685: re-driving is what starts the slice's BRC event loop, and
+    ``_run_one_slice`` is the only caller that can complete it; the old
+    ``scheduler.mark_spawned`` parked the slice in RUNNING with neither).
   - ``"consensus_complete"`` — IN_PROGRESS + commits + consensus REACHED →
     mark COMPLETE so the slice-PR opener fires.
   - ``"blocked"`` — BLOCKED → preserve status; caller escalates via
@@ -61,7 +64,7 @@ recycles:
   slice-id filter without one slice's ack/propose records bleeding into the
   other's tracker.
 
-The classes below also cover ``_slice_agents_alive`` (#2914 / #2916), the
+The classes below also cover ``_reap_orphaned_slice_jobs`` (#3685), the
 ``_escalate_layer_c_hitl`` HITL persistence helpers, and
 ``GatewayClient.merge_base`` strict SHA-shape + session-auth bootstrapping.
 """
@@ -919,8 +922,9 @@ class TestClassifyNonCompleteSlice:
 
     def test_d2_in_progress_commits_no_consensus_classifies_resume(self) -> None:
         """(d2) IN_PROGRESS + commits pushed + consensus NOT
-        reached → ``"resume"``: caller marks the scheduler
-        ``mark_spawned`` so the run loop does NOT respawn."""
+        reached → ``"resume"``: caller takes no scheduler action, so
+        the run loop re-drives the slice onto the commits already on
+        its integration branch (#3685)."""
         from routes.pipelines import _classify_non_complete_slice
 
         slice_obj = _make_slice("slice-1", status=SliceStatus.IN_PROGRESS)
@@ -1061,8 +1065,8 @@ class TestClassifyNonCompleteSlice:
     def test_probe_failure_classifies_fresh(self) -> None:
         """Adversarial probe: the gateway probe raises mid-call.
         The classifier MUST default to ``"fresh"`` rather than
-        ``"resume"`` so we don't silently mark-spawn a slice whose
-        true origin state is unknown.
+        ``"resume"`` so a slice whose true origin state is unknown
+        takes the plainest recovery path.
         """
         from routes.pipelines import _classify_non_complete_slice
 
@@ -1082,24 +1086,28 @@ class TestClassifyNonCompleteSlice:
 
 
 # ---------------------------------------------------------------------------
-# #2914: _slice_agents_alive() — k8s probe for restart-phase resume guard
+# #3685: _reap_orphaned_slice_jobs(), the foreground teardown of Jobs whose
+# BRC event loop died with the previous orchestrator process
 #
-# The fix for #2914 adds a runtime check that prevents the bootstrap
-# reconciler from calling scheduler.mark_spawned() when no live agents
-# exist. Without this, restart_phase on a sliced implement wedges the
-# pipeline: the scheduler thinks the slice is RUNNING but no containers
-# are present, so no signals can arrive and the slice never completes.
+# Layer-C case 2 re-drives every non-COMPLETE slice through the run loop
+# (that is the only path that starts a slice's event loop, and the only
+# one that can ever complete it). A Job that survived the restart holds
+# the role's worktree and would race the fresh cohort's Job on the same
+# checkout (#3337), and the spawner's live-key adoption cannot collapse
+# the duplicate: the orphan's dedupe key was derived against a tracker
+# this process no longer has. So the re-drive reaps first.
 #
-# This helper must be defensive:
-# - Returns False (force fresh re-spawn) on any k8s API error
-# - Returns False when zero pods match the slice labels
-# - Returns True only when at least one pod is in a live state
+# The helper must be defensive:
+# - Removes only live pods (Pending / Creating / Running)
+# - Leaves terminal pods alone (they are already gone)
 # - Filters by both pipeline_id AND slice_id labels (not just pipeline)
+# - Swallows a failed label query and a failed removal: a reap failure
+#   must never block recovery of a slice that is ready to re-drive
 # ---------------------------------------------------------------------------
 
 
-class TestSliceAgentsAlive:
-    """Exercise _slice_agents_alive() against a stubbed spawner backend.
+class TestReapOrphanedSliceJobs:
+    """Exercise ``_reap_orphaned_slice_jobs`` against a stubbed spawner.
 
     The helper takes ``spawner`` as a parameter (paralleling how
     ``_classify_non_complete_slice`` takes ``gateway``) so tests inject
@@ -1125,85 +1133,94 @@ class TestSliceAgentsAlive:
         spawner.backend = backend
         return spawner
 
-    def test_true_when_running_pod_exists(self):
-        """At least one RUNNING pod → slice is live, resume is safe."""
+    def test_reaps_running_pod(self):
+        """A RUNNING pod is an orphan of the dead loop: force-remove it."""
         from models import ContainerStatus
-        from routes.pipelines import _slice_agents_alive
+        from routes.pipelines import _reap_orphaned_slice_jobs
 
-        pods = [
-            self._make_container_info("p1", ContainerStatus.RUNNING),
-        ]
+        spawner = self._make_spawner([self._make_container_info("p1", ContainerStatus.RUNNING)])
 
-        spawner = self._make_spawner(pods)
-        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is True
+        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == ["p1"]
+        spawner.remove_agent_container.assert_called_once_with(
+            "p1", force=True, cleanup_session=True
+        )
 
-    def test_true_when_pending_pod_exists(self):
-        """PENDING pod (still scheduling) → slice is live, don't re-spawn."""
+    def test_reaps_pending_and_creating_pods(self):
+        """PENDING / CREATING pods are live too (``LIVE_POD_STATUSES``):
+        a Job mid-spawn when the orchestrator went down is just as
+        orphaned as a Running one, and will attach to the same worktree
+        the moment its pod starts."""
         from models import ContainerStatus
-        from routes.pipelines import _slice_agents_alive
+        from routes.pipelines import _reap_orphaned_slice_jobs
 
-        pods = [
-            self._make_container_info("p1", ContainerStatus.PENDING),
-        ]
+        spawner = self._make_spawner(
+            [
+                self._make_container_info("p1", ContainerStatus.PENDING),
+                self._make_container_info("p2", ContainerStatus.CREATING),
+            ]
+        )
 
-        spawner = self._make_spawner(pods)
-        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is True
+        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == ["p1", "p2"]
+        assert spawner.remove_agent_container.call_count == 2
 
-    def test_true_when_creating_pod_exists(self):
-        """CREATING pod (Job→Pod transition) → slice is live, don't re-spawn.
-
-        ``_LIVE_POD_STATUSES`` (``models.LIVE_POD_STATUSES``) includes
-        CREATING because k8s Jobs pass through it on their way to
-        Running. Without this branch, a slice mid-spawn would be
-        misclassified as dead and double-spawned. (reviewer suggestion 2
-        on #2916: same shape as the RUNNING/PENDING tests.)
-        """
+    def test_skips_terminal_pods(self):
+        """EXITED / FAILED pods have already gone; removing them would
+        be a wasted API round-trip per bootstrap."""
         from models import ContainerStatus
-        from routes.pipelines import _slice_agents_alive
+        from routes.pipelines import _reap_orphaned_slice_jobs
 
-        pods = [
-            self._make_container_info("p1", ContainerStatus.CREATING),
-        ]
+        spawner = self._make_spawner(
+            [
+                self._make_container_info("p1", ContainerStatus.EXITED),
+                self._make_container_info("p2", ContainerStatus.FAILED),
+            ]
+        )
 
-        spawner = self._make_spawner(pods)
-        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is True
+        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == []
+        spawner.remove_agent_container.assert_not_called()
 
-    def test_false_when_no_pods(self):
-        """Zero pods → slice is dead, force fresh re-spawn."""
-        from routes.pipelines import _slice_agents_alive
+    def test_no_pods_is_a_noop(self):
+        """The common case after a full pod recycle: nothing to reap."""
+        from routes.pipelines import _reap_orphaned_slice_jobs
 
         spawner = self._make_spawner([])
-        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is False
 
-    def test_false_when_only_terminal_pods(self):
-        """Only EXITED/FAILED pods (post-restart_phase cleanup) → slice is dead."""
-        from models import ContainerStatus
-        from routes.pipelines import _slice_agents_alive
+        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == []
+        spawner.remove_agent_container.assert_not_called()
 
-        pods = [
-            self._make_container_info("p1", ContainerStatus.EXITED),
-            self._make_container_info("p2", ContainerStatus.FAILED),
-        ]
-
-        spawner = self._make_spawner(pods)
-        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is False
-
-    def test_false_on_k8s_api_error(self):
-        """Defensive: k8s API error → assume dead, force re-spawn."""
-        from routes.pipelines import _slice_agents_alive
+    def test_swallows_list_error(self):
+        """Defensive: a k8s API error must not abort the re-drive."""
+        from routes.pipelines import _reap_orphaned_slice_jobs
 
         backend = MagicMock()
         backend.list_containers.side_effect = RuntimeError("k8s unreachable")
         spawner = MagicMock()
         spawner.backend = backend
 
-        assert _slice_agents_alive(spawner, "pipeline-x", "slice-1") is False
+        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == []
+
+    def test_swallows_removal_error_and_continues(self):
+        """One failed removal must not skip the remaining orphans, and
+        must not propagate: the slice still needs to be re-driven."""
+        from models import ContainerStatus
+        from routes.pipelines import _reap_orphaned_slice_jobs
+
+        spawner = self._make_spawner(
+            [
+                self._make_container_info("p1", ContainerStatus.RUNNING),
+                self._make_container_info("p2", ContainerStatus.RUNNING),
+            ]
+        )
+        spawner.remove_agent_container.side_effect = [RuntimeError("boom"), None]
+
+        assert _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-1") == ["p2"]
+        assert spawner.remove_agent_container.call_count == 2
 
     def test_filters_by_pipeline_and_slice_labels(self):
-        """Helper must query with both labels to avoid false-positive on
-        a different slice in the same pipeline."""
+        """The query must carry both labels so a sibling slice's live
+        cohort is never reaped by this slice's bootstrap."""
         from models import ContainerStatus
-        from routes.pipelines import _slice_agents_alive
+        from routes.pipelines import _reap_orphaned_slice_jobs
 
         backend = MagicMock()
         backend.list_containers.return_value = [
@@ -1212,12 +1229,9 @@ class TestSliceAgentsAlive:
         spawner = MagicMock()
         spawner.backend = backend
 
-        _slice_agents_alive(spawner, "pipeline-x", "slice-2")
+        _reap_orphaned_slice_jobs(spawner, "pipeline-x", "slice-2")
 
-        # Verify the label selector included both pipeline and slice
-        call_kwargs = backend.list_containers.call_args.kwargs
-        assert "labels" in call_kwargs
-        labels = call_kwargs["labels"]
+        labels = backend.list_containers.call_args.kwargs["labels"]
         assert labels["egg.pipeline.id"] == "pipeline-x"
         assert labels["egg.slice.id"] == "slice-2"
 

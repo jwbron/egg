@@ -1950,27 +1950,31 @@ class TestSliceBoundaryStatefileCommit:
 
 
 # ---------------------------------------------------------------------------
-# #2914 — restart_phase resume guard: bootstrap must verify pods are alive
-# before mark_spawned, or the pipeline wedges with no agents running.
+# #3685: bootstrap must RE-DRIVE a resume-classified slice, never park it.
 # ---------------------------------------------------------------------------
 
 
-class TestBootstrapResumeAliveGuard:
-    """#2914 — Layer-C resume classification must re-verify against k8s.
+class TestBootstrapResumeRedrive:
+    """#3685: Layer-C ``"resume"`` must leave the slice admissible.
 
     The bootstrap classifier returns ``"resume"`` for IN_PROGRESS slices
-    with commits on the integration branch. Without the alive-guard,
-    that flips the scheduler slice to RUNNING via ``mark_spawned`` —
-    correct under normal restart, but wedging after ``restart_phase``
-    tore the container cohort down (contract still shows IN_PROGRESS +
-    commits but no pods exist). The guard re-queries the spawner; if
-    no live pods are found the slice is treated as fresh so the run
-    loop re-yields READY and respawns a new cohort.
+    with commits on the integration branch. It used to answer that by
+    calling ``scheduler.mark_spawned``, on the theory that the surviving
+    agent pods carried the slice forward. Nothing does: post-#3164 the
+    orchestrator-owned BRC event loop is the only dispatcher and
+    ``spawn_all`` is the only thing that starts one, while
+    ``_run_one_slice`` is the only caller of ``scheduler.record_complete``
+    for a running slice. ``mark_spawned`` therefore parked the slice in
+    scheduler-RUNNING with no dispatcher and no completer: ``iter_ready``
+    never re-yielded it, it held a ``max_parallel_slices`` slot, and
+    ``all_done()`` could never turn true, so the pipeline reported
+    ``running`` with zero pods indefinitely.
 
-    These tests close the integration gap that
-    ``TestSliceAgentsAlive`` (unit) cannot — exercising the actual
-    call site at the Layer-C ``resume`` branch in
-    ``routes/pipelines.py:_run_implement_phase_slices`` end-to-end.
+    Both tests assert the same invariant from the two sides of the old
+    liveness guard (#2914): live pods or not, the slice must reach
+    ``_run_concurrent_phase``. The live-pods case additionally pins the
+    reap, so an orphaned Job does not race the fresh cohort on the
+    role's worktree (#3337).
     """
 
     def _make_spawner(self, *, live_pods: list[Any]) -> MagicMock:
@@ -1998,13 +2002,10 @@ class TestBootstrapResumeAliveGuard:
             status=status,
         )
 
-    def test_resume_with_no_live_pods_respawns_fresh(self) -> None:
-        """Classifier → ``"resume"`` but ``list_containers`` returns []
-        → slice must run through the regular path (i.e.
-        ``_run_concurrent_phase`` IS called). Without the guard,
-        ``mark_spawned`` would have flipped the slice to RUNNING and
-        ``iter_ready`` would never re-yield it, leaving the pipeline
-        wedged."""
+    def _run(self, spawner: MagicMock) -> tuple[int, MagicMock]:
+        """Drive the bootstrap + run loop over one resume-classified
+        slice; returns the exit code and the patched
+        ``_run_concurrent_phase`` mock."""
         pipeline = _make_pipeline()
         slice1 = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
         slice1.status = SliceStatus.IN_PROGRESS
@@ -2026,7 +2027,6 @@ class TestBootstrapResumeAliveGuard:
             ),
         ):
             mock_start_recon.return_value = (MagicMock(), threading.Event())
-            spawner = self._make_spawner(live_pods=[])
             exit_code, _ = _run_implement_phase_slices(
                 pipeline_id=pipeline.id,
                 pipeline=pipeline,
@@ -2039,21 +2039,57 @@ class TestBootstrapResumeAliveGuard:
                 certs_volume=None,
                 worktree_repo_path=Path("/tmp/x"),
             )
+        return exit_code, mock_run_phase
+
+    def test_resume_with_no_live_pods_is_redriven(self) -> None:
+        """Classifier → ``"resume"`` and no pods survived the restart
+        (the ordinary orchestrator-recycle case): the slice must run
+        through the regular path so its event loop starts."""
+        spawner = self._make_spawner(live_pods=[])
+
+        exit_code, mock_run_phase = self._run(spawner)
+
         assert exit_code == 0
-        # The fix: with no live pods, the slice must still spawn fresh.
         invoked = {c.kwargs["slice_id"] for c in mock_run_phase.call_args_list}
         assert invoked == {"slice-1"}, (
-            "resume-classified slice with no live pods must be respawned — "
-            "without the #2914 guard, mark_spawned would wedge the pipeline"
+            "resume-classified slice must be re-driven; mark_spawned would "
+            "park it in scheduler-RUNNING with no event loop and no completer"
         )
-        # Liveness probe must have actually fired for the slice (label
-        # selector includes the slice id, not just the pipeline).
-        list_calls = spawner.backend.list_containers.call_args_list
+        # Nothing live → nothing to reap.
+        spawner.remove_agent_container.assert_not_called()
+
+    def test_resume_with_live_pods_is_redriven_and_reaps_orphans(self) -> None:
+        """A pod that outlived the restart does NOT mean the slice is
+        progressing: its event loop died with the previous process, so
+        no one will observe its termination or derive its next event.
+        The slice is still re-driven, and the orphan is force-reaped
+        first so it does not race the fresh cohort on the role's
+        worktree (#3337)."""
+        from models import ContainerStatus
+
+        spawner = self._make_spawner(
+            live_pods=[self._make_container_info("orphan-1", ContainerStatus.RUNNING)]
+        )
+
+        exit_code, mock_run_phase = self._run(spawner)
+
+        assert exit_code == 0
+        invoked = {c.kwargs["slice_id"] for c in mock_run_phase.call_args_list}
+        assert invoked == {"slice-1"}, (
+            "a live pod is not a live dispatcher: the slice must still be "
+            "re-driven so a BRC event loop exists for it (#3685)"
+        )
+        spawner.remove_agent_container.assert_called_once_with(
+            "orphan-1", force=True, cleanup_session=True
+        )
+        # The reap query must be slice-scoped, not pipeline-wide.
         slice_labelled_calls = [
-            c for c in list_calls if c.kwargs.get("labels", {}).get("egg.slice.id") == "slice-1"
+            c
+            for c in spawner.backend.list_containers.call_args_list
+            if c.kwargs.get("labels", {}).get("egg.slice.id") == "slice-1"
         ]
         assert slice_labelled_calls, (
-            "_slice_agents_alive must call list_containers with the slice label"
+            "_reap_orphaned_slice_jobs must query list_containers with the slice label"
         )
 
 
