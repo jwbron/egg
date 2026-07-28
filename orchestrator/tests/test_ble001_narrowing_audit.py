@@ -196,7 +196,16 @@ def test_audit_window_retains_documented_ble001_population() -> None:
     # moment the operator's answer was recorded. Broadened to match every other
     # best-effort block in that file — an observability write must never strand
     # the gate.
-    assert len(noqa_lines) <= 124, (
+    # Raised 124 -> 126 by #3685, which added two audited sites to the
+    # orphaned-Job reap in ``_pod_liveness.py``:
+    #   + the ``spawner.list_slice_jobs`` label query — a failed listing must
+    #     degrade to "no orphans found" and log, never block recovery of a
+    #     slice that is otherwise ready to re-drive;
+    #   + the bounded teardown wait's ``waiter(...)`` call — a raising waiter
+    #     degrades to ``confirmed = False`` (teardown unconfirmed) so the reap
+    #     reports an open worktree-handoff window instead of propagating out of
+    #     the admission path.
+    assert len(noqa_lines) <= 126, (
         f"Found {len(noqa_lines)} ``# noqa: BLE001`` swallows in "
         f"the routes/pipelines package, well past the documented "
         f"population — a future PR appears to have re-introduced swallow-all "
