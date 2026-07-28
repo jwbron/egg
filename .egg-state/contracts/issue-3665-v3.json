@@ -134,7 +134,7 @@
           "id": "task-1-6",
           "description": "Tests for snapshot population. Verify the 5 in-scope fields are populated\n(runtime, consensus, container_transitions, midturn_messages, RunningAgent\nrole+age). Verify the 4 excluded fields (decision_state, gateway_error_counters,\ncost_counters, git_state) remain empty by decision.",
           "status": "pending",
-          "commit": null,
+          "commit": "f0d766673",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "- Tests assert 5 in-scope fields populated\n- Tests assert 4 excluded fields remain empty by decision\n- runtime, consensus, container_transitions, midturn_messages, RunningAgent all non-empty",
@@ -954,6 +954,17 @@
       "old_value": "pending",
       "new_value": "complete",
       "reason": "Marked task-1-5 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-28T01:42:14.372462Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.5.commit",
+      "old_value": null,
+      "new_value": "f0d766673",
+      "reason": "Linked commit f0d7666 to task-1-6",
       "checkpoint_id": null
     }
   ],
