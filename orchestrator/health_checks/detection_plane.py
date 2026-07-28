@@ -437,6 +437,7 @@ def _register_coverage_gap_detectors(plane: DetectionPlane) -> None:
         detect_container_restart_loop,
         detect_overseer_self_injection,
     )
+    from health_checks.tier1.consensus_stall import detect_heartbeat_stall
     from health_checks.tier1.cost_budget import detect_cost_anomaly
     from health_checks.tier1.decision_queue import (
         detect_approved_decision_orphaned,
@@ -493,6 +494,10 @@ def _register_coverage_gap_detectors(plane: DetectionPlane) -> None:
         detect_effective_model_drift,
         detect_anthropic_5xx_sustained,
         detect_overseer_self_health,
+        # detect_heartbeat_stall is registered LAST so that the consensus-stall
+        # double-fire guard (TASK-2-2) can check whether ConsensusStallCheck
+        # has already reported for this snapshot before firing.
+        detect_heartbeat_stall,
     )
 
     existing = set(plane.detectors)

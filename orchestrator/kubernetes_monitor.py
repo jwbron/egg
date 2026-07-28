@@ -259,6 +259,17 @@ class KubernetesMonitor:
                         results = runner.run(ctx, HealthTrigger.RUNTIME_TICK)
                         self._handle_consensus_stall_recovery(results, pipeline, store)
                         self._handle_driver_liveness_results(results, pipeline, store)
+                        # #3665 slice-2: run the deterministic detection plane
+                        # on every RUNTIME_TICK sweep. The plane is exception-
+                        # isolated (each detector swallows its own errors), and
+                        # the double-evaluation guard below prevents duplicate
+                        # findings from the two call sites (_check_pod and
+                        # _reconciliation_sweep). The consensus_stall_results
+                        # are passed so detect_heartbeat_stall can be guarded
+                        # against double-firing with ConsensusStallCheck (TASK-2-2).
+                        self._run_detection_plane_for_pipeline(
+                            ctx, pipeline, store, pid, health_results=results
+                        )
                     except Exception as e:
                         logger.debug(
                             "RUNTIME_TICK check failed for pipeline",
@@ -1049,6 +1060,256 @@ class KubernetesMonitor:
                 "Failed to broadcast driver-liveness alert (non-fatal)",
                 pipeline_id=pipeline_id,
                 error=str(alert_err),
+            )
+
+    # ------------------------------------------------------------------
+    # Detection plane wiring (#3665 slice-2, TASK-2-1/2-3)
+    # ------------------------------------------------------------------
+
+    # Per-pipeline dedupe key for the detection plane: the RUNTIME_TICK sweep
+    # is invoked from two call sites (_check_pod and _reconciliation_sweep),
+    # so we track the last snapshot timestamp per pipeline to avoid
+    # double-evaluation within the same tick.
+    _detection_plane_last_tick: dict[str, float] = {}
+
+    def _run_detection_plane_for_pipeline(
+        self,
+        ctx: Any,
+        pipeline: Any,
+        store: Any,
+        pipeline_id: str,
+        *,
+        health_results: list[Any] | None = None,
+    ) -> None:
+        """Evaluate the detection plane for a single pipeline on RUNTIME_TICK.
+
+        Builds a snapshot from the health context, evaluates all registered
+        detectors, and routes findings:
+          - ``requires_adjudication=True`` → escalate to the on-demand OVERSEER
+            agent via ``_run_overseer_detection_plane``.
+          - ``requires_adjudication=False`` → broadcast as an OVERSEER_ALERT
+            so the operator sees one consistent alert stream (TASK-2-3).
+
+        Guarded against double-evaluation: the RUNTIME_TICK sweep is called
+        from both ``_check_pod`` and ``_reconciliation_sweep``; we track the
+        last evaluation timestamp per pipeline and skip if already evaluated
+        within the same tick window.
+
+        ``health_results`` (from ``runner.run()``) are used for the
+        consensus-stall double-fire guard (TASK-2-2): if
+        ``ConsensusStallCheck`` already reported DEGRADED for this pipeline,
+        ``detect_heartbeat_stall`` is suppressed to avoid duplicate alerts.
+        """
+        runner = getattr(self, "_health_check_runner", None)
+        if runner is None:
+            return
+
+        try:
+            from health_checks.detection_plane import (
+                default_detection_plane,
+                snapshot_from_health_context,
+            )
+        except ImportError:
+            return
+
+        # Double-evaluation guard: skip if we already ran the plane for this
+        # pipeline within the last 5 seconds (the poll interval).
+        now = time.monotonic()
+        last = self._detection_plane_last_tick.get(pipeline_id)
+        if last is not None and now - last < 5.0:
+            return
+        self._detection_plane_last_tick[pipeline_id] = now
+
+        # TASK-2-2: consensus-stall double-fire guard. ConsensusStallCheck
+        # (registered, runs every tick via HealthCheckRunner) and the
+        # detection plane's detect_heartbeat_stall could both fire on the
+        # same underlying condition. Check whether ConsensusStallCheck already
+        # reported DEGRADED for this pipeline.
+        consensus_stall_already_fired = False
+        if health_results:
+            from health_checks.types import HealthStatus
+
+            for result in health_results:
+                if (
+                    getattr(result, "check_name", "") == "consensus_stall"
+                    and getattr(result, "status", None) == HealthStatus.DEGRADED
+                ):
+                    consensus_stall_already_fired = True
+                    break
+
+        try:
+            snapshot = snapshot_from_health_context(ctx)
+            plane = default_detection_plane()
+            findings = runner.run_detection_plane(
+                snapshot, plane, pipeline_id=pipeline_id
+            )
+            # TASK-2-2: suppress detect_heartbeat_stall findings when
+            # ConsensusStallCheck has already fired for this snapshot, to
+            # prevent duplicate consensus-stall alerts.
+            if consensus_stall_already_fired:
+                findings = [
+                    f for f in findings
+                    if getattr(f, "detector_key", "") != "heartbeat_stall"
+                ]
+            self._handle_detection_plane_findings(findings, pipeline, store, pipeline_id)
+        except Exception as e:  # noqa: BLE001 — detection plane must never wedge the monitor
+            logger.debug(
+                "Detection plane evaluation failed for pipeline",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+
+    def _handle_detection_plane_findings(
+        self,
+        findings: list[Any],
+        pipeline: Any,
+        store: Any,
+        pipeline_id: str,
+    ) -> None:
+        """Route detection-plane findings to the appropriate surface (TASK-2-3).
+
+        - Findings with ``requires_adjudication=True`` are escalated to the
+          on-demand OVERSEER agent via ``_run_overseer_detection_plane``.
+        - Routine findings (requires_adjudication=False) are broadcast as
+          OVERSEER_ALERT messages so the operator sees them alongside the
+          existing driver-liveness and consensus-stall alerts.
+        """
+        if not findings:
+            return
+
+        phase = getattr(pipeline, "current_phase", None)
+        phase_value = getattr(phase, "value", "") if phase is not None else ""
+
+        # Separate adjudication-required from routine findings.
+        adjudication_findings = [
+            f for f in findings if getattr(f, "requires_adjudication", False)
+        ]
+        routine_findings = [
+            f for f in findings if not getattr(f, "requires_adjudication", False)
+        ]
+
+        # Route routine findings to the operator alert surface.
+        for finding in routine_findings:
+            self._broadcast_detection_finding(finding, pipeline_id, phase_value)
+
+        # Escalate adjudication-required findings to the overseer agent.
+        if adjudication_findings:
+            self._escalate_detection_findings(
+                adjudication_findings, pipeline, store, pipeline_id, phase_value
+            )
+
+    def _broadcast_detection_finding(
+        self, finding: Any, pipeline_id: str, phase: str
+    ) -> None:
+        """Broadcast a routine detection-plane finding as an OVERSEER_ALERT."""
+        try:
+            from message_store import Message, MessageType, get_message_store
+
+            finding_class = getattr(finding, "finding_class", "unknown")
+            severity = getattr(finding, "severity", "medium")
+            evidence = getattr(finding, "evidence", {})
+            recommended_action = getattr(finding, "recommended_action", "")
+
+            get_message_store().add_message(
+                Message(
+                    pipeline_id=pipeline_id,
+                    from_role="orchestrator",
+                    to_role="all",
+                    message_type=MessageType.OVERSEER_ALERT,
+                    subject=f"detection_plane_{finding_class}: orchestrator [{severity}]",
+                    body=recommended_action or f"Detection plane finding: {finding_class}",
+                    metadata={
+                        "reason": finding_class,
+                        "severity": severity,
+                        "evidence": evidence,
+                    },
+                    phase=phase,
+                )
+            )
+        except Exception as alert_err:  # noqa: BLE001
+            logger.warning(
+                "Failed to broadcast detection-plane alert (non-fatal)",
+                pipeline_id=pipeline_id,
+                error=str(alert_err),
+            )
+
+    def _escalate_detection_findings(
+        self,
+        findings: list[Any],
+        pipeline: Any,
+        store: Any,
+        pipeline_id: str,
+        phase: str,
+    ) -> None:
+        """Escalate adjudication-required findings to the overseer agent.
+
+        Uses ``_run_overseer_detection_plane`` from ``routes.pipelines._overseer``
+        which evaluates the plane and spawns an on-demand OVERSEER agent for
+        each finding that requires adjudication.
+        """
+        try:
+            from kubernetes_spawner import get_kubernetes_spawner
+
+            spawner = get_kubernetes_spawner()
+            if spawner is None:
+                logger.warning(
+                    "Cannot escalate detection findings: no spawner available",
+                    pipeline_id=pipeline_id,
+                )
+                return
+
+            issue_number = getattr(pipeline, "issue_number", None)
+            gateway_mode = getattr(pipeline, "network_mode", None) or "public"
+            pipeline_repos = getattr(pipeline, "repos", None)
+            if pipeline_repos:
+                pipeline_repos = [r.repo for r in pipeline_repos]
+
+            # Build the snapshot for the escalation call.
+            from health_checks.detection_plane import (
+                default_detection_plane,
+                snapshot_from_health_context,
+            )
+
+            # We need a context for snapshot building — reuse the one from
+            # _run_detection_plane_for_pipeline by rebuilding it here.
+            try:
+                from health_checks.context import PipelineHealthContext
+                from health_checks.types import HealthTrigger
+
+                ctx = PipelineHealthContext(
+                    pipeline=pipeline,
+                    repo_path=store.repo_path,
+                    trigger=HealthTrigger.RUNTIME_TICK.value,
+                    docker_client=self.k8s_client,
+                    state_store=store,
+                )
+                snapshot = snapshot_from_health_context(ctx)
+            except Exception:  # noqa: BLE001
+                return
+
+            from routes.pipelines._overseer import _run_overseer_detection_plane
+
+            # Guard against double-evaluation: only escalate if we haven't
+            # already done so for this pipeline in the current tick.
+            now = time.monotonic()
+            last_escalation = self._detection_plane_last_tick.get(f"escalate:{pipeline_id}")
+            if last_escalation is not None and now - last_escalation < 5.0:
+                return
+            self._detection_plane_last_tick[f"escalate:{pipeline_id}"] = now
+
+            _run_overseer_detection_plane(
+                snapshot,
+                spawner=spawner,
+                pipeline_id=pipeline_id,
+                issue_number=issue_number,
+                gateway_mode=gateway_mode,
+                pipeline_repos=pipeline_repos,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Failed to escalate detection findings to overseer",
+                pipeline_id=pipeline_id,
+                error=str(e),
             )
 
     @staticmethod
