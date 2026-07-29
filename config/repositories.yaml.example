@@ -78,9 +78,10 @@ readable_repos:
 #     Each entry has "name" (display label), "command" (shell command) and
 #     an optional "fix" (single shell command string — a YAML list is
 #     rejected with a warning and dropped, so chain steps with "&&" or
-#     point at a make target; any non-string or empty value — "",
-#     null, false, 0 — is dropped with a warning so the misconfiguration
-#     surfaces at config load time)
+#     point at a make target; any non-string, empty or whitespace-only
+#     value — "", "   ", null, false, 0 — is dropped with a warning so
+#     the misconfiguration surfaces at config load time rather than as a
+#     no-op "remediation" that reports success at the green gate)
 #     These run sequentially during the tester step
 #     "fix" auto-remediates that check at the per-slice green gate: when the
 #     gate finds the check red at the slice tip it runs the fix command and
