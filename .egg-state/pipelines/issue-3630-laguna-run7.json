@@ -147,9 +147,28 @@
       }
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "The refiner attests the refine phase deliberately raises no operator decisions (#3462):\n\n> Issue #3630 is prescriptive: validate fix is non-empty string, log warning on invalid. No architectural or operator-grade decisions required.\n\nCandidates considered and dispositioned away:\n\n- **Should full_command (same str()-coerce pattern) also be fixed?** (not_operator_grade): Issue explicitly scopes to fix key only; full_command is a separate concern the planner/implementer owns\n- **Should non-string fix values be str()-coerced instead of rejected?** (not_operator_grade): Issue explicitly requires non-empty string validation, not coercion; #3629 schema docs confirm single shell command string is the contract\n- **Should the repo_config.py fallback be aligned?** (not_operator_grade): Issue scope notes explicitly say to check and align parallel paths; both copies must stay in sync\n\nConfirm to proceed to the phase gate, or choose “Re-run phase to register decisions” to send the phase back so its agents register the decisions as first-class contract entries (cq-N). Any free-text reply is treated as a re-run directive and forwarded to the agents.",
+      "context": "Decision ledger: explicitly none — refiner attested: Issue #3630 is prescriptive: validate fix is non-empty string, log warning on invalid. No architectural or operator-grade decisions required. (3 candidate(s) considered)",
+      "options": [
+        "Confirm — no open decisions this phase",
+        "Re-run phase to register decisions"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-07-29T20:41:07.222694Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null,
+      "resolution_outcome": null
+    }
+  ],
   "created_at": "2026-07-29T19:25:06.367330Z",
-  "updated_at": "2026-07-29T20:41:07.173134Z",
+  "updated_at": "2026-07-29T20:41:07.245153Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -162,7 +181,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
