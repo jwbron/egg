@@ -121,12 +121,35 @@
       "iteration_history": [],
       "phase_start_sha": "41a69fa09f59a3b2f432e07ecda70ee4f0825105",
       "agent_exits": [],
-      "decision_ledger": null
+      "decision_ledger": {
+        "registered": [],
+        "resolved": 0,
+        "explicit_none": true,
+        "attested_by": "refiner",
+        "missing": false,
+        "candidates_considered": [
+          {
+            "disposition": "not_operator_grade",
+            "question": "Should full_command (same str()-coerce pattern) also be fixed?",
+            "why": "Issue explicitly scopes to fix key only; full_command is a separate concern the planner/implementer owns"
+          },
+          {
+            "disposition": "not_operator_grade",
+            "question": "Should non-string fix values be str()-coerced instead of rejected?",
+            "why": "Issue explicitly requires non-empty string validation, not coercion; #3629 schema docs confirm single shell command string is the contract"
+          },
+          {
+            "disposition": "not_operator_grade",
+            "question": "Should the repo_config.py fallback be aligned?",
+            "why": "Issue scope notes explicitly say to check and align parallel paths; both copies must stay in sync"
+          }
+        ]
+      }
     }
   },
   "decisions": [],
   "created_at": "2026-07-29T19:25:06.367330Z",
-  "updated_at": "2026-07-29T20:41:01.906549Z",
+  "updated_at": "2026-07-29T20:41:07.173134Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -139,7 +162,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 11,
+  "version": 12,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
