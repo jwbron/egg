@@ -1,7 +1,8 @@
-"""Unit tests for the three modules the patch script installs into litellm.
+"""Unit tests for the four modules the patch script installs into litellm.
 
 ``config/litellm/{openrouter_capabilities,drop_params_visibility,
-anthropic_thinking_policy}.py`` are staged by the Dockerfile and copied into
+anthropic_thinking_policy,openrouter_reasoning_roundtrip}.py`` are staged by
+the Dockerfile and copied into
 every litellm tree by ``patch_litellm_cache.py``. They are kept as real files
 rather than string literals inside the patch script precisely so they can be
 linted and tested here — but that only works if they import without litellm
@@ -455,6 +456,7 @@ def test_module_imports_without_litellm(monkeypatch):
     assert _load("openrouter_capabilities") is not None
     assert _load("drop_params_visibility") is not None
     assert _load("anthropic_thinking_policy") is not None
+    assert _load("openrouter_reasoning_roundtrip") is not None
 
 
 # --------------------------------------------------------------------------
@@ -636,8 +638,12 @@ def test_unrecognised_value_warning_survives_a_swallowed_emit_failure(policy, mo
 
 
 @pytest.fixture
-def roundtrip():
-    return _load("openrouter_reasoning_roundtrip")
+def roundtrip(monkeypatch):
+    module = _load("openrouter_reasoning_roundtrip")
+    module._WARNED.clear()
+    # Never let a test inherit a stray value from the ambient environment.
+    monkeypatch.delenv(module.ENV_VAR, raising=False)
+    return module
 
 
 def _thinking(text, signature="sig"):
@@ -681,12 +687,40 @@ def test_multiple_blocks_concatenate_in_order(roundtrip):
         [
             {
                 "role": "assistant",
-                "thinking_blocks": [_thinking("first "), _thinking("second "), _thinking("third")],
+                "thinking_blocks": [_thinking("first"), _thinking("second"), _thinking("third")],
             }
         ]
     )
 
-    assert out[0]["reasoning_content"] == "first second third"
+    assert out[0]["reasoning_content"] == "first\nsecond\nthird"
+
+
+def test_blocks_are_separated_rather_than_run_together(roundtrip):
+    """The adapter emits one block per ``thinking`` content block, so adjacent
+    blocks are separate thoughts. Joining on "" runs the last word of one into
+    the first word of the next — ``...decided.We then...`` — which is exactly
+    how a ``<think>`` re-render would read it back."""
+    out = roundtrip.map_thinking_blocks_to_reasoning_content(
+        [{"role": "assistant", "thinking_blocks": [_thinking("decided."), _thinking("We then")]}]
+    )
+
+    assert out[0]["reasoning_content"] == "decided.\nWe then"
+    assert "decided.We" not in out[0]["reasoning_content"]
+
+
+def test_a_blank_block_contributes_no_bare_separator(roundtrip):
+    """A block with nothing in it must not turn into a leading or doubled
+    newline, which would render as an empty thought."""
+    out = roundtrip.map_thinking_blocks_to_reasoning_content(
+        [
+            {
+                "role": "assistant",
+                "thinking_blocks": [_thinking("   "), _thinking("real"), _thinking("")],
+            }
+        ]
+    )
+
+    assert out[0]["reasoning_content"] == "real"
 
 
 def test_redacted_thinking_is_skipped(roundtrip):
@@ -743,11 +777,42 @@ def test_non_assistant_messages_are_never_touched(roundtrip, role):
 
 
 def test_assistant_without_thinking_blocks_is_returned_as_is(roundtrip):
+    """The key genuinely absent — a message this module never saw the adapter
+    build. Contrast ``thinking_blocks: None`` below, which is what the adapter
+    actually emits for a turn that produced no thinking."""
     original = {"role": "assistant", "content": "plain"}
 
     out = roundtrip.map_thinking_blocks_to_reasoning_content([original])
 
     assert out[0] is original, "no copy, no rewrite, nothing to do"
+
+
+def test_adapter_none_sentinel_is_stripped_not_treated_as_malformed(roundtrip):
+    """``ChatCompletionAssistantMessage`` is a ``TypedDict``, so the adapter's
+    ``thinking_blocks=(blocks if len(blocks) > 0 else None)`` leaves the key
+    PRESENT with value ``None`` on every assistant turn that reasoned about
+    nothing. That is the dominant input on any route — and every turn on a
+    route that returns no reasoning at all — so reading it as an unparseable
+    shape would ship ``"thinking_blocks": null`` to OpenRouter on the majority
+    of turns, exactly the unknown field this patch promises to remove."""
+    out = roundtrip.map_thinking_blocks_to_reasoning_content(
+        [{"role": "assistant", "content": "hi", "thinking_blocks": None}]
+    )
+
+    assert "thinking_blocks" not in out[0], "the sentinel must be stripped, not passed through"
+    assert "reasoning_content" not in out[0], "no reasoning to emit"
+    assert out[0]["content"] == "hi"
+
+
+def test_none_sentinel_does_not_fire_the_fail_soft_diagnostic(roundtrip, logger):
+    """The last-resort branch must stay last-resort. If the commonest message
+    shape routes through it, a later log line or counter there fires on ~100%
+    of traffic and a genuinely malformed block becomes unfindable."""
+    roundtrip.map_thinking_blocks_to_reasoning_content(
+        [{"role": "assistant", "content": "hi", "thinking_blocks": None}]
+    )
+
+    assert logger.messages() == []
 
 
 @pytest.mark.parametrize(
@@ -784,7 +849,7 @@ def test_a_malformed_sibling_does_not_cost_a_good_block(roundtrip):
             {
                 "role": "assistant",
                 "thinking_blocks": [
-                    _thinking("kept "),
+                    _thinking("kept"),
                     None,
                     {"type": "thinking"},
                     _thinking("too"),
@@ -793,7 +858,7 @@ def test_a_malformed_sibling_does_not_cost_a_good_block(roundtrip):
         ]
     )
 
-    assert out[0]["reasoning_content"] == "kept too"
+    assert out[0]["reasoning_content"] == "kept\ntoo"
 
 
 def test_unparseable_blocks_field_leaves_the_message_untouched(roundtrip):
@@ -836,9 +901,150 @@ def test_non_list_messages_pass_through(roundtrip):
     assert roundtrip.map_thinking_blocks_to_reasoning_content("nope") == "nope"
 
 
-def test_module_imports_without_litellm_installed(roundtrip):
-    """Same contract as the other three staged modules: no litellm import at
-    module scope, or it could not be tested here at all."""
-    source = (CONFIG_DIR / "openrouter_reasoning_roundtrip.py").read_text()
-    assert "import litellm" not in source
-    assert "from litellm" not in source
+def test_an_unmappable_shape_says_so_once(roundtrip, logger):
+    """Once the ``None`` sentinel is handled, reaching the fail-soft branch
+    means a shape nobody anticipated. Silence there is how a mapping that
+    quietly stopped working would look — patch 8's whole lesson."""
+    messages = [{"role": "assistant", "thinking_blocks": "not-a-list"}] * 5
+
+    roundtrip.map_thinking_blocks_to_reasoning_content(messages)
+
+    warnings = logger.messages("warning")
+    assert len(warnings) == 1, "bounded: this sits on the per-request path"
+    assert "thinking_blocks" in warnings[0]
+
+
+def test_diagnostic_is_retried_if_the_first_emit_raises(roundtrip, monkeypatch):
+    """Same discipline as the other three modules: record the warning as sent
+    only once the emit did not raise, or a logger that is not yet in place on
+    the first request suppresses it permanently."""
+    flaky = _install_logger(monkeypatch, _FlakyLogger(failures=1))
+
+    for _ in range(3):
+        roundtrip.map_thinking_blocks_to_reasoning_content(
+            [{"role": "assistant", "thinking_blocks": 17}]
+        )
+
+    assert len(flaky.messages("warning")) == 1
+
+
+# --- signature-verifying providers -----------------------------------------
+#
+# For an Anthropic or Google model reached THROUGH OpenRouter, the block
+# signature is what the upstream verifies when prior thinking is replayed on a
+# tool-calling turn, and OpenRouter's docs say to pass those blocks back
+# unmodified and unreordered. The plain-string form destroys both, so those
+# routes are declined outright rather than half-served.
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "anthropic/claude-sonnet-4.5",
+        "openrouter/anthropic/claude-opus-4",
+        "google/gemini-3-pro",
+        "OpenRouter/Google/Gemini-3-Pro",
+    ],
+)
+def test_signature_verifying_routes_are_left_exactly_as_they_arrived(roundtrip, model):
+    original = {"role": "assistant", "content": "a", "thinking_blocks": [_thinking("why")]}
+
+    out = roundtrip.map_thinking_blocks_to_reasoning_content([dict(original)], model)
+
+    assert out[0] == original, "stock behaviour is the known-working state for these routes"
+    assert "reasoning_content" not in out[0]
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["deepseek/deepseek-v4-pro", "qwen/qwen3-max", "poolside/laguna-s-2.1", None, 17],
+)
+def test_ordinary_routes_still_map(roundtrip, model):
+    """The gate must not be so broad that it swallows the routes this patch
+    exists for. A non-string model is not a slug we can reason about, so it is
+    treated as ordinary rather than as a match."""
+    out = roundtrip.map_thinking_blocks_to_reasoning_content(
+        [{"role": "assistant", "thinking_blocks": [_thinking("why")]}], model
+    )
+
+    assert out[0]["reasoning_content"] == "why"
+
+
+# --- a reasoning_content the caller already set ----------------------------
+
+
+def test_existing_reasoning_content_is_never_overwritten(roundtrip):
+    """litellm's own response objects carry both fields, so a client echoing an
+    assistant message back sends both. One rule for both branches: what the
+    caller stated wins, whether or not the blocks yield text."""
+    out = roundtrip.map_thinking_blocks_to_reasoning_content(
+        [
+            {
+                "role": "assistant",
+                "reasoning_content": "the caller's own",
+                "thinking_blocks": [_thinking("from blocks")],
+            }
+        ]
+    )
+
+    assert out[0]["reasoning_content"] == "the caller's own"
+    assert "thinking_blocks" not in out[0]
+
+
+def test_a_blank_existing_reasoning_content_does_not_block_the_mapping(roundtrip):
+    """Set means set to something. An empty string is the absence of reasoning
+    wearing the field's name, so the blocks still win over it."""
+    out = roundtrip.map_thinking_blocks_to_reasoning_content(
+        [
+            {
+                "role": "assistant",
+                "reasoning_content": "  ",
+                "thinking_blocks": [_thinking("from blocks")],
+            }
+        ]
+    )
+
+    assert out[0]["reasoning_content"] == "from blocks"
+
+
+# --- runtime escape hatch --------------------------------------------------
+
+
+@pytest.mark.parametrize("value", ["0", "false", "no", "off", ""])
+def test_knob_off_restores_stock_behaviour(roundtrip, monkeypatch, value):
+    """Patches 7 and 9 are both revertable on a live cluster without an image
+    rebuild; this one changes the outgoing body on every OpenRouter call, so it
+    carries the same hatch."""
+    monkeypatch.setenv(roundtrip.ENV_VAR, value)
+    original = {"role": "assistant", "content": "a", "thinking_blocks": [_thinking("why")]}
+
+    out = roundtrip.map_thinking_blocks_to_reasoning_content([dict(original)])
+
+    assert out[0] == original
+
+
+@pytest.mark.parametrize("value", ["1", "true", "YES", "on"])
+def test_knob_on_is_the_default_spelled_out(roundtrip, monkeypatch, value):
+    monkeypatch.setenv(roundtrip.ENV_VAR, value)
+
+    out = roundtrip.map_thinking_blocks_to_reasoning_content(
+        [{"role": "assistant", "thinking_blocks": [_thinking("why")]}]
+    )
+
+    assert out[0]["reasoning_content"] == "why"
+
+
+def test_unrecognized_knob_value_warns_once_and_keeps_the_default(roundtrip, monkeypatch, logger):
+    """Off is also the default, so reading a near-miss as off would leave an
+    operator unable to tell "ignored" from "working as configured"."""
+    monkeypatch.setenv(roundtrip.ENV_VAR, "disabled")
+
+    for _ in range(3):
+        out = roundtrip.map_thinking_blocks_to_reasoning_content(
+            [{"role": "assistant", "thinking_blocks": [_thinking("why")]}]
+        )
+
+    assert out[0]["reasoning_content"] == "why", "unrecognized is not off"
+    warnings = logger.messages("warning")
+    assert len(warnings) == 1
+    assert roundtrip.ENV_VAR in warnings[0]

@@ -624,6 +624,34 @@ def test_patch10_preserves_the_cache_control_step(tmp_path):
     assert "_egg_reasoning_roundtrip" in result
 
 
+def test_patch10_passes_the_model_and_reports_an_unavailable_module(tmp_path):
+    """Two properties of the injected call site.
+
+    The module declines routes whose upstream re-verifies replayed reasoning
+    (anthropic/*, google/*), which it can only do if the call site hands it
+    ``model``. And an import failure means a broken image, not a bad request:
+    reverting to stock in silence there is invisible until a model quietly
+    reasons worse — the condition Patch 8 exists to stop repeating."""
+    patch10 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 10/"))
+
+    target = tmp_path / patch10["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(patch10["needle"])
+
+    plc._apply(
+        str(target),
+        present=patch10["present"],
+        needle=patch10["needle"],
+        replacement=patch10["replacement"],
+        label=patch10["label"],
+    )
+    result = target.read_text()
+
+    assert "_egg_map_reasoning(messages, model)" in result
+    assert "verbose_logger.warning(" in result
+    assert "_egg_reasoning_roundtrip_warned" in result, "warned once, not once per request"
+
+
 def test_patch10_maps_onto_the_request_not_the_response(tmp_path):
     """Guard against the adjacent-patch confusion the docstring calls out:
     patches 4/5a/5b are provider -> client, this one is client -> provider.

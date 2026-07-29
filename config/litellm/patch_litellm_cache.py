@@ -178,12 +178,24 @@ OpenRouter. The image pins that same version (see the Dockerfile
      plain string form OpenRouter documents for exactly this multi-turn
      tool-calling case and the field Poolside's template reads;
      ``reasoning_details`` exists to carry encrypted or summarised
-     blocks and we have neither. ``redacted_thinking`` blocks contribute
-     nothing (no plaintext to send), Anthropic ``signature`` values are
-     not forwarded (meaningless to OpenRouter), and ``thinking_blocks``
-     is removed either way so no unknown field is transmitted. Fails
-     soft per message: a block it cannot parse leaves that message
-     exactly as it arrived. NOTE the DIRECTION — this is request-path
+     blocks and we have neither. Blocks join on a newline (they are
+     separate thoughts, and "" runs the last word of one into the first
+     of the next), ``redacted_thinking`` blocks contribute nothing (no
+     plaintext to send), a ``reasoning_content`` the caller already set
+     is never overwritten, and ``thinking_blocks`` is removed either way
+     — including for the adapter's ``thinking_blocks: None`` sentinel,
+     which it sets on every assistant turn that reasoned about nothing
+     and which is therefore the DOMINANT input, not an edge case — so no
+     unknown field is transmitted. Two whole-request opt-outs: the
+     module declines any slug whose upstream re-verifies replayed
+     reasoning (``anthropic``/``google``, where the discarded
+     ``signature`` and the flattened block order are load-bearing and
+     OpenRouter's ``reasoning_details`` is the right shape — a separate
+     change), and ``LITELLM_OPENROUTER_REASONING_ROUNDTRIP=0`` backs the
+     patch out of a live cluster without an image rebuild, as for
+     patches 7 and 9. Fails soft per message: a block it cannot parse
+     leaves that message exactly as it arrived, and says so once.
+     NOTE the DIRECTION — this is request-path
      (client -> provider); patches 4, 5a and 5b are response-path
      (provider -> client). Adjacent, not the same thing. The gap is
      upstream's and predates every egg and fork change: jwbron/litellm#8
@@ -970,15 +982,36 @@ PATCHES: list[dict[str, str]] = [
             "        # OpenRouter request-path code reads; map it onto the field\n"
             "        # OpenRouter documents for multi-turn tool calling so models whose\n"
             "        # template re-renders prior thinking stop seeing empty <think></think>.\n"
+            "        # `model` is passed so the module can decline the routes whose\n"
+            "        # upstream re-verifies replayed reasoning (anthropic/*, google/*).\n"
             "        # See patch 10 notes in patch_litellm_cache.py.\n"
             "        try:\n"
             "            from litellm.llms.openrouter._egg_reasoning_roundtrip import (\n"
             "                map_thinking_blocks_to_reasoning_content as _egg_map_reasoning,\n"
             "            )\n"
             "\n"
-            "            messages = _egg_map_reasoning(messages)\n"
-            "        except Exception:\n"
-            "            pass\n"
+            "            messages = _egg_map_reasoning(messages, model)\n"
+            "        except Exception as _egg_roundtrip_exc:\n"
+            "            # The module is installed by the same build step as this patch,\n"
+            "            # so this is unreachable in a built image. Say so once rather\n"
+            "            # than reverting to stock in silence — an invisible no-op here\n"
+            "            # shows up only as a model quietly reasoning worse, which is\n"
+            "            # the condition patch 8 exists to stop repeating.\n"
+            "            try:\n"
+            "                from litellm._logging import verbose_logger\n"
+            "\n"
+            "                if not getattr(\n"
+            '                    verbose_logger, "_egg_reasoning_roundtrip_warned", False\n'
+            "                ):\n"
+            "                    verbose_logger.warning(\n"
+            '                        "egg reasoning round-trip module unavailable (%s); "\n'
+            '                        "prior-turn assistant reasoning will not reach "\n'
+            '                        "OpenRouter. Logged once per proxy process.",\n'
+            "                        _egg_roundtrip_exc,\n"
+            "                    )\n"
+            "                    verbose_logger._egg_reasoning_roundtrip_warned = True\n"
+            "            except Exception:\n"
+            "                pass\n"
             "\n"
             '        extra_body = optional_params.pop("extra_body", {})\n'
         ),
