@@ -9,8 +9,141 @@
   "pipeline_id": "issue-3630-laguna-run7",
   "current_phase": "plan",
   "acceptance_criteria": [],
-  "slices": [],
-  "decisions": [],
+  "slices": [
+    {
+      "id": "slice-1",
+      "name": "Implement",
+      "goal": "Validate fix key as non-empty string with warning in validate_checks",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In shared/egg_config/validators.py, add import logging and module-level logger; replace fix handling in validate_checks to check 'fix' in c, validate isinstance(fix, str) and fix, log warning on invalid; update docstring.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "validate_checks logs a warning and drops fix when it is not a non-empty string; valid non-empty string fix is retained",
+          "files_affected": [
+            "shared/egg_config/validators.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-2",
+          "description": "In config/repo_config.py, align the fallback validate_checks (inside except ImportError) with the same fix validation and warning using the module-level logger; update docstring.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Fallback validate_checks in repo_config.py validates fix as non-empty string with warning",
+          "files_affected": [
+            "config/repo_config.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-3",
+          "description": "In orchestrator/routes/pipelines/__init__.py, align the fallback validate_checks (inside except ImportError) with the same fix validation and warning using the module-level logger.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Fallback validate_checks in pipelines __init__.py validates fix as non-empty string with warning",
+          "files_affected": [
+            "orchestrator/routes/pipelines/__init__.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        },
+        {
+          "id": "task-1-4",
+          "description": "In tests/egg_config/test_validators.py, update test_values_coerced_to_strings (remove fix:3 coercion), update test_empty_fix_dropped to test_empty_fix_dropped_with_warning (assert warning), add test_fix_false_rejected_with_warning, test_fix_zero_rejected_with_warning, test_fix_non_string_rejected_with_warning, test_fix_list_rejected_with_warning, test_fix_absent_unchanged.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All tests pass: valid string accepted, empty/false/0/list/non-string rejected with warning, absent key unchanged",
+          "files_affected": [
+            "tests/egg_config/test_validators.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "delegation_attempts": 0,
+          "gaps": [],
+          "jira_key": null,
+          "jira_action": null,
+          "jira_action_status": null
+        }
+      ],
+      "dependencies": [],
+      "serialized_chain_order": [],
+      "parent_branch_at_creation": null,
+      "integration_base_sha": null,
+      "commit": null,
+      "pr_number": null,
+      "pr_url": null,
+      "repo": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "The refiner attests the refine phase deliberately raises no operator decisions (#3462):\n\n> Issue #3630 is prescriptive: validate fix is non-empty string, log warning on invalid. No architectural or operator-grade decisions required.\n\nCandidates considered and dispositioned away:\n\n- **Should full_command (same str()-coerce pattern) also be fixed?** (not_operator_grade): Issue explicitly scopes to fix key only; full_command is a separate concern the planner/implementer owns\n- **Should non-string fix values be str()-coerced instead of rejected?** (not_operator_grade): Issue explicitly requires non-empty string validation, not coercion; #3629 schema docs confirm single shell command string is the contract\n- **Should the repo_config.py fallback be aligned?** (not_operator_grade): Issue scope notes explicitly say to check and align parallel paths; both copies must stay in sync\n\nConfirm to proceed to the phase gate, or choose \u201cRe-run phase to register decisions\u201d to send the phase back so its agents register the decisions as first-class contract entries (cq-N). Any free-text reply is treated as a re-run directive and forwarded to the agents.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Confirm \u2014 no open decisions this phase",
+          "description": null,
+          "adds_task": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Re-run phase to register decisions",
+          "description": null,
+          "adds_task": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Confirm \u2014 no open decisions this phase",
+      "resolved_by": "human",
+      "resolved_at": "2026-07-29T20:51:38.488614Z",
+      "debounce_until": null,
+      "redirect_seed": null
+    }
+  ],
   "workflow_owner": null,
   "audit_log": [
     {
@@ -29,7 +162,14 @@
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
-  "pr": null,
+  "pr": {
+    "title": "Fix validate_checks silently dropping/str()-coercing malformed fix values (#3630)",
+    "description": "validate_checks used `if c.get(\"fix\"): entry[\"fix\"] = str(c[\"fix\"])` which\nsilently dropped falsy fix values (empty string, false, 0) and str()-coerced\nnon-string values (e.g. YAML lists) into broken shell commands. Fix: validate\nthat fix, when present, is a non-empty string; log a warning when it is not.\nAligned parallel fallbacks in config/repo_config.py and orchestrator pipelines.",
+    "test_plan": "- Automated: 61 tests in tests/egg_config/test_validators.py pass (5 new + 2 updated)\n- Automated: 9 tests in orchestrator/tests/test_propose_check_gate.py pass\n- Automated: ruff check passes on all 4 modified files",
+    "manual_steps": "Pre-merge: None\nPost-merge: Monitor config load logs for new \"invalid fix\" warnings",
+    "context_pr_number": null,
+    "deferred_actions": []
+  },
   "feedback": null,
   "phase_configs": null,
   "agent_executions": []
