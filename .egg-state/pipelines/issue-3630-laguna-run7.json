@@ -165,10 +165,28 @@
       "phase": "refine",
       "content_changed": null,
       "resolution_outcome": null
+    },
+    {
+      "id": "decision-2",
+      "question": "The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.\n\nDecision ledger: explicitly none — refiner attested: Issue #3630 is prescriptive: validate fix is non-empty string, log warning on invalid. No architectural or operator-grade decisions required. (3 candidate(s) considered) Operator confirmed the attestation.",
+      "context": "# Analysis: validate_checks silently drops/coerces malformed `fix` values (#3630)\n\n## Goal\n\nFix `validate_checks` in `shared/egg_config/validators.py` so that a check's\noptional `fix` key — when present — must be a non-empty string. Invalid values\n(empty string, `false`, `0`, lists, etc.) are dropped with a warning log line\ninstead of being silently dropped or `str()`-coerced into broken shell commands.\n\n## Issue summary (from gh issue #3630)\n\nTwo operator-hostile behaviors in the current `fix` handling:\n\n1. **Silent drop on falsy values.** `fix: \"\"`, `fix: false`, `fix: 0` are\n   dropped with no warning. The operator sees a configured `fix:` in\n   `repositories.yaml` and a green gate that never self-heals, with nothing\n   explaining why.\n2. **`str()` coercion of non-strings.** A YAML list like\n   `fix: [make fmt, make lint-fix]` is coerced to the literal string\n   `\"['make fmt', 'make lint-fix']\"` and handed to the check runner as a shell\n   command, failing as a subprocess with a message that doesn't point back at\n   the config.\n\n## Codebase analysis\n\n### Primary location: `shared/egg_config/validators.py`\n\n`validate_checks` (lines 167–220) iterates over check entries. Each entry\nrequires `name` and `command` (both coerced via `str()`). The `fix` key is\nhandled at lines 203–204 (original):\n\n```python\nif c.get(\"fix\"):\n    entry[\"fix\"] = str(c[\"fix\"])\n```\n\nProblems:\n- `c.get(\"fix\")` is falsy for `\"\"`, `False`, `0`, `None` → silently dropped.\n- `str(c[\"fix\"])` coerces any truthy non-string (list, dict, int) into a\n  string representation that is not a valid shell command.\n\nThe `full_command` key (lines 205–206) has the same `c.get(\"full_command\")`\npattern, but the issue scope is explicitly limited to `fix`. `full_command`\nis left unchanged.\n\n### Parallel path: `config/repo_config.py`\n\nLines 359–401 contain a **fallback** `validate_checks` inside a\n`try/except ImportError` block. When `egg_config.validators` cannot be\nimported (e.g. in environments where the `shared/` package isn't on the\npath), this inline copy is used instead. It has the identical `fix` handling\npattern and must be aligned.\n\nThe module already has a `logger` (`logging.getLogger(\"egg.repo_config\")`)\navailable for the warning.\n\n### Callers\n\n- `config/repo_config.py::get_repo_checks` (line 603) calls `validate_checks`\n  on checks loaded from `repositories.yaml`.\n- `orchestrator/routes/pipelines/__init__.py` (line 465) has its own inline\n  copy of `validate_checks` for the propose-time check gate — this one is\n  separate and uses a different code path; it is not in scope.\n- `orchestrator/tests/test_propose_check_gate.py` has tests that exercise\n  `validate_checks` via the shared module — these use string `fix` values and\n  are unaffected.\n\n### Existing tests\n\n`tests/egg_config/test_validators.py::TestValidateChecks`:\n- `test_values_coerced_to_strings` — tests `fix: 3` coerced to `\"3\"`. This\n  test **must be updated**: `fix: 3` is now rejected with a warning, not\n  coerced. `name` and `command` coercion is unchanged.\n- `test_empty_fix_dropped` — tests `fix: \"\"` and `fix: None` are dropped.\n  Behavior unchanged (still dropped), but now a warning is logged.\n\n## Proposed approach\n\n### Change 1: `shared/egg_config/validators.py`\n\n1. Add `import logging` and `logger = logging.getLogger(__name__)` at module\n   level.\n2. Replace the `fix` handling block:\n\n```python\nif \"fix\" in c:\n    fix = c[\"fix\"]\n    if isinstance(fix, str) and fix:\n        entry[\"fix\"] = fix\n    else:\n        logger.warning(\n            \"check %r has invalid fix value %r (expected a non-empty \"\n            \"string); dropping fix\",\n            c.get(\"name\", \"<unnamed>\"),\n            fix,\n        )\n```\n\nKey behavioral changes:\n- Uses `\"fix\" in c` (key presence) instead of `c.get(\"fix\")` (truthiness), so\n  `fix: 0` and `fix: False` are detected as present-but-invalid rather than\n  silently absent.\n- Validates `isinstance(fix, str) and fix` — must be a string AND non-empty.\n- Logs a warning naming the check and the offending value.\n- Does NOT `str()`-coerce — non-string values are rejected, not mangled.\n\n### Change 2: `config/repo_config.py` (fallback)\n\nApply the identical change to the fallback `validate_checks` in the\n`except ImportError` block. The module already has `logger` available.\n\n### Change 3: Tests (`tests/egg_config/test_validators.py`)\n\n- Update `test_values_coerced_to_strings`: `fix: 3` is now rejected with a\n  warning (not coerced). `name` and `command` are still coerced.\n- Update `test_empty_fix_dropped`: behavior unchanged (still dropped), but\n  add a warning assertion.\n- Add `test_empty_fix_logs_warning`: verifies warning for `fix: \"\"`.\n- Add `test_fix_false_rejected_with_warning`: verifies warning for `fix: False`.\n- Add `test_fix_zero_rejected_with_warning`: verifies warning for `fix: 0`.\n- Add `test_fix_list_rejected_with_warning`: verifies warning for `fix: [...]`.\n- Add `test_fix_valid_string_accepted`: verifies valid string is accepted.\n- Add `test_fix_absent_unchanged`: verifies absent `fix` key produces no\n  warning and no `fix` in the entry.\n\n## Scope boundaries\n\n- **In scope:** `fix` key validation in both `validate_checks` copies + tests.\n- **Out of scope:** `full_command` handling (same pattern but not mentioned in\n  the issue); `name`/`command` coercion (unchanged); the inline copy in\n  `orchestrator/routes/pipelines/__init__.py` (separate code path, not\n  imported from `egg_config.validators`).\n- **No decisions needed** — the issue is prescriptive. The only judgment call\n  is whether to also fix `full_command`, but the issue explicitly says \"keep\n  the change tightly scoped to the `fix` key.\"\n\n## Verification\n\n- `pytest tests/egg_config/test_validators.py` — all tests pass (62 tests).\n- `pytest orchestrator/tests/test_propose_check_gate.py::TestValidateChecksFullCommand`\n  — confirms `full_command` tests still pass.\n- `ruff check` and `mypy` on changed files — clean.\n",
+      "options": [
+        "approve",
+        "request changes"
+      ],
+      "decision_type": "phase_gate",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-07-29T20:51:39.164392Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null,
+      "resolution_outcome": null
     }
   ],
   "created_at": "2026-07-29T19:25:06.367330Z",
-  "updated_at": "2026-07-29T20:51:38.504796Z",
+  "updated_at": "2026-07-29T20:51:39.178038Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -181,7 +199,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15,
+  "version": 16,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
