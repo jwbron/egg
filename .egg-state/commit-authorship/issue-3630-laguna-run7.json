@@ -104,6 +104,14 @@
       "repo": null,
       "role": "architect"
     },
+    "546313a583c13faa81fd79f417d30139dd40bccd": {
+      "branch": "egg/issue-3630-laguna-run7/work",
+      "patch_id": "5e385b9d9336f28d22202dd7ff3a34992b687d12",
+      "pipeline_id": "issue-3630-laguna-run7",
+      "registered_at": "2026-07-29T22:18:22.728707+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "649e0b2bcd95aba12e8b5c189c2313bd0ba1c349": {
       "branch": "egg/issue-3630-laguna-run7/work",
       "patch_id": "85e445c432524651aba7869f408994f04f44566f",
