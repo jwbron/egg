@@ -4,47 +4,61 @@
 
 ## Current state
 - Phase: implement
-- Producer under review: documenter
-- v1 proposal: e07498830f3a14f7044c99cbcaee73e457f9163d → NACKED
-- v2 proposal: 89117f58d6a6683745bc70c2ac4b5a1168f4460b → ACKED (version 2)
-- Artifact: docs/guides/sdlc-pipeline.md
-- Verdict: ACKED
+- Verdicts:
+  - documenter v1 (e07498830): NACKED — None incorrectly grouped with absent key as "silently omitted"
+  - documenter v2 (89117f58d): ACKED — None correctly grouped with rejected values; absent key correctly separated
+  - coder v1 (89117f58d): ACKED — code fix is correct, tightly scoped, all tests pass
 
 ## Summary of assessment
 
-### v1 NACK (resolved)
-The doc stated "A bare `fix:` (None) or an absent `fix` key is treated as
-'not configured' and silently omitted." This was inaccurate: `None` is
-rejected with a warning and dropped (verified by test_empty_fix_dropped_with_warning
-which tests None alongside "", and parity test test_invalid_fix_dropped_with_warning
-which includes None in the bad_fix matrix across all three copies). Only the absent
-key is silently omitted.
-
-### v2 ACK (current)
-The documenter addressed the NACK. The corrected doc now says:
-"any present-but-invalid value — `fix: ""`, `fix: "   "`, `fix: false`,
-`fix: 0`, `fix: null`, or a non-string such as a list or dict — is likewise
-rejected with a warning and dropped... Only an absent `fix` key is treated as
-'not configured' and silently omitted."
-
-This accurately reflects the code (validators.py lines 214-224):
-- `if "fix" in c:` → key present check
-- `if isinstance(fix, str) and fix.strip():` → non-empty string check
-- `else: logger.warning(...)` → all other values (None, "", "   ", False, 0, list, dict, int) warn and are dropped
+### Code fix (shared/egg_config/validators.py, lines 214-224)
+Replaced `if c.get("fix"): entry["fix"] = str(c["fix"])` with:
+```python
+if "fix" in c:
+    fix = c["fix"]
+    if isinstance(fix, str) and fix.strip():
+        entry["fix"] = fix
+    else:
+        logger.warning(
+            "validate_checks: check %r has invalid fix %r "
+            "(expected non-empty string); dropping fix",
+            c.get("name"),
+            fix,
+        )
+```
+- `fix.strip()` rejects whitespace-only while storing verbatim
+- Non-strings (list, dict, int, bool, None) hit else → warning + drop
 - Absent key → no action, silently omitted
+- Added `import logging` + module-level logger
 
-### Verification
-- 14 TestValidateChecks tests pass (test_validators.py)
-- 55 parity tests pass (test_validate_checks_parity.py) — all three copies agree
-- 118 total tests pass
+### Parallel implementations aligned
+- config/repo_config.py: same fix block (fallback)
+- orchestrator/routes/pipelines/__init__.py: same fix block + full_command added
+
+### Tests (118 pass)
+- test_validators.py: 14 tests (valid, empty, None, false, 0, int, list, whitespace, absent, verbatim)
+- test_validate_checks_parity.py: 55 tests (3 copies × 9 bad_fix values + absent + full_command + AST-identical)
+
+### Other artifacts
+- config/repositories.yaml.example: comment updated
+- docs/guides/sdlc-pipeline.md: documentation accurate (ACKed as documenter v2)
+
+### Issue requirements
+- fix validated as non-empty string when present ✓
+- warning logged in same shape as other validate_* rejections ✓
+- parallel fix path in repo_config.py aligned ✓
+- unit tests cover all required cases ✓
+- scoped to fix key only, full_command left as-is ✓
+- #3629 schema gap closed ✓
 
 ## Files reviewed
-- docs/guides/sdlc-pipeline.md (the proposal, v2)
-- shared/egg_config/validators.py (lines 167-228, validate_checks)
-- config/repo_config.py (lines 360-406, fallback validate_checks)
-- orchestrator/routes/pipelines/__init__.py (lines ~470-497, fallback validate_checks)
-- tests/egg_config/test_validators.py (TestValidateChecks)
-- tests/egg_config/test_validate_checks_parity.py (TestValidateChecksParity, TestFixBlockIsIdentical)
+- shared/egg_config/validators.py
+- config/repo_config.py
+- orchestrator/routes/pipelines/__init__.py
+- tests/egg_config/test_validators.py
+- tests/egg_config/test_validate_checks_parity.py
+- config/repositories.yaml.example
+- docs/guides/sdlc-pipeline.md
 
-## Status: COMPLETE — ACKED v2
-No further action needed from reviewer_code. Awaiting other reviewers.
+## Status: COMPLETE — both documenter v2 and coder v1 ACKED
+Awaiting other reviewers (fully_acked: false).
