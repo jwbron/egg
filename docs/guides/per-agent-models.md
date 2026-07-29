@@ -593,7 +593,7 @@ data:
 > Claude Code prepends (the block's `cch=` hash invalidates the cache key
 > every turn). egg ships a custom **`egg-litellm`** image
 > ([`config/litellm/Dockerfile`](../../config/litellm/Dockerfile)) that
-> bakes in eight patches closing those gaps, the reasoning-parameter ones
+> bakes in nine patches closing those gaps, the reasoning-parameter ones
 > below, and the cost-visibility ones after that
 > ([`config/litellm/patch_litellm_cache.py`](../../config/litellm/patch_litellm_cache.py));
 > the build fails loudly if a LiteLLM bump moves the patched code. Pinning
@@ -637,6 +637,16 @@ data:
 >   every bundled lookup has failed — so a mapped slug keeps its bundled
 >   rate, and the live card can add a model but never reprice one.
 >   `LITELLM_OPENROUTER_PRICING=0` turns off just this half.
+> - **Patch 9 — the estimate stays independent under BYOK.** From 1.94.0
+>   LiteLLM copies a provider-reported `usage.cost` into `_hidden_params` and
+>   `response_cost_calculator` returns that value *before* it reaches
+>   `completion_cost()`. Its guard is `is not None`, and under BYOK OpenRouter
+>   reports `cost: 0.0` — so unpatched, the calculator is handed a zero,
+>   `cost_estimated` reads null on ~100% of egg's traffic, and patch 8 (which
+>   lives inside `completion_cost()`) never runs at all. The patch narrows the
+>   guard to a positive, finite charge. A route that reports a real bill still
+>   propagates it unchanged, in which case `cost_estimated` mirrors `cost`
+>   rather than pricing the turn independently.
 >
 > `cost_estimated` can still read null for a model that **prices by prompt
 > length**. OpenRouter publishes a long-context surcharge as
@@ -662,9 +672,13 @@ data:
 > by one of those reads low under `cost_estimated` — another reason to compare
 > the two fields rather than trusting either alone.
 >
-> The two fields are independent measurements of the same turn, so read them
-> together: a persistent gap between them is itself a signal (a stale rate
-> card, an unexpected provider, or a surcharge tier). Neither is ever
+> On a BYOK route — every route egg currently uses — the two fields are
+> independent measurements of the same turn, so read them together: a
+> persistent gap between them is itself a signal (a stale rate card, an
+> unexpected provider, or a surcharge tier). On a route where the provider
+> reports a positive charge, patch 9 lets that charge through to LiteLLM's
+> calculator and `cost_estimated` mirrors `cost`; agreement there is
+> arithmetic, not corroboration. Neither is ever
 > coerced to `0.0` when unknown — a zero would read in the logs as "this
 > route is free", the exact inversion of the signal. The session totals sum
 > only the calls that reported, so compare `cost_known_calls` /

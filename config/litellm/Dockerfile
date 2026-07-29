@@ -5,9 +5,10 @@
 # stock image's Anthropic->OpenAI translation drops prompt-cache hits on
 # Qwen/DeepSeek, mis-streams reasoning models, silently drops params it does
 # not recognise, manufactures a reasoning ceiling from the caller's thinking
-# budget, and loses the BYOK half of the provider's bill during stream
-# reassembly while its rate card cannot price the route either.
-# patch_litellm_cache.py closes the eight gaps at build time
+# budget, loses the BYOK half of the provider's bill during stream
+# reassembly while its rate card cannot price the route either, and seeds its
+# own cost calculator with a BYOK zero that suppresses the estimate.
+# patch_litellm_cache.py closes the nine gaps at build time
 # (see that script for the diagnosis);
 # cost_callback.py surfaces the resulting cost/cache stats into the pod log
 # stream. Both mirror the host-side dotfiles setup that took Qwen cache hit
@@ -15,7 +16,11 @@
 #
 # Pinned to v1.94.0 — the newest stable published release, and the version
 # the patches and cost_callback are validated against (#3697). The bump from
-# v1.86.2 retired four patches upstream absorbed and narrowed a fifth.
+# v1.86.2 retired four patches upstream absorbed, narrowed a fifth, and added
+# a ninth for a regression the bump itself brings in (1.94.0 hands its cost
+# calculator the provider's `cost` even when that is a BYOK zero, which
+# suppresses the independent estimate and makes the rate-card patch dead code
+# on the streaming path).
 #
 # The patch script fails the build loudly if a needle stops matching, so a
 # future bump can't silently ship an unpatched (full-input-rate) image. Read

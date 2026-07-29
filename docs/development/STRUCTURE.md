@@ -543,7 +543,7 @@ config/
 ├── litellm/                          # egg-litellm image sources
 │   ├── Dockerfile                    # Builds egg-litellm: stock LiteLLM + prompt-cache and reasoning-parameter patches
 │   ├── .ruff.toml                    # Pins this directory to target-version = py311 — everything here runs on the litellm base image's interpreter, not the repo's 3.14, and `ruff format` under py314 emits PEP 758 syntax the image cannot import
-│   ├── patch_litellm_cache.py        # Build-time patches: cache_control passthrough on Qwen/DeepSeek routes, live OpenRouter capability + pricing lookup, drop_params visibility, no synthesized reasoning ceiling, streamed cost preservation
+│   ├── patch_litellm_cache.py        # Build-time patches: cache_control passthrough on Qwen/DeepSeek routes, live OpenRouter capability + pricing lookup, drop_params visibility, no synthesized reasoning ceiling, streamed cost preservation, billable-cost gate on hidden params (patch 9 — inline, no companion module)
 │   ├── openrouter_capabilities.py    # Patches 4 + 8: live GET /api/v1/models lookup — advertised parameters (unioned with LiteLLM's bundled model-cost map) and the published rate card for slugs that map has never heard of, including prompt-length surcharges that fit LiteLLM's 128k/200k/272k rate slots
 │   ├── drop_params_visibility.py     # Patch 5: warn once per proxy process per (provider, model, param-set) when drop_params discards a parameter
 │   ├── anthropic_thinking_policy.py  # Patch 6: stop synthesizing a reasoning_effort ceiling from the caller's thinking budget on non-Claude models

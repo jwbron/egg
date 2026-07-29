@@ -31,7 +31,7 @@ discarded the synthesized param — which is precisely why these models have bee
 running at full depth. Patch 4 makes the OpenRouter param gate accurate, which
 is right for an *operator-configured* ``reasoning_effort`` and wrong for this
 adapter-manufactured one: it would turn a knob nobody set into the effective
-setting, with no config file mentioning it and nothing in the logs (Patch 8
+setting, with no config file mentioning it and nothing in the logs (Patch 5
 only fires on drops, and this param would no longer be dropped).
 
 So Patch 6 gates the synthesis, defaulting it off. ``thinking`` stays out of

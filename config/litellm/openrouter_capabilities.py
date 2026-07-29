@@ -584,7 +584,7 @@ def _log_fetch_failure(message: str, *args: object) -> None:
     A permanently unreachable endpoint is the exact case where behaviour
     silently reverts to the model-cost map, and litellm's default log level is
     INFO — so debug-only reporting reproduces, one file over, the silence
-    Patch 8 exists to remove. Warning once is enough to be findable without
+    Patch 5 exists to remove. Warning once is enough to be findable without
     turning an offline deployment into a log flood.
     """
     global _WARNED_FETCH_FAILURE

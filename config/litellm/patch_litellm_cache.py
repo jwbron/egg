@@ -6,24 +6,26 @@ LiteLLM's stock Anthropic->OpenAI translation (the path Claude Code's
 backend) drops prompt-cache hits for Qwen/DeepSeek, reads a model-cost map
 that carries neither the parameters nor the prices of current OpenRouter
 slugs, discards caller-specified params in total silence, manufactures a
-reasoning ceiling nobody asked for, and loses the BYOK half of the
-provider's bill during stream reassembly. Eight independent gaps cause it;
-this script closes all eight by editing the installed ``litellm`` package
-in place (and installing four new modules), then
-``config/litellm/Dockerfile`` bakes the result into the ``egg-litellm``
+reasoning ceiling nobody asked for, loses the BYOK half of the provider's
+bill during stream reassembly, and — new at 1.94.0 — hands its own cost
+calculator a BYOK zero that suppresses the estimate entirely. Nine
+independent gaps cause it; this script closes all nine by editing the
+installed ``litellm`` package in place (and installing four new modules),
+then ``config/litellm/Dockerfile`` bakes the result into the ``egg-litellm``
 image.
 
 Pinned to ``litellm==1.94.0`` (see the Dockerfile ``FROM``), so the needles
 below are known to match. The bump from 1.86.2 retired four patches whose
 fixes upstream absorbed — the streaming ``reasoning_content`` thinking
 block, the first-delta requeue on block transitions (both sync and async),
-and the ``prompt_tokens_details.cached_tokens`` fallback — and narrowed a
-fifth (7) to the half upstream still does not carry. See issue #3697 for
-the audit, and read its warning before assuming the next bump retires
-anything: TWO of the patches below (2 and 5) had their needles stop
-matching at 1.94.0 purely because upstream reflowed the surrounding code,
-and retiring them on the strength of that miss would have silently shipped
-an image paying full input rate on every Qwen turn.
+and the ``prompt_tokens_details.cached_tokens`` fallback — narrowed a
+fifth (7) to the half upstream still does not carry, and ADDED one (9) for
+a regression the bump itself brings in. See issue #3697 for the audit, and
+read its warning before assuming the next bump retires anything: TWO of the
+patches below (2 and 5) had their needles stop matching at 1.94.0 purely
+because upstream reflowed the surrounding code, and retiring them on the
+strength of that miss would have silently shipped an image paying full
+input rate on every Qwen turn.
 
   1. ``CacheControlSupportedModels`` (openrouter/chat/transformation.py)
      add QWEN + DEEPSEEK so ``cache_control`` survives the OpenRouter
@@ -152,6 +154,25 @@ an image paying full input rate on every Qwen turn.
      registering a base tier that would silently under-report the long
      prompts agent traffic is made of. Proposed upstream as
      jwbron/litellm#10.
+  9. ``CustomStreamWrapper._propagate_usage_cost_to_hidden_params``
+     (litellm_core_utils/streaming_handler.py) require the provider's
+     ``cost`` to be POSITIVE and finite before it is allowed to stand in
+     for the cost calculator. New at 1.94.0 and a regression the bump
+     itself brings in: the method did not exist in 1.86.2, and it copies
+     ``usage.cost`` into ``_hidden_params`` on both streaming completion
+     paths, where ``response_cost_calculator`` returns it verbatim and
+     ``completion_cost()`` never runs. Its guard is ``is not None``, and
+     under BYOK OpenRouter's ``cost`` is a literal ``0.0`` — so on egg's
+     route (Claude Code streams every request) the calculator short-circuits
+     on a zero, ``cost_estimated`` reads null on every streamed call, and
+     patch 8 is dead code, because its hook sits inside ``completion_cost``.
+     Requiring a positive figure restores both for the BYOK case and leaves
+     the real-charge case alone. NOTE what that leaves standing: where a
+     provider DOES report a positive charge, 1.94.0 seeds its own calculator
+     with it, so ``cost_estimated`` mirrors ``cost`` rather than being an
+     independent rate-card read — see ``cost_callback._extract_estimated_cost``.
+     Non-finite is excluded too: ``+inf`` clears a bare ``> 0`` and would be
+     written into a spend header as ``Infinity``.
 
 Idempotent: each patch detects whether it is already applied. Fails
 loudly (non-zero exit) if a needle is missing, so a LiteLLM version bump
@@ -261,6 +282,7 @@ F2 = "llms/anthropic/experimental_pass_through/adapters/transformation.py"
 F3 = "llms/anthropic/experimental_pass_through/adapters/streaming_iterator.py"
 F4 = "utils.py"
 F5 = "litellm_core_utils/streaming_chunk_builder_utils.py"
+F6 = "litellm_core_utils/streaming_handler.py"
 
 # Every patch as a self-contained spec: (file, present marker, needle,
 # replacement, label). Module-level so tests can apply them to a checked-in
@@ -283,7 +305,7 @@ PATCHES: list[dict[str, str]] = [
             '    QWEN = "qwen"\n'
             '    DEEPSEEK = "deepseek"\n'
         ),
-        "label": "Patch 1/8 (CacheControlSupportedModels)",
+        "label": "Patch 1/9 (CacheControlSupportedModels)",
     },
     # Patch 2 — broaden ONLY the cache_control gate (not the shared
     # is_anthropic_claude_model predicate, which also gates thinking
@@ -327,7 +349,7 @@ PATCHES: list[dict[str, str]] = [
             "            )\n"
             "        ):\n"
         ),
-        "label": "Patch 2/8 (cache_control gate)",
+        "label": "Patch 2/9 (cache_control gate)",
     },
     # Patch 3 — drop x-anthropic-billing-header during Anthropic->OpenAI translation.
     {
@@ -361,7 +383,7 @@ PATCHES: list[dict[str, str]] = [
             '                        "text": text,\n'
             "                    }\n"
         ),
-        "label": "Patch 3/8 (x-anthropic-billing-header filter)",
+        "label": "Patch 3/9 (x-anthropic-billing-header filter)",
     },
     # Patch 4 — OpenrouterConfig.get_supported_openai_params: consult
     # OpenRouter's published capabilities instead of only the bundled
@@ -418,7 +440,7 @@ PATCHES: list[dict[str, str]] = [
             "        # supported_parameters over an unauthenticated endpoint; the bundled\n"
             "        # model-cost map does not carry current slugs, so the stock gate\n"
             "        # below fails closed and the knob is dropped in silence. Unioned,\n"
-            "        # never subtractive — see patch 7 notes in patch_litellm_cache.py.\n"
+            "        # never subtractive — see patch 4 notes in patch_litellm_cache.py.\n"
             "        try:\n"
             "            from litellm.llms.openrouter._egg_capabilities import (\n"
             "                get_supported_parameters as _egg_openrouter_capabilities,\n"
@@ -432,15 +454,15 @@ PATCHES: list[dict[str, str]] = [
             "            pass\n"
             "        try:\n"
         ),
-        "label": "Patch 4/8 (openrouter live capabilities)",
+        "label": "Patch 4/9 (openrouter live capabilities)",
     },
-    # Patch 8 — get_optional_params: log what ``drop_params`` discards.
+    # Patch 5 — get_optional_params: log what ``drop_params`` discards.
     #
-    # Patch 7 removes the OpenRouter false-negative, but a drop can still be
+    # Patch 4 removes the OpenRouter false-negative, but a drop can still be
     # correct and still worth knowing about: laguna-s-2.1 genuinely does not
     # accept ``reasoning_effort``, so the knob is dropped on purpose and the
     # operator has no way to learn why their config line does nothing. Stock
-    # Stock pops unsupported params in a bare loop with no logging at all.
+    # pops unsupported params in a bare loop with no logging at all.
     #
     # NOT retired by the 1.94.0 bump. Upstream reflowed the condition onto one
     # line, so the old needle stopped matching — but nothing upstream logs the
@@ -482,13 +504,13 @@ PATCHES: list[dict[str, str]] = [
             "                for k in unsupported_params.keys():\n"
             "                    non_default_params.pop(k, None)\n"
         ),
-        "label": "Patch 5/8 (drop_params visibility)",
+        "label": "Patch 5/9 (drop_params visibility)",
     },
     # Patch 6 — _translate_thinking_to_openai: stop synthesizing
     # ``reasoning_effort`` from the caller's ``thinking`` block for non-Claude
     # models.
     #
-    # This is the other half of patch 7, and without it patch 7 is a
+    # This is the other half of patch 4, and without it patch 4 is a
     # regression on egg's primary route. On /v1/messages (Claude Code ->
     # gateway -> litellm -> OpenRouter) the request body carries
     # ``thinking: {"type": "enabled", "budget_tokens": N}``.
@@ -501,16 +523,16 @@ PATCHES: list[dict[str, str]] = [
     #
     # Until now that param was silently dropped (the model-cost map does not
     # carry these slugs), which is exactly why these models have been running
-    # at full reasoning depth. Patch 7 unblocks the param — correct for an
+    # at full reasoning depth. Patch 4 unblocks the param — correct for an
     # operator-configured value, wrong for this one, because the measurements
     # in jwbron/egg#3624 show the bucket is a CAP BELOW the model default:
     # kimi-k3 means 3130 reasoning tokens with no param vs 340 with
     # ``reasoning_effort: high``, distributions non-overlapping. Shipping
-    # patch 7 alone would cut reasoning ~9x on every agent turn with nothing
-    # logged (patch 8 only fires on drops, and this is no longer dropped) and
+    # patch 4 alone would cut reasoning ~9x on every agent turn with nothing
+    # logged (patch 5 only fires on drops, and this is no longer dropped) and
     # no config file to point at.
     #
-    # Gating the synthesis keeps patch 7's actual goal — a configured knob
+    # Gating the synthesis keeps patch 4's actual goal — a configured knob
     # reaches the wire — without letting the adapter's bucket become the
     # effective setting. ``LITELLM_ANTHROPIC_THINKING_TO_REASONING_EFFORT=1``
     # restores stock behaviour. The Claude branch above is untouched.
@@ -575,7 +597,7 @@ PATCHES: list[dict[str, str]] = [
             "\n"
             '        summary = thinking.get("summary") if isinstance(thinking, dict) else None\n'
         ),
-        "label": "Patch 6/8 (thinking->reasoning_effort synthesis gate)",
+        "label": "Patch 6/9 (thinking->reasoning_effort synthesis gate)",
     },
     # Patch 7 — ChunkProcessor.calculate_usage: carry the provider's
     # ``cost_details`` across stream reassembly.
@@ -643,15 +665,20 @@ PATCHES: list[dict[str, str]] = [
             "            # Warned once per process, and the latch is set only after\n"
             "            # the emit succeeded; verbose_logger is imported here rather\n"
             "            # than read from module scope because this file does not\n"
-            "            # import it.\n"
+            "            # import it. The message names `cost_details`, not `cost`:\n"
+            "            # since 1.94.0 upstream carries `cost` itself, so what a\n"
+            "            # failure here costs is the BYOK figure alone, and sending\n"
+            "            # the operator to a field that reads correctly would be\n"
+            "            # worse than not warning at all.\n"
             "            try:\n"
             "                if not globals().get('_egg_warned_stream_cost'):\n"
             "                    from litellm._logging import verbose_logger\n"
             "\n"
             "                    verbose_logger.warning(\n"
-            "                        'egg cost patch: streamed cost preservation is '\n"
-            "                        'inactive (%s: %s); the provider-billed `cost` will '\n"
-            "                        'read null on every streamed call.',\n"
+            "                        'egg cost patch: streamed cost_details preservation '\n"
+            "                        'is inactive (%s: %s); `cost_details` will read null '\n"
+            "                        'on every streamed call, so BYOK routes (where the '\n"
+            "                        'provider-billed `cost` is 0) will report no spend.',\n"
             "                        type(_egg_exc).__name__,\n"
             "                        _egg_exc,\n"
             "                    )\n"
@@ -661,18 +688,26 @@ PATCHES: list[dict[str, str]] = [
             "\n"
             "        return returned_usage\n"
         ),
-        "label": "Patch 7/8 (streamed cost_details preservation)",
+        "label": "Patch 7/9 (streamed cost_details preservation)",
     },
     # Patch 8 — _get_model_info_helper: price OpenRouter slugs the bundled map
     # has never heard of.
     #
-    # Same root cause as patch 7, second symptom. LiteLLM's own
+    # Same root cause as patch 4, second symptom. LiteLLM's own
     # ``response_cost`` is computed from ``model_prices_and_context_window.json``,
     # which does not carry current OpenRouter slugs, so the lookup raises "This
     # model isn't mapped yet" and egg's ``cost_estimated`` reads null on every
     # routed call (#3691). Patch 7 recovers the BYOK *billed* figure; this one
     # restores the independent estimate beside it, which is what remains
     # readable if a provider ever stops reporting cost.
+    #
+    # PATCH 9 IS LOAD-BEARING FOR THIS ONE on the streaming path. The hook below
+    # sits inside ``_get_model_info_helper``, reachable only via
+    # ``completion_cost()`` — and 1.94.0's ``_propagate_usage_cost_to_hidden_params``
+    # makes ``response_cost_calculator`` return before it ever calls that,
+    # whenever the provider reported any ``cost`` at all including a BYOK zero.
+    # Without patch 9 this patch applies cleanly, passes every direct test of
+    # ``_get_model_info_helper``, and is dead code on ~100% of egg's traffic.
     #
     # Placed at the raise site, so it is reached only once every stock lookup
     # has failed: a slug the bundled map DOES carry keeps the bundled answer,
@@ -742,7 +777,81 @@ PATCHES: list[dict[str, str]] = [
             'https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json"\n'
             "                )\n"
         ),
-        "label": "Patch 8/8 (openrouter live pricing)",
+        "label": "Patch 8/9 (openrouter live pricing)",
+    },
+    # Patch 9 — _propagate_usage_cost_to_hidden_params: require a POSITIVE,
+    # finite provider cost before it stands in for the cost calculator.
+    #
+    # This one is not a gap in 1.86.2 that survived the bump; it is a
+    # regression the bump BRINGS IN. The method does not exist in 1.86.2
+    # (``grep -rn _propagate_usage_cost_to_hidden_params`` on that wheel returns
+    # nothing). 1.94.0 calls it on ``complete_streaming_response`` from both
+    # streaming completion paths (``__next__`` and ``__anext__``), immediately
+    # before ``logging_obj.success_handler`` sees the copy, and it copies
+    # ``usage.cost`` into ``_hidden_params["additional_headers"]``. Downstream,
+    # ``response_cost_calculator`` returns that header verbatim and
+    # ``completion_cost()`` never runs.
+    #
+    # Its guard is ``_usage.cost is not None``, and
+    # ``get_response_cost_from_hidden_params`` only declines on a literal None —
+    # ``0.0`` is returned as ``0.0``. Under BYOK OpenRouter's top-level ``cost``
+    # IS ``0.0`` (billing routes past them; the real number lives in
+    # ``cost_details``, which is patch 7's job). Claude Code streams every
+    # /v1/messages request, so on egg's route the stock behaviour is: calculator
+    # short-circuits on a zero -> ``response_cost`` is 0.0 -> egg's
+    # ``cost_estimated`` reads null on EVERY streamed call (it is gated on
+    # ``_positive``), and patch 8 never fires at all, because its hook sits in
+    # ``_get_model_info_helper``'s unmapped branch, reachable only through
+    # ``completion_cost()``. Both of those are things this image exists to
+    # provide, and both would fail silently: a null cost_estimated is
+    # indistinguishable from an unpriceable model.
+    #
+    # Requiring a positive figure restores ``completion_cost()`` (and with it
+    # patch 8) for the BYOK case and leaves the real-charge case alone — the
+    # narrow fix, not a blanket suppression: where a provider reports a genuine
+    # charge, letting litellm bill from it rather than from a rate card is
+    # upstream's improvement and worth keeping. The cost of that choice is
+    # recorded in ``cost_callback._extract_estimated_cost``: on such a route
+    # ``cost_estimated`` mirrors ``cost`` instead of being an independent read.
+    #
+    # Finiteness is checked too, for the reason ``cost_callback._positive``
+    # gives: ``+inf`` clears a bare ``> 0``, and this value is written into a
+    # spend header where it would serialize as the non-standard ``Infinity``.
+    # ``bool`` is excluded for the same reason it is there — ``isinstance(True,
+    # int)`` is True, and a True is not a dollar.
+    #
+    # The needle spans the assignment and the guard together: the guard line
+    # alone is what changes, but the assignment above it is what makes the
+    # match unambiguous, and ``_egg_cost`` has to be computed before it.
+    {
+        "file": F6,
+        "present": "# egg cost-propagation patch",
+        "needle": (
+            '        _usage = getattr(response, "usage", None)\n'
+            '        if _usage is not None and hasattr(_usage, "cost") '
+            "and _usage.cost is not None:\n"
+        ),
+        "replacement": (
+            '        _usage = getattr(response, "usage", None)\n'
+            "        # egg cost-propagation patch. Upstream's guard is `is not None`,\n"
+            "        # and this value short-circuits litellm's cost calculator. Under\n"
+            "        # BYOK OpenRouter reports `cost: 0.0` (the real figure is in\n"
+            "        # cost_details), so the stock guard hands the calculator a zero,\n"
+            "        # `response_cost` reads 0.0, egg's `cost_estimated` reads null,\n"
+            "        # and the OpenRouter rate-card patch never runs — it lives inside\n"
+            "        # completion_cost(), which this return skips. Require a positive,\n"
+            "        # finite number; a real charge still propagates unchanged. See\n"
+            "        # patch 9 notes in patch_litellm_cache.py.\n"
+            '        _egg_cost = getattr(_usage, "cost", None) if _usage is not None else None\n'
+            "        _egg_cost_is_billable = (\n"
+            "            isinstance(_egg_cost, (int, float))\n"
+            "            and not isinstance(_egg_cost, bool)\n"
+            "            and _egg_cost > 0\n"
+            '            and _egg_cost < float("inf")\n'
+            "        )\n"
+            "        if _egg_cost_is_billable:\n"
+        ),
+        "label": "Patch 9/9 (billable-cost gate on hidden params)",
     },
 ]
 
