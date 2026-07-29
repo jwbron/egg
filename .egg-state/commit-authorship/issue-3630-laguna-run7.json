@@ -96,6 +96,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "e5caf77a270737c0b8bd88e1ca19536bb7d8797a": {
+      "branch": "egg/issue-3630-laguna-run7/work",
+      "patch_id": "1074e55c188729243e8c1f7cb33e13442704ef5a",
+      "pipeline_id": "issue-3630-laguna-run7",
+      "registered_at": "2026-07-29T21:14:34.730381+00:00",
+      "repo": null,
+      "role": "task_planner"
+    },
     "ec78d2881554392c58b5d1bf508f579eb7f63407": {
       "branch": "egg/issue-3630-laguna-run7/work",
       "patch_id": "4669120c10f37cb85bf35ddfd3e7c20a0644d86d",
