@@ -8,6 +8,14 @@
       "repo": null,
       "role": "reviewer_agent_design"
     },
+    "125a19f25ce7523092633f3a5aec5745908d017e": {
+      "branch": "egg/issue-3630-laguna-run7/work",
+      "patch_id": "d03357abc7ce6182c32eeab817b12e4590ef7c99",
+      "pipeline_id": "issue-3630-laguna-run7",
+      "registered_at": "2026-07-29T21:17:16.825584+00:00",
+      "repo": null,
+      "role": "simplifier"
+    },
     "13f8a6f306bd36af61932b35e3ea8a325e2b5ec8": {
       "branch": "egg/issue-3630-laguna-run7/work",
       "patch_id": "b0b9b0fa04a3e7d8690c761564a67732a21e75b0",
@@ -31,6 +39,14 @@
       "registered_at": "2026-07-29T20:59:04.133342+00:00",
       "repo": null,
       "role": "architect"
+    },
+    "7cbc736d875b23d16bd065bded8327ce51744253": {
+      "branch": "egg/issue-3630-laguna-run7/work",
+      "patch_id": "eb80f46aaafcd1b39d8bd722546f8c8b170c4738",
+      "pipeline_id": "issue-3630-laguna-run7",
+      "registered_at": "2026-07-29T21:17:16.832387+00:00",
+      "repo": null,
+      "role": "simplifier"
     },
     "8ac36c0100e1b1201ff01535a8bf8acfe6b849f4": {
       "branch": "egg/issue-3630-laguna-run7/work",
