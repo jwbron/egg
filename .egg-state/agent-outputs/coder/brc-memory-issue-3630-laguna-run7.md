@@ -2,7 +2,11 @@
 
 ## Phase: implement
 
-## Status: READY TO PROPOSE (all tests pass, lint clean)
+## Status: PROPOSED at b55945e5 (version 1) — reviewers dispatched
+
+Proposal recorded successfully. Reviewers dispatched: reviewer_code,
+reviewer_code_holistic, reviewer_contract, tester, reviewer_security,
+reviewer_concurrency.
 
 ## Summary of assessment
 
@@ -85,3 +89,4 @@ if "fix" in c:
 ### Commit
 
 `e07498830` — "docs: update fix key validation behavior in sdlc-pipeline guide (#3630)"
+`b55945e5` — "Update BRC memory for #3630 after orchestrator follow-up commits"
