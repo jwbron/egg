@@ -2,7 +2,7 @@
 
 ## Phase: implement
 
-## Status: READY TO PROPOSE (all tests pass, lint clean)
+## Status: PROPOSED at b55945e5df50 (checks running — make test-all, make lint)
 
 ## Summary of assessment
 
