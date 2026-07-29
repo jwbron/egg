@@ -50,7 +50,7 @@ observability; it must never be able to break a response.
 
 Installed into every litellm tree as
 ``litellm_core_utils/_egg_stream_cost.py`` by
-``config/litellm/patch_litellm_cache.py`` (Patch 10 is the call site). Kept as
+``config/litellm/patch_litellm_cache.py`` (Patch 7 is the call site). Kept as
 a real file rather than a string literal in that script so it stays lintable
 and unit-testable in the egg repo — which is why it imports no litellm symbols
 at all and works structurally, off ``getattr``/``dict`` access.

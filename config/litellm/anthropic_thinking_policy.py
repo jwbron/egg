@@ -28,15 +28,15 @@ costs roughly 9x the reasoning depth the model would have produced on its own.
 Historically this never mattered: the model-cost map did not carry these slugs,
 ``OpenrouterConfig`` advertised no reasoning knobs, and ``drop_params`` silently
 discarded the synthesized param — which is precisely why these models have been
-running at full depth. Patch 7 makes the OpenRouter param gate accurate, which
+running at full depth. Patch 4 makes the OpenRouter param gate accurate, which
 is right for an *operator-configured* ``reasoning_effort`` and wrong for this
 adapter-manufactured one: it would turn a knob nobody set into the effective
 setting, with no config file mentioning it and nothing in the logs (Patch 8
 only fires on drops, and this param would no longer be dropped).
 
-So Patch 9 gates the synthesis, defaulting it off. ``thinking`` stays out of
+So Patch 6 gates the synthesis, defaulting it off. ``thinking`` stays out of
 the OpenAI body for non-Claude models and only an explicitly configured
-``reasoning_effort`` reaches the wire — exactly the property Patch 7 exists to
+``reasoning_effort`` reaches the wire — exactly the property Patch 4 exists to
 restore, without the adapter's bucket riding along.
 
 The gate covers the *derived* value only. On an adaptive request

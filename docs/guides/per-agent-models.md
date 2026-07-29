@@ -593,7 +593,7 @@ data:
 > Claude Code prepends (the block's `cch=` hash invalidates the cache key
 > every turn). egg ships a custom **`egg-litellm`** image
 > ([`config/litellm/Dockerfile`](../../config/litellm/Dockerfile)) that
-> bakes in eleven patches closing those gaps, the reasoning-parameter ones
+> bakes in eight patches closing those gaps, the reasoning-parameter ones
 > below, and the cost-visibility ones after that
 > ([`config/litellm/patch_litellm_cache.py`](../../config/litellm/patch_litellm_cache.py));
 > the build fails loudly if a LiteLLM bump moves the patched code. Pinning
@@ -614,7 +614,7 @@ data:
 > (issue #3691; before them, 1252 of 1252 sampled calls on run 6 reported
 > `cost: null`, so egg had no dollar figure at all for its LLM spend).
 >
-> - **Patch 10 — the bill survives streaming.** `cost` is what OpenRouter
+> - **Patch 7 — the BYOK bill survives streaming.** `cost` is what OpenRouter
 >   charged, reported on the final streamed usage chunk. No config change is
 >   needed to get it: stock LiteLLM's `OpenrouterConfig.transform_request`
 >   already sets `usage: {"include": true}` on every request, so the number
@@ -623,16 +623,17 @@ data:
 >   enumerates and dropped `cost` / `cost_details` at that seam. Claude Code
 >   streams every `/v1/messages` request, so that was ~100% of routed
 >   traffic; the non-streaming path was never affected, which is why it read
->   as a property of the route rather than as a transport bug. The patch
->   copies the two fields across the rebuild and interprets neither: a `0`
->   under BYOK is the literal truth about the OpenRouter bill, with the real
->   number beside it under `cost_details.upstream_inference_cost`.
-> - **Patch 11 — the estimate has a rate card.** `cost_estimated` is
+>   as a property of the route rather than as a transport bug. litellm 1.94.0
+>   now carries `cost` natively, so the patch is down to `cost_details` —
+>   which is the half that matters under BYOK, where the top-level `cost` is a
+>   literal `0` and the real number is `cost_details.upstream_inference_cost`.
+>   The patch interprets neither field; it only transports.
+> - **Patch 8 — the estimate has a rate card.** `cost_estimated` is
 >   LiteLLM's own `response_cost`, computed from its bundled pricing map —
 >   which carries none of the slugs egg routes, exactly as it carries none of
->   their `supported_parameters` (patch 7, same root cause). The patch reads
+>   their `supported_parameters` (patch 4, same root cause). The patch reads
 >   OpenRouter's published rate card off the same `GET /api/v1/models` fetch
->   patch 7 already makes, and hands it to the model-info lookup only after
+>   patch 4 already makes, and hands it to the model-info lookup only after
 >   every bundled lookup has failed — so a mapped slug keeps its bundled
 >   rate, and the live card can add a model but never reprice one.
 >   `LITELLM_OPENROUTER_PRICING=0` turns off just this half.
@@ -669,7 +670,7 @@ data:
 > [`k8s/base/litellm-deployment.yaml`](../../k8s/base/litellm-deployment.yaml)
 > (where they are present but commented out) without rebuilding the image:
 >
-> - **Patch 7 — live capability lookup.** LiteLLM gates reasoning params on
+> - **Patch 4 — live capability lookup.** LiteLLM gates reasoning params on
 >   its bundled model-cost map, which does not carry current OpenRouter
 >   slugs, so a `reasoning_effort` set in `litellm_params` was discarded
 >   before the request body was built — no exception, no log line. The patch
@@ -683,10 +684,10 @@ data:
 >   phase) tune it. A fetch that fails is cached for the TTL too, so an
 >   offline cluster costs one attempt per hour rather than one per request,
 >   and the first failure is logged at `warning`. Note `_FETCH=0` also
->   disables patch 11's pricing lookup — one fetch serves both, so the master
+>   disables patch 8's pricing lookup — one fetch serves both, so the master
 >   switch governs both; `LITELLM_OPENROUTER_PRICING=0` turns off only the
 >   pricing half.
-> - **Patch 9 — no synthesized reasoning ceiling.** On `/v1/messages` (the
+> - **Patch 6 — no synthesized reasoning ceiling.** On `/v1/messages` (the
 >   route Claude Code uses) LiteLLM's Anthropic adapter converts each
 >   request's `thinking: {budget_tokens: N}` into a bucketed
 >   `reasoning_effort` for any non-Claude model. That value is not in any
@@ -726,7 +727,7 @@ data:
 > - **It is read after `drop_params` has acted**, so it reports what the wire
 >   carried, not what your config asked for. A knob you set in
 >   `litellm_params` that does not appear here was discarded or relocated
->   into `extra_body` by LiteLLM's parameter mapper. Patch 8
+>   into `extra_body` by LiteLLM's parameter mapper. Patch 5
 >   (`drop_params_visibility.py`) also logs a `litellm.drop_params: dropped
 >   ...` warning once per (provider, model, param-set) combo, for as long as
 >   the proxy's bookkeeping set holds that combo, naming the params and — when

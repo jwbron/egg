@@ -33,7 +33,7 @@ unknown for a confident wrong number:
   cost: ``supports_reasoning: true`` alone makes stock
   ``get_supported_openai_params`` admit ``thinking``, which Patch 2's notes
   explain would forward an Anthropic-shaped block verbatim to a provider that
-  expects ``reasoning``. Patch 7 remains the only path by which a parameter
+  expects ``reasoning``. Patch 4 remains the only path by which a parameter
   becomes admissible, and it admits exactly ``reasoning_effort``.
 * **Tiered rate cards are declined outright.** OpenRouter expresses a
   long-context surcharge as ``pricing.overrides`` — a list keyed by arbitrary
@@ -70,7 +70,7 @@ Operator knobs (all optional; see ``docs/guides/per-agent-models.md``):
   both, since one fetch serves both.
 * ``LITELLM_OPENROUTER_PRICING=0`` disables only the pricing half, leaving the
   parameter lookup running. For an operator who wants LiteLLM's bundled map to
-  be the sole authority on cost while keeping Patch 7's parameter fix.
+  be the sole authority on cost while keeping Patch 4's parameter fix.
 * ``LITELLM_OPENROUTER_CAPABILITY_TTL`` seconds between refreshes
   (default 3600). ``0`` disables caching and re-fetches on every lookup —
   a debugging aid, not a production setting.

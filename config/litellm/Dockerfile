@@ -5,19 +5,26 @@
 # stock image's Anthropic->OpenAI translation drops prompt-cache hits on
 # Qwen/DeepSeek, mis-streams reasoning models, silently drops params it does
 # not recognise, manufactures a reasoning ceiling from the caller's thinking
-# budget, and discards the provider's own bill during stream reassembly while
-# its rate card cannot price the route either.
-# patch_litellm_cache.py closes the eleven gaps at build time
+# budget, and loses the BYOK half of the provider's bill during stream
+# reassembly while its rate card cannot price the route either.
+# patch_litellm_cache.py closes the eight gaps at build time
 # (see that script for the diagnosis);
 # cost_callback.py surfaces the resulting cost/cache stats into the pod log
 # stream. Both mirror the host-side dotfiles setup that took Qwen cache hit
 # rate from 0% to ~99.99%.
 #
-# Pinned to v1.86.2 — the version the patches and cost_callback were
-# validated against, and the same release the dotfiles host install pins.
+# Pinned to v1.94.0 — the newest stable published release, and the version
+# the patches and cost_callback are validated against (#3697). The bump from
+# v1.86.2 retired four patches upstream absorbed and narrowed a fifth.
+#
 # The patch script fails the build loudly if a needle stops matching, so a
-# future bump can't silently ship an unpatched (full-input-rate) image.
-FROM ghcr.io/berriai/litellm:v1.86.2
+# future bump can't silently ship an unpatched (full-input-rate) image. Read
+# that failure as "look at this", not as "upstream fixed it": at this bump,
+# two needles stopped matching purely because upstream reflowed the code
+# around them, and deleting those patches would have shipped an image paying
+# full input rate on every Qwen turn. Confirm each miss against the new
+# source before retiring anything.
+FROM ghcr.io/berriai/litellm:v1.94.0
 
 # Patches edit the installed litellm package (root-owned site-packages); the
 # build runs as root. The runtime pod still drops to UID 1000 via the

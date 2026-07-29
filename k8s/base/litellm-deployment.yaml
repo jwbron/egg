@@ -99,7 +99,7 @@ spec:
             # are what the patches were measured with. Uncomment to revert an
             # individual patch at runtime without rebuilding the image.
             #
-            # Patch 7 — live OpenRouter capability lookup. ``0`` restores the
+            # Patch 4 — live OpenRouter capability lookup. ``0`` restores the
             # bundled model-cost map as the only source of truth, which
             # silently drops reasoning knobs on any slug the map has not caught
             # up to. ``_TTL`` seconds between refreshes (default 3600; 0 means
@@ -112,16 +112,16 @@ spec:
             # - name: LITELLM_OPENROUTER_CAPABILITY_TIMEOUT
             #   value: "5"
             #
-            # Patch 11 — live OpenRouter pricing, read off the same roster
-            # fetch as patch 7. ``0`` disables only the pricing half, leaving
+            # Patch 8 — live OpenRouter pricing, read off the same roster
+            # fetch as patch 4. ``0`` disables only the pricing half, leaving
             # the capability lookup running: LiteLLM's bundled map becomes the
             # sole authority on cost, and since it carries none of the slugs
             # egg routes, ``cost_estimated`` goes back to null on every call.
-            # The provider-billed ``cost`` (patch 10) is unaffected by this.
+            # The provider-billed ``cost`` is unaffected by this.
             # - name: LITELLM_OPENROUTER_PRICING
             #   value: "0"
             #
-            # Patch 9 — thinking -> reasoning_effort synthesis, off by
+            # Patch 6 — thinking -> reasoning_effort synthesis, off by
             # default. ``1`` restores stock LiteLLM: the Anthropic adapter
             # derives a bucketed ``reasoning_effort`` from each request's
             # thinking budget on /v1/messages. Measured on kimi-k3 that bucket
