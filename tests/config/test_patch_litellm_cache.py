@@ -554,3 +554,109 @@ def test_patch8_needle_disambiguates_the_two_drop_sites(tmp_path):
     start = result.index("SENTINEL_PASS_SITE_BEGIN")
     end = result.index("SENTINEL_PASS_SITE_END") + len("SENTINEL_PASS_SITE_END\n")
     assert result[start:end] == sibling, "patch 8 rewrote the embeddings-path drop site"
+
+
+def test_patch10_sets_cost_after_the_rebuild_not_before(tmp_path):
+    """Patch 10 must land on the far side of ``Usage(**model_dump())``.
+
+    That constructor deletes a ``cost`` attribute it is handed as None, so a
+    carry inserted *before* the rebuild would be writing into an object the
+    rebuild is entitled to discard — the patch would apply cleanly, the build
+    would pass, and ``cost`` would still read null on every streamed call,
+    which is the bug it exists to fix."""
+    patch10 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 10/"))
+
+    target = tmp_path / patch10["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(patch10["needle"])
+    plc._apply(
+        str(target),
+        present=patch10["present"],
+        needle=patch10["needle"],
+        replacement=patch10["replacement"],
+        label=patch10["label"],
+    )
+    result = target.read_text()
+
+    rebuild = "        returned_usage = Usage(**returned_usage.model_dump())\n"
+    assert rebuild in result, "the stock rebuild must survive the patch"
+    assert result.index(rebuild) < result.index("_egg_carry_upstream_cost"), (
+        "the carry must run after the rebuild, not before it"
+    )
+    assert result.index("_egg_carry_upstream_cost") < result.index("        return returned_usage")
+    # An import failure must never propagate: this is on the response path.
+    assert "except Exception:" in result
+
+
+def test_patch11_hooks_the_unmapped_branch_and_leaves_the_stock_raise(tmp_path):
+    """Patch 11 must be a fallback, not a replacement.
+
+    It sits at the "isn't mapped yet" raise, so it runs only once every stock
+    lookup has already failed: a slug the bundled map DOES carry keeps the
+    bundled rate, and the live card can add a model but never reprice one.
+    The stock ValueError must still be reachable, for the slug OpenRouter has
+    not heard of either."""
+    patch11 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 11/"))
+
+    target = tmp_path / patch11["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(patch11["needle"])
+    plc._apply(
+        str(target),
+        present=patch11["present"],
+        needle=patch11["needle"],
+        replacement=patch11["replacement"],
+        label=patch11["label"],
+    )
+    result = target.read_text()
+
+    assert result.count("raise ValueError(") == 1, "the stock raise must survive, exactly once"
+    assert result.index("_egg_openrouter_cost_entry") < result.index("raise ValueError(")
+    # The lookup is handed the provider so it can decline to answer for
+    # anything that is not OpenRouter — this call site is generic.
+    assert "_egg_openrouter_cost_entry(\n                        model, custom_llm_provider\n" in (
+        result
+    )
+    # A missing or broken module leaves the stock behaviour exactly as it was.
+    assert "except Exception:\n                    _egg_entry = None\n" in result
+
+
+def test_patch11_needle_disambiguates_the_two_unmapped_messages(tmp_path):
+    """utils.py carries the "isn't mapped yet" string twice.
+
+    The other one is the outer handler's re-raise, with a different message
+    body and indentation. Matching loosely would insert a pricing fallback into
+    an exception handler, where ``_model_info`` and ``key`` are not even in
+    scope — same needle-uniqueness trap as Patches 4 and 8."""
+    patch11 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 11/"))
+
+    sibling = (
+        "SENTINEL_OUTER_HANDLER_BEGIN\n"
+        "    except Exception as e:\n"
+        '        verbose_logger.debug(f"Error getting model info: {e}")\n'
+        "        raise Exception(\n"
+        "            \"This model isn't mapped yet. model={}, custom_llm_provider={}. "
+        "Add it here - https://github.com/BerriAI/litellm/blob/main/"
+        'model_prices_and_context_window.json.".format(\n'
+        "                model, custom_llm_provider\n"
+        "            )\n"
+        "        )\n"
+        "SENTINEL_OUTER_HANDLER_END\n"
+    )
+    target = tmp_path / patch11["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(patch11["needle"] + "\n" + sibling)
+
+    plc._apply(
+        str(target),
+        present=patch11["present"],
+        needle=patch11["needle"],
+        replacement=patch11["replacement"],
+        label=patch11["label"],
+    )
+    result = target.read_text()
+
+    assert result.count(patch11["present"]) == 1
+    start = result.index("SENTINEL_OUTER_HANDLER_BEGIN")
+    end = result.index("SENTINEL_OUTER_HANDLER_END") + len("SENTINEL_OUTER_HANDLER_END\n")
+    assert result[start:end] == sibling, "patch 11 rewrote the outer handler's re-raise"

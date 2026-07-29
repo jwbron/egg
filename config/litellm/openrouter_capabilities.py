@@ -1,18 +1,51 @@
-"""Live capability lookup for OpenRouter models.
+"""Live capability and pricing lookup for OpenRouter models.
 
-LiteLLM decides which optional params a provider accepts by consulting the
-bundled model-cost map. For OpenRouter that map is wrong by construction:
-OpenRouter publishes new slugs continuously, the bundled map lags behind, and
-``litellm.supports_reasoning`` answers ``False`` for anything it has not caught
-up to yet. Because ``OpenrouterConfig.get_supported_openai_params`` uses that
-answer as a bare gate, the failure is closed and silent: a ``reasoning_effort``
-set on a current model is discarded before the request body is built, with no
-exception and (before the ``drop_params`` warning) no log line.
+LiteLLM decides which optional params a provider accepts, and what a call cost,
+by consulting the bundled model-cost map. For OpenRouter that map is wrong by
+construction: OpenRouter publishes new slugs continuously, the bundled map lags
+behind, and it answers for neither question on a slug it has not caught up to.
+Two distinct silent failures follow from the one root cause:
 
-OpenRouter publishes the authoritative answer itself. ``GET /api/v1/models``
-returns every model with a ``supported_parameters`` list and requires no API
-key. This module reads that, caches it for the life of the process, and hands
-callers a set of parameter names for a given slug.
+* **Parameters.** ``litellm.supports_reasoning`` answers ``False`` for an
+  unmapped slug, and ``OpenrouterConfig.get_supported_openai_params`` uses that
+  answer as a bare gate, so the failure is closed: a ``reasoning_effort`` set
+  on a current model is discarded before the request body is built, with no
+  exception and (before the ``drop_params`` warning) no log line.
+* **Pricing.** ``_get_model_info_helper`` raises "This model isn't mapped yet"
+  for an unmapped slug, so LiteLLM's own ``response_cost`` is never computed
+  and egg's ``cost_estimated`` reads null on every routed call (#3691). Every
+  OpenRouter slug egg routes is absent from the pinned 1.86.2 map, so this is
+  100% of routed traffic, not an edge case.
+
+OpenRouter publishes the authoritative answer to both itself. ``GET
+/api/v1/models`` returns every model with a ``supported_parameters`` list and a
+``pricing`` block, and requires no API key. This module reads that once, caches
+it for the life of the process, and hands callers either the parameter-name set
+(``get_supported_parameters``) or a LiteLLM-shaped model-cost entry
+(``get_model_cost_entry``) for a given slug.
+
+Two deliberate limits on the pricing half, both about not trading a known
+unknown for a confident wrong number:
+
+* **Cost fields only.** The entry carries the rate card, ``litellm_provider``
+  and ``mode`` — not context lengths, not ``supports_*`` flags. Registering a
+  model's capabilities through this door would change behaviour well beyond
+  cost: ``supports_reasoning: true`` alone makes stock
+  ``get_supported_openai_params`` admit ``thinking``, which Patch 2's notes
+  explain would forward an Anthropic-shaped block verbatim to a provider that
+  expects ``reasoning``. Patch 7 remains the only path by which a parameter
+  becomes admissible, and it admits exactly ``reasoning_effort``.
+* **Tiered rate cards are declined outright.** OpenRouter expresses a
+  long-context surcharge as ``pricing.overrides`` — a list keyed by arbitrary
+  ``min_prompt_tokens`` (32000 and 128000 on qwen3-max, for instance). LiteLLM
+  has slots for three fixed thresholds and drops the rest, so a faithful
+  translation does not exist in general. Registering the base tier anyway would
+  under-report by 2-2.5x on exactly the long-prompt turns that make up agent
+  traffic, and it would do so silently, under a field name an operator would
+  reasonably use to pick a model. So a model with any override is left
+  unpriced, its ``cost_estimated`` stays null, and the reason is logged once.
+  The provider-billed ``cost`` (see ``stream_cost_preservation``) is the number
+  to read for those models, and it is exact.
 
 Design constraints, because this sits behind a hot, synchronous code path:
 
@@ -33,7 +66,11 @@ Design constraints, because this sits behind a hot, synchronous code path:
 Operator knobs (all optional; see ``docs/guides/per-agent-models.md``):
 
 * ``LITELLM_OPENROUTER_CAPABILITY_FETCH=0`` disables the lookup entirely and
-  restores the previous model-map-only behaviour.
+  restores the previous model-map-only behaviour — parameters and pricing
+  both, since one fetch serves both.
+* ``LITELLM_OPENROUTER_PRICING=0`` disables only the pricing half, leaving the
+  parameter lookup running. For an operator who wants LiteLLM's bundled map to
+  be the sole authority on cost while keeping Patch 7's parameter fix.
 * ``LITELLM_OPENROUTER_CAPABILITY_TTL`` seconds between refreshes
   (default 3600). ``0`` disables caching and re-fetches on every lookup —
   a debugging aid, not a production setting.
@@ -49,6 +86,7 @@ meant.
 """
 
 import json
+import math
 import os
 import threading
 import time
@@ -62,11 +100,18 @@ OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 DEFAULT_TTL_SECONDS = 3600.0
 DEFAULT_TIMEOUT_SECONDS = 5.0
 
-# Cache of slug -> supported parameter names. ``None`` means "not populated".
-# An empty dict is a real, meaningful state: it records a failed fetch, so the
-# negative cache below can suppress retries without conflating "we asked and
-# got nothing" with "we never asked".
-_CACHE: dict[str, set[str]] | None = None
+# Cache of slug -> record. ``None`` means "not populated". An empty dict is a
+# real, meaningful state: it records a failed fetch, so the negative cache below
+# can suppress retries without conflating "we asked and got nothing" with "we
+# never asked".
+#
+# Each record is ``{"id": str, "parameters": set[str] | None, "cost_entry": dict
+# | None, "declined_thresholds": tuple[int, ...]}``. Both payloads are optional and
+# independent: OpenRouter publishes entries carrying one and not the other, and
+# a slug that answers for parameters but not pricing (or the reverse) is a real
+# answer for the half it has rather than a reason to drop the model. The
+# thresholds are kept only so the declined-pricing warning can name them.
+_CACHE: dict[str, dict] | None = None
 _CACHE_STAMP: float = 0.0
 _LOCK = threading.Lock()
 
@@ -75,6 +120,11 @@ _LOCK = threading.Lock()
 # model-cost map); repeats are noise. Cleared again by a successful fetch, so a
 # blip at startup does not permanently mute a real outage hours later.
 _WARNED_FETCH_FAILURE = False
+
+# Slugs whose tiered rate card has already been reported as declined. Bounded by
+# the roster size, and reset with the cache so a pricing change upstream is
+# reported again rather than muted for the pod's lifetime.
+_WARNED_DECLINED_PRICING: set[str] = set()
 
 # Env-var complaints already emitted, keyed by ``(name, raw value)``.
 # ``_env_float`` is reached from ``_ttl_seconds`` on *every* lookup, ahead of
@@ -213,7 +263,92 @@ def _ttl_seconds() -> float:
     return _env_float("LITELLM_OPENROUTER_CAPABILITY_TTL", DEFAULT_TTL_SECONDS, allow_zero=True)
 
 
-def _fetch() -> dict[str, set[str]]:
+# OpenRouter pricing key -> LiteLLM model-cost key. Every value is USD per
+# token, published as a decimal *string*, which is why ``_price`` parses rather
+# than casts.
+#
+# ``input_cache_write`` maps to LiteLLM's ``cache_creation_*`` spelling: the two
+# name the same thing (what you pay to put a prefix in the cache), and getting
+# this pair backwards would silently price cache writes at the read rate, which
+# on these routes is a ~5x understatement of the turn that costs the most.
+_PRICE_KEYS = (
+    ("prompt", "input_cost_per_token"),
+    ("completion", "output_cost_per_token"),
+    ("input_cache_read", "cache_read_input_token_cost"),
+    ("input_cache_write", "cache_creation_input_token_cost"),
+)
+
+# The two rates without which an entry cannot price a chat turn at all. A
+# missing cache rate degrades the estimate; a missing prompt or completion rate
+# would make it meaningless, so the entry is declined instead.
+_REQUIRED_PRICE_KEYS = ("prompt", "completion")
+
+
+def _price(raw: object) -> float | None:
+    """Parse one published rate. ``None`` when it is not a usable number.
+
+    Zero is usable and is kept: a ``:free`` variant really is priced at zero,
+    and the resulting zero estimate is filtered by ``cost_callback``'s own
+    ``_positive`` gate rather than being invented here. Negative and non-finite
+    values are refused — neither is a rate, and an ``inf`` would propagate into
+    a session total and into the emitted JSON as a token that makes the line
+    unparseable.
+    """
+    if isinstance(raw, bool) or raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if value < 0 or not math.isfinite(value):
+        return None
+    return value
+
+
+def _cost_entry(model_id: str, pricing: object) -> tuple[dict | None, tuple[int, ...] | None]:
+    """Translate an OpenRouter ``pricing`` block to a LiteLLM model-cost entry.
+
+    Returns ``(entry, declined_thresholds)``. ``entry`` is None when no faithful
+    translation exists; ``declined_thresholds`` is None unless the reason was a
+    tiered rate card, in which case it names the ``min_prompt_tokens``
+    boundaries — the module docstring has the reasoning; in short, LiteLLM
+    cannot express an arbitrary tier boundary and a base-tier-only entry would
+    under-report long-prompt turns silently.
+
+    The two are separate returns rather than one truthiness test because a
+    tiered card whose boundaries do not parse is still a tiered card: an empty
+    tuple must keep meaning "declined for tiering, boundaries unknown", so the
+    operator still gets told why the model is unpriced instead of only the
+    models whose overrides happened to be well-formed.
+
+    ``key`` is set to the OpenRouter slug rather than left to the caller: it is
+    what ``get_model_info`` reports as the entry's identity, and an operator
+    reading ``/model/info`` should see the slug the rate actually came from.
+    """
+    if not isinstance(pricing, dict):
+        return None, None
+
+    overrides = pricing.get("overrides")
+    if isinstance(overrides, list) and overrides:
+        thresholds = []
+        for override in overrides:
+            boundary = override.get("min_prompt_tokens") if isinstance(override, dict) else None
+            if isinstance(boundary, int) and not isinstance(boundary, bool):
+                thresholds.append(boundary)
+        return None, tuple(sorted(thresholds))
+
+    if any(_price(pricing.get(key)) is None for key in _REQUIRED_PRICE_KEYS):
+        return None, None
+
+    entry: dict = {"key": model_id, "litellm_provider": "openrouter", "mode": "chat"}
+    for published, litellm_key in _PRICE_KEYS:
+        value = _price(pricing.get(published))
+        if value is not None:
+            entry[litellm_key] = value
+    return entry, None
+
+
+def _fetch() -> dict[str, dict]:
     """Fetch the model list. Returns ``{}`` on any failure."""
     global _WARNED_FETCH_FAILURE
 
@@ -253,15 +388,32 @@ def _fetch() -> dict[str, set[str]]:
         _log_fetch_failure("response had no `data` list; falling back to the model-cost map")
         return {}
 
-    capabilities: dict[str, set[str]] = {}
+    capabilities: dict[str, dict] = {}
     for entry in entries:
         if not isinstance(entry, dict):
             continue
         model_id = entry.get("id")
-        params = entry.get("supported_parameters")
-        if not isinstance(model_id, str) or not isinstance(params, list):
+        if not isinstance(model_id, str) or not model_id:
             continue
-        capabilities[model_id] = {p for p in params if isinstance(p, str)}
+        params = entry.get("supported_parameters")
+        parameters = {p for p in params if isinstance(p, str)} if isinstance(params, list) else None
+        cost_entry, declined = _cost_entry(model_id, entry.get("pricing"))
+        # An entry that answers neither question carries no information, and
+        # keeping it would make a roster of such entries look like a successful
+        # fetch to the "no usable entries" check below. A declined rate card is
+        # an answer — "we saw this model and will not price it" — so it keeps
+        # the record alive for the warning.
+        if parameters is None and cost_entry is None and declined is None:
+            continue
+        capabilities[model_id] = {
+            # The published slug, not the spelling the caller looked up: a
+            # record reached via an ``openrouter/``-prefixed or ``:free``-suffixed
+            # candidate must still name itself the way OpenRouter does.
+            "id": model_id,
+            "parameters": parameters,
+            "cost_entry": cost_entry,
+            "declined_thresholds": declined,
+        }
 
     if not capabilities:
         # A 200 whose `data` list is empty, or every entry of which is
@@ -304,7 +456,7 @@ def _log_fetch_failure(message: str, *args: object) -> None:
         _WARNED_FETCH_FAILURE = True
 
 
-def _get_cache() -> dict[str, set[str]]:
+def _get_cache() -> dict[str, dict]:
     global _CACHE, _CACHE_STAMP
 
     ttl = _ttl_seconds()
@@ -361,17 +513,11 @@ def _candidate_slugs(model: str) -> list[str]:
     return candidates
 
 
-def get_supported_parameters(model: str) -> set[str] | None:
-    """Parameter names OpenRouter advertises for ``model``.
+def _lookup(model: str) -> dict | None:
+    """The published record for ``model``, or None when there is no opinion.
 
-    Returns ``None`` when the answer is unknown for any reason: the lookup is
-    disabled, the fetch failed, or the slug is not in the published list. A
-    ``None`` return means "no opinion" and callers must fall back to whatever
-    they did before.
-
-    The returned set is a copy — the cache is process-wide and lives for the
-    TTL, so handing out the stored object would let one caller's ``add`` change
-    what every later caller sees.
+    "No opinion" covers every way the answer can be unknown: the lookup is
+    disabled, the fetch failed, or the slug is not in the published list.
     """
     if not _env_flag("LITELLM_OPENROUTER_CAPABILITY_FETCH", True):
         return None
@@ -383,10 +529,109 @@ def get_supported_parameters(model: str) -> set[str] | None:
         return None
 
     for candidate in _candidate_slugs(model):
-        params = cache.get(candidate)
-        if params is not None:
-            return set(params)
+        record = cache.get(candidate)
+        if record is not None:
+            return record
     return None
+
+
+def get_supported_parameters(model: str) -> set[str] | None:
+    """Parameter names OpenRouter advertises for ``model``.
+
+    Returns ``None`` when the answer is unknown for any reason (see ``_lookup``)
+    or when the roster entry carried no ``supported_parameters`` list. A
+    ``None`` return means "no opinion" and callers must fall back to whatever
+    they did before.
+
+    The returned set is a copy — the cache is process-wide and lives for the
+    TTL, so handing out the stored object would let one caller's ``add`` change
+    what every later caller sees.
+    """
+    record = _lookup(model)
+    if record is None:
+        return None
+    params = record.get("parameters")
+    return set(params) if params is not None else None
+
+
+def get_model_cost_entry(model: str, custom_llm_provider: str | None = None) -> dict | None:
+    """A LiteLLM-shaped model-cost entry for ``model``, or None (#3691).
+
+    None means "no opinion", exactly as in ``get_supported_parameters``, and the
+    caller must fall back to whatever it did before — which for
+    ``_get_model_info_helper`` is the stock "This model isn't mapped yet"
+    ValueError. There are four ways to get it: the lookup is off, the pricing
+    half specifically is off, the slug is unknown, or its rate card is tiered
+    and therefore untranslatable (see the module docstring; that case is warned
+    about once per slug, because unlike the others it is a model egg *can* see
+    and still will not price).
+
+    ``custom_llm_provider`` is accepted and checked rather than ignored: this
+    module speaks only for OpenRouter, and the call site sits on a generic
+    lookup that every provider reaches. Answering there for, say, a Bedrock slug
+    that happens to share a name would attach OpenRouter's rate card to someone
+    else's bill. None is permitted because the caller resolves the provider from
+    the model string, and a bare ``qwen/qwen3-max`` legitimately arrives
+    unattributed.
+
+    The returned dict is a copy: the cache is process-wide, and LiteLLM's
+    model-info path is free to mutate what it is handed.
+
+    Note on freshness: LiteLLM memoizes ``_get_model_info_helper`` behind an
+    ``lru_cache``, so the FIRST successful answer for a slug is what the
+    process uses until it restarts — this module's TTL governs how often the
+    roster is re-read, not how often a priced model is re-priced. That is the
+    same staleness every entry in the bundled map already has, and rates move
+    on a scale where it does not matter; the provider-billed ``cost`` is
+    unaffected either way. ``lru_cache`` does not memoize exceptions, so a
+    lookup that failed while the roster was unreachable is retried rather than
+    latched.
+    """
+    if custom_llm_provider is not None and custom_llm_provider != "openrouter":
+        return None
+    if not _env_flag("LITELLM_OPENROUTER_PRICING", True):
+        return None
+
+    record = _lookup(model)
+    if record is None:
+        return None
+
+    entry = record.get("cost_entry")
+    if entry is not None:
+        return dict(entry)
+
+    declined = record.get("declined_thresholds")
+    if declined is not None:
+        _warn_declined_pricing(record, declined)
+    return None
+
+
+def _warn_declined_pricing(record: dict, thresholds: tuple[int, ...]) -> None:
+    """Report a tiered rate card we will not translate, once per slug.
+
+    Warn-level and once: an operator looking at a null ``cost_estimated`` for a
+    model that plainly *has* a published price needs to find this, and this runs
+    on the per-call cost path, so repeating it would bury the very log stream
+    the cost figures land in.
+    """
+    slug = record.get("id") or "<unknown>"
+    if slug in _WARNED_DECLINED_PRICING:
+        return
+    where = (
+        f"tiers at {', '.join(str(t) for t in thresholds)} tokens"
+        if thresholds
+        else "tier boundaries unparseable"
+    )
+    if _log(
+        "warning",
+        "openrouter capabilities: %s prices by prompt length (%s); "
+        "LiteLLM cannot express those boundaries, so cost_estimated stays null for it "
+        "rather than under-reporting long prompts. Read the provider-billed `cost` "
+        "field instead.",
+        slug,
+        where,
+    ):
+        _WARNED_DECLINED_PRICING.add(slug)
 
 
 def reset_cache() -> None:
@@ -397,3 +642,4 @@ def reset_cache() -> None:
         _CACHE_STAMP = 0.0
         _WARNED_FETCH_FAILURE = False
         _WARNED_ENV.clear()
+        _WARNED_DECLINED_PRICING.clear()

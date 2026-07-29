@@ -593,21 +593,75 @@ data:
 > Claude Code prepends (the block's `cch=` hash invalidates the cache key
 > every turn). egg ships a custom **`egg-litellm`** image
 > ([`config/litellm/Dockerfile`](../../config/litellm/Dockerfile)) that
-> bakes in nine patches closing those gaps and the reasoning-parameter ones
-> below
+> bakes in eleven patches closing those gaps, the reasoning-parameter ones
+> below, and the cost-visibility ones after that
 > ([`config/litellm/patch_litellm_cache.py`](../../config/litellm/patch_litellm_cache.py));
 > the build fails loudly if a LiteLLM bump moves the patched code. Pinning
 > the OpenRouter provider (`extra_body.provider.order` + `allow_fallbacks:
 > false`) then gives a stable cache surface — without it OpenRouter routes
 > across a cheapest-available pool whose cache support varies per turn. The
-> bundled `cost_callback` logs the real upstream cost, LiteLLM's own
-> pricing-map estimate (`cost_estimated`, which survives the streaming path
-> where billed cost is unavailable), per-session cache hit rate, and
-> per-role attribution (`pipeline_id`/`agent_role`/`phase` from the
+> bundled `cost_callback` logs the provider-billed cost (`cost`), LiteLLM's
+> own pricing-map estimate (`cost_estimated`), per-session cache hit rate,
+> and per-role attribution (`pipeline_id`/`agent_role`/`phase` from the
 > gateway's `x-egg-*` headers — so per-role spend is a log query, not a
 > hand cross-reference of agent completion logs). Each call emits one JSON
 > line to the LiteLLM pod stream, visible via `get_service_logs` / the
 > structured-logging stream.
+
+> **Where the dollar figures come from, and when they are null.** Both cost
+> fields on a `cost_callback` line read null under a stock LiteLLM, for two
+> unrelated reasons — which is why `egg-litellm` carries a patch for each
+> (issue #3691; before them, 1252 of 1252 sampled calls on run 6 reported
+> `cost: null`, so egg had no dollar figure at all for its LLM spend).
+>
+> - **Patch 10 — the bill survives streaming.** `cost` is what OpenRouter
+>   charged, reported on the final streamed usage chunk. No config change is
+>   needed to get it: stock LiteLLM's `OpenrouterConfig.transform_request`
+>   already sets `usage: {"include": true}` on every request, so the number
+>   was always arriving. LiteLLM's
+>   `stream_chunk_builder` rebuilds a fresh `Usage` from the token counts it
+>   enumerates and dropped `cost` / `cost_details` at that seam. Claude Code
+>   streams every `/v1/messages` request, so that was ~100% of routed
+>   traffic; the non-streaming path was never affected, which is why it read
+>   as a property of the route rather than as a transport bug. The patch
+>   copies the two fields across the rebuild and interprets neither: a `0`
+>   under BYOK is the literal truth about the OpenRouter bill, with the real
+>   number beside it under `cost_details.upstream_inference_cost`.
+> - **Patch 11 — the estimate has a rate card.** `cost_estimated` is
+>   LiteLLM's own `response_cost`, computed from its bundled pricing map —
+>   which carries none of the slugs egg routes, exactly as it carries none of
+>   their `supported_parameters` (patch 7, same root cause). The patch reads
+>   OpenRouter's published rate card off the same `GET /api/v1/models` fetch
+>   patch 7 already makes, and hands it to the model-info lookup only after
+>   every bundled lookup has failed — so a mapped slug keeps its bundled
+>   rate, and the live card can add a model but never reprice one.
+>   `LITELLM_OPENROUTER_PRICING=0` turns off just this half.
+>
+> `cost_estimated` stays null for a model that **prices by prompt length**.
+> OpenRouter publishes a long-context surcharge as `pricing.overrides` keyed
+> by an arbitrary `min_prompt_tokens` (qwen3-max: 32000 and 128000);
+> LiteLLM's map has slots for three fixed thresholds and drops the rest, so
+> registering the base tier would under-report by 2-2.5x on precisely the
+> long-prompt turns agent traffic is made of — silently, under a field name
+> an operator would reasonably use to choose a model. Those models are left
+> unpriced and the reason is logged once, at `warning`, naming the tiers.
+> Read the provider-billed `cost` for them; it is exact.
+>
+> The two fields are independent measurements of the same turn, so read them
+> together: a persistent gap between them is itself a signal (a stale rate
+> card, an unexpected provider, or a surcharge tier). Neither is ever
+> coerced to `0.0` when unknown — a zero would read in the logs as "this
+> route is free", the exact inversion of the signal. The session totals sum
+> only the calls that reported, so compare `cost_known_calls` /
+> `cost_estimated_known_calls` against `calls` before treating a session
+> total as the whole bill:
+>
+> ```bash
+> kubectl logs -n egg-system deploy/litellm \
+>   | jq -Rc 'fromjson? | select(.component == "cost_callback") | .context
+>             | {role: .agent_role, model, cost: .call.cost,
+>                est: .call.cost_estimated}'
+> ```
 
 > **Reasoning depth on OpenRouter routes, and the four env vars that
 > control it.** Two of the baked-in patches decide whether a reasoning
@@ -628,7 +682,10 @@ data:
 >   `LITELLM_OPENROUTER_CAPABILITY_TIMEOUT` (default `5` seconds, per HTTP
 >   phase) tune it. A fetch that fails is cached for the TTL too, so an
 >   offline cluster costs one attempt per hour rather than one per request,
->   and the first failure is logged at `warning`.
+>   and the first failure is logged at `warning`. Note `_FETCH=0` also
+>   disables patch 11's pricing lookup — one fetch serves both, so the master
+>   switch governs both; `LITELLM_OPENROUTER_PRICING=0` turns off only the
+>   pricing half.
 > - **Patch 9 — no synthesized reasoning ceiling.** On `/v1/messages` (the
 >   route Claude Code uses) LiteLLM's Anthropic adapter converts each
 >   request's `thinking: {budget_tokens: N}` into a bucketed

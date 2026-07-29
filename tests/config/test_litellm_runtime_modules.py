@@ -1,7 +1,8 @@
-"""Unit tests for the three modules the patch script installs into litellm.
+"""Unit tests for the four modules the patch script installs into litellm.
 
 ``config/litellm/{openrouter_capabilities,drop_params_visibility,
-anthropic_thinking_policy}.py`` are staged by the Dockerfile and copied into
+anthropic_thinking_policy,stream_cost_preservation}.py`` are staged by the
+Dockerfile and copied into
 every litellm tree by ``patch_litellm_cache.py``. They are kept as real files
 rather than string literals inside the patch script precisely so they can be
 linted and tested here — but that only works if they import without litellm
@@ -14,6 +15,7 @@ repo's Python), so the handful of symbols the modules reach for at call time —
 ``verbose_logger`` and ``HTTPHandler`` — are stubbed into ``sys.modules``.
 """
 
+import ast
 import importlib.util
 import sys
 import types
@@ -104,6 +106,7 @@ def caps(monkeypatch):
         "LITELLM_OPENROUTER_CAPABILITY_FETCH",
         "LITELLM_OPENROUTER_CAPABILITY_TTL",
         "LITELLM_OPENROUTER_CAPABILITY_TIMEOUT",
+        "LITELLM_OPENROUTER_PRICING",
     ):
         monkeypatch.delenv(var, raising=False)
     return module
@@ -146,11 +149,44 @@ def _install_http_stub(monkeypatch, *, payload=None, status_code=200, boom=None)
     return calls
 
 
+# Shapes taken from live `GET /api/v1/models` responses: rates are decimal
+# STRINGS in USD per token, `input_cache_write` is absent on plenty of models,
+# and a long-context surcharge appears as `pricing.overrides` keyed by an
+# arbitrary `min_prompt_tokens` (qwen3-max really does publish 32000 and
+# 128000, which is what makes it untranslatable).
 _PAYLOAD = {
     "data": [
-        {"id": "moonshotai/kimi-k3", "supported_parameters": ["reasoning", "reasoning_effort"]},
-        {"id": "poolside/laguna-s-2.1", "supported_parameters": ["reasoning"]},
+        {
+            "id": "moonshotai/kimi-k3",
+            "supported_parameters": ["reasoning", "reasoning_effort"],
+            "pricing": {
+                "prompt": "0.0000006",
+                "completion": "0.0000025",
+                "input_cache_read": "0.00000015",
+            },
+        },
+        {
+            "id": "poolside/laguna-s-2.1",
+            "supported_parameters": ["reasoning"],
+            "pricing": {
+                "prompt": "0.0000001",
+                "completion": "0.0000002",
+                "input_cache_read": "0.00000001",
+                "input_cache_write": "0.0000005",
+            },
+        },
         {"id": "qwen/qwen3-max:free", "supported_parameters": ["temperature"]},
+        {
+            "id": "qwen/qwen3-max",
+            "pricing": {
+                "prompt": "0.00000078",
+                "completion": "0.0000039",
+                "overrides": [
+                    {"min_prompt_tokens": 32000, "prompt": "0.00000156"},
+                    {"min_prompt_tokens": 128000, "prompt": "0.00000195"},
+                ],
+            },
+        },
         {"id": "malformed-no-params"},
         "not-a-dict",
     ]
@@ -455,6 +491,207 @@ def test_module_imports_without_litellm(monkeypatch):
     assert _load("openrouter_capabilities") is not None
     assert _load("drop_params_visibility") is not None
     assert _load("anthropic_thinking_policy") is not None
+    assert _load("stream_cost_preservation") is not None
+
+
+# --------------------------------------------------------------------------
+# openrouter_capabilities — pricing half (#3691)
+# --------------------------------------------------------------------------
+
+
+def test_pricing_translates_the_published_rate_card(caps, monkeypatch):
+    """The whole point: a slug LiteLLM's bundled map has never heard of gets a
+    usable model-cost entry, so ``cost_estimated`` stops reading null."""
+    _install_http_stub(monkeypatch, payload=_PAYLOAD)
+    entry = caps.get_model_cost_entry("openrouter/poolside/laguna-s-2.1")
+    assert entry == {
+        "key": "poolside/laguna-s-2.1",
+        "litellm_provider": "openrouter",
+        "mode": "chat",
+        "input_cost_per_token": 1e-07,
+        "output_cost_per_token": 2e-07,
+        "cache_read_input_token_cost": 1e-08,
+        # OpenRouter's `input_cache_write` is LiteLLM's `cache_creation_*`.
+        # Swapping the pair would price cache writes at the read rate — a ~5x
+        # understatement of the most expensive turn in a session.
+        "cache_creation_input_token_cost": 5e-07,
+    }
+
+
+def test_pricing_carries_cost_fields_only(caps, monkeypatch):
+    """Capabilities must not arrive through the pricing door.
+
+    ``supports_reasoning: true`` alone makes stock
+    ``get_supported_openai_params`` admit ``thinking``, which Patch 2's notes
+    explain would forward an Anthropic-shaped block to a provider expecting
+    ``reasoning``. Patch 7 stays the only path by which a param is admitted.
+    """
+    _install_http_stub(monkeypatch, payload=_PAYLOAD)
+    entry = caps.get_model_cost_entry("moonshotai/kimi-k3")
+    assert entry is not None
+    assert not [k for k in entry if k.startswith("supports_")]
+    assert not [k for k in entry if "tokens" in k], "no context lengths either"
+
+
+def test_pricing_omits_a_rate_the_provider_did_not_publish(caps, monkeypatch):
+    """A missing cache-write rate degrades the estimate; inventing one (or
+    reusing the read rate for it) would misprice the turns that cost most."""
+    _install_http_stub(monkeypatch, payload=_PAYLOAD)
+    entry = caps.get_model_cost_entry("moonshotai/kimi-k3")
+    assert "cache_read_input_token_cost" in entry
+    assert "cache_creation_input_token_cost" not in entry
+
+
+def test_tiered_rate_card_is_declined_rather_than_under_reported(caps, logger, monkeypatch):
+    """qwen3-max prices by prompt length at boundaries LiteLLM cannot express.
+
+    Registering the base tier anyway would under-report by 2-2.5x on exactly
+    the long-prompt turns agent traffic is made of, silently, under a field an
+    operator would use to choose a model. Null is the honest answer, and the
+    reason has to be findable — so it is a warning, and it names the tiers.
+    """
+    _install_http_stub(monkeypatch, payload=_PAYLOAD)
+    assert caps.get_model_cost_entry("openrouter/qwen/qwen3-max") is None
+
+    (message,) = logger.messages("warning")
+    assert "qwen/qwen3-max" in message
+    assert "32000, 128000" in message
+
+    # Once per slug: this runs on the per-call cost path, so repeating it would
+    # bury the log stream the cost figures themselves land in.
+    for _ in range(50):
+        caps.get_model_cost_entry("openrouter/qwen/qwen3-max")
+    assert len(logger.messages("warning")) == 1
+
+
+def test_a_tiered_card_with_unparseable_boundaries_is_still_explained(caps, logger, monkeypatch):
+    """A tiered card whose boundaries do not parse is still a tiered card.
+
+    Collapsing "declined for tiering" into the truthiness of the threshold
+    tuple would leave exactly these models unpriced AND unexplained — the one
+    combination an operator cannot debug.
+    """
+    _install_http_stub(
+        monkeypatch,
+        payload={
+            "data": [
+                {
+                    "id": "some/tiered",
+                    "pricing": {
+                        "prompt": "0.000001",
+                        "completion": "0.000002",
+                        "overrides": [{"min_prompt_tokens": "128k"}],
+                    },
+                }
+            ]
+        },
+    )
+    assert caps.get_model_cost_entry("some/tiered") is None
+    (message,) = logger.messages("warning")
+    assert "some/tiered" in message
+    assert "unparseable" in message
+
+
+def test_declined_pricing_warning_is_not_lost_to_a_swallowed_emit_failure(caps, monkeypatch):
+    """Same latch discipline as the module's other three warn-once sites."""
+    recorder = _install_logger(monkeypatch, _FlakyLogger())
+    _install_http_stub(monkeypatch, payload=_PAYLOAD)
+
+    assert caps.get_model_cost_entry("qwen/qwen3-max") is None
+    assert recorder.messages("warning") == [], "first emit raised, and was swallowed"
+    assert caps._WARNED_DECLINED_PRICING == set(), "nothing emitted, so nothing latched"
+
+    assert caps.get_model_cost_entry("qwen/qwen3-max") is None
+    assert len(recorder.messages("warning")) == 1, "the signal must survive the failure"
+
+    assert caps.get_model_cost_entry("qwen/qwen3-max") is None
+    assert len(recorder.messages("warning")) == 1, "and dedup still holds once it is out"
+
+
+def test_pricing_answers_for_openrouter_only(caps, logger, monkeypatch):
+    """The call site is a generic lookup every provider reaches. Answering for
+    a same-named slug on another provider would attach OpenRouter's rate card
+    to somebody else's bill."""
+    _install_http_stub(monkeypatch, payload=_PAYLOAD)
+    assert caps.get_model_cost_entry("poolside/laguna-s-2.1", "bedrock") is None
+    assert caps.get_model_cost_entry("poolside/laguna-s-2.1", "openrouter") is not None
+    # None is "the caller could not attribute it", which a bare slug legitimately is.
+    assert caps.get_model_cost_entry("poolside/laguna-s-2.1", None) is not None
+
+
+def test_unknown_slug_has_no_price_opinion(caps, monkeypatch):
+    _install_http_stub(monkeypatch, payload=_PAYLOAD)
+    assert caps.get_model_cost_entry("some/model-the-api-never-heard-of") is None
+
+
+def test_entry_without_pricing_is_still_a_parameter_answer(caps, monkeypatch):
+    """The two halves are independent: a roster entry carrying one and not the
+    other is a real answer for the half it has."""
+    _install_http_stub(monkeypatch, payload=_PAYLOAD)
+    assert caps.get_supported_parameters("qwen/qwen3-max:free") == {"temperature"}
+    assert caps.get_model_cost_entry("qwen/qwen3-max:free") is None
+    # ...and the reverse: qwen3-max publishes pricing but no parameter list.
+    assert caps.get_supported_parameters("qwen/qwen3-max") is None
+
+
+def test_returned_cost_entry_is_a_copy(caps, monkeypatch):
+    """The cache is process-wide and LiteLLM's model-info path mutates what it
+    is handed."""
+    _install_http_stub(monkeypatch, payload=_PAYLOAD)
+    first = caps.get_model_cost_entry("poolside/laguna-s-2.1")
+    first["input_cost_per_token"] = 999.0
+    assert caps.get_model_cost_entry("poolside/laguna-s-2.1")["input_cost_per_token"] == 1e-07
+
+
+def test_pricing_can_be_disabled_without_disabling_capabilities(caps, monkeypatch):
+    """For an operator who wants LiteLLM's bundled map to be the sole authority
+    on cost while keeping Patch 7's parameter fix."""
+    _install_http_stub(monkeypatch, payload=_PAYLOAD)
+    monkeypatch.setenv("LITELLM_OPENROUTER_PRICING", "0")
+    assert caps.get_model_cost_entry("poolside/laguna-s-2.1") is None
+    assert caps.get_supported_parameters("poolside/laguna-s-2.1") == {"reasoning"}
+
+
+def test_fetch_disabled_disables_pricing_too(caps, monkeypatch):
+    """One fetch serves both halves, so the master switch governs both."""
+    calls = _install_http_stub(monkeypatch, payload=_PAYLOAD)
+    monkeypatch.setenv("LITELLM_OPENROUTER_CAPABILITY_FETCH", "0")
+    assert caps.get_model_cost_entry("poolside/laguna-s-2.1") is None
+    assert calls == [], "no network call may be made when the lookup is off"
+
+
+@pytest.mark.parametrize(
+    "pricing",
+    [
+        {"completion": "0.000002"},  # no prompt rate
+        {"prompt": "0.000001"},  # no completion rate
+        {"prompt": "not-a-number", "completion": "0.000002"},
+        {"prompt": "-0.000001", "completion": "0.000002"},
+        {"prompt": "Infinity", "completion": "0.000002"},
+        "not-a-dict",
+    ],
+)
+def test_unusable_rate_card_is_no_opinion(caps, monkeypatch, pricing):
+    """Without both the prompt and completion rate the entry cannot price a
+    chat turn at all, and a negative or non-finite rate is not a rate — an
+    ``inf`` would propagate into egg's session total and into the emitted JSON
+    as a token that makes the log line unparseable."""
+    _install_http_stub(monkeypatch, payload={"data": [{"id": "some/model", "pricing": pricing}]})
+    assert caps.get_model_cost_entry("some/model") is None
+
+
+def test_zero_is_a_real_rate(caps, monkeypatch):
+    """A ``:free`` variant really is priced at zero. Filtering the resulting
+    zero estimate is ``cost_callback``'s job, not this module's."""
+    _install_http_stub(
+        monkeypatch,
+        payload={
+            "data": [{"id": "some/model:free", "pricing": {"prompt": "0", "completion": "0"}}]
+        },
+    )
+    entry = caps.get_model_cost_entry("some/model:free")
+    assert entry["input_cost_per_token"] == 0.0
+    assert entry["output_cost_per_token"] == 0.0
 
 
 # --------------------------------------------------------------------------
@@ -625,3 +862,198 @@ def test_unrecognised_value_warning_survives_a_swallowed_emit_failure(policy, mo
 
     assert policy.should_synthesize_reasoning_effort() is False
     assert len(recorder.messages("warning")) == 1, "and dedup still holds once it is out"
+
+
+# --------------------------------------------------------------------------
+# stream_cost_preservation (#3691)
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def streamcost():
+    return _load("stream_cost_preservation")
+
+
+class _Usage:
+    """Stand-in for litellm's ``Usage``: attribute access, arbitrary extras.
+
+    ``cost`` is a declared field there and ``cost_details`` survives only as a
+    pydantic extra, so both must work through plain ``setattr`` — which is what
+    this models. Deliberately NOT a dict: the object the patch amends is the
+    one ``calculate_usage`` just rebuilt.
+    """
+
+    def __init__(self, **fields):
+        for key, value in fields.items():
+            setattr(self, key, value)
+
+
+class _Chunk:
+    """Stand-in for ``ModelResponseStream``: mapping-style access over
+    attributes, which is how ``ChunkProcessor`` reads a chunk's usage."""
+
+    def __init__(self, usage=None, hidden_usage=None):
+        if usage is not None:
+            self.usage = usage
+        if hidden_usage is not None:
+            self._hidden_params = {"usage": hidden_usage}
+
+    def __contains__(self, key):
+        return hasattr(self, key)
+
+    def __getitem__(self, key):
+        return getattr(self, key)
+
+
+def test_cost_is_carried_off_the_final_usage_chunk(streamcost):
+    """The fix itself: 1252 of 1252 sampled calls reported ``cost: null``
+    because this value was dropped between the chunk and the rebuilt usage."""
+    chunks = [
+        _Chunk(),
+        _Chunk(usage=_Usage(prompt_tokens=100, cost=0.00123)),
+    ]
+    usage = _Usage(prompt_tokens=100, completion_tokens=10)
+    streamcost.carry_upstream_cost(chunks, usage)
+    assert usage.cost == 0.00123
+
+
+def test_cost_details_is_carried_too(streamcost):
+    """Under BYOK ``cost`` is 0 and the real number lives here, so carrying one
+    without the other would leave the BYOK bill unrecoverable."""
+    chunks = [_Chunk(usage=_Usage(cost=0.0, cost_details={"upstream_inference_cost": 0.0045}))]
+    usage = _Usage(prompt_tokens=100)
+    streamcost.carry_upstream_cost(chunks, usage)
+    assert usage.cost == 0.0
+    assert usage.cost_details == {"upstream_inference_cost": 0.0045}
+
+
+def test_a_zero_cost_is_transported_not_filtered(streamcost):
+    """This module transports; ``cost_callback._extract_cost`` interprets. A
+    "positive only" filter here would delete the evidence that the
+    ``cost``->``cost_details`` fall-through is the right reading of a BYOK
+    turn, leaving the callback unable to tell it from a missing field."""
+    chunks = [_Chunk(usage=_Usage(cost=0.0))]
+    usage = _Usage()
+    streamcost.carry_upstream_cost(chunks, usage)
+    assert usage.cost == 0.0
+
+
+def test_hidden_params_usage_is_read_as_well(streamcost):
+    """``ChunkProcessor`` reads both sources; reading a different set of chunks
+    than the counts came from would let cost and tokens describe different
+    turns."""
+    chunks = [_Chunk(hidden_usage={"cost": 0.5})]
+    usage = _Usage()
+    streamcost.carry_upstream_cost(chunks, usage)
+    assert usage.cost == 0.5
+
+
+def test_the_last_reported_value_wins(streamcost):
+    """A provider that revises its usage block mid-stream is stating a
+    correction."""
+    chunks = [_Chunk(usage=_Usage(cost=0.1)), _Chunk(usage=_Usage(cost=0.2))]
+    usage = _Usage()
+    streamcost.carry_upstream_cost(chunks, usage)
+    assert usage.cost == 0.2
+
+
+def test_an_existing_value_is_never_overwritten(streamcost):
+    """If a future LiteLLM carries cost through reassembly itself, its answer
+    wins and this becomes a no-op rather than a competing second opinion."""
+    chunks = [_Chunk(usage=_Usage(cost=0.2, cost_details={"upstream_inference_cost": 9.0}))]
+    usage = _Usage(cost=0.1, cost_details={"upstream_inference_cost": 1.0})
+    streamcost.carry_upstream_cost(chunks, usage)
+    assert usage.cost == 0.1
+    assert usage.cost_details == {"upstream_inference_cost": 1.0}
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), True, "0.5", None])
+def test_a_non_measurement_is_refused(streamcost, bad):
+    """``NaN``/``Inf`` on a cost field is worse than absent: it accumulates into
+    egg's per-session total and poisons it for the pod's lifetime, and
+    ``json.dumps`` renders it as a non-standard token that makes the whole log
+    line invalid JSON. ``True`` is excluded for the same reason
+    ``_finite_number`` excludes it in ``cost_callback`` — one dollar that was
+    never billed."""
+    usage = _Usage()
+    streamcost.carry_upstream_cost([_Chunk(usage=_Usage(cost=bad))], usage)
+    assert not hasattr(usage, "cost")
+
+
+def test_an_empty_cost_details_is_not_carried(streamcost):
+    """``{}`` says nothing, and writing it would make the field look answered."""
+    usage = _Usage()
+    streamcost.carry_upstream_cost([_Chunk(usage=_Usage(cost_details={}))], usage)
+    assert not hasattr(usage, "cost_details")
+
+
+def test_chunks_without_usage_are_a_no_op(streamcost):
+    usage = _Usage(prompt_tokens=100)
+    streamcost.carry_upstream_cost([_Chunk(), _Chunk(usage=None)], usage)
+    assert not hasattr(usage, "cost")
+
+
+@pytest.mark.parametrize("chunks", [None, [], [object()], ["not-a-chunk"], [{"usage": None}]])
+def test_a_shape_we_do_not_understand_never_raises(streamcost, chunks):
+    """A cost figure is observability; it must never break a response."""
+    usage = _Usage(prompt_tokens=100)
+    assert streamcost.carry_upstream_cost(chunks, usage) is usage
+
+
+def test_a_dict_usage_chunk_is_read(streamcost):
+    """Provider iterators hand back plain dicts on some paths."""
+    usage = _Usage()
+    streamcost.carry_upstream_cost([{"usage": {"cost": 0.75}}], usage)
+    assert usage.cost == 0.75
+
+
+def test_a_hostile_usage_object_cannot_break_the_response(streamcost):
+    """Every read is guarded, including the ones on the usage being amended."""
+
+    class _Exploding:
+        def __getattr__(self, name):
+            raise RuntimeError("boom")
+
+    usage = _Usage()
+    assert streamcost.carry_upstream_cost([_Chunk(usage=_Exploding())], usage) is usage
+
+
+# --------------------------------------------------------------------------
+# Image-interpreter compatibility
+# --------------------------------------------------------------------------
+
+
+# The Python the egg-litellm base image ships (ghcr.io/berriai/litellm:v1.86.2).
+# Every file under config/litellm/ runs there, not on the repo's interpreter.
+_IMAGE_PYTHON = (3, 11)
+
+_IMAGE_SOURCES = (
+    "cost_callback.py",
+    "openrouter_capabilities.py",
+    "drop_params_visibility.py",
+    "anthropic_thinking_policy.py",
+    "stream_cost_preservation.py",
+)
+
+
+@pytest.mark.parametrize("name", _IMAGE_SOURCES)
+def test_image_sources_parse_on_the_image_interpreter(name):
+    """These files must be valid Python 3.11, not just valid on the repo's 3.14.
+
+    They are the only Python in this repo that runs on a different interpreter,
+    and nothing else notices: ruff formats for the repo's ``target-version``,
+    mypy checks against ``python_version = "3.14"``, and the tests import them
+    on 3.14 too. The formatter is the sharp edge — under ``py314`` it rewrites
+    ``except (TypeError, ValueError):`` into the PEP 758 unparenthesized form,
+    a hard SyntaxError on 3.11, and a formatter rewrite has no ``noqa``
+    escape. ``config/litellm/.ruff.toml`` pins that directory to ``py311`` so
+    it cannot happen; this asserts the outcome rather than the mechanism, so a
+    future config reshuffle that loses the pin fails here.
+
+    Without this the failure surfaces as a Docker build error at the patch
+    script's parse check (fail-loud, but only once someone builds the image) or
+    — for ``cost_callback.py``, which the patch script never parses — as a pod
+    CrashLoopBackOff at proxy startup.
+    """
+    source = (CONFIG_DIR / name).read_text()
+    ast.parse(source, filename=str(CONFIG_DIR / name), feature_version=_IMAGE_PYTHON)

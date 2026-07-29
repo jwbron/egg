@@ -4,8 +4,10 @@
 # through this proxy: Claude Code -> gateway -> LiteLLM -> OpenRouter. The
 # stock image's Anthropic->OpenAI translation drops prompt-cache hits on
 # Qwen/DeepSeek, mis-streams reasoning models, silently drops params it does
-# not recognise, and manufactures a reasoning ceiling from the caller's
-# thinking budget. patch_litellm_cache.py closes the nine gaps at build time
+# not recognise, manufactures a reasoning ceiling from the caller's thinking
+# budget, and discards the provider's own bill during stream reassembly while
+# its rate card cannot price the route either.
+# patch_litellm_cache.py closes the eleven gaps at build time
 # (see that script for the diagnosis);
 # cost_callback.py surfaces the resulting cost/cache stats into the pod log
 # stream. Both mirror the host-side dotfiles setup that took Qwen cache hit
@@ -27,10 +29,11 @@ COPY patch_litellm_cache.py /egg/patch_litellm_cache.py
 # script installs into every litellm tree (see NEW_MODULES). Keeping them real
 # files means they stay lintable and testable in the egg repo rather than
 # living as string literals — which is why none of them imports litellm at
-# module scope (tests/config/ imports all three directly).
+# module scope (tests/config/ imports all four directly).
 COPY openrouter_capabilities.py /egg/openrouter_capabilities.py
 COPY drop_params_visibility.py /egg/drop_params_visibility.py
 COPY anthropic_thinking_policy.py /egg/anthropic_thinking_policy.py
+COPY stream_cost_preservation.py /egg/stream_cost_preservation.py
 RUN python3 /egg/patch_litellm_cache.py
 
 # Custom cost/cache logger, registered as `cost_callback.cost_logger` under
