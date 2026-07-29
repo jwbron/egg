@@ -6,12 +6,16 @@ project dependency (and 1.86.2 cannot run on the repo's Python 3.14), so we
 stub the single symbol the module imports — ``CustomLogger`` — before
 loading it from its on-disk path.
 
-The regression these tests lock in: on the streaming path (all real Claude
-Code agent traffic) LiteLLM's chunk reassembly drops the upstream
-``cost`` / ``cost_details`` while preserving the token/cache counts. The
-callback must therefore report ``cost`` as ``null`` — never a misleading
-``0.0`` that reads as "this route is free" — while still emitting working
-cache stats. See the ``cost_callback`` module docstring for the full trace.
+The regression these tests lock in is the callback's reading of cost, on both
+sides of the #3691 fix. Stock LiteLLM's chunk reassembly drops the provider's
+``cost`` / ``cost_details`` while preserving the token/cache counts, which put
+``cost: null`` on 1252 of 1252 sampled calls; the egg-litellm image's patch 10
+carries them through, so a streamed call now arrives with the bill attached
+and the callback reads it with no change of its own. Both states must work:
+a cost that arrives is recorded, and one that does not is reported as ``null``
+— never a misleading ``0.0`` that reads as "this route is free" — with the
+cache stats emitted either way. See the ``cost_callback`` module docstring for
+the full trace.
 """
 
 import importlib.util
@@ -49,18 +53,21 @@ def _load_cost_callback():
 cc = _load_cost_callback()
 
 
-def _streaming_usage() -> dict:
-    """The shape ``ChunkProcessor.calculate_usage`` produces on the streaming
-    path: token + cache fields present, ``cost`` / ``cost_details`` absent.
+def _usage_without_cost() -> dict:
+    """Usage carrying token + cache fields but no cost of any kind.
 
-    NOTE: this fixture is hand-built to mirror ``calculate_usage``'s output in
-    the pinned ``litellm==1.86.2`` (the version baked into the egg-litellm
-    image). litellm can't run on the repo's Python 3.14, so the test can't
-    assert this shape against the real reassembler — revisit this fixture on a
-    litellm bump in case a newer version starts carrying ``cost`` through chunk
-    reassembly (which would make the ``cost: null`` behavior under test stale).
-    The build-time patcher already fails loudly on needle drift; this fixture
-    has no equivalent tripwire."""
+    This is what stock ``ChunkProcessor.calculate_usage`` produces on the
+    streaming path, where the rebuild enumerates counts and discards the
+    provider's ``cost`` / ``cost_details`` (#3691). On the egg-litellm image
+    patch 10 carries them through, so this shape now stands for the residual
+    cases — an unpatched LiteLLM under this callback, or a provider that
+    reports no cost at all — rather than for streaming as such. Either way the
+    callback's contract is the same and is what these tests pin: unknown is
+    reported as ``null``, never coerced to ``0.0``.
+
+    Hand-built rather than captured: litellm can't run on the repo's Python
+    3.14. The build-time patcher fails loudly on needle drift, but this fixture
+    has no equivalent tripwire, so revisit it on a litellm bump."""
     return {
         "prompt_tokens": 1000,
         "completion_tokens": 200,
@@ -70,14 +77,29 @@ def _streaming_usage() -> dict:
     }
 
 
-def _nonstreaming_usage() -> dict:
-    """Raw OpenRouter ``usage`` (non-streaming path) carrying a real
-    upstream-billed cost."""
+def _usage_with_cost() -> dict:
+    """Raw OpenRouter ``usage`` carrying a real provider-billed cost.
+
+    Reaches the callback two ways: as ``original_response`` on the
+    non-streaming path, and — since patch 10 — on the reassembled usage object
+    of a streamed call. ``_extract_cost`` cannot tell the two apart, which is
+    the point: the transport was the bug, not the reading."""
     return {
         "prompt_tokens": 1000,
         "completion_tokens": 200,
         "cost": 0.0123,
         "prompt_tokens_details": {"cached_tokens": 600},
+    }
+
+
+def _reassembled_usage_with_cost() -> dict:
+    """What ``calculate_usage`` hands the success hook once patch 10 has run:
+    the enumerated counts it always kept, plus the two cost fields it used to
+    drop. ``cost_details`` rides along as a pydantic extra."""
+    return {
+        **_usage_without_cost(),
+        "cost": 0.0123,
+        "cost_details": {"upstream_inference_cost": 0.0456},
     }
 
 
@@ -132,13 +154,13 @@ _ATTRIBUTION_HEADERS = {
 
 
 class TestExtractCost:
-    def test_streaming_usage_has_no_recoverable_cost(self):
-        # Reassembled streaming usage has no cost field -> must be None,
-        # which the recorder treats as "unknown", not "$0".
-        assert cc._extract_cost(_streaming_usage()) is None
+    def test_usage_without_a_cost_field_reads_as_unknown(self):
+        # No cost of any kind -> must be None, which the recorder treats as
+        # "unknown", not "$0".
+        assert cc._extract_cost(_usage_without_cost()) is None
 
-    def test_nonstreaming_usage_cost_is_extracted(self):
-        assert cc._extract_cost(_nonstreaming_usage()) == 0.0123
+    def test_usage_cost_is_extracted(self):
+        assert cc._extract_cost(_usage_with_cost()) == 0.0123
 
     def test_byok_falls_back_to_upstream_inference_cost(self):
         # Under BYOK the top-level cost is 0; the real spend is in
@@ -233,16 +255,18 @@ class TestRecordCostReporting:
         monkeypatch.setattr(cc, "_emit", lambda payload: emitted.append(payload))
         return emitted
 
-    def test_streaming_call_reports_null_cost_not_zero(self, monkeypatch):
+    def test_call_without_a_reported_cost_reports_null_not_zero(self, monkeypatch):
         emitted = self._capture(monkeypatch)
-        cc.LiteLLMCostLogger()._record(_mcd("s1"), types.SimpleNamespace(usage=_streaming_usage()))
+        cc.LiteLLMCostLogger()._record(
+            _mcd("s1"), types.SimpleNamespace(usage=_usage_without_cost())
+        )
         assert len(emitted) == 1
         payload = emitted[0]
         # The bug this guards: cost must be null, never coerced to 0.0.
         assert payload["call"]["cost"] is None
         assert payload["session"]["cost"] is None
         assert payload["session"]["cost_known_calls"] == 0
-        # Cache stats survive reassembly, so they must still be emitted.
+        # An unknown cost must not take the cache stats down with it.
         assert payload["call"]["cached_tokens"] == 600
         assert payload["call"]["cache_write_tokens"] == 100
         assert payload["call"]["reasoning_tokens"] == 50
@@ -253,21 +277,55 @@ class TestRecordCostReporting:
         assert isinstance(payload["session"]["calls"], int)
         assert isinstance(payload["call"]["cached_tokens"], int)
 
-    def test_nonstreaming_call_records_real_cost(self, monkeypatch):
+    def test_raw_upstream_usage_records_real_cost(self, monkeypatch):
         emitted = self._capture(monkeypatch)
-        cc.LiteLLMCostLogger()._record(_mcd("s2", raw_usage=_nonstreaming_usage()), None)
+        cc.LiteLLMCostLogger()._record(_mcd("s2", raw_usage=_usage_with_cost()), None)
         payload = emitted[0]
         assert payload["call"]["cost"] == 0.0123
         assert payload["session"]["cost"] == 0.0123
         assert payload["session"]["cost_known_calls"] == 1
 
+    def test_reassembled_streaming_usage_records_real_cost(self, monkeypatch):
+        """The #3691 fix, read from this side of the seam.
+
+        Patch 10 carries ``cost`` / ``cost_details`` across
+        ``calculate_usage``'s rebuild, so a streamed call — which is
+        essentially all agent traffic — now arrives with the bill attached and
+        the callback needs no change to read it. This test is the regression
+        that would catch the transport being lost again on a litellm bump.
+        """
+        emitted = self._capture(monkeypatch)
+        cc.LiteLLMCostLogger()._record(
+            _mcd("s4"), types.SimpleNamespace(usage=_reassembled_usage_with_cost())
+        )
+        payload = emitted[0]
+        assert payload["call"]["cost"] == 0.0123
+        assert payload["session"]["cost_known_calls"] == 1
+        # The counts the rebuild always kept are still there beside it.
+        assert payload["call"]["cached_tokens"] == 600
+        assert payload["call"]["cache_write_tokens"] == 100
+
+    def test_reassembled_byok_usage_falls_through_to_upstream_cost(self, monkeypatch):
+        """Under BYOK the top-level ``cost`` is a literal 0 and the real number
+        is in ``cost_details``. Patch 10 transports both without judging
+        either, so the fall-through ``_extract_cost`` already implements is
+        what turns them into a figure — and a 0 must not be recorded as spend.
+        """
+        emitted = self._capture(monkeypatch)
+        usage = {
+            **_usage_without_cost(),
+            "cost": 0,
+            "cost_details": {"upstream_inference_cost": 0.05},
+        }
+        cc.LiteLLMCostLogger()._record(_mcd("s5"), types.SimpleNamespace(usage=usage))
+        assert emitted[0]["call"]["cost"] == 0.05
+
     def test_mixed_session_sums_only_known_costs(self, monkeypatch):
         emitted = self._capture(monkeypatch)
         logger = cc.LiteLLMCostLogger()
-        # A streaming turn (unknown cost) followed by a non-streaming turn
-        # (real cost) in the same session.
-        logger._record(_mcd("s3"), types.SimpleNamespace(usage=_streaming_usage()))
-        logger._record(_mcd("s3", raw_usage=_nonstreaming_usage()), None)
+        # A turn whose cost never arrived, followed by one carrying a real cost.
+        logger._record(_mcd("s3"), types.SimpleNamespace(usage=_usage_without_cost()))
+        logger._record(_mcd("s3", raw_usage=_usage_with_cost()), None)
         session = emitted[-1]["session"]
         assert session["calls"] == 2
         assert session["cost_known_calls"] == 1
@@ -276,9 +334,10 @@ class TestRecordCostReporting:
 
 
 class TestEstimatedCost:
-    """LiteLLM's pricing-map ``response_cost`` survives streaming and is
-    surfaced as ``cost_estimated``, strictly separate from the billed
-    ``cost`` and under the same null-not-zero discipline (#3175)."""
+    """LiteLLM's pricing-map ``response_cost``, surfaced as ``cost_estimated``
+    — strictly separate from the billed ``cost`` and under the same
+    null-not-zero discipline (#3175). The two are independent measurements of
+    the same turn, so each must be readable when the other is missing."""
 
     def setup_method(self):
         cc._session_totals.clear()
@@ -288,25 +347,41 @@ class TestEstimatedCost:
         monkeypatch.setattr(cc, "_emit", lambda payload: emitted.append(payload))
         return emitted
 
-    def test_streaming_call_carries_estimate_while_cost_stays_null(self, monkeypatch):
+    def test_estimate_is_carried_when_the_billed_cost_is_missing(self, monkeypatch):
         emitted = self._capture(monkeypatch)
         cc.LiteLLMCostLogger()._record(
             _mcd("e1", response_cost=0.021),
-            types.SimpleNamespace(usage=_streaming_usage()),
+            types.SimpleNamespace(usage=_usage_without_cost()),
         )
         payload = emitted[0]
-        # The billed cost is still unrecoverable on streaming — must stay null.
         assert payload["call"]["cost"] is None
         assert payload["call"]["cost_estimated"] == 0.021
         assert payload["session"]["cost"] is None
         assert payload["session"]["cost_estimated"] == 0.021
         assert payload["session"]["cost_estimated_known_calls"] == 1
 
+    def test_both_figures_are_reported_side_by_side(self, monkeypatch):
+        """With patches 10 and 11 both in place this is the ordinary line, and
+        a persistent gap between the two is a signal (stale rate card,
+        unexpected provider, surcharge tier) rather than an error."""
+        emitted = self._capture(monkeypatch)
+        cc.LiteLLMCostLogger()._record(
+            _mcd("e4", response_cost=0.0119),
+            types.SimpleNamespace(usage=_reassembled_usage_with_cost()),
+        )
+        payload = emitted[0]
+        assert payload["call"]["cost"] == 0.0123
+        assert payload["call"]["cost_estimated"] == 0.0119
+        assert payload["session"]["cost_known_calls"] == 1
+        assert payload["session"]["cost_estimated_known_calls"] == 1
+
     def test_unpriceable_model_reports_null_estimate(self, monkeypatch):
         # No response_cost (model absent from LiteLLM's pricing map) must
         # read as "unknown", never "$0".
         emitted = self._capture(monkeypatch)
-        cc.LiteLLMCostLogger()._record(_mcd("e2"), types.SimpleNamespace(usage=_streaming_usage()))
+        cc.LiteLLMCostLogger()._record(
+            _mcd("e2"), types.SimpleNamespace(usage=_usage_without_cost())
+        )
         payload = emitted[0]
         assert payload["call"]["cost_estimated"] is None
         assert payload["session"]["cost_estimated"] is None
@@ -316,11 +391,11 @@ class TestEstimatedCost:
         emitted = self._capture(monkeypatch)
         logger = cc.LiteLLMCostLogger()
         logger._record(
-            _mcd("e3", response_cost=0.01), types.SimpleNamespace(usage=_streaming_usage())
+            _mcd("e3", response_cost=0.01), types.SimpleNamespace(usage=_usage_without_cost())
         )
-        logger._record(_mcd("e3"), types.SimpleNamespace(usage=_streaming_usage()))
+        logger._record(_mcd("e3"), types.SimpleNamespace(usage=_usage_without_cost()))
         logger._record(
-            _mcd("e3", response_cost=0.02), types.SimpleNamespace(usage=_streaming_usage())
+            _mcd("e3", response_cost=0.02), types.SimpleNamespace(usage=_usage_without_cost())
         )
         session = emitted[-1]["session"]
         assert session["calls"] == 3
@@ -396,7 +471,7 @@ class TestAttribution:
         emitted = self._capture(monkeypatch)
         cc.LiteLLMCostLogger()._record(
             _mcd("a1", extra_headers=_ATTRIBUTION_HEADERS),
-            types.SimpleNamespace(usage=_streaming_usage()),
+            types.SimpleNamespace(usage=_usage_without_cost()),
         )
         payload = emitted[0]
         assert payload["pipeline_id"] == "pipeline-20260612-abc"
@@ -405,7 +480,9 @@ class TestAttribution:
 
     def test_missing_attribution_reads_as_none(self, monkeypatch):
         emitted = self._capture(monkeypatch)
-        cc.LiteLLMCostLogger()._record(_mcd("a2"), types.SimpleNamespace(usage=_streaming_usage()))
+        cc.LiteLLMCostLogger()._record(
+            _mcd("a2"), types.SimpleNamespace(usage=_usage_without_cost())
+        )
         payload = emitted[0]
         assert payload["pipeline_id"] is None
         assert payload["agent_role"] is None
@@ -416,7 +493,7 @@ class TestAttribution:
         emitted = self._capture(monkeypatch)
         cc.LiteLLMCostLogger()._record(
             _mcd("a3", extra_headers={"X-Egg-Agent-Role": "coder"}),
-            types.SimpleNamespace(usage=_streaming_usage()),
+            types.SimpleNamespace(usage=_usage_without_cost()),
         )
         assert emitted[0]["agent_role"] == "coder"
 
@@ -850,7 +927,7 @@ class TestRequestParamsInPayload:
         emitted = self._capture(monkeypatch)
         cc.LiteLLMCostLogger()._record(
             _mcd("p1", optional_params=_streaming_optional_params()),
-            types.SimpleNamespace(usage=_streaming_usage()),
+            types.SimpleNamespace(usage=_usage_without_cost()),
         )
         payload = emitted[0]
         assert payload["request_params"]["max_tokens"] == 32000
@@ -865,7 +942,9 @@ class TestRequestParamsInPayload:
         # Cost/cache visibility must not regress on a LiteLLM shape that
         # carries no optional_params.
         emitted = self._capture(monkeypatch)
-        cc.LiteLLMCostLogger()._record(_mcd("p2"), types.SimpleNamespace(usage=_streaming_usage()))
+        cc.LiteLLMCostLogger()._record(
+            _mcd("p2"), types.SimpleNamespace(usage=_usage_without_cost())
+        )
         payload = emitted[0]
         assert payload["request_params"] is None
         assert payload["call"]["cached_tokens"] == 600

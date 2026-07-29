@@ -20,28 +20,40 @@ the cache-read hit rate — computed as a session aggregate, not a per-turn
 snapshot, because the per-turn ratio is noisy on short turns (a single
 tool-result message can dominate the prompt budget).
 
-Cost on the streaming path is intentionally reported as ``null``, not 0.
-Claude Code streams its ``/v1/messages`` requests, and LiteLLM reassembles
-the streamed chunks via ``stream_chunk_builder`` -> ``ChunkProcessor.
-calculate_usage``, which rebuilds a fresh ``Usage`` carrying only the
-token/cache counts and DROPS the upstream provider's ``cost`` /
-``cost_details``. So on real agent traffic the upstream-billed cost is not
-recoverable at this seam, and we emit ``cost: null`` (per call and in the
-session totals) rather than coercing the missing value to ``0.0`` — a
-``0.0`` would read in the logs as "this route is free", the exact opposite
-of the cost-visibility signal this module exists to provide (#2799). The
-cache-read/write and token counts DO survive reassembly, so the
-cache-hit-rate metric (the primary cq-6 signal) is unaffected. Real cost is
-still captured on the non-streaming path, where ``original_response``
-carries the raw provider JSON with ``usage.cost``.
+Cost arrives by one of two routes depending on how the call streamed.
+Non-streaming, ``original_response`` carries the raw provider JSON and
+``usage.cost`` with it. Streaming — which is essentially all agent traffic,
+since Claude Code streams its ``/v1/messages`` requests — LiteLLM
+reassembles the chunks via ``stream_chunk_builder`` -> ``ChunkProcessor.
+calculate_usage``, a rebuild that enumerates the token/cache counts and
+originally DROPPED the provider's ``cost`` / ``cost_details`` outright.
+That is why this module recorded ``cost: null`` on 1252 of 1252 sampled
+calls in run 6. The egg-litellm image's **patch 11** now carries those two
+fields across the rebuild (``config/litellm/stream_cost_preservation.py``),
+so the billed figure reaches ``_extract_cost`` on the streaming path too
+and this module needs no change to read it — the value simply stops being
+absent (#3691).
 
-Because the billed cost is therefore unknown on essentially every agent
-call, each line also carries ``cost_estimated``: LiteLLM's own
-``response_cost``, computed at logging time from the assembled usage and
-its pricing map, which survives streaming (issue #3175). It is kept
-strictly separate from ``cost`` — an estimate from a possibly-stale rate
-card must never be mistaken for a bill — and follows the same null-not-zero
-rule when LiteLLM cannot price the model.
+``cost: null`` therefore no longer means "streaming"; it means the cost was
+genuinely unavailable — a stock (unpatched) LiteLLM under this callback, or
+a provider that does not report one. It is still emitted as null rather
+than ``0.0``: a zero would read in the logs as "this route is free", the
+exact opposite of the cost-visibility signal this module exists to provide
+(#2799).
+
+Each line also carries ``cost_estimated``: LiteLLM's own ``response_cost``,
+computed at logging time from the assembled usage and its pricing map
+(issue #3175). It is kept strictly separate from ``cost`` — an estimate
+from a possibly-stale rate card must never be mistaken for a bill — and
+follows the same null-not-zero rule when LiteLLM cannot price the model.
+That was the case for every route egg uses until the image's **patch 12**
+taught the model-info lookup to read OpenRouter's published rate card; it
+remains the case for a model whose prompt-length surcharge lands on a
+boundary or component LiteLLM's map has no slot for, which is declined whole
+rather than translated in part (see ``openrouter_capabilities``). With
+both patches in place the two fields are independent measurements of the
+same turn, and a persistent gap between them is a signal in its own right:
+a stale rate card, an unexpected provider, or a surcharge tier.
 
 Each line also carries ``request_params``: the decoding configuration that
 actually went upstream on that call (issue #3599). Repetition and
@@ -149,11 +161,13 @@ def _coerce_usage(usage):
 
 def _usage_from_response_obj(response_obj):
     """Read ``usage`` off the assembled response object LiteLLM hands the
-    success hook. On the streaming path this is the reliable source for the
-    token/cache counts (the final usage chunk's counts are folded into
-    ``response_obj.usage`` by ``stream_chunk_builder``), but NOT for cost:
-    that reassembly rebuilds a fresh ``Usage`` and drops ``cost`` /
-    ``cost_details``, so ``_extract_cost`` returns None here on streaming."""
+    success hook. On the streaming path this is the source for the token/cache
+    counts (the final usage chunk's counts are folded into
+    ``response_obj.usage`` by ``stream_chunk_builder``) and, on the egg-litellm
+    image, for cost as well: that reassembly rebuilds a fresh ``Usage`` and
+    stock drops ``cost`` / ``cost_details`` with it, which patch 11 restores.
+    Under a stock LiteLLM the counts still arrive and ``_extract_cost`` returns
+    None — see the module docstring."""
     if response_obj is None:
         return None
     usage = getattr(response_obj, "usage", None)
@@ -181,8 +195,8 @@ def _extract_cost(usage):
     provider, so fall back to ``cost_details.upstream_inference_cost`` (what
     the upstream provider will bill for the same request). Either way, the
     number we record matches real spend on that turn. Returns None when no
-    positive cost is present — notably on the streaming path, where LiteLLM's
-    chunk reassembly drops the upstream cost (see ``_usage_from_response_obj``).
+    positive cost is present — a provider that reports none, or a stock LiteLLM
+    whose chunk reassembly drops it (see ``_usage_from_response_obj``).
     Callers must treat None as "unknown", not "$0".
 
     ``_positive`` rejects non-finite values as well as non-positive ones: a
@@ -303,14 +317,16 @@ def _extract_attribution(mcd):
 def _extract_estimated_cost(mcd):
     """LiteLLM's own computed cost for the call, as an *estimate*.
 
-    Unlike the upstream-billed ``cost`` (dropped by stream-chunk reassembly —
-    see the module docstring), ``response_cost`` is computed by LiteLLM's
-    logging layer from the assembled usage and its model pricing map, so it
-    survives the streaming path that carries essentially all agent traffic.
-    It is an estimate, not a bill: the pricing map may lag the provider's
-    rates or lack cache-discount entries for a model. Returns None — never
-    0.0 — when LiteLLM couldn't price the call (model absent from the map),
-    mirroring the billed-cost "unknown ≠ free" discipline.
+    ``response_cost`` is computed by LiteLLM's logging layer from the assembled
+    usage and its model pricing map, independently of whether the provider
+    reported a bill. It is an estimate, not a bill: the pricing map may lag the
+    provider's rates or lack cache-discount entries for a model. Returns None —
+    never 0.0 — when LiteLLM couldn't price the call, mirroring the billed-cost
+    "unknown ≠ free" discipline. On the egg-litellm image patch 12 supplies
+    OpenRouter's published rates for slugs the bundled map does not carry, so a
+    None here now means a genuinely unpriceable model (an inexpressible
+    prompt-length surcharge, or a provider with no live card to read) rather
+    than the routine case it was.
 
     Reads the top-level ``response_cost`` first, then falls back to
     ``standard_logging_object.response_cost`` — the latter is LiteLLM's
@@ -358,10 +374,12 @@ def _extract_model(mcd):
 # line by orders of magnitude and spill task text into a stream that is a
 # cost/observability sink, not a transcript sink.
 #
-# ``stream`` is included because it is the reason ``cost`` reads null on a
-# line (see the module docstring) — worth having next to the null rather than
-# inferred. ``max_tokens`` and ``n`` are not sampling knobs but shape the
-# generation, and are cheap to carry.
+# ``stream`` is included because it selects which of the two paths the cost on
+# this line came through (see the module docstring), and it was the reason
+# ``cost`` read null on every line before patch 11 — worth having next to the
+# number rather than inferred, and worth keeping now that the null case is rare
+# enough to need explaining when it happens. ``max_tokens`` and ``n`` are not
+# sampling knobs but shape the generation, and are cheap to carry.
 _REQUEST_PARAM_KEYS = (
     "temperature",
     "top_p",
@@ -729,13 +747,15 @@ class LiteLLMCostLogger(CustomLogger):
             prompt, cached, cache_write, reasoning = _extract_cache_stats(usage)
             if cost is None and prompt == 0 and cached == 0:
                 return
-            # ``cost`` stays None when the upstream cost is unrecoverable
-            # (the streaming path — see module docstring). We accumulate only
-            # known costs and count how many calls contributed one, so a
-            # session that never saw a real cost reports ``cost: null`` rather
-            # than a misleading ``0.0``. ``cost_estimated`` (LiteLLM's own
-            # pricing-map figure, which DOES survive streaming) follows the
-            # same discipline under its own counters.
+            # ``cost`` stays None when the provider reported no cost, or when
+            # a stock LiteLLM discarded it in reassembly (see module
+            # docstring). We accumulate only known costs and count how many
+            # calls contributed one, so a session that never saw a real cost
+            # reports ``cost: null`` rather than a misleading ``0.0``.
+            # ``cost_estimated`` (LiteLLM's own pricing-map figure) follows the
+            # same discipline under its own counters — the two counters are
+            # what make a partially-known session readable, since either field
+            # can be the one that is missing.
             sid = _extract_session_id(mcd) or "_no_session"
             model = _extract_model(mcd)
             attribution = _extract_attribution(mcd)
@@ -783,7 +803,10 @@ class LiteLLMCostLogger(CustomLogger):
                     2,
                 )
             # Report session cost as null until at least one call carried a
-            # known cost, so all-streaming sessions don't read as "$0 spent".
+            # known cost, so a session that never learned one doesn't read as
+            # "$0 spent". Note the session total is a sum over the calls that
+            # DID report — read it against ``cost_known_calls``/``calls``, not
+            # as the session's whole bill, whenever those two differ.
             # Counts (calls and token tallies) are integer-valued — emit them
             # as ``int`` so the log line reads ``cost_known_calls: 1`` rather
             # than ``1.0`` (the aggregate is held as float for uniform +=).

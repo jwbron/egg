@@ -1,0 +1,19 @@
+# Ruff settings for the egg-litellm image sources ONLY.
+#
+# Every other Python file in this repo runs on the repo's own interpreter
+# (`requires-python = ">=3.14"`). These do not: `cost_callback.py` and the four
+# modules `patch_litellm_cache.py` installs are baked into
+# `ghcr.io/berriai/litellm:v1.86.2`, which ships **Python 3.11**. Formatting
+# them for 3.14 emits syntax that image cannot import.
+#
+# That is not hypothetical. `ruff format` under `target-version = "py314"`
+# rewrites `except (TypeError, ValueError):` to the PEP 758 unparenthesized
+# form, which is a hard SyntaxError on 3.11 — and the formatter has no `noqa`
+# escape, so the only place to say "these files target 3.11" is here. Ruff
+# resolves settings per file by walking up from it, so this file governs
+# exactly this directory.
+#
+# `extend` inherits the root select/ignore set, so the lint rules stay
+# identical and only the language level differs.
+extend = "../../pyproject.toml"
+target-version = "py311"

@@ -15,6 +15,7 @@ list), so there is no fixture/needle drift: a needle change automatically
 flows into the fixture the test patches.
 """
 
+import ast
 import importlib.util
 import sys
 from pathlib import Path
@@ -661,3 +662,167 @@ def test_patch10_maps_onto_the_request_not_the_response(tmp_path):
     assert "transform_response" not in patch10["needle"]
     assert "transform_response" not in patch10["replacement"]
     assert patch10["file"] == plc.F1
+
+
+def test_patch11_sets_cost_after_the_rebuild_not_before(tmp_path):
+    """Patch 11 must land on the far side of ``Usage(**model_dump())``.
+
+    That constructor deletes a ``cost`` attribute it is handed as None, so a
+    carry inserted *before* the rebuild would be writing into an object the
+    rebuild is entitled to discard — the patch would apply cleanly, the build
+    would pass, and ``cost`` would still read null on every streamed call,
+    which is the bug it exists to fix."""
+    patch11 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 11/"))
+
+    target = tmp_path / patch11["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(patch11["needle"])
+    plc._apply(
+        str(target),
+        present=patch11["present"],
+        needle=patch11["needle"],
+        replacement=patch11["replacement"],
+        label=patch11["label"],
+    )
+    result = target.read_text()
+
+    rebuild = "        returned_usage = Usage(**returned_usage.model_dump())\n"
+    assert rebuild in result, "the stock rebuild must survive the patch"
+    assert result.index(rebuild) < result.index("_egg_carry_upstream_cost"), (
+        "the carry must run after the rebuild, not before it"
+    )
+    assert result.index("_egg_carry_upstream_cost") < result.index("        return returned_usage")
+    # An import failure must never propagate: this is on the response path.
+    assert "except Exception as _egg_exc:" in result
+    # And it must not be silent either — a swallowed import here looks exactly
+    # like "the provider reported no cost", the symptom the patch removes.
+    # verbose_logger is imported inside the handler because
+    # streaming_chunk_builder_utils.py, unlike utils.py, does not carry it at
+    # module scope; the latch is set only once the emit succeeded.
+    assert "from litellm._logging import verbose_logger" in result
+    assert result.index("verbose_logger.warning(") < result.index(
+        "globals()['_egg_warned_stream_cost'] = True"
+    ), "the latch must be set after the emit, not before it"
+
+
+def test_patch12_hooks_the_unmapped_branch_and_leaves_the_stock_raise(tmp_path):
+    """Patch 12 must be a fallback, not a replacement.
+
+    It sits at the "isn't mapped yet" raise, so it runs only once every stock
+    lookup has already failed: a slug the bundled map DOES carry keeps the
+    bundled rate, and the live card can add a model but never reprice one.
+    The stock ValueError must still be reachable, for the slug OpenRouter has
+    not heard of either."""
+    patch12 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 12/"))
+
+    target = tmp_path / patch12["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(patch12["needle"])
+    plc._apply(
+        str(target),
+        present=patch12["present"],
+        needle=patch12["needle"],
+        replacement=patch12["replacement"],
+        label=patch12["label"],
+    )
+    result = target.read_text()
+
+    assert result.count("raise ValueError(") == 1, "the stock raise must survive, exactly once"
+    assert result.index("_egg_openrouter_cost_entry") < result.index("raise ValueError(")
+    # The lookup is handed the provider so it can decline to answer for
+    # anything that is not OpenRouter — this call site is generic.
+    assert "_egg_openrouter_cost_entry(\n                        model, custom_llm_provider\n" in (
+        result
+    )
+    # A missing or broken module leaves the stock behaviour exactly as it was.
+    assert "except Exception as _egg_exc:\n                    _egg_entry = None\n" in result
+    # ...but not silently. A failed import is otherwise indistinguishable from
+    # "OpenRouter has no rate for this slug", which is the null-cost_estimated
+    # symptom patch 12 exists to remove. Warned once, and the latch is set only
+    # after the emit — inside its own try, because raising from an except block
+    # would propagate into a live request.
+    assert "_egg_warned_pricing" in result
+    assert result.index("verbose_logger.warning(") < result.index(
+        "globals()['_egg_warned_pricing'] = True"
+    ), "the latch must be set after the emit, not before it"
+
+
+# The indentation each replacement is spliced in at, and enough enclosing
+# scope to make it a parseable module. Both bodies now carry a nested
+# ``try``/``except`` for their warn-once latch, which is exactly the kind of
+# hand-written indentation a string-literal patch payload gets wrong — and the
+# build's own ``_check_parses`` would only catch it after a full image build.
+_BODY_CONTEXTS = (
+    (
+        "Patch 11/",
+        "class ChunkProcessor:\n"
+        "    def calculate_usage(self, chunks):\n"
+        "        Usage = dict\n"
+        "        returned_usage = Usage()\n",
+    ),
+    (
+        "Patch 12/",
+        "def _get_model_info_helper(model, custom_llm_provider):\n"
+        "    _model_info = None\n"
+        "    key = None\n"
+        "    if True:\n"
+        "        if True:\n",
+    ),
+)
+
+
+@pytest.mark.parametrize(("prefix", "preamble"), _BODY_CONTEXTS, ids=["patch11", "patch12"])
+def test_patch_bodies_parse_at_their_insertion_indentation(prefix, preamble):
+    """The spliced payload must be valid Python 3.11 — the image's interpreter.
+
+    These replacements are string literals assembled line by line, so a wrong
+    indent inside the nested warn-once handler is a plain typo that no other
+    test here would catch: the ``_apply`` tests assert substrings, not syntax,
+    and the build's ``_check_parses`` runs only during a real image build.
+    ``feature_version`` pins the check to 3.11 for the same reason
+    ``config/litellm/.ruff.toml`` does — this code runs on the litellm base
+    image, not on the repo's interpreter.
+    """
+    patch = next(p for p in plc.PATCHES if p["label"].startswith(prefix))
+    ast.parse(preamble + patch["replacement"], feature_version=(3, 11))
+
+
+def test_patch12_needle_disambiguates_the_two_unmapped_messages(tmp_path):
+    """utils.py carries the "isn't mapped yet" string twice.
+
+    The other one is the outer handler's re-raise, with a different message
+    body and indentation. Matching loosely would insert a pricing fallback into
+    an exception handler, where ``_model_info`` and ``key`` are not even in
+    scope — same needle-uniqueness trap as Patches 4 and 8."""
+    patch12 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 12/"))
+
+    sibling = (
+        "SENTINEL_OUTER_HANDLER_BEGIN\n"
+        "    except Exception as e:\n"
+        '        verbose_logger.debug(f"Error getting model info: {e}")\n'
+        "        raise Exception(\n"
+        "            \"This model isn't mapped yet. model={}, custom_llm_provider={}. "
+        "Add it here - https://github.com/BerriAI/litellm/blob/main/"
+        'model_prices_and_context_window.json.".format(\n'
+        "                model, custom_llm_provider\n"
+        "            )\n"
+        "        )\n"
+        "SENTINEL_OUTER_HANDLER_END\n"
+    )
+    target = tmp_path / patch12["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(patch12["needle"] + "\n" + sibling)
+
+    plc._apply(
+        str(target),
+        present=patch12["present"],
+        needle=patch12["needle"],
+        replacement=patch12["replacement"],
+        label=patch12["label"],
+    )
+    result = target.read_text()
+
+    assert result.count(patch12["present"]) == 1
+    start = result.index("SENTINEL_OUTER_HANDLER_BEGIN")
+    end = result.index("SENTINEL_OUTER_HANDLER_END") + len("SENTINEL_OUTER_HANDLER_END\n")
+    assert result[start:end] == sibling, "patch 12 rewrote the outer handler's re-raise"
