@@ -11,7 +11,7 @@
     }
   ],
   "prompt": "Fix #3630: `validate_checks` in `shared/egg_config/validators.py` silently drops or `str()`-coerces malformed check `fix` values.\n\nCurrent behavior (lines ~189-193):\n```python\nif c.get(\"fix\"):\n    entry[\"fix\"] = str(c[\"fix\"])\n```\n\nTwo operator-hostile behaviors follow:\n1. Silent drop on falsy values: `fix: \"\"`, `fix: false`, `fix: 0` are dropped with no warning and no log line. The operator sees a configured `fix:` in repositories.yaml and a green gate that never self-heals, with nothing explaining why.\n2. `str()` coercion of non-strings: a YAML list such as `fix: [make fmt, make lint-fix]` is coerced to the literal string `\"['make fmt', 'make lint-fix']\"` and handed to the check runner as a shell command, failing as a subprocess with a message that does not point back at the config.\n\nRequired fix: validate that `fix`, when present, is a non-empty string. Log a warning in the same shape as the other `validate_*` rejections when it is not, so the config error surfaces at load time rather than as a runtime green-gate mystery.\n\nScope notes:\n- Keep the change tightly scoped to the `fix` key handling and its tests. Do not refactor the surrounding validators.\n- Check whether `config/repo_config.py` has a parallel `fix` handling path (it has a similar validate/coerce block) and align it if so.\n- Add unit tests covering: valid non-empty string accepted; empty string rejected with warning; `false`/`0` rejected with warning; list value rejected with warning; absent `fix` key unchanged.\n- #3629 documented \"single shell command string\" in the schema references, but the loader still accepts anything and coerces it; this closes that gap.",
-  "status": "running",
+  "status": "awaiting_human",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -148,7 +148,7 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "complete",
+      "status": "awaiting_human",
       "started_at": "2026-07-29T20:52:39.214103Z",
       "work_started_at": "2026-07-29T20:52:40.216072Z",
       "completed_at": "2026-07-29T21:38:39.279446Z",
@@ -239,7 +239,7 @@
     }
   ],
   "created_at": "2026-07-29T19:25:06.367330Z",
-  "updated_at": "2026-07-29T21:38:45.454897Z",
+  "updated_at": "2026-07-29T21:38:45.486315Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -252,7 +252,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-29T20:52:36.348276Z",
-  "version": 28,
+  "version": 29,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
