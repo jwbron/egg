@@ -7,9 +7,10 @@ backend) drops prompt-cache hits for Qwen/DeepSeek and mis-streams
 reasoning models, and its OpenRouter param gate reads a model-cost map
 that does not carry current OpenRouter slugs, and it discards
 caller-specified params in total silence, while manufacturing a
-reasoning ceiling nobody asked for. Nine independent gaps cause it; this
-script closes all nine by editing the installed ``litellm``
-package in place (and installing three new modules), then
+reasoning ceiling nobody asked for and never sending prior-turn
+reasoning back. Ten independent gaps cause it; this
+script closes all ten by editing the installed ``litellm``
+package in place (and installing four new modules), then
 ``config/litellm/Dockerfile`` bakes the result into the ``egg-litellm``
 image.
 
@@ -151,6 +152,55 @@ OpenRouter. The image pins that same version (see the Dockerfile
      with the derived effort, because stock carries the summary only as a
      field of the ``reasoning_effort`` dict and there is no wire shape for
      "summary, no effort".
+ 10. ``OpenrouterConfig.transform_request``
+     (openrouter/chat/transformation.py) carry prior-turn assistant
+     reasoning back to the provider. The Anthropic adapter converts
+     incoming ``thinking`` content blocks into
+     ``assistant_message["thinking_blocks"]``, and NOTHING on the
+     OpenRouter request path consumes that field: stock
+     openrouter/chat/transformation.py names reasoning exactly once, on
+     the response side (``reasoning`` -> ``reasoning_content`` on
+     streaming deltas), and ``reasoning_details`` appears nowhere in
+     ``llms/`` or ``litellm_core_utils/``. The parent
+     ``transform_request`` puts ``messages`` straight into the body, so
+     ``thinking_blocks`` reaches OpenRouter as a field no one reads and
+     every historical assistant turn arrives with no reasoning attached.
+     For a model whose chat template re-renders prior thinking that is a
+     malformed history rather than a lost optimisation: Poolside Laguna
+     renders ``'<think>' + message.reasoning|message.reasoning_content +
+     '</think>'`` for every previous assistant turn, so each one arrives
+     as a literal empty ``<think></think>``, which Poolside's model card
+     warns degrades follow-up behaviour; the measured cost in egg was a
+     livelock whose per-turn prompt growth was exactly +243 tokens,
+     leaving no budget for reasoning content. The companion module
+     ``llms/openrouter/_egg_reasoning_roundtrip.py`` (installed by
+     ``NEW_MODULES``) maps the blocks onto ``reasoning_content``, the
+     plain string form OpenRouter documents for exactly this multi-turn
+     tool-calling case and the field Poolside's template reads;
+     ``reasoning_details`` exists to carry encrypted or summarised
+     blocks and we have neither. Blocks join on a newline (they are
+     separate thoughts, and "" runs the last word of one into the first
+     of the next), ``redacted_thinking`` blocks contribute nothing (no
+     plaintext to send), a ``reasoning_content`` the caller already set
+     is never overwritten, and ``thinking_blocks`` is removed either way
+     — including for the adapter's ``thinking_blocks: None`` sentinel,
+     which it sets on every assistant turn that reasoned about nothing
+     and which is therefore the DOMINANT input, not an edge case — so no
+     unknown field is transmitted. Two whole-request opt-outs: the
+     module declines any slug whose upstream re-verifies replayed
+     reasoning (``anthropic``/``google``, where the discarded
+     ``signature`` and the flattened block order are load-bearing and
+     OpenRouter's ``reasoning_details`` is the right shape — a separate
+     change), and ``LITELLM_OPENROUTER_REASONING_ROUNDTRIP=0`` backs the
+     patch out of a live cluster without an image rebuild, as for
+     patches 7 and 9. Fails soft per message: a block it cannot parse
+     leaves that message exactly as it arrived, and says so once.
+     NOTE the DIRECTION — this is request-path
+     (client -> provider); patches 4, 5a and 5b are response-path
+     (provider -> client). Adjacent, not the same thing. The gap is
+     upstream's and predates every egg and fork change: jwbron/litellm#8
+     touches only ``get_supported_openai_params``, which acts on
+     ``optional_params`` and cannot reach a message field.
 
 Idempotent: each patch detects whether it is already applied. Fails
 loudly (non-zero exit) if a needle is missing, so a LiteLLM version bump
@@ -279,7 +329,7 @@ PATCHES: list[dict[str, str]] = [
             '    QWEN = "qwen"\n'
             '    DEEPSEEK = "deepseek"\n'
         ),
-        "label": "Patch 1/9 (CacheControlSupportedModels)",
+        "label": "Patch 1/10 (CacheControlSupportedModels)",
     },
     # Patch 2 — broaden ONLY the cache_control gate (not the shared
     # is_anthropic_claude_model predicate, which also gates thinking
@@ -309,7 +359,7 @@ PATCHES: list[dict[str, str]] = [
             "            )\n"
             "        ):\n"
         ),
-        "label": "Patch 2/9 (cache_control gate)",
+        "label": "Patch 2/10 (cache_control gate)",
     },
     # Patch 3 — drop x-anthropic-billing-header during Anthropic->OpenAI translation.
     {
@@ -343,7 +393,7 @@ PATCHES: list[dict[str, str]] = [
             '                        "text": text,\n'
             "                    }\n"
         ),
-        "label": "Patch 3/9 (x-anthropic-billing-header filter)",
+        "label": "Patch 3/10 (x-anthropic-billing-header filter)",
     },
     # Patch 4 — OpenRouter-style reasoning_content must open a thinking
     # content block, not fall through to a text block. The bare
@@ -381,7 +431,7 @@ PATCHES: list[dict[str, str]] = [
             '                choice.delta, "thinking_blocks"\n'
             "            ):\n"
         ),
-        "label": "Patch 4/9 (reasoning_content thinking block)",
+        "label": "Patch 4/10 (reasoning_content thinking block)",
     },
     # Patch 5a — sync __next__: don't drop the first delta on text or
     # thinking block transitions.
@@ -481,7 +531,7 @@ PATCHES: list[dict[str, str]] = [
             "                        ):\n"
             "                            self.chunk_queue.append(processed_chunk)\n"
         ),
-        "label": "Patch 5a/9 (sync first-delta requeue)",
+        "label": "Patch 5a/10 (sync first-delta requeue)",
     },
     # Patch 5b — async __anext__: same first-delta preservation.
     {
@@ -579,7 +629,7 @@ PATCHES: list[dict[str, str]] = [
             "                            ):\n"
             "                                self.chunk_queue.append(processed_chunk)\n"
         ),
-        "label": "Patch 5b/9 (async first-delta requeue)",
+        "label": "Patch 5b/10 (async first-delta requeue)",
     },
     # Patch 6 — streamed usage must report provider-automatic cache hits.
     # The needle spans the whole usage-merge region so both edit points
@@ -671,7 +721,7 @@ PATCHES: list[dict[str, str]] = [
             "                    elif cached_tokens > 0:\n"
             '                        usage_dict["cache_read_input_tokens"] = cached_tokens\n'
         ),
-        "label": "Patch 6/9 (streaming cache_read fallback)",
+        "label": "Patch 6/10 (streaming cache_read fallback)",
     },
     # Patch 7 — OpenrouterConfig.get_supported_openai_params: consult
     # OpenRouter's published capabilities instead of only the bundled
@@ -742,7 +792,7 @@ PATCHES: list[dict[str, str]] = [
             "            pass\n"
             "        try:\n"
         ),
-        "label": "Patch 7/9 (openrouter live capabilities)",
+        "label": "Patch 7/10 (openrouter live capabilities)",
     },
     # Patch 8 — get_optional_params: log what ``drop_params`` discards.
     #
@@ -791,7 +841,7 @@ PATCHES: list[dict[str, str]] = [
             "                for k in unsupported_params.keys():\n"
             "                    non_default_params.pop(k, None)\n"
         ),
-        "label": "Patch 8/9 (drop_params visibility)",
+        "label": "Patch 8/10 (drop_params visibility)",
     },
     # Patch 9 — _translate_thinking_to_openai: stop synthesizing
     # ``reasoning_effort`` from the caller's ``thinking`` block for non-Claude
@@ -884,7 +934,88 @@ PATCHES: list[dict[str, str]] = [
             "\n"
             '        summary = thinking.get("summary") if isinstance(thinking, dict) else None\n'
         ),
-        "label": "Patch 9/9 (thinking->reasoning_effort synthesis gate)",
+        "label": "Patch 9/10 (thinking->reasoning_effort synthesis gate)",
+    },
+    # Patch 10 — OpenrouterConfig.transform_request: carry prior-turn assistant
+    # reasoning back to the provider.
+    #
+    # The Anthropic adapter converts incoming ``thinking`` content blocks into
+    # ``assistant_message["thinking_blocks"]``, and nothing on the OpenRouter
+    # REQUEST path consumes that field: stock openrouter/chat/transformation.py
+    # names reasoning once, on the response side, and ``reasoning_details``
+    # appears nowhere in llms/ or litellm_core_utils/. The parent
+    # ``transform_request`` drops ``messages`` straight into the body, so
+    # ``thinking_blocks`` reaches OpenRouter as a field no one reads and every
+    # historical assistant turn arrives with no reasoning attached.
+    #
+    # For a model whose chat template re-renders prior thinking that is a
+    # malformed history rather than a missed optimisation: Poolside Laguna
+    # renders ``'<think>' + message.reasoning|message.reasoning_content +
+    # '</think>'`` per historical assistant turn, so each one becomes a literal
+    # empty ``<think></think>``, which Poolside's model card warns degrades
+    # follow-up behaviour.
+    #
+    # DIRECTION: this is request-path (client -> provider). Patches 4, 5a and 5b
+    # are response-path (provider -> client). Adjacent, not the same thing.
+    #
+    # NEEDLE ANCHORING: ``_supports_cache_control_in_content`` appears twice in
+    # 1.86.2 (its own ``def`` and the call in
+    # ``remove_cache_control_flag_from_messages_and_tools``), and
+    # ``_move_cache_control_to_content`` likewise. Neither call alone is unique.
+    # The needle therefore spans the cache_control pair AND the following
+    # ``extra_body`` pop, a sequence that occurs only in ``transform_request``.
+    {
+        "file": F1,
+        "present": "# egg reasoning round-trip patch",
+        "needle": (
+            "        if self._supports_cache_control_in_content(model):\n"
+            "            messages = self._move_cache_control_to_content(messages)\n"
+            "\n"
+            '        extra_body = optional_params.pop("extra_body", {})\n'
+        ),
+        "replacement": (
+            "        if self._supports_cache_control_in_content(model):\n"
+            "            messages = self._move_cache_control_to_content(messages)\n"
+            "\n"
+            "        # egg reasoning round-trip patch. The Anthropic adapter parks\n"
+            "        # prior-turn assistant reasoning on `thinking_blocks`, which no\n"
+            "        # OpenRouter request-path code reads; map it onto the field\n"
+            "        # OpenRouter documents for multi-turn tool calling so models whose\n"
+            "        # template re-renders prior thinking stop seeing empty <think></think>.\n"
+            "        # `model` is passed so the module can decline the routes whose\n"
+            "        # upstream re-verifies replayed reasoning (anthropic/*, google/*).\n"
+            "        # See patch 10 notes in patch_litellm_cache.py.\n"
+            "        try:\n"
+            "            from litellm.llms.openrouter._egg_reasoning_roundtrip import (\n"
+            "                map_thinking_blocks_to_reasoning_content as _egg_map_reasoning,\n"
+            "            )\n"
+            "\n"
+            "            messages = _egg_map_reasoning(messages, model)\n"
+            "        except Exception as _egg_roundtrip_exc:\n"
+            "            # The module is installed by the same build step as this patch,\n"
+            "            # so this is unreachable in a built image. Say so once rather\n"
+            "            # than reverting to stock in silence — an invisible no-op here\n"
+            "            # shows up only as a model quietly reasoning worse, which is\n"
+            "            # the condition patch 8 exists to stop repeating.\n"
+            "            try:\n"
+            "                from litellm._logging import verbose_logger\n"
+            "\n"
+            "                if not getattr(\n"
+            '                    verbose_logger, "_egg_reasoning_roundtrip_warned", False\n'
+            "                ):\n"
+            "                    verbose_logger.warning(\n"
+            '                        "egg reasoning round-trip module unavailable (%s); "\n'
+            '                        "prior-turn assistant reasoning will not reach "\n'
+            '                        "OpenRouter. Logged once per proxy process.",\n'
+            "                        _egg_roundtrip_exc,\n"
+            "                    )\n"
+            "                    verbose_logger._egg_reasoning_roundtrip_warned = True\n"
+            "            except Exception:\n"
+            "                pass\n"
+            "\n"
+            '        extra_body = optional_params.pop("extra_body", {})\n'
+        ),
+        "label": "Patch 10/10 (assistant reasoning round-trip)",
     },
 ]
 
@@ -913,17 +1044,22 @@ NEW_MODULES: list[dict[str, str]] = [
     {
         "source": "openrouter_capabilities.py",
         "dest": "llms/openrouter/_egg_capabilities.py",
-        "label": "Module 1/3 (openrouter capabilities)",
+        "label": "Module 1/4 (openrouter capabilities)",
     },
     {
         "source": "drop_params_visibility.py",
         "dest": "_egg_drop_params_visibility.py",
-        "label": "Module 2/3 (drop_params visibility)",
+        "label": "Module 2/4 (drop_params visibility)",
     },
     {
         "source": "anthropic_thinking_policy.py",
         "dest": "_egg_anthropic_thinking_policy.py",
-        "label": "Module 3/3 (thinking synthesis policy)",
+        "label": "Module 3/4 (thinking synthesis policy)",
+    },
+    {
+        "source": "openrouter_reasoning_roundtrip.py",
+        "dest": "llms/openrouter/_egg_reasoning_roundtrip.py",
+        "label": "Module 4/4 (openrouter reasoning round-trip)",
     },
 ]
 

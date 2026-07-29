@@ -593,7 +593,7 @@ data:
 > Claude Code prepends (the block's `cch=` hash invalidates the cache key
 > every turn). egg ships a custom **`egg-litellm`** image
 > ([`config/litellm/Dockerfile`](../../config/litellm/Dockerfile)) that
-> bakes in nine patches closing those gaps and the reasoning-parameter ones
+> bakes in ten patches closing those gaps and the reasoning-parameter ones
 > below
 > ([`config/litellm/patch_litellm_cache.py`](../../config/litellm/patch_litellm_cache.py));
 > the build fails loudly if a LiteLLM bump moves the patched code. Pinning
@@ -609,9 +609,10 @@ data:
 > line to the LiteLLM pod stream, visible via `get_service_logs` / the
 > structured-logging stream.
 
-> **Reasoning depth on OpenRouter routes, and the four env vars that
-> control it.** Two of the baked-in patches decide whether a reasoning
-> parameter reaches the provider, and both are runtime-overridable on
+> **Reasoning depth on OpenRouter routes, and the five env vars that
+> control it.** Three of the baked-in patches decide what reasoning a
+> provider sees — two whether a reasoning *parameter* reaches it, one
+> whether prior-turn reasoning does — and all three are runtime-overridable on
 > [`k8s/base/litellm-deployment.yaml`](../../k8s/base/litellm-deployment.yaml)
 > (where they are present but commented out) without rebuilding the image:
 >
@@ -644,6 +645,20 @@ data:
 >   adaptive request that names an effort outright
 >   (`output_config: {effort: ...}`) is an instruction rather than a
 >   manufactured ceiling, and still reaches the provider with this off.
+> - **Patch 10 — prior-turn reasoning actually reaches the provider.** The
+>   same adapter parks each historical assistant turn's thinking on a
+>   `thinking_blocks` field that no OpenRouter request-path code reads, so
+>   every previous turn arrived with its reasoning missing. On a model whose
+>   chat template re-renders prior thinking (Poolside Laguna renders
+>   `<think>{{ message.reasoning_content }}</think>` per assistant turn)
+>   that is a malformed history, not a lost optimisation. The patch maps
+>   those blocks onto `reasoning_content`, the field OpenRouter documents
+>   for multi-turn tool calling. `LITELLM_OPENROUTER_REASONING_ROUNDTRIP=0`
+>   restores stock behaviour. Two things it deliberately does not do:
+>   Anthropic- and Google-via-OpenRouter slugs are left untouched (their
+>   upstream re-verifies the block `signature` this plain-string form cannot
+>   carry), and a `reasoning_content` the caller already set is never
+>   overwritten.
 >
 > The same measurement is why the commented-out
 > `extra_body.reasoning.effort: "high"` in

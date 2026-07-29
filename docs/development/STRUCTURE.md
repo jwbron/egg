@@ -547,10 +547,11 @@ config/
 ├── routing-policy.template.yaml      # Operator template for the gateway's hot-reloadable model routing policy: switchover remaps + fallback chains (copy to ~/.config/egg/routing-policy.yaml)
 ├── litellm/                          # egg-litellm image sources
 │   ├── Dockerfile                    # Builds egg-litellm: stock LiteLLM + prompt-cache and reasoning-parameter patches
-│   ├── patch_litellm_cache.py        # Build-time patches: cache_control passthrough on Qwen/DeepSeek routes, live OpenRouter capability lookup, drop_params visibility, no synthesized reasoning ceiling
+│   ├── patch_litellm_cache.py        # Build-time patches: cache_control passthrough on Qwen/DeepSeek routes, live OpenRouter capability lookup, drop_params visibility, no synthesized reasoning ceiling, prior-turn reasoning round-trip
 │   ├── openrouter_capabilities.py    # Patch 7: live GET /api/v1/models capability lookup, unioned with LiteLLM's bundled model-cost map
 │   ├── drop_params_visibility.py     # Patch 8: warn once per proxy process per (provider, model, param-set) when drop_params discards a parameter
 │   ├── anthropic_thinking_policy.py  # Patch 9: stop synthesizing a reasoning_effort ceiling from the caller's thinking budget on non-Claude models
+│   ├── openrouter_reasoning_roundtrip.py  # Patch 10: map prior-turn assistant thinking_blocks onto reasoning_content so OpenRouter models that re-render prior thinking stop seeing empty <think></think>
 │   └── cost_callback.py              # LiteLLM custom logger: upstream + estimated cost, per-role attribution (x-egg-* headers), cache hit rate, per-call decoding config -> pod stdout
 ├── redis/                            # egg-redis image sources
 │   └── Dockerfile                    # Builds egg-redis: pinned stock Redis, repackaged for the local build/publish supply chain; backs the orchestrator's Redis Streams message store

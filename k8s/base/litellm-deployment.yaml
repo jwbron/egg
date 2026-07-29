@@ -121,6 +121,17 @@ spec:
             # measured to need an explicit ask.
             # - name: LITELLM_ANTHROPIC_THINKING_TO_REASONING_EFFORT
             #   value: "1"
+            #
+            # Patch 10 — prior-turn assistant reasoning round-trip, on by
+            # default. ``0`` restores stock LiteLLM: the reasoning of every
+            # historical assistant turn rides to OpenRouter on a
+            # ``thinking_blocks`` field no request-path code reads, so models
+            # whose chat template re-renders prior thinking (Poolside Laguna)
+            # see an empty <think></think> per turn. This is the one patch that
+            # changes the outgoing request body on every OpenRouter call, so it
+            # is the one worth being able to back out without a rebuild.
+            # - name: LITELLM_OPENROUTER_REASONING_ROUNDTRIP
+            #   value: "0"
           livenessProbe:
             httpGet:
               path: /health/liveliness
