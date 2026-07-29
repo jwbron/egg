@@ -48,6 +48,14 @@
       "repo": null,
       "role": "risk_analyst"
     },
+    "234ed6029018309c8f8ed25b131e4cce4fe12a5f": {
+      "branch": "egg/issue-3630-laguna-run7/work",
+      "patch_id": null,
+      "pipeline_id": "issue-3630-laguna-run7",
+      "registered_at": "2026-07-29T22:06:57.690376+00:00",
+      "repo": null,
+      "role": "documenter"
+    },
     "2a6c113d41a5fd2448b969a70021dd9e7f01267d": {
       "branch": "egg/issue-3630-laguna-run7/work",
       "patch_id": "d61e9d7c65fe5e9554dd7497e9f3b06656185711",
