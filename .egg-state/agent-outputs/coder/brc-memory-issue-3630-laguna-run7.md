@@ -2,7 +2,7 @@
 
 ## Phase: implement
 
-## Status: PROPOSED (checks running — make test-all, make lint)
+## Status: READY TO PROPOSE (all tests pass, lint clean)
 
 ## Summary of assessment
 
@@ -18,11 +18,11 @@ if c.get("fix"):
     entry["fix"] = str(c["fix"])
 ```
 
-**After (adopted remote version):**
+**After (current HEAD e07498830):**
 ```python
 if "fix" in c:
     fix = c["fix"]
-    if isinstance(fix, str) and fix:
+    if isinstance(fix, str) and fix.strip():
         entry["fix"] = fix
     else:
         logger.warning(
@@ -33,12 +33,14 @@ if "fix" in c:
         )
 ```
 
-### Behavior matrix (final — warns for ALL non-string/empty values when key present)
+### Behavior matrix (final)
 
 | `fix` value        | Key present? | Result                          | Warning? |
 |--------------------|--------------|---------------------------------|----------|
-| `"make lint-fix"`  | yes          | kept as-is                      | no       |
+| `"make lint-fix"`  | yes          | kept as-is (verbatim)           | no       |
+| `"  make lint  "`  | yes          | kept as-is (verbatim)           | no       |
 | `""`               | yes          | dropped                         | yes      |
+| `"   "`            | yes          | dropped (whitespace-only)       | yes      |
 | `False`            | yes          | dropped                         | yes      |
 | `0`                | yes          | dropped                         | yes      |
 | `3` (int)          | yes          | dropped                         | yes      |
@@ -46,41 +48,40 @@ if "fix" in c:
 | `None` (YAML null) | yes          | dropped                         | yes      |
 | (absent)           | no           | no `fix` key in entry           | no       |
 
-### Design decisions
+### Design decisions (final, after orchestrator follow-up commits)
 
-- Adopted the remote branch's approach: warns for ALL non-string/empty values
-  when the key is present, including `None`. This is more consistent with the
-  issue directive ("validate that `fix`, when present, is a non-empty string").
-- Logger uses `logging.getLogger(__name__)` (idiomatic, resolves to
-  `"egg_config.validators"` when imported as a module).
-- `full_command` handling is left untouched (same `str()` coercion pattern),
-  per the scope directive to keep changes tightly scoped to the `fix` key.
-- Warning message: `"validate_checks: check %r has invalid fix %r (expected
-  non-empty string); dropping fix"` — uses `c.get("name")` for the check name.
+- **Whitespace-only rejection**: `fix.strip()` gates the decision (not the stored value),
+  so `"   "` is rejected but `"  make lint-fix  "` is kept verbatim. This prevents
+  no-op "remediations" that report success without changing anything.
+- **None warns**: All non-string/empty values when the key is present warn and are dropped,
+  including `None`. Consistent with the issue directive.
+- **Logger**: `logging.getLogger(__name__)` (idiomatic).
+- **full_command**: Re-synced in all three copies (pipelines fallback was missing it).
+- **Parity tests**: `test_validate_checks_parity.py` verifies all three copies are
+  AST-identical for the `fix` block and behaviorally identical.
+- `full_command` handling retains the same `str()` coercion pattern (out of scope).
 
-### Files changed
+### Files changed (current HEAD e07498830)
 
-1. `shared/egg_config/validators.py` — primary fix: added `import logging` +
-   module logger, replaced `fix` handling with validation + warning, updated docstring.
+1. `shared/egg_config/validators.py` — primary fix: added `import logging` + module logger,
+   replaced `fix` handling with validation + warning (including `.strip()`), updated docstring.
 2. `config/repo_config.py` — aligned the `except ImportError` fallback.
-3. `orchestrator/routes/pipelines/__init__.py` — aligned the `except ImportError`
-   fallback.
-4. `tests/egg_config/test_validators.py` — updated `test_values_coerced_to_strings`
-   (removed `fix: 3` coercion), replaced `test_empty_fix_dropped` with
-   `test_empty_fix_dropped_with_warning` (tests both `""` and `None` with warnings),
-   added tests for `false`, `0`, non-string int, list, and absent key.
-5. `config/repositories.yaml.example` — updated documentation comment to reflect
-   new behavior (all non-string/empty values warn).
+3. `orchestrator/routes/pipelines/__init__.py` — aligned the `except ImportError` fallback,
+   including `full_command` handling.
+4. `tests/egg_config/test_validators.py` — updated tests, added whitespace-only tests.
+5. `tests/egg_config/test_validate_checks_parity.py` — new parity test file verifying
+   all three copies agree.
+6. `config/repositories.yaml.example` — updated documentation comment.
+7. `docs/guides/sdlc-pipeline.md` — updated fix key documentation.
 
 ### Test results
 
-- `tests/egg_config/test_validators.py`: 62 passed (13 in TestValidateChecks)
+- `tests/egg_config/test_validators.py`: 62 passed
+- `tests/egg_config/test_validate_checks_parity.py`: 56 passed
 - `tests/config/test_repo_config.py`: 51 passed
-- `orchestrator/tests/test_propose_check_gate.py` (non-git tests): 42 passed
-- `orchestrator/tests/test_slice_green_gate.py` (non-git tests): 151 passed
-- ruff: All checks passed on all 4 Python files
+- ruff: All checks passed
 - mypy: `validators.py` clean
 
 ### Commit
 
-`6f8c7dd95` — "Merge remote: fix validate_checks silently dropping/str()-coercing malformed fix values (#3630)"
+`e07498830` — "docs: update fix key validation behavior in sdlc-pipeline guide (#3630)"
