@@ -33,6 +33,7 @@ __all__ = [
     "resolve_config_dir",
     "resolve_repo_path",
     "transcript_path",
+    "transcript_provenance",
     "write_pulled_state",
 ]
 
@@ -144,6 +145,50 @@ def write_pulled_state(
         return False
 
 
+def transcript_provenance(transcript: str | None) -> dict[str, Any]:
+    """Describe *which* transcript this push is carrying, so a stored record can
+    be checked for staleness without re-deriving it from the blob.
+
+    The push is a single on-exit snapshot: a record whose content stopped at
+    04:21 while the session went on calling until 05:17 is not corrupt, it is
+    simply the last snapshot anyone took. Nothing on the record said so, which
+    is what made that gap invisible — the blob is well-formed JSONL either way,
+    so "complete" and "stale" are indistinguishable by inspection. Recording the
+    tail timestamp and the entry counts makes the staleness a readable field.
+
+    ``tail_timestamp`` is the last entry that carries one (entries such as the
+    trailing ``mode`` marker do not). All keys are ``None``/absent-safe: a
+    missing or unparseable transcript yields zeros and a null tail rather than
+    raising into the push, which is best-effort by contract.
+    """
+    if not transcript:
+        return {"tail_timestamp": None, "entries": 0, "assistant_turns": 0, "bytes": 0}
+    tail: str | None = None
+    entries = 0
+    assistant_turns = 0
+    for line in transcript.split("\n"):
+        if not line.strip():
+            continue
+        entries += 1
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if obj.get("type") == "assistant":
+            assistant_turns += 1
+        stamp = obj.get("timestamp")
+        if isinstance(stamp, str) and stamp:
+            tail = stamp
+    return {
+        "tail_timestamp": tail,
+        "entries": entries,
+        "assistant_turns": assistant_turns,
+        "bytes": len(transcript.encode("utf-8")),
+    }
+
+
 def read_state_for_push(
     *,
     repo_path: str,
@@ -182,4 +227,5 @@ def read_state_for_push(
         )
     except OSError:
         body["transcript"] = None
+    body["transcript_provenance"] = transcript_provenance(body["transcript"])
     return body

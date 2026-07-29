@@ -155,6 +155,12 @@ class TestPushRead:
             "session_id": "sid-1",
             "window_occupancy": 7,
             "transcript": '{"l":1}\n',
+            "transcript_provenance": {
+                "tail_timestamp": None,
+                "entries": 1,
+                "assistant_turns": 0,
+                "bytes": 8,
+            },
         }
 
     def test_missing_transcript_yields_pointer_only_body(self, tmp_path):
@@ -188,6 +194,51 @@ class TestPushRead:
         )
 
 
+class TestTranscriptProvenance:
+    """What a push is carrying, recorded so a stored record's staleness is a
+    readable field rather than something you have to reconstruct from a
+    separate ledger (#3692)."""
+
+    def test_tail_timestamp_is_the_last_entry_that_has_one(self):
+        # The real tail is often a trailing marker with no timestamp (a
+        # ``mode`` line), so "last entry" and "last timestamp" differ.
+        transcript = (
+            '{"type":"assistant","timestamp":"2026-07-29T04:20:00.000Z"}\n'
+            '{"type":"user","timestamp":"2026-07-29T04:21:34.335Z"}\n'
+            '{"type":"mode","mode":"normal"}\n'
+        )
+        prov = sync.transcript_provenance(transcript)
+        assert prov["tail_timestamp"] == "2026-07-29T04:21:34.335Z"
+        assert prov["entries"] == 3
+        assert prov["assistant_turns"] == 1
+        assert prov["bytes"] == len(transcript.encode("utf-8"))
+
+    def test_absent_transcript_is_zeroed_not_raised(self):
+        for empty in (None, ""):
+            assert sync.transcript_provenance(empty) == {
+                "tail_timestamp": None,
+                "entries": 0,
+                "assistant_turns": 0,
+                "bytes": 0,
+            }
+
+    def test_unparseable_lines_are_counted_but_do_not_abort_the_scan(self):
+        # Best-effort by contract: a torn line must not cost us the tail.
+        transcript = (
+            '{"type":"assistant","timestamp":"2026-07-29T01:00:00.000Z"}\n'
+            "{not json at all\n"
+            '{"type":"assistant","timestamp":"2026-07-29T02:00:00.000Z"}\n'
+        )
+        prov = sync.transcript_provenance(transcript)
+        assert prov["tail_timestamp"] == "2026-07-29T02:00:00.000Z"
+        assert prov["entries"] == 3
+        assert prov["assistant_turns"] == 2
+
+    def test_bytes_counts_utf8_not_characters(self):
+        prov = sync.transcript_provenance('{"t":"éé"}\n')
+        assert prov["bytes"] == len('{"t":"éé"}\n'.encode())
+
+
 class TestRoundTrip:
     def test_pull_then_push_is_stable(self, tmp_path):
         """A pulled record read back for push reproduces the same body."""
@@ -197,4 +248,8 @@ class TestRoundTrip:
         record = {"session_id": "sid-1", "window_occupancy": 42, "transcript": '{"l":1}\n'}
         sync.write_pulled_state(record, repo_path=repo, config_dir=cfg, session_state_file=str(ssf))
         body = sync.read_state_for_push(repo_path=repo, config_dir=cfg, session_state_file=str(ssf))
-        assert body == record
+        # ``transcript_provenance`` describes the payload rather than being part
+        # of it — it is logged at push time, never stored — so the round-tripped
+        # state is the body minus that descriptor.
+        assert {k: v for k, v in body.items() if k in record} == record
+        assert body["transcript_provenance"]["entries"] == 1

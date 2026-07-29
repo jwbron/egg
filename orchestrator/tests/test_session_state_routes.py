@@ -149,6 +149,71 @@ class TestValidation:
         assert r.status_code == 400
 
 
+class TestTranscriptProvenance:
+    """The advisory block describing which transcript a push carried (#3692).
+
+    Advisory means it never gates the push. It does NOT mean the values reach
+    the structured log line unchecked — every other field on this route is
+    type-checked, and these are the only client-supplied ones that end up in a
+    log stream."""
+
+    def test_a_well_formed_block_is_accepted(self, client):
+        r = client.post(
+            _URL,
+            json={
+                "role": "coder",
+                "session_id": "a",
+                "transcript": '{"l": 1}\n',
+                "transcript_provenance": {
+                    "tail_timestamp": "2026-07-29T04:21:34.335Z",
+                    "entries": 3472,
+                    "assistant_turns": 1837,
+                    "bytes": 4788605,
+                },
+            },
+        )
+        assert r.status_code == 200
+        assert r.get_json()["stored"] is True
+
+    def test_a_malformed_block_does_not_fail_the_push(self, client):
+        # The transcript is the thing worth keeping; a bad description of it
+        # must not be able to cost us the record.
+        r = client.post(
+            _URL,
+            json={
+                "role": "coder",
+                "session_id": "a",
+                "transcript": '{"l": 1}\n',
+                "transcript_provenance": "not an object",
+            },
+        )
+        assert r.status_code == 200
+        assert r.get_json()["stored"] is True
+
+    def test_wrong_typed_members_are_dropped_not_forwarded(self):
+        from routes.session_state import _advisory_int, _advisory_str
+
+        block = {
+            "tail_timestamp": {"nested": "object"},
+            "entries": "3472",
+            "assistant_turns": True,
+            "bytes": 12,
+        }
+        assert _advisory_str(block, "tail_timestamp") is None
+        assert _advisory_int(block, "entries") is None
+        # `isinstance(True, int)` is True, and `assistant_turns: true` is not
+        # a count.
+        assert _advisory_int(block, "assistant_turns") is None
+        assert _advisory_int(block, "bytes") == 12
+        assert _advisory_str({}, "tail_timestamp") is None
+
+    def test_an_unbounded_string_is_capped(self):
+        from routes.session_state import _MAX_PROVENANCE_STR, _advisory_str
+
+        value = _advisory_str({"tail_timestamp": "x" * 10_000}, "tail_timestamp")
+        assert value is not None and len(value) == _MAX_PROVENANCE_STR
+
+
 class TestEvict:
     """#3537 DELETE - operator-facing eviction of a poisoned warm-resume record."""
 

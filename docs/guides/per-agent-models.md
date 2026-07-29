@@ -788,8 +788,57 @@ data:
 >   first, so a `<N chars omitted>` on a *small* field means the block was
 >   over budget rather than that field being oversized on its own.
 >
-> Prompt-bearing fields (`messages`, `tools`, `tool_choice`) are excluded by
-> allowlist: the cost stream is not a transcript sink.
+> Prompt-bearing fields (`messages`, and the `tools` schemas themselves) are
+> excluded by allowlist: the cost stream is not a transcript sink. The line
+> the allowlist draws is payload vs selector, not "anything tool-shaped", so
+> two small tool-related values *are* recorded (#3692): `tools_count`, the
+> arity of the `tools` array without any of its schemas — tool presence is
+> the strongest observed lever on whether these models reason, so `0` vs `14`
+> is the whole signal — and `tool_choice`, the scalar mode selector
+> (`"auto"` / `"none"` / `"required"`, or a small object naming one tool),
+> which separates "no tools were offered" from "tools were offered but
+> forbidden this turn". An **absent** `tools` key emits no `tools_count` at
+> all rather than `0`: "we could not tell" is not "none offered".
+
+> **Which build served the turn, and did the prompt stop growing?** Two more
+> fields land next to `request_params` on every `cost_callback` line (#3692).
+>
+> - **`endpoint`** — `{provider, name, quantization, context_length}`.
+>   `provider` is per-call, read off the response body ("Poolside",
+>   "Alibaba"); the other three come from OpenRouter's per-model
+>   `/models/{slug}/endpoints` metadata, fetched off the request path (a
+>   daemon thread, cached for an hour) because this code runs in the proxy's
+>   logging hook and a blocking lookup there would stall the event loop for
+>   every call. The metadata row is selected by **matching the call's
+>   provider**, never by position: the `extra_body.provider` pin routes the
+>   *completion* and has no effect on that public metadata route, whose index
+>   0 is frequently a provider you never talked to (`z-ai/glm-4.6` lists
+>   Venice first at `fp4`/198000 while Z.AI serves `fp8`/202752). A provider
+>   with no published row reads `null` rather than borrowing a neighbour's
+>   build id. On the streaming path — all agent traffic — the response's
+>   provider usually does not survive litellm's chunk reassembly, so
+>   `provider` reads `null` and the build fields resolve only for a model
+>   publishing exactly one endpoint, where there is nothing to disambiguate.
+>   Knobs: `LITELLM_OPENROUTER_ENDPOINT_FETCH=0` disables the lookup,
+>   `LITELLM_OPENROUTER_ENDPOINT_TTL` (default 3600s) and
+>   `LITELLM_OPENROUTER_ENDPOINT_TIMEOUT` (default 5s). A failed lookup is
+>   cached briefly and **logged** (`cost_callback build attribution [slug]:
+>   ...`, first occurrence at warning), so persistently-null fields are
+>   diagnosable rather than indistinguishable from "the first fetch hasn't
+>   landed yet".
+> - **`call.prompt_tokens_delta`** — how much the prompt grew since this
+>   session's previous call *on the same model*. A repetition-trapped agent
+>   re-sends its whole context plus one near-identical turn, so this lands on
+>   a small, near-constant value call after call: the livelock signature,
+>   readable on one line instead of by differencing a whole session's lines
+>   against each other (which is impossible anyway once the ~48h log
+>   retention has rolled). `null` on the first call seen for a
+>   `(session, model)` pair — no predecessor to difference against is not a
+>   delta of `0` — and negative across a compaction, which is what
+>   distinguishes a reseed from a flat stall. Keyed per model because the
+>   paired `<name>[1m]` alias below puts short startup probes on the same
+>   session id, and differencing prompt length across models is not a
+>   meaningful quantity the way summing cost across them is.
 
 The `request_params` field on a stock (nothing pinned) OpenRouter route:
 
