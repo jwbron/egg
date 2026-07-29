@@ -1,0 +1,66 @@
+{
+  "issue": 3630,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "title": "Risk Assessment: validate_checks fix key validation (#3630)",
+  "summary": "Tightly scoped bug fix to validate_checks in shared/egg_config/validators.py (primary) and two ImportError fallback copies in config/repo_config.py and orchestrator/routes/pipelines/__init__.py. Replaces silent str()-coercion of the optional fix key with explicit isinstance(fix, str) and truthiness validation. When fix is present but not a non-empty string (false, 0, '', None, or a YAML list), logs a warning and drops the fix key from the entry. No backward-compat risk: non-string fix values were already broken (str() coercion produced invalid shell commands like \"['make fmt', 'make lint-fix']\"). All 63 validator tests pass. Overall risk: LOW.",
+  "overall_risk_level": "LOW",
+  "overall_risk": "LOW",
+  "recommendation": "PROCEED",
+  "verdict": "PROCEED",
+  "scope_note": "Grounded against the live issue #3630 body (fetched via gh issue view 3630), the working tree on 2026-07-29, and the architect's plan output (.egg-state/agent-outputs/issue-3630-laguna-run7-architect-output.json). The architect identified three copies of validate_checks; all three are aligned.",
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Non-string fix values that were previously silently coerced are now dropped with a warning",
+      "category": "behavior_change",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "description": "Any config with a non-string fix value (e.g. fix: [make fmt, make lint-fix]) previously had str() coerce it into an invalid shell command string. The old behavior was already broken — the check runner would fail with a confusing subprocess error. The new behavior logs a warning at load time and drops the fix key, leaving the entry usable with just name and command.",
+      "mitigation": "The warning surfaces at config load time, pointing the operator directly at the offending config entry. The entry itself is retained (only the fix key is dropped), so the check still runs — it just won't auto-remediate until the operator fixes the config."
+    },
+    {
+      "id": "R2",
+      "title": "Three copies of validate_checks must stay in sync",
+      "category": "maintenance",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "description": "The canonical implementation in shared/egg_config/validators.py has two ImportError fallbacks: config/repo_config.py and orchestrator/routes/pipelines/__init__.py. All three must carry the same fix-handling logic to avoid behavior divergence when the egg_config package is unavailable.",
+      "mitigation": "All three copies are updated identically in this change. The fallbacks are ImportError-only edge cases (egg_config is always installed in production), so divergence would only manifest in broken-install scenarios."
+    },
+    {
+      "id": "R3",
+      "title": "Existing test test_values_coerced_to_strings asserts fix: 3 is coerced to fix: '3'",
+      "category": "test_breakage",
+      "severity": "LOW",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "description": "The test previously asserted that an integer fix value (3) is str()-coerced to '3'. With the new behavior, integer fix values are rejected with a warning and dropped, not coerced.",
+      "mitigation": "The test is updated to remove fix from the coercion assertion (name and command are still coerced) and a new test_non_string_fix_rejected_with_warning verifies the new behavior."
+    },
+    {
+      "id": "R4",
+      "title": "Logging pattern must match codebase conventions",
+      "category": "consistency",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "description": "validators.py previously had no logging. Adding a logger requires choosing the right name and pattern.",
+      "mitigation": "Uses logging.getLogger(__name__) which resolves to 'egg_config.validators', consistent with the egg_agent package's fallback pattern. Warning message format matches the style used in repo_config.py's get_repo_role_patterns."
+    }
+  ],
+  "binding_invariants": [
+    "Only the fix key handling changes — name, command, and full_command coercion are unchanged.",
+    "When fix is present and is a non-empty string, it is retained as-is (no str() coercion needed since it's already a string).",
+    "When fix is present but not a non-empty string, a warning is logged and the fix key is dropped from the entry (the entry itself is retained).",
+    "When fix key is absent, the entry has no fix key (unchanged behavior).",
+    "All three copies of validate_checks are aligned."
+  ],
+  "metrics": {
+    "files_changed": 4,
+    "tests_added": 7,
+    "tests_updated": 2
+  }
+}
