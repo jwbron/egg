@@ -7,7 +7,7 @@
   },
   "task_description": "This pipeline's task is GitHub issue #3630 \u2014 https://github.com/jwbron/egg/issues/3630. Fetch the live issue body (`gh issue view 3630`) before structural decisions. Worktree artifacts (drafts, agent outputs) that reference any other issue or pipeline are leftovers from previous runs \u2014 they are NOT your task.\n\nFix #3630: `validate_checks` in `shared/egg_config/validators.py` silently drops or `str()`-coerces malformed check `fix` values.\n\nCurrent behavior (lines ~189-193):\n```python\nif c.get(\"fix\"):\n    entry[\"fix\"] = str(c[\"fix\"])\n```\n\nTwo operator-hostile behaviors follow:\n1. Silent drop on falsy values: `fix: \"\"`, `fix: false`, `fix: 0` are dropped with no warning and no log line. The operator sees a configured `fix:` in repositories.yaml and a green gate that never self-heals, with nothing explaining why.\n2. `str()` coercion of non-strings: a YAML list such as `fix: [make fmt, make lint-fix]` is coerced to the literal string `\"['make fmt', 'make lint-fix']\"` and handed to the check runner as a shell command, failing as a subprocess with a message that does not point back at the config.\n\nRequired fix: validate that `fix`, when present, is a non-empty string. Log a warning in the same shape as the other `validate_*` rejections when it is not, so the config error surfaces at load time rather than as a runtime green-gate mystery.\n\nScope notes:\n- Keep the change tightly scoped to the `fix` key handling and its tests. Do not refactor the surrounding validators.\n- Check whether `config/repo_config.py` has a parallel `fix` handling path (it has a similar validate/coerce block) and align it if so.\n- Add unit tests covering: valid non-empty string accepted; empty string rejected with warning; `false`/`0` rejected with warning; list value rejected with warning; absent `fix` key unchanged.\n- #3629 documented \"single shell command string\" in the schema references, but the loader still accepts anything and coerces it; this closes that gap.",
   "pipeline_id": "issue-3630-laguna-run7",
-  "current_phase": "plan",
+  "current_phase": "implement",
   "acceptance_criteria": [],
   "slices": [
     {
@@ -24,7 +24,7 @@
           "id": "task-1-1",
           "description": "In shared/egg_config/validators.py, add import logging and module-level logger; replace fix handling in validate_checks to check 'fix' in c, validate isinstance(fix, str) and fix, log warning on invalid; update docstring.",
           "status": "pending",
-          "commit": null,
+          "commit": "89117f58d6a6683745bc70c2ac4b5a1168f4460b",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "validate_checks logs a warning and drops fix when it is not a non-empty string; valid non-empty string fix is retained",
@@ -156,6 +156,28 @@
       "new_value": "plan",
       "reason": "orchestrator phase-transition sync (driver_startup; #3521)",
       "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-29T21:43:58.570035Z",
+      "actor": "orchestrator",
+      "role": "system",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "orchestrator phase-transition sync (driver_startup; #3521)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-29T22:32:22.078548Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "89117f58d6a6683745bc70c2ac4b5a1168f4460b",
+      "reason": "Linked commit 89117f5 to task-1-1",
+      "checkpoint_id": null
     }
   ],
   "refine_review_cycles": 0,
@@ -167,7 +189,7 @@
     "description": "validate_checks used `if c.get(\"fix\"): entry[\"fix\"] = str(c[\"fix\"])` which\nsilently dropped falsy fix values (empty string, false, 0) and str()-coerced\nnon-string values (e.g. YAML lists) into broken shell commands. Fix: validate\nthat fix, when present, is a non-empty string; log a warning when it is not.\nAligned parallel fallbacks in config/repo_config.py and orchestrator pipelines.",
     "test_plan": "- Automated: 61 tests in tests/egg_config/test_validators.py pass (5 new + 2 updated)\n- Automated: 9 tests in orchestrator/tests/test_propose_check_gate.py pass\n- Automated: ruff check passes on all 4 modified files",
     "manual_steps": "Pre-merge: None\nPost-merge: Monitor config load logs for new \"invalid fix\" warnings",
-    "context_pr_number": null,
+    "context_pr_number": 3704,
     "deferred_actions": []
   },
   "feedback": null,
