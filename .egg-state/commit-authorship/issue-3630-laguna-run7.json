@@ -7,6 +7,14 @@
       "registered_at": "2026-07-29T19:43:00.701171+00:00",
       "repo": null,
       "role": "refiner"
+    },
+    "f9ce6708abb6553491dba70f8e680ca5be30d4c4": {
+      "branch": "egg/issue-3630-laguna-run7/work",
+      "patch_id": "b5c7ba74ab09f0eca346c30e5f51709fd34f2b7c",
+      "pipeline_id": "issue-3630-laguna-run7",
+      "registered_at": "2026-07-29T19:43:46.027350+00:00",
+      "repo": null,
+      "role": "refiner"
     }
   },
   "version": 2
