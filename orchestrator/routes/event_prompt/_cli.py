@@ -103,6 +103,13 @@ def _cli(argv: list[str] | None = None) -> int:
       a fingerprint-change no-op-park release granted. Decoded
       best-effort (malformed → omitted) and rendered as the
       "why you were respawned" section. Unset on every ordinary spawn.
+    * ``EGG_WORKTREE_RECOVERY`` (pod env, inherited - #3684) - JSON list
+      of worktree-recovery notices, injected by ``spawn_event_job`` only
+      on the spawn whose worktree re-attach moved unpushed commits onto
+      an ``egg/recovered/...`` ref. Decoded best-effort (malformed →
+      omitted) and rendered as the LEADING section, so an agent facing a
+      reset tree learns where its work went before it can conclude the
+      work is gone. Unset on every ordinary spawn.
     """
     parser = argparse.ArgumentParser(
         description="Render the per-event BRC event-pump prompt (slice-3).",
@@ -223,6 +230,40 @@ def _cli(argv: list[str] | None = None) -> int:
         if isinstance(decoded, dict):
             release_context = decoded
 
+    # #3684 worktree-recovery notices - set by the spawner only on the spawn
+    # following a re-attach discard; every ordinary spawn leaves it unset so
+    # the common path renders byte-identically. Best-effort decode, same as
+    # the release delta above, with one difference in what a failure costs:
+    # this one is the agent's only pointer to preserved work, so a malformed
+    # value is logged to stderr rather than dropped in silence (the wrapper
+    # captures stdout for the prompt; stderr is operator-visible).
+    recovery_context: list[dict[str, Any]] | None = None
+    recovery_raw = (os.environ.get("EGG_WORKTREE_RECOVERY") or "").strip()
+    if recovery_raw:
+        try:
+            decoded_recovery = json.loads(recovery_raw)
+        except json.JSONDecodeError as exc:
+            print(
+                f"[event-prompt] EGG_WORKTREE_RECOVERY is not valid JSON ({exc}); "
+                "the recovery notice will NOT be rendered (#3684)",
+                file=sys.stderr,
+            )
+            decoded_recovery = None
+        if isinstance(decoded_recovery, list):
+            recovery_context = [n for n in decoded_recovery if isinstance(n, dict)]
+        elif decoded_recovery is not None:
+            # Well-formed JSON of the wrong shape — a dict from a caller that
+            # serialised a single notice rather than a one-element list, say.
+            # This is the *more* likely malformation of the two, and dropping
+            # it silently is the same failure as the malformed-JSON arm above,
+            # so it gets the same operator-visible warning (#3689 review).
+            print(
+                "[event-prompt] EGG_WORKTREE_RECOVERY decoded to "
+                f"{type(decoded_recovery).__name__}, expected a list of notice "
+                "objects; the recovery notice will NOT be rendered (#3684)",
+                file=sys.stderr,
+            )
+
     context_discipline = _context_discipline_enabled()
     memory_rel_path = ""
     if context_discipline and memory_path is not None:
@@ -244,6 +285,7 @@ def _cli(argv: list[str] | None = None) -> int:
         memory_rel_path=memory_rel_path,
         pipeline_id=_pipeline_id_token(),
         release_context=release_context,
+        recovery_context=recovery_context,
     )
     sys.stdout.write(prompt)
     return 0

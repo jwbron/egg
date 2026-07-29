@@ -5,10 +5,11 @@
 # stock image's Anthropic->OpenAI translation drops prompt-cache hits on
 # Qwen/DeepSeek, mis-streams reasoning models, silently drops params it does
 # not recognise, manufactures a reasoning ceiling from the caller's thinking
-# budget, loses the BYOK half of the provider's bill during stream
-# reassembly while its rate card cannot price the route either, and seeds its
-# own cost calculator with a BYOK zero that suppresses the estimate.
-# patch_litellm_cache.py closes the nine gaps at build time
+# budget, never sends prior-turn reasoning back, loses the BYOK half of the
+# provider's bill during stream reassembly while its rate card cannot price
+# the route either, and seeds its own cost calculator with a BYOK zero that
+# suppresses the estimate.
+# patch_litellm_cache.py closes the ten gaps at build time
 # (see that script for the diagnosis);
 # cost_callback.py surfaces the resulting cost/cache stats into the pod log
 # stream. Both mirror the host-side dotfiles setup that took Qwen cache hit
@@ -17,7 +18,7 @@
 # Pinned to v1.94.0 — the newest stable published release, and the version
 # the patches and cost_callback are validated against (#3697). The bump from
 # v1.86.2 retired four patches upstream absorbed, narrowed a fifth, and added
-# a ninth for a regression the bump itself brings in (1.94.0 hands its cost
+# a tenth for a regression the bump itself brings in (1.94.0 hands its cost
 # calculator the provider's `cost` even when that is a BYOK zero, which
 # suppresses the independent estimate and makes the rate-card patch dead code
 # on the streaming path).
@@ -41,10 +42,11 @@ COPY patch_litellm_cache.py /egg/patch_litellm_cache.py
 # script installs into every litellm tree (see NEW_MODULES). Keeping them real
 # files means they stay lintable and testable in the egg repo rather than
 # living as string literals — which is why none of them imports litellm at
-# module scope (tests/config/ imports all four directly).
+# module scope (tests/config/ imports all five directly).
 COPY openrouter_capabilities.py /egg/openrouter_capabilities.py
 COPY drop_params_visibility.py /egg/drop_params_visibility.py
 COPY anthropic_thinking_policy.py /egg/anthropic_thinking_policy.py
+COPY openrouter_reasoning_roundtrip.py /egg/openrouter_reasoning_roundtrip.py
 COPY stream_cost_preservation.py /egg/stream_cost_preservation.py
 RUN python3 /egg/patch_litellm_cache.py
 

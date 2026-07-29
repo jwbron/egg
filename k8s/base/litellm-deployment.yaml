@@ -112,12 +112,12 @@ spec:
             # - name: LITELLM_OPENROUTER_CAPABILITY_TIMEOUT
             #   value: "5"
             #
-            # Patch 8 — live OpenRouter pricing, read off the same roster
+            # Patch 9 — live OpenRouter pricing, read off the same roster
             # fetch as patch 4. ``0`` disables only the pricing half, leaving
             # the capability lookup running: LiteLLM's bundled map becomes the
             # sole authority on cost, and since it carries none of the slugs
             # egg routes, ``cost_estimated`` goes back to null on every call.
-            # The provider-billed ``cost`` is unaffected by this.
+            # The provider-billed ``cost`` (patch 8) is unaffected by this.
             # - name: LITELLM_OPENROUTER_PRICING
             #   value: "0"
             #
@@ -130,6 +130,17 @@ spec:
             # measured to need an explicit ask.
             # - name: LITELLM_ANTHROPIC_THINKING_TO_REASONING_EFFORT
             #   value: "1"
+            #
+            # Patch 7 — prior-turn assistant reasoning round-trip, on by
+            # default. ``0`` restores stock LiteLLM: the reasoning of every
+            # historical assistant turn rides to OpenRouter on a
+            # ``thinking_blocks`` field no request-path code reads, so models
+            # whose chat template re-renders prior thinking (Poolside Laguna)
+            # see an empty <think></think> per turn. This is the one patch that
+            # changes the outgoing request body on every OpenRouter call, so it
+            # is the one worth being able to back out without a rebuild.
+            # - name: LITELLM_OPENROUTER_REASONING_ROUNDTRIP
+            #   value: "0"
           livenessProbe:
             httpGet:
               path: /health/liveliness

@@ -4,6 +4,7 @@ Private submodule of the ``kubernetes_spawner`` sub-package; import through
 the barrel (``from kubernetes_spawner import ...``), not directly.
 """
 
+import json
 from datetime import datetime
 from typing import Any
 
@@ -14,6 +15,7 @@ from kubernetes_spawner import (
     ENV_EVENT_ACTION,
     ENV_EVENT_DEDUPE_KEY,
     ENV_EVENT_PAYLOAD_REFS,
+    ENV_WORKTREE_RECOVERY,
     LABEL_EVENT_ACTION,
     LABEL_EVENT_DEDUPE,
     logger,
@@ -278,6 +280,47 @@ def create_event_job_status_view(self) -> _pkg._EventJobStatusView:
     return _pkg._EventJobStatusView(self)
 
 
+def _recovery_env_json(notices: list[dict[str, Any]]) -> str:
+    """Serialize the #3684 worktree-recovery notices for the pod env, capped.
+
+    Overshoot drops whole trailing entries rather than truncating the JSON: a
+    half-serialised value decodes to nothing on the pod side, which would lose
+    the ref for repo 1 to save bytes on repo 8. Dropping from the tail keeps
+    the earliest (and, on a multi-repo pipeline, the primary) recovery ref
+    intact; the bus record still carries all of them.
+
+    **The last entry is never dropped.** Once ``kept`` is down to one notice
+    that still does not fit, the drop loop is the wrong tool — popping it
+    yields ``"[]"``, which the composer's ``if not recovery`` guard treats as
+    "no discard happened", so the successor renders with no recovery section
+    at all. That case is not hypothetical and it is not the benign one: the
+    only field that can overflow the budget is ``salvage_error`` (clamped at
+    the producer since #3689, belt-and-braces here), which is set exactly when
+    ``recovery_ref`` is ``None`` — the salvage-FAILED arm, where the notice
+    would have said *"do NOT start re-deriving"*. So the singleton degrades to
+    ``_WORKTREE_RECOVERY_MINIMAL_FIELDS`` — the ref and the shas, which are the
+    whole point of the payload — and only a minimal notice that STILL does not
+    fit (impossible for real sha/ref-shaped values) falls through to ``"[]"``,
+    which the caller treats as a delivery failure and logs as one.
+    """
+    kept = list(notices)
+    while len(kept) > 1:
+        raw = json.dumps(kept, ensure_ascii=False)
+        if len(raw.encode("utf-8")) <= _pkg._WORKTREE_RECOVERY_ENV_MAX_BYTES:
+            return raw
+        kept.pop()
+    if not kept:
+        return "[]"
+    raw = json.dumps(kept, ensure_ascii=False)
+    if len(raw.encode("utf-8")) <= _pkg._WORKTREE_RECOVERY_ENV_MAX_BYTES:
+        return raw
+    minimal = [{k: v for k, v in kept[0].items() if k in _pkg._WORKTREE_RECOVERY_MINIMAL_FIELDS}]
+    raw = json.dumps(minimal, ensure_ascii=False)
+    if len(raw.encode("utf-8")) <= _pkg._WORKTREE_RECOVERY_ENV_MAX_BYTES:
+        return raw
+    return "[]"
+
+
 def spawn_event_job(
     self,
     pipeline_id: str,
@@ -361,6 +404,11 @@ def spawn_event_job(
 
     # Build the candidate worktree id matching the existing convention.
     candidate_id = self._build_agent_worktree_id(pipeline_id, agent_role, slice_id=slice_id)
+    # #3684: filled by the re-attach when its hard-reset moves unpushed work
+    # onto an ``egg/recovered/...`` ref. The salvage itself has been reliable
+    # since #3639/#3644; what was missing is telling the agent, and the agent
+    # this spawn is about to create is the one that needs to hear it.
+    recovery_notices: list[dict[str, Any]] = []
     if repos:
         # Use the composed method that validates AND cleans dirty state
         # (R6 dirty-state policy) so re-attached worktrees always start
@@ -377,6 +425,8 @@ def spawn_event_job(
             agent_role=agent_role.value,
             slice_id=slice_id,
             mode=mode,
+            phase=spawn_kwargs.get("phase"),
+            recovery_out=recovery_notices,
         )
         if result is not None:
             reuse_worktree_id = candidate_id
@@ -443,6 +493,48 @@ def spawn_event_job(
     }
     if event_payload_refs:
         event_env[ENV_EVENT_PAYLOAD_REFS] = event_payload_refs
+    # #3684: this spawn's worktree re-attach moved unpushed work off the tree.
+    # Carry the recovery ref into the pod so the prompt composer can lead with
+    # it. Without this the only record is a bus message the agent must think to
+    # go read, and an agent that has just found its files missing does not
+    # think to read a BRC transcript — it re-implements (the #3684 incident:
+    # 8 commits / 3072 insertions re-derived from scratch while the ref sat on
+    # the remote). Set on the discard spawn only; every ordinary spawn leaves
+    # the key unset and renders byte-identically.
+    if recovery_notices:
+        recovery_json = _recovery_env_json(recovery_notices)
+        if recovery_json == "[]":
+            # Serialisation collapsed to the empty list. Setting the key here
+            # would be a silent no-op: the composer's ``if not recovery``
+            # guard drops an empty list without a word, so the pod renders as
+            # if no discard had happened while this side logs a success line
+            # (#3689 review). Say it failed, on the one side that can.
+            logger.warning(
+                "Event spawn: worktree-recovery notice did NOT fit the pod-env "
+                "budget — the successor will NOT be told where its work went",
+                pipeline_id=pipeline_id,
+                role=agent_role.value,
+                slice_id=slice_id,
+                notice_count=len(recovery_notices),
+                env_max_bytes=_pkg._WORKTREE_RECOVERY_ENV_MAX_BYTES,
+                recovery_refs=[n.get("recovery_ref") for n in recovery_notices],
+            )
+        else:
+            event_env[ENV_WORKTREE_RECOVERY] = recovery_json
+            delivered = json.loads(recovery_json)
+            logger.info(
+                "Event spawn: injecting worktree-recovery notice into pod env",
+                pipeline_id=pipeline_id,
+                role=agent_role.value,
+                slice_id=slice_id,
+                # The DELIVERED refs, not the input ones: the cap can drop
+                # trailing entries, and a log line that reports what was
+                # handed in rather than what was serialised claims a delivery
+                # that did not happen (#3689 review).
+                recovery_refs=[n.get("recovery_ref") for n in delivered],
+                notices_delivered=len(delivered),
+                notices_total=len(recovery_notices),
+            )
     # Merge with any caller-supplied extra_env (caller's non-event keys
     # win for their own keys; event identity keys are set by us).
     caller_env = spawn_kwargs.pop("extra_env", None) or {}

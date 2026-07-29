@@ -626,6 +626,115 @@ def test_cost_details_carry_runs_after_the_rebuild_not_before(tmp_path):
     ), "the latch must be set after the emit, not before it"
 
 
+def test_roundtrip_needle_anchors_on_transform_request(tmp_path):
+    """The round-trip patch must land in ``transform_request`` and nowhere else.
+
+    ``_supports_cache_control_in_content`` is named THREE times in 1.94.0 (its
+    own ``def``, the call in ``remove_cache_control_flag_from_messages_and_tools``
+    and the call in ``transform_request``), and ``_move_cache_control_to_content``
+    twice. A needle built from either call alone could retarget after an upstream
+    reorder — the same trap the drop_params and live-pricing needles document.
+    The needle therefore runs through the ``extra_body`` pop, which happens only
+    here."""
+    roundtrip_patch = _patch_by_description("assistant reasoning round-trip")
+
+    # A sibling that mentions the same helper, ahead of the real site.
+    sibling = (
+        "    def remove_cache_control_flag_from_messages_and_tools(\n"
+        "        self, model, messages, tools=None\n"
+        "    ):\n"
+        "        if self._supports_cache_control_in_content(model):\n"
+        "            return messages, tools\n"
+    )
+    target = tmp_path / roundtrip_patch["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(sibling + "\n" + roundtrip_patch["needle"])
+
+    plc._apply(
+        str(target),
+        present=roundtrip_patch["present"],
+        needle=roundtrip_patch["needle"],
+        replacement=roundtrip_patch["replacement"],
+        label=roundtrip_patch["label"],
+    )
+    result = target.read_text()
+
+    assert sibling in result, "the sibling call site must be left alone"
+    inserted_at = result.index(roundtrip_patch["present"])
+    assert inserted_at > result.index(sibling), "the round-trip patch must land after the sibling"
+
+
+def test_roundtrip_preserves_the_cache_control_step(tmp_path):
+    """The round-trip patch shares its needle's file with Patch 1 and sits
+    directly on top of the cache_control rewrite. Asserting on the RESULT
+    (rather than on the replacement literal) is what catches a patch that
+    dropped that step while inserting its own."""
+    roundtrip_patch = _patch_by_description("assistant reasoning round-trip")
+
+    target = tmp_path / roundtrip_patch["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(roundtrip_patch["needle"])
+
+    plc._apply(
+        str(target),
+        present=roundtrip_patch["present"],
+        needle=roundtrip_patch["needle"],
+        replacement=roundtrip_patch["replacement"],
+        label=roundtrip_patch["label"],
+    )
+    result = target.read_text()
+
+    # The cache_control step survives, and still precedes the extra_body pop.
+    assert "messages = self._move_cache_control_to_content(messages)" in result
+    assert result.index("_move_cache_control_to_content") < result.index("_egg_map_reasoning")
+    assert result.index("_egg_map_reasoning") < result.index('optional_params.pop("extra_body"')
+
+    # The mapping runs on the REQUEST path, and a failure in it cannot
+    # propagate into the request.
+    assert "except Exception:" in result
+    assert "_egg_reasoning_roundtrip" in result
+
+
+def test_roundtrip_passes_the_model_and_reports_an_unavailable_module(tmp_path):
+    """Two properties of the injected call site.
+
+    The module declines routes whose upstream re-verifies replayed reasoning
+    (anthropic/*, google/*), which it can only do if the call site hands it
+    ``model``. And an import failure means a broken image, not a bad request:
+    reverting to stock in silence there is invisible until a model quietly
+    reasons worse — the condition Patch 5 exists to stop repeating."""
+    roundtrip_patch = _patch_by_description("assistant reasoning round-trip")
+
+    target = tmp_path / roundtrip_patch["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(roundtrip_patch["needle"])
+
+    plc._apply(
+        str(target),
+        present=roundtrip_patch["present"],
+        needle=roundtrip_patch["needle"],
+        replacement=roundtrip_patch["replacement"],
+        label=roundtrip_patch["label"],
+    )
+    result = target.read_text()
+
+    assert "_egg_map_reasoning(messages, model)" in result
+    assert "verbose_logger.warning(" in result
+    assert "_egg_reasoning_roundtrip_warned" in result, "warned once, not once per request"
+
+
+def test_roundtrip_maps_onto_the_request_not_the_response(tmp_path):
+    """Guard against the adjacent-patch confusion the docstring calls out: the
+    three patches the 1.94.0 bump retired were provider -> client, this one is
+    client -> provider. A patch that touched ``transform_response`` would be a
+    different bug."""
+    roundtrip_patch = _patch_by_description("assistant reasoning round-trip")
+
+    assert "transform_response" not in roundtrip_patch["needle"]
+    assert "transform_response" not in roundtrip_patch["replacement"]
+    assert roundtrip_patch["file"] == plc.F1
+
+
 # The body ``_propagate_usage_cost_to_hidden_params`` runs once its guard is
 # true, transcribed from 1.94.0 and picking up where the billable-cost patch's
 # needle ends. A PINNED SNAPSHOT — see the module docstring. It is here rather

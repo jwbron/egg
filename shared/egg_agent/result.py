@@ -33,6 +33,13 @@ class AgentResult:
             when the SDK reports no usage (e.g. non-Claude/LiteLLM routes with
             partial or absent usage), in which case callers must bias to a
             safe reseed rather than a lossy resume.
+        timed_out: True iff the run ended because the session's wall-clock
+            budget (``run_agent(timeout=...)``) expired rather than because the
+            agent finished or errored (#3658). A STRUCTURED signal deliberately
+            preferred over re-matching the ``error`` text: the CLI maps it to
+            ``EX_SESSION_TIMEOUT`` so the orchestrator can treat the expiry as a
+            session boundary instead of a crash, and a classifier over our own
+            message would silently stop working the day that message changes.
         token_usage: Optional raw component counts (input/cache_read/
             cache_creation/output) preserved for downstream breakout and
             measurement surfaces (#3200 phase 10). The single
@@ -52,3 +59,4 @@ class AgentResult:
     session_id: str | None = None
     window_occupancy: int | None = None
     token_usage: dict[str, int] | None = None
+    timed_out: bool = False

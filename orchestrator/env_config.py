@@ -286,6 +286,11 @@ DEFAULT_STACKED_PR_RECONCILER_INTERVAL_SECONDS = 30.0
 # forever. Default 240 ticks × 30 s ≈ 2 h.
 DEFAULT_CROSS_REPO_MERGE_GATE_MAX_ATTEMPTS = 240
 
+# Wall-clock budget for a single one-shot agent invocation, in seconds (#3658).
+# Matches ``egg_agent.__main__``'s argparse default, so making the wrapper pass
+# it explicitly changes no behaviour — it only makes the number reachable.
+DEFAULT_AGENT_SESSION_TIMEOUT_SECONDS = 7200
+
 
 def _coerce_positive_int(env_name: str, default: int) -> int:
     """Read a positive-int env var with a default; warn on bad input."""
@@ -487,6 +492,35 @@ def get_recovery_ref_cleanup_interval_seconds() -> float:
     return _coerce_positive_float(
         "EGG_ORCH_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS",
         DEFAULT_RECOVERY_REF_CLEANUP_INTERVAL_SECONDS,
+    )
+
+
+def get_agent_session_timeout_seconds() -> int:
+    """Return the per-invocation agent wall-clock budget in seconds (default 7200).
+
+    Rendered into every one-shot spawn as ``python3 -m egg_agent --timeout N``
+    (#3658). The value is unchanged from what the pipeline has always run — the
+    agent CLI's own argparse default is 7200 — but it was previously *only* that
+    default: the wrapper never passed ``--timeout``, so the number every agent
+    lived under was unreachable from any configuration surface and invisible in
+    the spawn command. Passing it explicitly makes it a deliberate, tunable,
+    logged choice.
+
+    It stays UNIFORM across roles and phases. Differentiating it (an
+    implement-phase coder on a multi-file slice is not a refiner) is a real
+    question, but it is a policy question with no evidence attached yet; a guess
+    per role would be worse than one honest number. ``EGG_AGENT_SESSION_TIMEOUT_SECONDS``
+    is the lever for gathering that evidence.
+
+    Note the ceiling above this one: the k8s Job carries
+    ``active_deadline_seconds`` (4 h, ``kubernetes_client``). A budget set at or
+    beyond it would let the Job deadline win instead — killing the pod with no
+    checkpoint and no ``EX_SESSION_TIMEOUT``, which is the pre-#3658 behaviour
+    this exists to replace. Keep it comfortably below 14400.
+    """
+    return _coerce_positive_int(
+        "EGG_AGENT_SESSION_TIMEOUT_SECONDS",
+        DEFAULT_AGENT_SESSION_TIMEOUT_SECONDS,
     )
 
 

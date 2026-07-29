@@ -593,7 +593,7 @@ data:
 > Claude Code prepends (the block's `cch=` hash invalidates the cache key
 > every turn). egg ships a custom **`egg-litellm`** image
 > ([`config/litellm/Dockerfile`](../../config/litellm/Dockerfile)) that
-> bakes in nine patches closing those gaps, the reasoning-parameter ones
+> bakes in ten patches closing those gaps, the reasoning-parameter ones
 > below, and the cost-visibility ones after that
 > ([`config/litellm/patch_litellm_cache.py`](../../config/litellm/patch_litellm_cache.py));
 > the build fails loudly if a LiteLLM bump moves the patched code. Pinning
@@ -614,7 +614,7 @@ data:
 > (issue #3691; before them, 1252 of 1252 sampled calls on run 6 reported
 > `cost: null`, so egg had no dollar figure at all for its LLM spend).
 >
-> - **Patch 7 — the BYOK bill survives streaming.** `cost` is what OpenRouter
+> - **Patch 8 — the BYOK bill survives streaming.** `cost` is what OpenRouter
 >   charged, reported on the final streamed usage chunk. No config change is
 >   needed to get it: stock LiteLLM's `OpenrouterConfig.transform_request`
 >   already sets `usage: {"include": true}` on every request, so the number
@@ -628,7 +628,7 @@ data:
 >   which is the half that matters under BYOK, where the top-level `cost` is a
 >   literal `0` and the real number is `cost_details.upstream_inference_cost`.
 >   The patch interprets neither field; it only transports.
-> - **Patch 8 — the estimate has a rate card.** `cost_estimated` is
+> - **Patch 9 — the estimate has a rate card.** `cost_estimated` is
 >   LiteLLM's own `response_cost`, computed from its bundled pricing map —
 >   which carries none of the slugs egg routes, exactly as it carries none of
 >   their `supported_parameters` (patch 4, same root cause). The patch reads
@@ -637,12 +637,12 @@ data:
 >   every bundled lookup has failed — so a mapped slug keeps its bundled
 >   rate, and the live card can add a model but never reprice one.
 >   `LITELLM_OPENROUTER_PRICING=0` turns off just this half.
-> - **Patch 9 — the estimate stays independent under BYOK.** From 1.94.0
+> - **Patch 10 — the estimate stays independent under BYOK.** From 1.94.0
 >   LiteLLM copies a provider-reported `usage.cost` into `_hidden_params` and
 >   `response_cost_calculator` returns that value *before* it reaches
 >   `completion_cost()`. Its guard is `is not None`, and under BYOK OpenRouter
 >   reports `cost: 0.0` — so unpatched, the calculator is handed a zero,
->   `cost_estimated` reads null on ~100% of egg's traffic, and patch 8 (which
+>   `cost_estimated` reads null on ~100% of egg's traffic, and patch 9 (which
 >   lives inside `completion_cost()`) never runs at all. The patch narrows the
 >   guard to a positive, finite charge. A route that reports a real bill still
 >   propagates it unchanged, in which case `cost_estimated` mirrors `cost`
@@ -653,7 +653,7 @@ data:
 > `pricing.overrides` keyed by an arbitrary `min_prompt_tokens`. LiteLLM has
 > named rate slots at exactly three boundaries — 128000, 200000, 272000 — and
 > its coverage is uneven *per component*: there is no cache-read slot at
-> 128000 and no cache-write slot at 128000 or 272000. Patch 8 translates a
+> 128000 and no cache-write slot at 128000 or 272000. Patch 9 translates a
 > surcharge when every published boundary and every priced component in it has
 > a slot (about half the tiered models on the current roster, including the
 > gpt-5.5 and grok-4.x families), and declines the **whole** card otherwise.
@@ -676,7 +676,7 @@ data:
 > independent measurements of the same turn, so read them together: a
 > persistent gap between them is itself a signal (a stale rate card, an
 > unexpected provider, or a surcharge tier). On a route where the provider
-> reports a positive charge, patch 9 lets that charge through to LiteLLM's
+> reports a positive charge, patch 10 lets that charge through to LiteLLM's
 > calculator and `cost_estimated` mirrors `cost`; agreement there is
 > arithmetic, not corroboration. Neither is ever
 > coerced to `0.0` when unknown — a zero would read in the logs as "this
@@ -692,9 +692,10 @@ data:
 >                est: .call.cost_estimated}'
 > ```
 
-> **Reasoning depth on OpenRouter routes, and the four env vars that
-> control it.** Two of the baked-in patches decide whether a reasoning
-> parameter reaches the provider, and both are runtime-overridable on
+> **Reasoning depth on OpenRouter routes, and the five env vars that
+> control it.** Three of the baked-in patches decide what reasoning a
+> provider sees — two whether a reasoning *parameter* reaches it, one
+> whether prior-turn reasoning does — and all three are runtime-overridable on
 > [`k8s/base/litellm-deployment.yaml`](../../k8s/base/litellm-deployment.yaml)
 > (where they are present but commented out) without rebuilding the image:
 >
@@ -712,7 +713,7 @@ data:
 >   phase) tune it. A fetch that fails is cached for the TTL too, so an
 >   offline cluster costs one attempt per hour rather than one per request,
 >   and the first failure is logged at `warning`. Note `_FETCH=0` also
->   disables patch 8's pricing lookup — one fetch serves both, so the master
+>   disables patch 9's pricing lookup — one fetch serves both, so the master
 >   switch governs both; `LITELLM_OPENROUTER_PRICING=0` turns off only the
 >   pricing half.
 > - **Patch 6 — no synthesized reasoning ceiling.** On `/v1/messages` (the
@@ -730,6 +731,20 @@ data:
 >   adaptive request that names an effort outright
 >   (`output_config: {effort: ...}`) is an instruction rather than a
 >   manufactured ceiling, and still reaches the provider with this off.
+> - **Patch 7 — prior-turn reasoning actually reaches the provider.** The
+>   same adapter parks each historical assistant turn's thinking on a
+>   `thinking_blocks` field that no OpenRouter request-path code reads, so
+>   every previous turn arrived with its reasoning missing. On a model whose
+>   chat template re-renders prior thinking (Poolside Laguna renders
+>   `<think>{{ message.reasoning_content }}</think>` per assistant turn)
+>   that is a malformed history, not a lost optimisation. The patch maps
+>   those blocks onto `reasoning_content`, the field OpenRouter documents
+>   for multi-turn tool calling. `LITELLM_OPENROUTER_REASONING_ROUNDTRIP=0`
+>   restores stock behaviour. Two things it deliberately does not do:
+>   Anthropic- and Google-via-OpenRouter slugs are left untouched (their
+>   upstream re-verifies the block `signature` this plain-string form cannot
+>   carry), and a `reasoning_content` the caller already set is never
+>   overwritten.
 >
 > The same measurement is why the commented-out
 > `extra_body.reasoning.effort: "high"` in

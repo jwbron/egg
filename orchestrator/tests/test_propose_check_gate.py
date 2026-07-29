@@ -6,10 +6,11 @@ Covers:
   ``off`` as the default (#3670 must land before that can flip) and an
   unrecognised value degrading to the default.
 * ``_infra_fail_open_enabled`` — the #3417/#3621 fail-open switch.
-* ``gate_checks`` — config-driven selection, the skip set, and the
-  ``full_command`` resolution that keeps a changeset-narrowed command
-  from ever being what the gate runs (constraint: a narrowed run is
-  never evidence).
+* ``gate_checks`` — config-driven selection, the skip set, the
+  ``full_command`` resolution that prefers a repo's ground-truth form
+  over its changeset-narrowed one (constraint: a narrowed run is never
+  evidence), and the #3681 warning that names each check with no
+  declared ground-truth form, since no repo declares one today.
 * ``parse_verdict`` — sentinel extraction from noisy pod logs.
 * ``_RUNNER_PROGRAM`` — executed for real in a subprocess against a
   throwaway git repo: it runs the checks in the worktree exactly as the
@@ -234,6 +235,49 @@ class TestGateChecks:
         """A config problem must never reject a proposal."""
         with patch("config.repo_config.get_repo_checks", side_effect=RuntimeError("boom")):
             assert gate.gate_checks("owner/repo") == []
+
+    def test_undeclared_full_command_is_warned_about(self):
+        """The gap must be audible in the log, not only in the attestation (#3681)."""
+        configured = [
+            {"name": "lint", "command": "make lint"},
+            {"name": "test", "command": "make test"},
+        ]
+        with (
+            patch("config.repo_config.get_repo_checks", return_value=configured),
+            patch.object(gate.logger, "warning") as warn,
+        ):
+            gate.gate_checks("owner/repo")
+
+        assert warn.call_count == 1
+        assert warn.call_args.kwargs["checks"] == ["lint", "test"]
+        assert warn.call_args.kwargs["commands"] == ["make lint", "make test"]
+
+    def test_no_warning_when_every_check_declares_a_full_command(self):
+        configured = [
+            {"name": "lint", "command": "make lint", "full_command": "make lint-all"},
+            {"name": "test", "command": "make test", "full_command": "make test-all"},
+        ]
+        with (
+            patch("config.repo_config.get_repo_checks", return_value=configured),
+            patch.object(gate.logger, "warning") as warn,
+        ):
+            gate.gate_checks("owner/repo")
+
+        warn.assert_not_called()
+
+    def test_skipped_checks_are_not_warned_about(self):
+        """`security` is skipped, so its missing full_command is irrelevant."""
+        configured = [
+            {"name": "test", "command": "make test", "full_command": "make test-all"},
+            {"name": "security", "command": "make security"},
+        ]
+        with (
+            patch("config.repo_config.get_repo_checks", return_value=configured),
+            patch.object(gate.logger, "warning") as warn,
+        ):
+            gate.gate_checks("owner/repo")
+
+        warn.assert_not_called()
 
 
 class TestValidateChecksFullCommand:
