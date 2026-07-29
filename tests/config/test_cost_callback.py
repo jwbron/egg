@@ -21,8 +21,11 @@ the full trace.
 import importlib.util
 import json
 import sys
+import time
 import types
 from pathlib import Path
+
+import pytest
 
 
 def _load_cost_callback():
@@ -333,6 +336,149 @@ class TestRecordCostReporting:
         assert session["cost"] == 0.0123
 
 
+class TestPromptTokensDelta:
+    """Per-call growth of the prompt within a session (#3595) — the livelock
+    signature, made readable from one line instead of by differencing a whole
+    session's lines against each other after the fact."""
+
+    def setup_method(self):
+        cc._session_totals.clear()
+
+    def _capture(self, monkeypatch) -> list[dict]:
+        emitted: list[dict] = []
+        monkeypatch.setattr(cc, "_emit", lambda payload: emitted.append(payload))
+        return emitted
+
+    def _usage(self, prompt_tokens: int) -> dict:
+        return {"prompt_tokens": prompt_tokens, "completion_tokens": 10, "cost": 0.001}
+
+    def test_first_call_has_no_delta(self, monkeypatch):
+        emitted = self._capture(monkeypatch)
+        cc.LiteLLMCostLogger()._record(_mcd("d1", raw_usage=self._usage(1000)), None)
+        # No predecessor to difference against. That is not a delta of zero,
+        # which would read as "the prompt did not grow".
+        assert emitted[0]["call"]["prompt_tokens_delta"] is None
+
+    def test_repetition_trap_shows_a_small_constant_delta(self, monkeypatch):
+        emitted = self._capture(monkeypatch)
+        logger = cc.LiteLLMCostLogger()
+        # The observed #3595 shape: each turn re-sends the whole context plus
+        # one near-identical increment.
+        for prompt in (460_000, 460_527, 461_054, 461_581):
+            logger._record(_mcd("d2", raw_usage=self._usage(prompt)), None)
+        deltas = [e["call"]["prompt_tokens_delta"] for e in emitted]
+        assert deltas == [None, 527, 527, 527]
+
+    def test_deltas_are_tracked_per_session_not_globally(self, monkeypatch):
+        emitted = self._capture(monkeypatch)
+        logger = cc.LiteLLMCostLogger()
+        logger._record(_mcd("a", raw_usage=self._usage(1000)), None)
+        logger._record(_mcd("b", raw_usage=self._usage(50_000)), None)
+        logger._record(_mcd("a", raw_usage=self._usage(1200)), None)
+        # Session b's much larger prompt must not contaminate session a's
+        # delta; interleaved sessions are the normal case on a busy proxy.
+        assert emitted[1]["call"]["prompt_tokens_delta"] is None
+        assert emitted[2]["call"]["prompt_tokens_delta"] == 200
+
+    def test_a_shrinking_prompt_reads_as_negative_not_as_zero(self, monkeypatch):
+        emitted = self._capture(monkeypatch)
+        logger = cc.LiteLLMCostLogger()
+        logger._record(_mcd("c", raw_usage=self._usage(400_000)), None)
+        # A compaction / reseed drops the prompt. Recording that as a real
+        # negative is what distinguishes it from a stalled-but-flat session.
+        logger._record(_mcd("c", raw_usage=self._usage(12_000)), None)
+        assert emitted[-1]["call"]["prompt_tokens_delta"] == -388_000
+
+
+class TestBuildAttribution:
+    """Which physical build served the turn (#3692): provider per call off the
+    response, endpoint name + quantization per model from cached metadata."""
+
+    def setup_method(self):
+        cc._session_totals.clear()
+        cc._build_cache.clear()
+        cc._build_pending.clear()
+
+    def _capture(self, monkeypatch) -> list[dict]:
+        emitted: list[dict] = []
+        monkeypatch.setattr(cc, "_emit", lambda payload: emitted.append(payload))
+        return emitted
+
+    def test_no_network_without_a_configured_key(self, monkeypatch):
+        # The logging hook must never reach for the network uninvited; without
+        # the credential the proxy runs with, the lookup is not attempted.
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        monkeypatch.setattr(
+            cc, "_fetch_build_info", lambda slug: pytest.fail("fetched without a key")
+        )
+        assert cc._build_info("openrouter/poolside/laguna-s-2.1") is None
+
+    def test_slug_strips_the_openrouter_prefix(self):
+        assert cc._upstream_slug("openrouter/poolside/laguna-s-2.1") == "poolside/laguna-s-2.1"
+        assert cc._upstream_slug("poolside/laguna-s-2.1") == "poolside/laguna-s-2.1"
+        assert cc._upstream_slug(None) is None
+
+    def test_metadata_is_fetched_once_per_model_then_cached(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+        calls = []
+
+        def fake_fetch(slug):
+            calls.append(slug)
+            return {
+                "name": "Poolside | poolside/laguna-s-2.1-20260720",
+                "quantization": "bf16",
+                "context_length": 1048576,
+            }
+
+        monkeypatch.setattr(cc, "_fetch_build_info", fake_fetch)
+        # Runs on a daemon thread, so the first sighting returns None; join by
+        # polling the cache rather than sleeping a fixed interval.
+        assert cc._build_info("openrouter/poolside/laguna-s-2.1") is None
+        for _ in range(200):
+            if "poolside/laguna-s-2.1" in cc._build_cache:
+                break
+            time.sleep(0.01)
+        info = cc._build_info("openrouter/poolside/laguna-s-2.1")
+        assert info["quantization"] == "bf16"
+        assert info["name"].endswith("20260720")
+        # A second and third sighting must not re-fetch.
+        cc._build_info("openrouter/poolside/laguna-s-2.1")
+        assert calls == ["poolside/laguna-s-2.1"]
+
+    def test_a_failed_lookup_is_cached_so_it_is_not_retried_per_call(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+        calls = []
+        monkeypatch.setattr(cc, "_fetch_build_info", lambda slug: calls.append(slug) or None)
+        cc._build_info("openrouter/m")
+        for _ in range(200):
+            if "m" in cc._build_cache:
+                break
+            time.sleep(0.01)
+        cc._build_info("openrouter/m")
+        cc._build_info("openrouter/m")
+        assert calls == ["m"]
+
+    def test_provider_is_read_off_the_nonstreaming_response_body(self):
+        mcd = {"original_response": json.dumps({"provider": "Poolside", "usage": {}})}
+        assert cc._extract_provider(mcd, None) == "Poolside"
+
+    def test_provider_falls_back_to_the_assembled_object(self):
+        obj = types.SimpleNamespace(provider="Poolside")
+        assert cc._extract_provider({}, obj) == "Poolside"
+
+    def test_unknown_provider_is_none_not_a_guess(self):
+        assert cc._extract_provider({}, None) is None
+
+    def test_endpoint_block_is_emitted_with_nulls_before_the_lookup_lands(self, monkeypatch):
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        emitted = self._capture(monkeypatch)
+        cc.LiteLLMCostLogger()._record(_mcd("b1", raw_usage=_usage_with_cost()), None)
+        ep = emitted[0]["endpoint"]
+        # Null means "not yet known", never a fabricated default.
+        assert set(ep) == {"provider", "name", "quantization", "context_length"}
+        assert ep["name"] is None and ep["quantization"] is None
+
+
 class TestEstimatedCost:
     """LiteLLM's pricing-map ``response_cost``, surfaced as ``cost_estimated``
     — strictly separate from the billed ``cost`` and under the same
@@ -544,6 +690,11 @@ class TestExtractRequestParams:
         # sends a dozen-plus per request). Dumping it whole would bloat every
         # line and spill task text into a cost stream. The allowlist is the
         # guard; this pins it.
+        #
+        # ``tools`` is recorded by ARITY only (``tools_count``): tool presence
+        # is the strongest observed lever on whether the model reasons, so the
+        # integer is load-bearing while the schemas it counts are exactly the
+        # bloat the allowlist exists to keep out.
         params = cc._extract_request_params(
             _mcd(
                 "r",
@@ -556,7 +707,38 @@ class TestExtractRequestParams:
                 },
             )
         )
-        assert params == {"temperature": 0.3}
+        assert params == {"temperature": 0.3, "tools_count": 1, "tool_choice": "auto"}
+        # The schema body and the prompt text are the things that must never
+        # reach this stream, whatever else the allowlist grows to carry.
+        rendered = json.dumps(params)
+        assert "y" * 100 not in rendered
+        assert "secret task text" not in rendered
+
+    def test_tools_arity_is_recorded_without_the_schemas(self):
+        # 0 vs many is the signal the 2x2 turned on, so the count has to
+        # survive a realistic dozen-plus-tool Claude Code request intact.
+        params = cc._extract_request_params(
+            _mcd(
+                "r",
+                optional_params={
+                    "tools": [
+                        {"name": f"tool{i}", "input_schema": {"x": "y" * 400}} for i in range(14)
+                    ],
+                    "tool_choice": "none",
+                },
+            )
+        )
+        assert params["tools_count"] == 14
+        assert params["tool_choice"] == "none"
+        assert "y" * 100 not in json.dumps(params)
+
+    def test_absent_tools_key_is_not_reported_as_zero(self):
+        # "we could not tell" and "no callable tools were offered" are
+        # different claims; only the latter may read as 0.
+        params = cc._extract_request_params(_mcd("r", optional_params={"temperature": 0.3}))
+        assert "tools_count" not in params
+        empty = cc._extract_request_params(_mcd("r", optional_params={"tools": []}))
+        assert empty["tools_count"] == 0
 
     def test_extra_body_hoists_known_knobs_and_keeps_the_provider_pin(self):
         # LiteLLM relocates knobs a provider doesn't declare into extra_body

@@ -100,7 +100,10 @@ import collections
 import datetime
 import json
 import math
+import os
 import threading
+import urllib.parse
+import urllib.request
 
 from litellm.integrations.custom_logger import CustomLogger
 
@@ -366,6 +369,119 @@ def _extract_model(mcd):
         return None
 
 
+def _extract_provider(mcd, response_obj):
+    """The provider that actually served this turn, off the response body.
+
+    OpenRouter puts a top-level ``provider`` on the response ("Poolside"). It
+    survives on the non-streaming path via ``original_response``; on the
+    streaming path we fall back to the assembled object, which carries it only
+    when litellm preserved the field. ``None`` means "we could not tell",
+    consistent with the rest of this module."""
+    try:
+        rr = (mcd or {}).get("original_response")
+        if isinstance(rr, str):
+            try:
+                rr = json.loads(rr.strip())
+            except Exception:
+                rr = None
+        if isinstance(rr, dict) and isinstance(rr.get("provider"), str):
+            return rr["provider"]
+        prov = getattr(response_obj, "provider", None)
+        if isinstance(prov, str):
+            return prov
+        hp = getattr(response_obj, "_hidden_params", None)
+        if isinstance(hp, dict):
+            for key in ("provider", "custom_llm_provider"):
+                if isinstance(hp.get(key), str):
+                    return hp[key]
+    except Exception:
+        pass
+    return None
+
+
+# Build attribution (#3692). "Which build served this turn" is not answerable
+# from the response body: it carries the provider NAME but not the endpoint's
+# dated build id or its quantization, and two endpoints behind one provider can
+# differ in both. Those live in OpenRouter's per-model endpoints metadata.
+#
+# Fetched at most ONCE per model per process, on a daemon thread, and cached.
+# Never on the request path: this runs in the proxy's logging hook, so a
+# blocking lookup here would stall the event loop for every call. Until the
+# first fetch resolves, the fields emit as null — "not yet known", which is the
+# same unknown-is-not-zero discipline the cost fields follow. A model whose
+# lookup fails caches the failure so it is not retried per call.
+_BUILD_URL = "https://openrouter.ai/api/v1/models/{slug}/endpoints"
+_build_cache: dict[str, dict | None] = {}
+_build_pending: set[str] = set()
+_build_lock = threading.Lock()
+
+
+def _upstream_slug(model):
+    """``openrouter/poolside/laguna-s-2.1`` -> ``poolside/laguna-s-2.1``."""
+    if not isinstance(model, str) or not model:
+        return None
+    return model.split("/", 1)[1] if model.startswith("openrouter/") else model
+
+
+def _fetch_build_info(slug):
+    try:
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        req = urllib.request.Request(
+            _BUILD_URL.format(slug=urllib.parse.quote(slug, safe="/")),
+            headers=({"Authorization": f"Bearer {api_key}"} if api_key else {}),
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = (json.loads(resp.read()) or {}).get("data") or {}
+        endpoints = data.get("endpoints")
+        if not isinstance(endpoints, list) or not endpoints:
+            return None
+        # egg pins a single provider per route (`allow_fallbacks: false`), so
+        # the first endpoint is the one that serves us. Recorded verbatim
+        # rather than parsed: the dated build id is inside the name string.
+        first = endpoints[0] if isinstance(endpoints[0], dict) else {}
+        return {
+            "name": first.get("name"),
+            "quantization": first.get("quantization"),
+            "context_length": first.get("context_length"),
+        }
+    except Exception:
+        return None
+
+
+def _build_info(model):
+    """Cached build identity for ``model``; ``None`` until the first fetch lands."""
+    slug = _upstream_slug(model)
+    if not slug:
+        return None
+    # Gate the lookup on the credential the proxy is configured with. In the
+    # egg-litellm container it is always present (the route reads the same
+    # variable), so this is a no-op there; outside it — unit tests, an import
+    # of this module by tooling — it means we never reach for the network
+    # uninvited. Without it the logging hook of every test that exercises
+    # _record would fire a real HTTP request.
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        return None
+    with _build_lock:
+        if slug in _build_cache:
+            return _build_cache[slug]
+        if slug in _build_pending:
+            return None
+        _build_pending.add(slug)
+
+    def _work():
+        info = _fetch_build_info(slug)
+        with _build_lock:
+            _build_cache[slug] = info
+            _build_pending.discard(slug)
+
+    try:
+        threading.Thread(target=_work, name=f"build-info-{slug}", daemon=True).start()
+    except Exception:
+        with _build_lock:
+            _build_pending.discard(slug)
+    return None
+
+
 # Decoding-relevant request parameters to record per call (#3599).
 #
 # An ALLOWLIST, not a dump of ``optional_params``: that dict also carries the
@@ -400,7 +516,22 @@ _REQUEST_PARAM_KEYS = (
     "reasoning",
     "thinking",
     "stream",
+    # Whether the model was *allowed* to call a tool on this turn. Small
+    # scalar ("auto"/"none"/"required") or a small object naming one tool, so
+    # unlike ``tools`` it is safe to record verbatim under the value cap.
+    "tool_choice",
 )
+
+# Key under which we record how many callable tools the request carried.
+# ``tools`` itself stays off the allowlist above (a dozen-plus translated
+# schemas per Claude Code request — the bloat the allowlist exists to avoid),
+# but its *arity* is one integer and is the load-bearing part: tool presence
+# is the strongest observed lever on whether this class of model reasons at
+# all, and ``tools_count: 0`` vs ``tools_count: 14`` is the whole signal.
+# Paired with ``tool_choice`` it distinguishes "no tools were offered" from
+# "tools were offered but forbidden for this turn", which are different
+# conditions that a bare presence flag would collapse.
+_TOOLS_COUNT_KEY = "tools_count"
 
 # Per-value size cap. Everything on the allowlist is normally a scalar or a
 # small object, but ``logit_bias`` / ``stop`` are client-supplied and
@@ -680,10 +811,23 @@ def _extract_request_params(mcd):
         for key in _REQUEST_PARAM_KEYS:
             if key in params:
                 out[key] = _bounded_param(params[key])
+        # Arity only, never the schemas. Recorded from whichever depth LiteLLM
+        # left them at, and omitted entirely when the request carried no
+        # ``tools`` key at all — absent means "we could not tell", which is not
+        # the same claim as ``tools_count: 0`` ("no callable tools offered").
+        tools = params.get("tools")
         extra = params.get("extra_body")
+        if not isinstance(tools, list) and isinstance(extra, dict):
+            tools = extra.get("tools")
+        if isinstance(tools, list):
+            out[_TOOLS_COUNT_KEY] = len(tools)
         if isinstance(extra, dict):
             leftover = {}
             for key, value in extra.items():
+                # Never let the schemas through by the extra_body path either:
+                # the count above is the whole of what we want from them.
+                if key == "tools":
+                    continue
                 # LiteLLM's param mapper relocates knobs a provider doesn't
                 # declare into extra_body rather than dropping them (e.g.
                 # top_k on an OpenAI-shaped route), so the same knob lands at
@@ -760,6 +904,13 @@ class LiteLLMCostLogger(CustomLogger):
             model = _extract_model(mcd)
             attribution = _extract_attribution(mcd)
             request_params = _extract_request_params(mcd)
+            build = _build_info(model) or {}
+            endpoint = {
+                "provider": _extract_provider(mcd, response_obj),
+                "name": build.get("name"),
+                "quantization": build.get("quantization"),
+                "context_length": build.get("context_length"),
+            }
             with _lock:
                 agg = _session_totals.get(sid)
                 if agg is None:
@@ -774,6 +925,19 @@ class LiteLLMCostLogger(CustomLogger):
                         "cache_write_tokens": 0.0,
                         "reasoning_tokens": 0.0,
                     }
+                # Growth of the prompt between consecutive calls of the SAME
+                # session (#3595). A repetition-trapped agent re-sends its
+                # whole context plus one near-identical turn, so this lands on
+                # a small, near-constant value call after call — the livelock
+                # signature, visible on a single line instead of requiring the
+                # whole session's lines to be diffed against each other. Only
+                # the retrospective version needs that reconstruction, and it
+                # is impossible once the ~48h log retention has rolled.
+                # ``None`` on a session's first observed call: there is no
+                # predecessor to difference against, which is not a delta of 0.
+                prev_prompt = agg.get("last_prompt_tokens")
+                prompt_delta = None if prev_prompt is None else int(prompt - prev_prompt)
+                agg["last_prompt_tokens"] = prompt
                 if cost is not None:
                     agg["cost"] += cost
                     agg["cost_known_calls"] += 1
@@ -850,10 +1014,16 @@ class LiteLLMCostLogger(CustomLogger):
                     # request ran at the model's own reasoning depth, not that
                     # the field failed to record.
                     "request_params": request_params,
+                    # Which physical build served the turn (#3692). ``provider``
+                    # is per-call off the response; ``name`` / ``quantization``
+                    # / ``context_length`` are per-model and cached, so they
+                    # read null on the calls before the first lookup resolves.
+                    "endpoint": endpoint,
                     "call": {
                         "cost": cost,
                         "cost_estimated": cost_estimated,
                         "prompt_tokens": int(prompt),
+                        "prompt_tokens_delta": prompt_delta,
                         "cached_tokens": int(cached),
                         "cache_write_tokens": int(cache_write),
                         "reasoning_tokens": int(reasoning),

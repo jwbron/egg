@@ -140,9 +140,13 @@ def cmd_session_state_push(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 0
+    prov = body.get("transcript_provenance") or {}
     print(
         f"session-state push: persisted {role} slice={slice_id or 'none'} "
-        f"(transcript={'yes' if body.get('transcript') else 'no'})",
+        f"(transcript={'yes' if body.get('transcript') else 'no'} "
+        f"tail={prov.get('tail_timestamp') or 'none'} "
+        f"entries={prov.get('entries', 0)} turns={prov.get('assistant_turns', 0)} "
+        f"bytes={prov.get('bytes', 0)})",
         file=sys.stderr,
     )
     return 0

@@ -68,7 +68,13 @@ def push_session_state(pipeline_id: str) -> tuple[Response, int]:
             "slice_id": "slice-3",            # optional; null/absent → pipeline-level
             "session_id": "uuid",
             "window_occupancy": 123456,        # optional
-            "transcript": "<jsonl text>"       # optional (pointer-only when absent)
+            "transcript": "<jsonl text>",      # optional (pointer-only when absent)
+            "transcript_provenance": {         # optional; logged, not stored
+                "tail_timestamp": "2026-07-29T04:21:34.335Z",
+                "entries": 3472,
+                "assistant_turns": 1837,
+                "bytes": 4788605
+            }
         }
     """
     body = request.get_json(silent=True)
@@ -95,6 +101,16 @@ def push_session_state(pipeline_id: str) -> tuple[Response, int]:
     if transcript is not None and not isinstance(transcript, str):
         return _make_error("transcript must be a string or null")
 
+    # Which transcript this push carried (#3692). The push is a single
+    # on-exit snapshot, so a record can be a faithful capture of an early
+    # moment while the session goes on working for another hour — the blob is
+    # well-formed JSONL either way, which is what makes a stale record and a
+    # current one indistinguishable by inspection. Logging the tail timestamp
+    # against the push time turns that gap into a readable number. Advisory
+    # and client-supplied: it describes the payload, it does not gate it, so a
+    # malformed block is dropped rather than failing the push.
+    prov = body.get("transcript_provenance")
+    prov = prov if isinstance(prov, dict) else {}
     stored = get_session_state_store().put(
         pipeline_id,
         slice_id,
@@ -112,6 +128,10 @@ def push_session_state(pipeline_id: str) -> tuple[Response, int]:
         role=role,
         stored=stored,
         has_transcript=transcript is not None,
+        transcript_tail_timestamp=prov.get("tail_timestamp"),
+        transcript_entries=prov.get("entries"),
+        transcript_assistant_turns=prov.get("assistant_turns"),
+        transcript_bytes=prov.get("bytes"),
     )
     # ``stored=False`` is not an error: an empty session_id or oversized transcript
     # simply degrades to a cold reseed next event. Report it so the caller can log.
