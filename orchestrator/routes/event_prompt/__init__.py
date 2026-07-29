@@ -55,6 +55,7 @@ implementation lives in underscore-prefixed private submodules:
 - ``_render_delta``  — per-producer delta (inline + JIT-pull pointer)
 - ``_render_nacks``  — open-NACK barrier section
 - ``_render_release`` - #3537 park-release delta section
+- ``_render_recovery`` - #3684 worktree-recovery notice section
 - ``_render_memory`` — durable-memory section (inline + JIT-pull pointer)
 - ``_render_task``   — task_description / iteration-feedback / issue-anchor
 - ``_compose``       — ``compose_event_prompt`` + envelope-cap pass
@@ -118,6 +119,7 @@ from ._render_delta import _render_delta_pointer_section, _render_producer_delta
 from ._render_event import _render_event_section, _strip_nacks_for_json
 from ._render_memory import _render_memory_pointer_section, _render_memory_section
 from ._render_nacks import _render_nacks_section
+from ._render_recovery import _render_recovery_section
 from ._render_release import _render_release_context_section
 from ._render_task import (
     _directive_meta_tag,
@@ -151,6 +153,7 @@ __all__ = [
     "_render_producer_delta_section",
     "_render_delta_pointer_section",
     "_render_nacks_section",
+    "_render_recovery_section",
     "_render_release_context_section",
     "_render_memory_section",
     "_render_memory_pointer_section",

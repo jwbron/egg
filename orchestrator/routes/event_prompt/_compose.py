@@ -21,6 +21,7 @@ from ._render_delta import _render_delta_pointer_section, _render_producer_delta
 from ._render_event import _render_event_section
 from ._render_memory import _render_memory_pointer_section, _render_memory_section
 from ._render_nacks import _render_nacks_section
+from ._render_recovery import _render_recovery_section
 from ._render_release import _render_release_context_section
 from ._render_task import _render_iteration_feedback_section, _render_task_section
 
@@ -39,6 +40,7 @@ def compose_event_prompt(
     memory_rel_path: str = "",
     pipeline_id: str = "",
     release_context: dict[str, Any] | None = None,
+    recovery_context: list[dict[str, Any]] | None = None,
 ) -> str:
     """Compose the per-event one-shot prompt the wrapper hands the agent.
 
@@ -125,6 +127,14 @@ def compose_event_prompt(
             decisions, BRC movement) before it can replay a cached "still
             blocked" plan. ``None`` / empty omits the section - the
             byte-stable common path.
+        recovery_context: The #3684 worktree-recovery notices — present only
+            on the spawn whose worktree re-attach hard-reset the tree and
+            moved unpushed commits onto an ``egg/recovered/...`` ref
+            (decoded from ``EGG_WORKTREE_RECOVERY``). Rendered FIRST, ahead
+            of the event banner, because an agent that opens the tree and
+            finds its files missing forms the "I must re-implement"
+            conclusion before it reaches anything below. ``None`` / empty
+            omits the section — the byte-stable common path.
 
     Returns:
         Rendered prompt string suitable for passing as the positional
@@ -141,6 +151,7 @@ def compose_event_prompt(
     base_branch = (base_branch or "main").strip() or "main"
 
     event_section = _render_event_section(role, event_payload)
+    recovery_section = _render_recovery_section(recovery_context)
     release_section = _render_release_context_section(release_context)
     task_section = _render_task_section(task_description)
     iteration_section = _render_iteration_feedback_section(iteration_feedback)
@@ -193,6 +204,7 @@ def compose_event_prompt(
         present = [
             s
             for s in (
+                recovery_section,
                 event_section,
                 release_section,
                 task_section,
@@ -254,7 +266,17 @@ def compose_event_prompt(
         else:
             break  # no truncation candidates left; fixed sections alone overshoot
 
-    parts: list[str] = [event_section]
+    # #3684: the recovery notice leads the ENTIRE prompt, ahead of even the
+    # event banner. Its whole job is to reach the agent before it inspects a
+    # reset worktree and concludes its work is gone; a section below the
+    # event is a section the "the files are missing, I must re-implement"
+    # conclusion can beat. Bounded by the env serializer's own cap and by
+    # per-notice fixed-width fields (shas + counts), so it is never a
+    # truncation candidate.
+    parts: list[str] = []
+    if recovery_section:
+        parts.append(recovery_section)
+    parts.append(event_section)
     # #3537: the release delta leads (right after the event banner) so a
     # warm-resumed session reads what changed before anything it might
     # pattern-match against its cached prior plan. Bounded at the env

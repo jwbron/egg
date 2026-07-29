@@ -18,6 +18,36 @@ from kubernetes_spawner import (
 from models import AgentRole
 
 
+def _clamp_salvage_error(salvage_error: str | None) -> str | None:
+    """Bound the one free-text field carried in a #3684 recovery notice.
+
+    ``salvage_error`` is ``PushResult.describe()`` — ``"{category}: {stderr}"``
+    — and ``stderr`` is whatever the remote echoed, unbounded. Two problems
+    follow from putting that in the notice verbatim (#3689 review):
+
+    * **Size.** The notice rides in a 2 KiB pod-env budget. A single oversized
+      notice is not a "drop the tail" case — the list is a singleton, so the
+      serialiser emptied it and the successor was told *nothing*. That happens
+      on exactly the salvage-FAILED arm, where ``recovery_ref`` is ``None`` and
+      the notice is the only thing standing between the agent and re-deriving.
+    * **Provenance.** Remote ``remote:`` lines (pre-receive hook output) are
+      server-controlled text that lands in a "READ FIRST" prompt section.
+      Collapsing whitespace stops it fabricating its own markdown structure.
+
+    Nothing is lost: the untruncated string is in the re-attach WARNING log and
+    in the bus record's metadata, both of which the operator reads.
+    """
+    if not salvage_error:
+        return None
+    collapsed = " ".join(str(salvage_error).split())
+    if not collapsed:
+        return None
+    cap = _pkg._SALVAGE_ERROR_NOTICE_MAX_CHARS
+    if len(collapsed) <= cap:
+        return collapsed
+    return collapsed[:cap] + "... [truncated; full text in the orchestrator log]"
+
+
 def _validate_worktree_for_reuse(
     agent_worktree_id: str,
     repos: list[str],
@@ -300,6 +330,8 @@ def _try_reuse_worktree(
     agent_role: str | None = None,
     slice_id: str | None = None,
     mode: str = "public",
+    phase: str | None = None,
+    recovery_out: list[dict[str, Any]] | None = None,
 ) -> tuple[bool, dict[str, str]] | None:
     """Validate an existing worktree and, on success, clean dirty state.
 
@@ -316,6 +348,15 @@ def _try_reuse_worktree(
     and MUST match the running pipeline: a "public" salvage push on a
     private-mode pipeline over a private repo is denied by the gateway's
     private-repo policy, degrading auto-salvage to record-only.
+
+    ``phase`` is the pipeline phase the spawn belongs to. It is threaded
+    all the way to the discard record's ``Message.phase`` because every
+    channel that puts a bus message in front of an agent filters on it —
+    without it the record is written and never read (#3684).
+
+    ``recovery_out``, when supplied, is appended with one notice dict per
+    discard so the caller can inject it into the successor pod's env
+    (#3684). See :func:`_clean_reused_worktree` for the shape.
 
     The returned ``repo_volumes`` carry HOST paths (translated via
     :func:`_local_to_host_volumes`), matching the create path's
@@ -344,6 +385,8 @@ def _try_reuse_worktree(
         agent_role=agent_role,
         slice_id=slice_id,
         mode=mode,
+        phase=phase,
+        recovery_out=recovery_out,
     ):
         return None
     return True, _local_to_host_volumes(vols)
@@ -359,6 +402,8 @@ def _clean_reused_worktree(
     agent_role: str | None = None,
     slice_id: str | None = None,
     mode: str = "public",
+    phase: str | None = None,
+    recovery_out: list[dict[str, Any]] | None = None,
 ) -> bool:
     """Discard dirty state and sync a re-attached worktree (R6, #3506).
 
@@ -408,6 +453,28 @@ def _clean_reused_worktree(
     reset; when it cannot run (no ``branch``, or the commit fails) the
     discard is logged at WARNING with the file count rather than the
     pre-#3639 silence.
+
+    Preserving the work is only half the job: an agent that is not TOLD
+    where it went re-implements from scratch, which is #3684 (8 commits /
+    3072 insertions salvaged, the successor re-deriving all of it). Two
+    things close that gap here. ``phase`` rides into the discard record's
+    ``Message.phase`` — every channel that surfaces a bus message to an
+    agent (the live ``/brc-transcript`` route, ``_write_brc_history``)
+    filters on ``m.phase == phase``, so a record written with ``None``
+    is structurally unreadable by ``mcp__brc__read_peer_artifact``, the
+    only bus channel an agent has. And ``recovery_out``, when supplied,
+    collects one notice dict per discard::
+
+        {"repo", "recovery_ref", "tip_sha", "reset_to", "n_commits",
+         "fast_forward", "wip_commit", "wip_files", "wip_partial",
+         "salvage_error"}
+
+    which the caller injects into the successor pod's env so the very
+    next prompt names the ref (the push channel, mirroring #3537's
+    ``EGG_EVENT_RELEASE_CONTEXT``). The pull channel alone is not enough:
+    a coder that finds its files gone has no reason to go read a BRC
+    transcript. Notices are appended for salvage FAILURES too — "escalate,
+    do not re-derive" is the more urgent message of the two.
 
     Returns ``True`` on success, ``False`` on any failure (the caller
     falls back to create-with-retry — never allow a half-cleaned
@@ -633,6 +700,31 @@ def _clean_reused_worktree(
                 except Exception:
                     orphans = []
                 if orphans:
+                    # Is the doomed tip a strict DESCENDANT of the reset
+                    # target? Then restoring it is a fast-forward that
+                    # loses nothing, and the recovery instructions can
+                    # name one command instead of hedging (#3684). Not
+                    # already known here: the ``keep_local`` probe above
+                    # computes this only on the ``not was_dirty`` arm, and
+                    # the dominant discard is precisely the dirty one. A
+                    # failed probe reads as "not a fast-forward" — the
+                    # cherry-pick advice is correct either way, and only
+                    # the ff claim would be a lie.
+                    ff_restorable = False
+                    try:
+                        ff_restorable = (
+                            _git(
+                                d,
+                                "merge-base",
+                                "--is-ancestor",
+                                remote_tip,
+                                local_head,
+                                check=False,
+                            ).returncode
+                            == 0
+                        )
+                    except Exception:
+                        ff_restorable = False
                     # Auto-salvage + durable record (#3509). Must run
                     # BEFORE the reset below: afterwards the tip exists
                     # only in the object store, where salvage_agent_commits
@@ -688,6 +780,7 @@ def _clean_reused_worktree(
                         # *unknown*, so the distinction gets its own boolean
                         # (the same reason ``dirty_state_unknown`` exists).
                         wip_files_unknown=(wip_commit is not None and wip_files is None),
+                        fast_forward_restorable=ff_restorable,
                     )
                     if pipeline_id:
                         _record_discarded_tip(
@@ -697,16 +790,51 @@ def _clean_reused_worktree(
                             branch=branch,
                             agent_role=agent_role,
                             slice_id=slice_id,
+                            phase=phase,
                             discarded_tip=local_head,
                             remote_tip=remote_tip,
                             n_commits=len(orphans),
                             was_dirty=was_dirty,
                             recovery_ref=recovery_ref,
                             salvage_error=salvage_error,
+                            ff_restorable=ff_restorable,
                             wip_commit=wip_commit,
                             wip_files=wip_files,
                             wip_paths=wip_paths,
                             wip_partial=wip_partial,
+                        )
+                    if recovery_out is not None:
+                        # The push channel (#3684). Appended unconditionally
+                        # — including when the salvage push FAILED, where the
+                        # notice carries ``salvage_error`` and asks for an
+                        # operator instead of a fetch. Withholding it there
+                        # would leave the one case with no ref at all as the
+                        # one case the successor is told nothing about.
+                        recovery_out.append(
+                            {
+                                "repo": n,
+                                "recovery_ref": recovery_ref,
+                                "tip_sha": local_head,
+                                "reset_to": remote_tip,
+                                "n_commits": len(orphans),
+                                "fast_forward": ff_restorable,
+                                # The operator's handle on the salvage-FAILED
+                                # arm: the tip is reachable from no ref, so
+                                # "recover it from the object store" needs to
+                                # name WHICH store. Not "this worktree" — if
+                                # the reset below fails the caller falls back
+                                # to create-with-retry and the successor runs
+                                # somewhere else entirely (#3689 review NB-4).
+                                "worktree_id": agent_worktree_id,
+                                "wip_commit": wip_commit,
+                                "wip_files": wip_files,
+                                "wip_partial": wip_partial,
+                                # Clamped: this is the only unbounded field in
+                                # the notice (raw git push stderr), and the env
+                                # budget is 2 KiB. See
+                                # ``_SALVAGE_ERROR_NOTICE_MAX_CHARS``.
+                                "salvage_error": _clamp_salvage_error(salvage_error),
+                            }
                         )
                 try:
                     _git(d, "reset", "--hard", f"origin/{branch}")
@@ -1149,6 +1277,8 @@ def _record_discarded_tip(
     was_dirty: bool,
     recovery_ref: str | None,
     salvage_error: str | None,
+    phase: str | None = None,
+    ff_restorable: bool = False,
     wip_commit: str | None = None,
     wip_files: int | None = None,
     wip_paths: tuple[str, ...] | None = None,
@@ -1164,6 +1294,26 @@ def _record_discarded_tip(
     TTL, replayed into brc history), so record the discarded tip, the
     reset target, and the recovery ref there as a system message to the
     role.
+
+    ``phase`` is load-bearing, not decorative (#3684). Both readers that
+    put a bus message in front of an agent — the live ``/brc-transcript``
+    route (``routes/messages.py``) and ``_write_brc_history`` — select on
+    ``m.message_type in BRC_HISTORY_TYPES and m.phase == phase``. This
+    record was the one STATUS emitter that left ``phase`` at its ``None``
+    default, so it matched neither filter: written every time, readable
+    never. An unset ``phase`` still writes the record (the metadata and
+    the operator-facing ``/messages`` route are unfiltered), but the agent
+    channel stays dark, which is the whole failure #3684 reports.
+
+    ``ff_restorable`` says the doomed tip is a strict descendant of the
+    reset target, so restoring is a fast-forward. It picks the ONE command
+    the body names, and the distinction is not cosmetic: ``git reset
+    --hard <recovery-tip>`` — the obvious move, and what this message used
+    to suggest — is REFUSED by the gateway. Pipeline sessions run an
+    off-lineage-reset guard (``gateway/gateway/_git_execute.py``) that
+    requires the target to be an ancestor of HEAD; a recovery tip is a
+    descendant by construction, so it 403s every time. ``git merge
+    --ff-only`` is allowed and unguarded, and is what actually works.
 
     ``wip_commit`` is set when the tip being discarded is the automatic
     snapshot :func:`_preserve_dirty_tree` took of the previous session's
@@ -1241,6 +1391,40 @@ def _record_discarded_tip(
     snapshot_size = (
         f"{wip_files} file(s) of uncommitted work" if wip_files is not None else "uncommitted work"
     )
+    # The one restore command that the gateway actually permits, chosen off
+    # the topology (#3684). ``git reset --hard <recovery-tip>`` is the move
+    # this message used to suggest and it CANNOT work: pipeline sessions run
+    # an off-lineage-reset guard that demands the target be an ancestor of
+    # HEAD, and a recovery tip is a descendant. Naming the refused command
+    # costs an agent a 403 and a wrong conclusion about whether the ref is
+    # real, so the body names ``merge --ff-only`` (allowed, unguarded) when
+    # the topology permits it and ``cherry-pick`` when it does not, and warns
+    # off the reset either way.
+    # Computed only under a ref: with the salvage push failed there is
+    # nothing to fetch, and a string interpolating ``origin None`` would be
+    # one refactor away from reaching a reader.
+    restore_cmds = ""
+    if recovery_ref:
+        restore_cmds = (
+            (
+                f"run `git fetch origin {recovery_ref}` then "
+                f"`git merge --ff-only {discarded_tip}` — a pure fast-forward "
+                "from where your worktree now sits, so it restores every "
+                "commit and loses nothing"
+            )
+            if ff_restorable
+            else (
+                f"run `git fetch origin {recovery_ref}` then "
+                f"`git log --oneline {remote_tip}..{discarded_tip}` to read "
+                f"it, and `git cherry-pick {remote_tip}..{discarded_tip}` to "
+                "take it — the ref has diverged from your current HEAD, so no "
+                "fast-forward is available"
+            )
+        ) + (
+            ". Do NOT `git reset --hard` onto the recovery tip: the gateway "
+            "rejects off-lineage resets in pipeline sessions with a 403, and "
+            "the recovery tip is a descendant of your HEAD, never an ancestor"
+        )
 
     if recovery_ref and trivial_snapshot:
         # ``trivial_snapshot`` implies a non-empty ``wip_paths``.
@@ -1273,17 +1457,19 @@ def _record_discarded_tip(
         )
     elif recovery_ref and snapshot_only:
         recovery_text = (
-            f"The snapshot holds {snapshot_size} and is preserved on remote ref "
-            f"{recovery_ref}; run `git fetch origin {recovery_ref}` and inspect it "
-            "before starting work. If it contains completed work, build on it "
-            "(cherry-pick or reset) instead of re-deriving it."
+            f"NOTHING WAS LOST. The snapshot holds {snapshot_size} and is "
+            f"preserved on remote ref {recovery_ref} (tip {discarded_tip}). To "
+            f"recover it, {restore_cmds}. Do that and inspect it before "
+            "starting work; if it contains completed work, build on it instead "
+            "of re-deriving it."
         )
     elif recovery_ref:
         recovery_text = (
-            f"The full commit stack is preserved on remote ref {recovery_ref}; "
-            f"run `git fetch origin {recovery_ref}` and inspect it before "
-            "starting work. If it contains completed work, build on it "
-            "(cherry-pick or reset) instead of re-deriving it."
+            f"NOTHING WAS LOST. The full commit stack is preserved on remote "
+            f"ref {recovery_ref} (tip {discarded_tip}, {n_commits} commit(s)). "
+            f"To recover it, {restore_cmds}. Do that and inspect it before "
+            "starting work; re-deriving work that is sitting on that ref is "
+            "the most expensive mistake available to you here (#3684)."
         )
     else:
         # NOT salvage_agent_commits: it enumerates worktree branches, which
@@ -1344,8 +1530,14 @@ def _record_discarded_tip(
             if n_commits > 1
             else " (an automatic snapshot of uncommitted work)"
         )
+    # "removed from your worktree", not "discarded", when the salvage
+    # succeeded (#3684). The commits are on a ref; "discarded" is what the
+    # observed agent read, believed, and acted on — it re-implemented 3072
+    # lines that were sitting on the recovery ref named two sentences later.
+    # The salvage-failed arm keeps "discarded": there, it is true.
+    removal_verb = "removed from your worktree" if recovery_ref else "discarded"
     body = (
-        f"Worktree re-attach discarded {count_text} from "
+        f"Worktree re-attach {removal_verb} {count_text} from "
         f"{repo} (worktree {agent_worktree_id}). Your previous tip was "
         f"{discarded_tip}; the worktree was reset to {remote_tip}"
         + (f" (origin/{branch})." if branch else ".")
@@ -1353,6 +1545,13 @@ def _record_discarded_tip(
         + recovery_text
         + wip_text
         + partial_text
+    )
+    # The subject is the one line every summary view renders, and on the
+    # success path it must not say "discarded" (#3684).
+    subject = (
+        f"Unpushed commits PRESERVED on a recovery ref after re-attach ({repo})"
+        if recovery_ref
+        else f"Unpushed commits discarded on re-attach — salvage FAILED ({repo})"
     )
     try:
         store = get_message_store()
@@ -1362,8 +1561,13 @@ def _record_discarded_tip(
                 from_role="orchestrator",
                 to_role=agent_role or "all",
                 message_type=MessageType.STATUS,
-                subject=f"Unpushed commits discarded on re-attach ({repo})",
+                subject=subject,
                 body=body,
+                # Load-bearing (#3684): the live ``/brc-transcript`` route
+                # and ``_write_brc_history`` both select on
+                # ``m.phase == phase``, so a ``None`` here makes the record
+                # unreadable through the only bus channel an agent has.
+                phase=phase,
                 metadata={
                     "event": "dirty_discard_salvage",
                     "agent_worktree_id": agent_worktree_id,
@@ -1376,6 +1580,10 @@ def _record_discarded_tip(
                     "was_dirty": was_dirty,
                     "recovery_ref": recovery_ref,
                     "salvage_error": salvage_error,
+                    # The topology the body's restore command was chosen
+                    # from (#3684), so a consumer can re-derive "was this a
+                    # clean fast-forward?" without regexing the prose.
+                    "fast_forward_restorable": ff_restorable,
                     "wip_commit": wip_commit,
                     # The body makes a size claim and a completeness claim;
                     # both belong in the metadata so a consumer (or a triage

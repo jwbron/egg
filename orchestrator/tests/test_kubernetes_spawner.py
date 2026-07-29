@@ -2260,6 +2260,166 @@ class TestSpawnEventJobOneShot:
         assert env["EGG_SLICE_ID"] == "slice-2"
         assert env["EGG_PHASE"] == "implement"
 
+    def test_event_job_carries_a_worktree_recovery_notice_in_env(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """#3684: a re-attach discard rides into the successor pod's env.
+
+        This is the push half of the delivery. The pull half (the bus
+        record) requires the agent to think to read a BRC transcript, and
+        an agent that has just found its files missing does not — it
+        re-implements. So the ref has to be in the prompt itself.
+        """
+        import json
+
+        from kubernetes_spawner import ENV_WORKTREE_RECOVERY
+
+        notice = {
+            "repo": "repo",
+            "recovery_ref": "egg/recovered/pipe-1/slice-2-coder/884a64834038",
+            "tip_sha": "884a6483",
+            "reset_to": "bbbb2222",
+            "n_commits": 8,
+            "fast_forward": True,
+            "salvage_error": None,
+        }
+
+        def _reuse(_agent_worktree_id, _branch, _repos, **kwargs):
+            kwargs["recovery_out"].append(notice)
+            return True, {}
+
+        with patch.object(spawner, "_try_reuse_worktree", side_effect=_reuse):
+            result = spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key=self._KEY,
+                slice_id="slice-2",
+                phase="implement",
+                repos=["owner/repo"],
+            )
+
+        assert json.loads(result.environment[ENV_WORKTREE_RECOVERY]) == [notice]
+
+    def test_event_job_does_not_claim_delivery_it_did_not_make(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """A collapsed serialisation must not set the key OR log success.
+
+        ``"[]"`` is what the composer's ``if not recovery`` guard drops
+        without a word, so setting the key would be a silent no-op while the
+        orchestrator log claimed the notice had been delivered (#3689
+        review). The env key is left unset and a WARNING is emitted instead.
+        """
+        from kubernetes_spawner import ENV_WORKTREE_RECOVERY
+
+        notice = {"repo": "repo", "recovery_ref": "egg/recovered/x", "tip_sha": "aaaa"}
+
+        def _reuse(_agent_worktree_id, _branch, _repos, **kwargs):
+            kwargs["recovery_out"].append(notice)
+            return True, {}
+
+        with (
+            patch.object(spawner, "_try_reuse_worktree", side_effect=_reuse),
+            patch("kubernetes_spawner._events._recovery_env_json", return_value="[]"),
+            patch("kubernetes_spawner._events.logger") as mock_logger,
+        ):
+            result = spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key=self._KEY,
+                slice_id="slice-2",
+                phase="implement",
+                repos=["owner/repo"],
+            )
+
+        assert ENV_WORKTREE_RECOVERY not in result.environment
+        warned = " ".join(str(c) for c in mock_logger.warning.call_args_list)
+        assert "worktree-recovery notice did NOT fit" in warned
+        infos = " ".join(str(c) for c in mock_logger.info.call_args_list)
+        assert "injecting worktree-recovery notice" not in infos
+
+    def test_event_job_logs_the_refs_it_actually_delivered(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """The success line reports the serialised set, not the input set.
+
+        The cap can drop trailing entries; a log line that echoes what was
+        handed in claims a delivery that did not happen (#3689 review).
+        """
+        notices = [
+            {"repo": f"repo-{i}", "recovery_ref": "egg/recovered/" + "x" * 200} for i in range(40)
+        ]
+
+        def _reuse(_agent_worktree_id, _branch, _repos, **kwargs):
+            kwargs["recovery_out"].extend(notices)
+            return True, {}
+
+        with (
+            patch.object(spawner, "_try_reuse_worktree", side_effect=_reuse),
+            patch("kubernetes_spawner._events.logger") as mock_logger,
+        ):
+            spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key=self._KEY,
+                slice_id="slice-2",
+                phase="implement",
+                repos=["owner/repo"],
+            )
+
+        call = next(
+            c
+            for c in mock_logger.info.call_args_list
+            if c.args and "injecting worktree-recovery notice" in str(c.args[0])
+        )
+        assert call.kwargs["notices_total"] == 40
+        assert call.kwargs["notices_delivered"] < 40
+        assert len(call.kwargs["recovery_refs"]) == call.kwargs["notices_delivered"]
+
+    def test_event_job_omits_the_recovery_key_when_nothing_was_discarded(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """The ordinary spawn stays byte-identical (#3684)."""
+        from kubernetes_spawner import ENV_WORKTREE_RECOVERY
+
+        result = spawner.spawn_event_job(
+            pipeline_id="pipe-1",
+            agent_role=AgentRole.CODER,
+            action="propose",
+            dedupe_key=self._KEY,
+            slice_id="slice-2",
+            phase="implement",
+            repos=["owner/repo"],
+        )
+        assert ENV_WORKTREE_RECOVERY not in result.environment
+
+    def test_event_job_threads_phase_into_the_reattach(
+        self, spawner, mock_k8s_client, mock_gateway
+    ):
+        """Without it the discard record is written with ``phase=None``,
+        which both of its readers filter out (#3684)."""
+        seen: dict = {}
+
+        def _reuse(_agent_worktree_id, _branch, _repos, **kwargs):
+            seen.update(kwargs)
+            return None
+
+        with patch.object(spawner, "_try_reuse_worktree", side_effect=_reuse):
+            spawner.spawn_event_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                action="propose",
+                dedupe_key=self._KEY,
+                slice_id="slice-2",
+                phase="implement",
+                repos=["owner/repo"],
+            )
+
+        assert seen["phase"] == "implement"
+
     def test_event_job_carries_dedupe_key_as_label(self, spawner, mock_k8s_client, mock_gateway):
         from kubernetes_spawner import LABEL_EVENT_DEDUPE, _dedupe_label_value
 
@@ -4120,7 +4280,13 @@ class TestDirtyTreePreservedBeforeReset:
         # snapshot-only must not by itself soften the message.
         assert "2 file(s) of uncommitted work" in msg.body
         assert "inspect it before starting work" in msg.body
-        assert "build on it (cherry-pick or reset)" in msg.body
+        assert "build on it instead of re-deriving it" in msg.body
+        # The instruction has to be one the gateway will actually execute
+        # (#3684): this snapshot is a strict descendant of the reset target,
+        # so ``merge --ff-only`` is the restore, and ``reset --hard`` is the
+        # 403 the message used to recommend.
+        assert f"git merge --ff-only {wip}" in msg.body
+        assert "Do NOT `git reset --hard`" in msg.body
 
     def test_machine_state_only_snapshot_softens_the_ask(self, spawner, mock_gateway, tmp_path):
         """A pure state-file snapshot reads as "read it if you need it".
@@ -4841,7 +5007,7 @@ class TestDiscardedTipMessageWording:
         # not be what softens the ask.
         assert "33 file(s) of uncommitted work" in body
         assert "inspect it before starting work" in body
-        assert "build on it (cherry-pick or reset)" in body
+        assert "build on it instead of re-deriving it" in body
 
     def test_machine_state_only_snapshot_is_softened(self):
         """A capture that is nothing but regenerated state relaxes.
@@ -5310,6 +5476,230 @@ class TestDiscardedTipMessageWording:
         body = self._body(n_commits=2, recovery_ref="egg/recovered/x", wip_commit=None)
         assert "snapshot" not in body
         assert "The full commit stack is preserved" in body
+
+
+class TestDiscardRecordReachesTheAgent:
+    """The record has to be READABLE, not merely written (#3684).
+
+    #3639/#3644 made the salvage reliable and #3509 wrote it to the bus;
+    the observed failure was that the agent never saw either. Two delivery
+    channels, pinned here:
+
+    * **pull** — ``Message.phase``. Both readers that put a bus message in
+      front of an agent (the live ``/brc-transcript`` route and
+      ``_write_brc_history``) select on ``m.phase == phase``, so a record
+      written with ``None`` is invisible to ``mcp__brc__read_peer_artifact``.
+      This was the one STATUS emitter that left it unset.
+    * **push** — the ``recovery_out`` notice the caller injects into the
+      successor pod's env, so the next prompt leads with the ref.
+    """
+
+    def _seed_orphan(self, tmp_path):
+        """An unpushed commit PLUS dirt — the shape that actually discards.
+
+        A clean fast-forward is kept by #3506, so the dirty edit is what
+        makes this the R6 discard path. #3639 then commits the dirt as a
+        snapshot, so the doomed tip is two commits ahead of the origin tip.
+        """
+        repo, _ = _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        (repo / "work.txt").write_text("orphaned work\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "unpushed stack tip")
+        (repo / "seed.txt").write_text("DIRTY tracked edit\n")
+        return repo
+
+    def test_record_carries_the_phase_its_readers_filter_on(self, spawner, mock_gateway, tmp_path):
+        self._seed_orphan(tmp_path)
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store") as get_store,
+        ):
+            spawner._clean_reused_worktree(_WT_ID, _BRANCH, _REPOS, **_PIPE_CTX, phase="implement")
+
+        msg = get_store.return_value.add_message.call_args.args[0]
+        assert msg.phase == "implement"
+
+    def test_notice_collects_the_ref_and_the_topology(self, spawner, mock_gateway, tmp_path):
+        self._seed_orphan(tmp_path)
+        mock_gateway.push_worktree_branch.return_value = _FakePushResult(ok=True)
+        notices: list[dict] = []
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store"),
+        ):
+            spawner._clean_reused_worktree(
+                _WT_ID, _BRANCH, _REPOS, **_PIPE_CTX, recovery_out=notices
+            )
+
+        assert len(notices) == 1
+        notice = notices[0]
+        assert notice["repo"] == "repo"
+        assert notice["recovery_ref"].startswith("egg/recovered/pipe-1/slice-4-coder/")
+        # The predecessor's own commit plus the #3639 dirt snapshot above it.
+        assert notice["n_commits"] == 2
+        assert notice["wip_commit"] == notice["tip_sha"]
+        assert notice["salvage_error"] is None
+        # The discarded tip sits on top of the origin tip, so restoring it
+        # is a fast-forward — the fact that picks the restore command.
+        assert notice["fast_forward"] is True
+
+    def test_notice_is_emitted_when_the_salvage_push_FAILS(self, spawner, mock_gateway, tmp_path):
+        """The no-ref case is the one that most needs to reach the agent.
+
+        Re-deriving burns the reflog window the recovery depends on, so
+        withholding the notice here would be exactly backwards.
+        """
+        self._seed_orphan(tmp_path)
+        mock_gateway.push_worktree_branch.side_effect = RuntimeError("gateway down")
+        notices: list[dict] = []
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store"),
+        ):
+            spawner._clean_reused_worktree(
+                _WT_ID, _BRANCH, _REPOS, **_PIPE_CTX, recovery_out=notices
+            )
+
+        assert len(notices) == 1
+        assert notices[0]["recovery_ref"] is None
+        assert "gateway down" in notices[0]["salvage_error"]
+
+    def test_a_clean_reattach_appends_nothing(self, spawner, mock_gateway, tmp_path):
+        """No discard ⇒ no notice ⇒ the successor prompt is byte-stable."""
+        _make_worktree(tmp_path, _WT_ID, "repo", _BRANCH, with_origin=True)
+        notices: list[dict] = []
+
+        with (
+            patch("kubernetes_spawner.WORKTREE_BASE_DIR", tmp_path),
+            patch("message_store.get_message_store"),
+        ):
+            spawner._clean_reused_worktree(
+                _WT_ID, _BRANCH, _REPOS, **_PIPE_CTX, recovery_out=notices
+            )
+
+        assert notices == []
+
+    def test_subject_says_preserved_when_the_salvage_worked(self):
+        """The subject is the one line every summary view renders (#3684).
+
+        The incident's agent read "Unpushed commits discarded on re-attach",
+        believed it, and re-implemented 3072 lines that were on the ref.
+        """
+        from kubernetes_spawner._worktree import _record_discarded_tip
+
+        def _subject(**overrides):
+            kwargs = {
+                "pipeline_id": "pipe-1",
+                "agent_worktree_id": _WT_ID,
+                "repo": "egg",
+                "branch": _BRANCH,
+                "agent_role": "coder",
+                "slice_id": "slice-4",
+                "discarded_tip": "aaaa1111",
+                "remote_tip": "bbbb2222",
+                "n_commits": 8,
+                "was_dirty": True,
+                "salvage_error": None,
+                **overrides,
+            }
+            with patch("message_store.get_message_store") as get_store:
+                _record_discarded_tip(**kwargs)
+            return get_store.return_value.add_message.call_args.args[0].subject
+
+        saved = _subject(recovery_ref="egg/recovered/x")
+        assert "PRESERVED" in saved
+        assert "discarded" not in saved
+
+        # The salvage-failed arm keeps "discarded" — there it is true.
+        lost = _subject(recovery_ref=None, salvage_error="gateway down")
+        assert "discarded" in lost
+        assert "FAILED" in lost
+
+    def test_env_json_drops_whole_entries_rather_than_truncating(self):
+        """A half-serialised value decodes to nothing on the pod side.
+
+        Dropping from the tail keeps the earliest (and on a multi-repo
+        pipeline, the primary) recovery ref intact; the bus record still
+        carries every one of them.
+        """
+        import json
+
+        from kubernetes_spawner import _recovery_env_json
+
+        notices = [
+            {"repo": f"repo-{i}", "recovery_ref": "egg/recovered/" + "x" * 200, "tip_sha": "a" * 40}
+            for i in range(40)
+        ]
+        raw = _recovery_env_json(notices)
+        decoded = json.loads(raw)
+        assert 0 < len(decoded) < 40
+        assert decoded[0]["repo"] == "repo-0"
+
+    def test_a_lone_oversized_notice_degrades_instead_of_vanishing(self):
+        """The drop loop must never pop the last entry (#3689 review).
+
+        Popping it yields ``"[]"``, which the composer's ``if not recovery``
+        guard renders as *no discard happened*. The only field that can
+        overflow the budget is ``salvage_error``, which is set exactly when
+        ``recovery_ref`` is ``None`` — the salvage-FAILED arm, where the
+        notice is the only thing standing between the agent and re-deriving.
+        """
+        import json
+
+        from kubernetes_spawner import _recovery_env_json
+
+        notices = [
+            {
+                "repo": "egg",
+                "recovery_ref": None,
+                "tip_sha": "a" * 40,
+                "reset_to": "b" * 40,
+                "fast_forward": True,
+                "n_commits": 8,
+                # Unclamped git-push stderr: the shape the producer-side clamp
+                # exists to stop, exercised here without it so the serialiser's
+                # own floor is proven independently.
+                "salvage_error": "remote: rejected\n" * 400,
+            }
+        ]
+        decoded = json.loads(_recovery_env_json(notices))
+
+        assert len(decoded) == 1, "the last notice must never be dropped"
+        assert decoded[0]["recovery_ref"] is None
+        assert decoded[0]["tip_sha"] == "a" * 40
+        assert decoded[0]["reset_to"] == "b" * 40
+        # The oversized field is what got dropped, not the whole notice.
+        assert "salvage_error" not in decoded[0]
+
+    def test_producer_clamps_the_one_unbounded_notice_field(self):
+        """``salvage_error`` is raw ``git push`` stderr — remote-controlled.
+
+        Clamped and whitespace-collapsed at the producer so it can neither
+        blow the 2 KiB env budget nor fabricate markdown structure inside the
+        "READ FIRST" prompt section (#3689 review).
+        """
+        from kubernetes_spawner import _SALVAGE_ERROR_NOTICE_MAX_CHARS, _clamp_salvage_error
+
+        assert _clamp_salvage_error(None) is None
+        assert _clamp_salvage_error("") is None
+        assert _clamp_salvage_error("   \n  ") is None
+        assert _clamp_salvage_error("push_rejected: hook said no") == (
+            "push_rejected: hook said no"
+        )
+
+        # Newlines collapse: a multi-line remote: dump cannot open its own
+        # markdown block in the rendered section.
+        assert "\n" not in _clamp_salvage_error("remote: a\nremote: b")
+
+        clamped = _clamp_salvage_error("remote: rejected\n" * 400)
+        assert clamped is not None
+        assert "\n" not in clamped
+        assert len(clamped) < _SALVAGE_ERROR_NOTICE_MAX_CHARS + 80
+        assert clamped.endswith("[truncated; full text in the orchestrator log]")
 
 
 class TestSpawnEventJobSessionReuse:
