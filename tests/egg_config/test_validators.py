@@ -2,6 +2,8 @@
 Tests for egg_config.validators module.
 """
 
+import logging
+
 from egg_config.validators import (
     mask_secret,
     validate_anthropic_key,
@@ -12,6 +14,8 @@ from egg_config.validators import (
     validate_port,
     validate_url,
 )
+
+_VALIDATOR_LOGGER = "egg_config.validators"
 
 
 class TestValidateChecks:
@@ -40,9 +44,9 @@ class TestValidateChecks:
         assert result == [{"name": "ok", "command": "true"}]
 
     def test_values_coerced_to_strings(self):
-        """Non-string values are coerced to strings."""
-        result = validate_checks([{"name": 1, "command": 2, "fix": 3}])
-        assert result == [{"name": "1", "command": "2", "fix": "3"}]
+        """Non-string name/command values are coerced to strings."""
+        result = validate_checks([{"name": 1, "command": 2}])
+        assert result == [{"name": "1", "command": "2"}]
 
     def test_fix_key_preserved(self):
         """The optional fix auto-remediation command survives (#3409)."""
@@ -57,11 +61,71 @@ class TestValidateChecks:
             {"name": "test", "command": "make test"},
         ]
 
-    def test_empty_fix_dropped(self):
-        """A present-but-empty fix is dropped from the entry."""
-        for empty in ("", None):
-            result = validate_checks([{"name": "lint", "command": "make lint", "fix": empty}])
-            assert result == [{"name": "lint", "command": "make lint"}]
+    def test_fix_non_empty_string_accepted(self, caplog):
+        """A valid non-empty string fix is retained without warning (#3630)."""
+        with caplog.at_level(logging.WARNING, logger=_VALIDATOR_LOGGER):
+            result = validate_checks(
+                [{"name": "lint", "command": "make lint", "fix": "make lint-fix"}]
+            )
+        assert result == [{"name": "lint", "command": "make lint", "fix": "make lint-fix"}]
+        assert not [r for r in caplog.records if "fix" in r.message]
+
+    def test_fix_empty_string_rejected_with_warning(self, caplog):
+        """An empty-string fix is dropped and a warning is logged (#3630)."""
+        with caplog.at_level(logging.WARNING, logger=_VALIDATOR_LOGGER):
+            result = validate_checks([{"name": "lint", "command": "make lint", "fix": ""}])
+        assert result == [{"name": "lint", "command": "make lint"}]
+        assert len(caplog.records) == 1
+        assert "fix must be a non-empty string" in caplog.records[0].message
+
+    def test_fix_none_rejected_with_warning(self, caplog):
+        """A null fix is dropped and a warning is logged (#3630)."""
+        with caplog.at_level(logging.WARNING, logger=_VALIDATOR_LOGGER):
+            result = validate_checks([{"name": "lint", "command": "make lint", "fix": None}])
+        assert result == [{"name": "lint", "command": "make lint"}]
+        assert len(caplog.records) == 1
+        assert "fix must be a non-empty string" in caplog.records[0].message
+
+    def test_fix_false_rejected_with_warning(self, caplog):
+        """A boolean false fix is dropped and a warning is logged (#3630)."""
+        with caplog.at_level(logging.WARNING, logger=_VALIDATOR_LOGGER):
+            result = validate_checks([{"name": "lint", "command": "make lint", "fix": False}])
+        assert result == [{"name": "lint", "command": "make lint"}]
+        assert len(caplog.records) == 1
+        assert "fix must be a non-empty string" in caplog.records[0].message
+
+    def test_fix_zero_rejected_with_warning(self, caplog):
+        """An integer 0 fix is dropped and a warning is logged (#3630)."""
+        with caplog.at_level(logging.WARNING, logger=_VALIDATOR_LOGGER):
+            result = validate_checks([{"name": "lint", "command": "make lint", "fix": 0}])
+        assert result == [{"name": "lint", "command": "make lint"}]
+        assert len(caplog.records) == 1
+        assert "fix must be a non-empty string" in caplog.records[0].message
+
+    def test_fix_non_string_rejected_with_warning(self, caplog):
+        """A non-string fix (e.g. int 3) is dropped and a warning is logged (#3630)."""
+        with caplog.at_level(logging.WARNING, logger=_VALIDATOR_LOGGER):
+            result = validate_checks([{"name": "lint", "command": "make lint", "fix": 3}])
+        assert result == [{"name": "lint", "command": "make lint"}]
+        assert len(caplog.records) == 1
+        assert "fix must be a non-empty string" in caplog.records[0].message
+
+    def test_fix_list_rejected_with_warning(self, caplog):
+        """A list fix is dropped (not str-coerced) and a warning is logged (#3630)."""
+        with caplog.at_level(logging.WARNING, logger=_VALIDATOR_LOGGER):
+            result = validate_checks(
+                [{"name": "lint", "command": "make lint", "fix": ["make fmt", "make lint-fix"]}]
+            )
+        assert result == [{"name": "lint", "command": "make lint"}]
+        assert len(caplog.records) == 1
+        assert "fix must be a non-empty string" in caplog.records[0].message
+
+    def test_fix_absent_key_unchanged(self, caplog):
+        """An absent fix key produces no entry and no warning (#3630)."""
+        with caplog.at_level(logging.WARNING, logger=_VALIDATOR_LOGGER):
+            result = validate_checks([{"name": "lint", "command": "make lint"}])
+        assert result == [{"name": "lint", "command": "make lint"}]
+        assert not caplog.records
 
     def test_unknown_keys_dropped(self):
         """Keys outside the schema never pass through."""
