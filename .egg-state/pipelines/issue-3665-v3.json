@@ -379,10 +379,29 @@
       "phase": "plan",
       "content_changed": true,
       "resolution_outcome": "approved"
+    },
+    {
+      "id": "decision-6",
+      "question": "Consensus timed out; consensus incomplete; agents never confirmed: coder, reviewer_security, reviewer_code_holistic, reviewer_concurrency, tester, reviewer_code, documenter, reviewer_contract. 'Retry phase' re-runs the phase from the shared work branch tip (work pushed to the shared branch is preserved; unpushed per-role commits are salvaged best-effort to egg/recovered/*). How to proceed?",
+      "context": "consensus_timeout_incomplete",
+      "options": [
+        "Retry phase",
+        "Accept current state",
+        "Abort phase"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-07-29T05:16:39.662328Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "implement",
+      "content_changed": null,
+      "resolution_outcome": null
     }
   ],
   "created_at": "2026-07-27T20:11:36.638844Z",
-  "updated_at": "2026-07-28T22:59:05.964585Z",
+  "updated_at": "2026-07-29T05:16:39.665334Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -395,7 +414,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-27T23:59:19.993397Z",
-  "version": 65,
+  "version": 66,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
