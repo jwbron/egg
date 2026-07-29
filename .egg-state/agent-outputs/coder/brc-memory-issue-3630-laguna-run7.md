@@ -2,7 +2,7 @@
 
 ## Phase: implement
 
-## Status: PROPOSED (checks running — make test-all, make lint)
+## Status: PROPOSED (checks running — make test-all, make lint) — re-proposed at 345582019 after session re-attach
 
 ## Summary of assessment
 
@@ -72,9 +72,13 @@ if "fix" in c:
 5. `config/repositories.yaml.example` — updated documentation comment to reflect
    new behavior (all non-string/empty values warn).
 
-### Test results
+### Test results (verified before propose)
 
 - `tests/egg_config/test_validators.py`: 62 passed (13 in TestValidateChecks)
+  - New/updated tests: test_values_coerced_to_strings, test_fix_absent_unchanged,
+    test_empty_fix_dropped_with_warning (tests "" and None), test_fix_false_rejected_with_warning,
+    test_fix_zero_rejected_with_warning, test_fix_non_string_rejected_with_warning,
+    test_fix_list_rejected_with_warning
 - `tests/config/test_repo_config.py`: 51 passed
 - `orchestrator/tests/test_propose_check_gate.py` (non-git tests): 42 passed
 - `orchestrator/tests/test_slice_green_gate.py` (non-git tests): 151 passed
@@ -84,3 +88,4 @@ if "fix" in c:
 ### Commit
 
 `6f8c7dd95` — "Merge remote: fix validate_checks silently dropping/str()-coercing malformed fix values (#3630)"
+`345582019` — "[salvage] pre-reset working-tree state" (added BRC memory file)
