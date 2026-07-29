@@ -82,6 +82,7 @@ if "fix" in c:
 - Low: The change only affects the `fix` key handling. Entries with invalid `fix` values are now dropped with a warning instead of being silently dropped or `str()`-coerced. This is strictly an improvement in observability.
 - The `full_command` key retains the same `str()` coercion behavior — this is intentional per scope notes.
 
+```yaml
 # yaml-tasks
 pr:
   title: "Fix validate_checks silently dropping/str()-coercing malformed fix values (#3630)"
@@ -123,3 +124,4 @@ phases:
         acceptance: "All tests pass: valid string accepted, empty/false/0/list/non-string rejected with warning, absent key unchanged"
         files:
           - tests/egg_config/test_validators.py
+```
