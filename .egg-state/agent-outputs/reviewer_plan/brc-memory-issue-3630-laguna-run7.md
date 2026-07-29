@@ -1,27 +1,22 @@
-# BRC Memory — reviewer_plan — issue-3630-laguna-run7
+## Codebase / change model
 
-## Phase: plan
+<!-- enrichment (claims, not ground truth); re-verify vs the live git-log delta — #3189 anchors are authoritative -->
+-
 
-### Verdict: ACK (architect proposal v1)
+## Per-producer assessment
 
-**Proposal commit:** f8447af786f6f4e6d65a91f86ac82f35233cfd5e
+<!-- summaries are SHA-stamped claims; stale when enrichment_sha != the producer's current proposal SHA -->
 
-**Review summary:**
-Reviewed architect proposal v1 for #3630 (validate check `fix` key is non-empty string).
-All claims verified against the live codebase.
+### task_planner
 
-**Verified facts:**
-1. Three copies of `validate_checks` confirmed with identical buggy pattern:
-   - `shared/egg_config/validators.py:203-204` — primary, no logger (needs `import logging` + `logger = logging.getLogger(__name__)`)
-   - `config/repo_config.py:387-388` — ImportError fallback, has module-level logger at line 42
-   - `orchestrator/routes/pipelines/__init__.py:476-477` — ImportError fallback, has module-level logger at line 339
-2. Test `test_values_coerced_to_strings` (line 42-45) needs update — `fix: 3` no longer coerced to `"3"`, now rejected with warning.
-3. Test `test_empty_fix_dropped` (line 60-64) needs extension to verify warnings.
-4. Recommended logic (`if "fix" in c:` → `isinstance(fix_val, str) and fix_val` → retain; else `logger.warning(...)`) is sound and handles all edge cases correctly.
-5. Scope correctly bounded to `fix` key only — `name`, `command`, `full_command` coercion unchanged.
-6. Test plan covers all required cases from the issue.
-7. Both fallback copies correctly identified and aligned.
+- producer: task_planner
+- last_reviewed_commit_sha: c36b3c28e
+- prior_verdict: ACK
+- prior_nack_reasons: -
+- prior_conditional_obligation: -
+- enrichment_sha: c36b3c28e
+- summary_of_assessment: Reviewed task_planner proposal v1 for #3630 plan phase. Verified all claims against the live codebase: 1. Plan draft (.egg-state/drafts/issue-3630-laguna-run7-plan.md) correctly identifies the problem: `if c.get("fix"): entry["fix"] = str(c["fix"])` causes silent drops on falsy values and str() coercion of non-strings. 2. Fix logic is correct: `if "fix" in c:` (key presence, not truthiness) → `isinstance(fix, str) and fix` (type + non-empty) → retain; else `logger.warning(...)`. This matches the architect's recommended approach and handles all edge cases: fix: 0 (int) rejected, fix: false (bool) rejected, fix: "" rejected, fix: [list] rejected, fix: "0" (string) retained, absent key unchanged. 3. Files correctly identified (4 total): - shared/egg_config/validators.py — primary, needs import logging + logger = logging.getLogger("egg_config.validators") - config/repo_config.py — fallback, uses existing module-level logger (logging.getLogger("egg.repo_config") at line 42) - orchestrator/…
 
-**Minor observation (not a blocker):** Orchestrator fallback at `orchestrator/routes/pipelines/__init__.py:468-479` lacks `full_command` handling (pre-existing discrepancy), but out of scope for the `fix` key change.
+## Decision log
 
-**ACK recorded at:** 2026-07-29T21:02:00Z
+- 2026-07-29T21:19:25Z ack task_planner: Reviewed task_planner proposal v1 for #3630 plan phase. Verified all claims against the live codebase: [shared/egg_config/validators.py, config/repo_config.py, orchestrator/routes/pipelines/__init__.py, tests/egg_config/test_validators.py, orchestrator/tests/test_propose_check_gate.py, .egg-state/drafts/issue-3630-laguna-run7-plan.md, .egg-state/agent-outputs/task_planner/brc-memory-issue-3630-laguna-run7.md, .egg-state/agent-outputs/reviewer_plan/brc-memory-issue-3630-laguna-run7.md]
