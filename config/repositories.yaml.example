@@ -77,11 +77,10 @@ readable_repos:
 #   - checks: List of check commands for the SDLC pipeline implement phase
 #     Each entry has "name" (display label), "command" (shell command) and
 #     an optional "fix" (single shell command string — a YAML list is
-#     silently coerced to its Python repr and will never run, so chain
-#     steps with "&&" or point at a make target; an empty or omitted
-#     value — a bare "fix:", "", false, 0 — is dropped entirely,
-#     leaving the check with no fix and a block message that never
-#     mentions "fix")
+#     rejected with a warning and dropped, so chain steps with "&&" or
+#     point at a make target; any non-string or empty value — "",
+#     null, false, 0 — is dropped with a warning so the misconfiguration
+#     surfaces at config load time)
 #     These run sequentially during the tester step
 #     "fix" auto-remediates that check at the per-slice green gate: when the
 #     gate finds the check red at the slice tip it runs the fix command and
