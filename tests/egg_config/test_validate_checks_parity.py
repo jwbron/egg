@@ -9,6 +9,18 @@ without a test the copies can drift again silently, because a fallback
 only executes when ``egg_config`` fails to import and is therefore never
 exercised by an ordinary test run.
 
+Reachability differs between the two fallbacks, and the distinction is
+worth stating plainly so the stakes are not overstated. The
+``repo_config`` copy is live: ``config/repo_config.py`` is the only
+module in the repo that calls ``validate_checks`` at runtime, so with
+``shared/`` off ``sys.path`` its fallback is what normalizes every
+configured check. The ``pipelines`` copy is currently **unreferenced** —
+nothing in ``orchestrator/routes/pipelines/**`` calls it and no module
+imports it from there — so drift in that copy has no runtime effect
+today. It is pinned anyway: an unreferenced copy that silently diverges
+is a trap for whoever wires it up later, and keeping the three in
+lockstep is cheaper than auditing them at that point.
+
 Reaching a fallback takes some care: in a configured checkout the ``try``
 arm binds the canonical function and the ``def`` in the ``except`` arm is
 never evaluated. Reimporting each module with ``egg_config`` blocked
@@ -99,12 +111,20 @@ def _compile_fallback(rel_path: str) -> ValidateChecks:
     return namespace["validate_checks"]
 
 
-def _fix_block(func_def: ast.FunctionDef) -> ast.If:
-    """Return the ``if "fix" in c:`` statement from a validate_checks def."""
+# Each optional-key guard that must stay in lockstep across the copies,
+# keyed by the ``ast.unparse`` form of its ``if`` test.
+PINNED_GUARDS = {
+    "fix": "'fix' in c",
+    "full_command": "c.get('full_command')",
+}
+
+
+def _guard_block(func_def: ast.FunctionDef, test_src: str) -> ast.If:
+    """Return the ``if <test_src>:`` statement from a validate_checks def."""
     for node in ast.walk(func_def):
-        if isinstance(node, ast.If) and ast.unparse(node.test) == "'fix' in c":
+        if isinstance(node, ast.If) and ast.unparse(node.test) == test_src:
             return node
-    raise AssertionError('validate_checks has no `if "fix" in c:` block')
+    raise AssertionError(f"validate_checks has no `if {test_src}:` block")
 
 
 @pytest.fixture(params=["canonical", *FALLBACK_SOURCES])
@@ -175,8 +195,11 @@ class TestValidateChecksParity:
         """All three copies carry ``full_command`` (#3669).
 
         The pipelines fallback omitted it until #3630 re-synced the
-        copies, so a narrowed ``command`` could reach the propose-time
-        check gate with no ground-truth form attached.
+        copies. No live path reached that omission — nothing calls the
+        pipelines copy today (see the module docstring) — so this is
+        parity insurance, not a fixed outage: if that copy ever does
+        become reachable, a narrowed ``command`` must not arrive at the
+        propose-time check gate with no ground-truth form attached.
         """
         assert validate_checks(
             [{"name": "test", "command": "make test", "full_command": "make test-all"}]
@@ -188,20 +211,27 @@ class TestValidateChecksParity:
         ]
 
 
-class TestFixBlockIsIdentical:
-    """The ``fix`` guard itself must stay byte-for-byte in sync.
+class TestOptionalKeyGuardsAreIdentical:
+    """The optional-key guards themselves must stay byte-for-byte in sync.
 
     Behavioral parity above covers the cases we thought to enumerate;
     this catches drift in the parts a matrix cannot see — a reworded
     warning, a dropped ``%r`` argument, a guard rewritten in a way that
     happens to agree on all nine sampled values.
+
+    Both optional keys are pinned. ``full_command`` is the one that has
+    actually drifted before: the pipelines copy omitted it entirely
+    between #3669 and the #3630 re-sync, and a behavioral matrix only
+    catches that for the values it samples.
     """
 
-    def test_all_three_copies_match(self):
-        canonical = ast.dump(_fix_block(_find_canonical_def()))
+    @pytest.mark.parametrize("key", sorted(PINNED_GUARDS), ids=sorted(PINNED_GUARDS))
+    def test_all_three_copies_match(self, key):
+        test_src = PINNED_GUARDS[key]
+        canonical = ast.dump(_guard_block(_find_canonical_def(), test_src))
         for name, rel_path in FALLBACK_SOURCES.items():
-            fallback = ast.dump(_fix_block(_find_fallback_def(rel_path)))
+            fallback = ast.dump(_guard_block(_find_fallback_def(rel_path), test_src))
             assert fallback == canonical, (
-                f"the validate_checks `fix` guard in {rel_path} ({name}) has drifted from "
+                f"the validate_checks `{key}` guard in {rel_path} ({name}) has drifted from "
                 f"{CANONICAL_SOURCE}; re-sync the block or update this test deliberately"
             )
