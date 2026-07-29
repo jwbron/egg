@@ -235,11 +235,11 @@
       "resolution": "approve",
       "phase": "plan",
       "content_changed": null,
-      "resolution_outcome": null
+      "resolution_outcome": "approved"
     }
   ],
   "created_at": "2026-07-29T19:25:06.367330Z",
-  "updated_at": "2026-07-29T21:43:43.612777Z",
+  "updated_at": "2026-07-29T21:43:46.595919Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -252,7 +252,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-29T20:52:36.348276Z",
-  "version": 30,
+  "version": 31,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
