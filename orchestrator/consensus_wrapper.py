@@ -41,6 +41,11 @@ from egg_contracts.agent_roles import REVIEWER_CHECKOUT_ROLE_VALUES
 # shared-evidence prefix is active and, in ``log`` mode, to record the measured
 # per-wave cache-hit rate + cost into the BRC artifacts. Plain top-level import
 # (no cycle: evidence_gatherer depends only on egg_logging + stdlib).
+# ``get_agent_session_timeout_seconds`` resolves the per-invocation agent
+# wall-clock budget (#3658) rendered into the spawn command as ``--timeout``.
+# Plain top-level import (no cycle: env_config depends only on egg_logging +
+# stdlib).
+from env_config import get_agent_session_timeout_seconds
 from evidence_gatherer import evidence_prefix_mode
 
 # ``review_findings_mode`` is the S3 staged-flag resolver
@@ -970,7 +975,10 @@ cw_log "One-shot invocation done (action=$ONE_SHOT_ACTION, rc=$one_shot_rc, dura
 # code (77/EX_AUTH_FATAL, egg_agent.auth_errors.EX_AUTH_FATAL — a
 # non-retryable credential/quota failure, #3373) is a genuine agent
 # passthrough rc and rides through here unchanged; the orchestrator event
-# loop reads it off the failed pod and fast-fails the dedupe key.
+# loop reads it off the failed pod and fast-fails the dedupe key. Same for
+# 124/EX_SESSION_TIMEOUT (the session's wall-clock budget expired, #3658),
+# which the loop reads as a session boundary and respawns without counting
+# toward the fail-streak halt.
 exit "$one_shot_rc"
 """
 
@@ -1001,6 +1009,14 @@ def build_event_pump_wrapped_command(
         model,
         "--max-turns",
         str(max_turns),
+        # #3658: pass the wall-clock budget EXPLICITLY. The value is the same
+        # 7200s the CLI defaulted to, so nothing about the spawn changes by
+        # default — but it is now a configured number rather than an argparse
+        # default no operator could see or reach, it appears verbatim in the
+        # logged spawn command, and it is the same number the agent is told
+        # about in its prompt (``egg_agent.session_deadline``).
+        "--timeout",
+        str(get_agent_session_timeout_seconds()),
     ]
     if effort is not None:
         # Pin the reasoning effort instead of inheriting the installed

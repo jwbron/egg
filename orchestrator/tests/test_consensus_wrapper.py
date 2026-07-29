@@ -148,12 +148,45 @@ class TestEffortFlag:
     def test_effort_appends_flag_to_agent_prefix(self):
         cmd = build_consensus_wrapped_command("Prompt", model="fable", effort="high")
         script = cmd[2]
-        assert "--model fable --max-turns 1000 --effort high" in script
+        # ``--timeout`` sits between the two budgets (#3658); the assertion
+        # spans it so a future reordering of the prefix is caught here.
+        assert "--model fable --max-turns 1000 --timeout 7200 --effort high" in script
 
     def test_no_effort_omits_flag(self):
         cmd = build_consensus_wrapped_command("Prompt", model="opus")
         script = cmd[2]
         assert "--effort" not in script
+
+
+class TestSessionTimeoutFlag:
+    """The wall-clock budget is passed EXPLICITLY, not left to argparse (#3658).
+
+    Before this the wrapper never passed ``--timeout``, so every agent ran under
+    the CLI's 7200s argparse default: a number no operator could see in the spawn
+    command, reach from any configuration surface, or tell the agent about. The
+    value is unchanged; what changes is that it is now a resolved, logged,
+    tunable choice — and the same number the agent is shown in its prompt.
+    """
+
+    def test_timeout_is_rendered_into_the_agent_prefix(self):
+        script = build_consensus_wrapped_command("Prompt")[2]
+        assert "--timeout 7200" in script
+
+    def test_timeout_is_env_tunable(self, monkeypatch):
+        monkeypatch.setenv("EGG_AGENT_SESSION_TIMEOUT_SECONDS", "3600")
+        script = build_consensus_wrapped_command("Prompt")[2]
+        assert "--timeout 3600" in script
+
+    def test_garbled_timeout_falls_back_to_the_default(self, monkeypatch):
+        """A typo must not hand every agent a nonsense budget."""
+        monkeypatch.setenv("EGG_AGENT_SESSION_TIMEOUT_SECONDS", "two hours")
+        script = build_consensus_wrapped_command("Prompt")[2]
+        assert "--timeout 7200" in script
+
+    def test_non_positive_timeout_falls_back_to_the_default(self, monkeypatch):
+        monkeypatch.setenv("EGG_AGENT_SESSION_TIMEOUT_SECONDS", "0")
+        script = build_consensus_wrapped_command("Prompt")[2]
+        assert "--timeout 7200" in script
 
 
 class TestSyncToProposals:

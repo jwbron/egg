@@ -307,6 +307,14 @@ GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
             "--verbose",
             "--patch",
             "--intent-to-add",
+            # #3658 — the in-pod session-timeout checkpoint
+            # (``shared/egg_agent/checkpoint.py``) stages the whole tree at the
+            # wall-clock boundary. Without this, one unindexable entry (an
+            # unreadable file, a fifo, a missing filter) aborts the add and the
+            # snapshot captures nothing — the #3639 shape, one hostile filename
+            # losing the whole tree. The flag only makes ``add`` tolerate errors
+            # on entries it was already permitted to stage; it widens nothing.
+            "--ignore-errors",
             "-A",
             "-u",
             "-f",
