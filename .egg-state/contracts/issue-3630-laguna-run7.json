@@ -23,7 +23,7 @@
         {
           "id": "task-1-1",
           "description": "In shared/egg_config/validators.py, add import logging and module-level logger; replace fix handling in validate_checks to check 'fix' in c, validate isinstance(fix, str) and fix, log warning on invalid; update docstring.",
-          "status": "pending",
+          "status": "complete",
           "commit": "89117f58d6a6683745bc70c2ac4b5a1168f4460b",
           "checkpoint_id": null,
           "notes": "",
@@ -177,6 +177,17 @@
       "old_value": null,
       "new_value": "89117f58d6a6683745bc70c2ac4b5a1168f4460b",
       "reason": "Linked commit 89117f5 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-29T22:32:28.787937Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
       "checkpoint_id": null
     }
   ],
