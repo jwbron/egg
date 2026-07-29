@@ -477,11 +477,11 @@ except ImportError:
                 fix = c["fix"]
                 if isinstance(fix, str) and fix:
                     entry["fix"] = fix
-                elif fix is not None:
+                else:
                     logger.warning(
-                        "validate_checks: check %r has invalid 'fix' value %r "
-                        "(expected a non-empty string); dropping 'fix'",
-                        entry["name"],
+                        "validate_checks: check %r has invalid fix %r "
+                        "(expected non-empty string); dropping fix",
+                        c.get("name"),
                         fix,
                     )
             result.append(entry)

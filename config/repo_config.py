@@ -367,9 +367,11 @@ except ImportError:
         Mirrors ``egg_config.validators.validate_checks``, including
         the optional ``fix`` auto-remediation command (#3409) and the
         optional ``full_command`` ground-truth form of a deliberately
-        narrowed check (#3669). A ``fix`` that is present must be a
-        non-empty string; non-string or empty values are dropped with a
-        warning (#3630).
+        narrowed check (#3669).
+
+        A ``fix`` that is present but is not a non-empty string is
+        dropped from the entry and a warning is logged, rather than
+        being silently dropped or ``str()``-coerced (#3630).
 
         Args:
             checks: Raw list of check entries (e.g. from YAML or JSON).
@@ -390,11 +392,11 @@ except ImportError:
                 fix = c["fix"]
                 if isinstance(fix, str) and fix:
                     entry["fix"] = fix
-                elif fix is not None:
+                else:
                     logger.warning(
-                        "validate_checks: check %r has invalid 'fix' value %r "
-                        "(expected a non-empty string); dropping 'fix'",
-                        entry["name"],
+                        "validate_checks: check %r has invalid fix %r "
+                        "(expected non-empty string); dropping fix",
+                        c.get("name"),
                         fix,
                     )
             if c.get("full_command"):
