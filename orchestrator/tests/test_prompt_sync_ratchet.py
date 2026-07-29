@@ -135,6 +135,24 @@ _ALLOWLIST: tuple[tuple[str, str, int], ...] = (
     # server-baseline preference in _build_delta_entries shifted it from
     # line 256 to 268.)
     ("_delta_builder.py", "git fetch", 268),
+    # JUSTIFICATION (#3684): the worktree-recovery section instructs a
+    # `git fetch` + `git merge --ff-only` (or `git cherry-pick`) against an
+    # `egg/recovered/...` ref. This is NOT the mechanic slice-5 retired.
+    # What #3077 removed was agents self-syncing to see PEER proposals — a
+    # read the wrapper's `sync_to_proposals` merge and the served-read verbs
+    # now perform, so the prose was redundant and drift-prone. There is no
+    # served read for the case here: the agent's OWN commits were moved off
+    # its worktree onto a recovery ref by the orchestrator's re-attach
+    # hard-reset, and no `egg-artifact` / `read_peer_artifact` path resolves
+    # a recovery ref. Fetching it is the only recovery there is, and #3684
+    # is the incident where withholding it cost a coder 8 commits / 3072
+    # insertions of re-implementation. `git merge --ff-only` specifically:
+    # the gateway's off-lineage-reset guard 403s `git reset --hard` onto a
+    # recovery tip (a descendant of HEAD), so naming the ff-merge is what
+    # makes the instruction executable rather than a dead end.
+    ("_render_recovery.py", "git fetch", 105),
+    ("_render_recovery.py", "git merge", 106),
+    ("_render_recovery.py", "git fetch", 112),
 )
 
 

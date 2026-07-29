@@ -191,7 +191,7 @@ invoke_agent_for_event() {
     if [ -n "${EGG_SESSION_STATE_FILE:-}" ]; then
         timeout 60 egg-orch session-state pull 2>&1 | sed 's/^/[session-state] /' >&2 || true
     fi
-    python3 -m egg_agent --model opus --max-turns 1000 "$prompt"
+    python3 -m egg_agent --model opus --max-turns 1000 --timeout 7200 "$prompt"
     local _agent_rc=$?
     if [ -n "${EGG_SESSION_STATE_FILE:-}" ]; then
         timeout 60 egg-orch session-state push 2>&1 | sed 's/^/[session-state] /' >&2 || true
@@ -536,5 +536,8 @@ cw_log "One-shot invocation done (action=$ONE_SHOT_ACTION, rc=$one_shot_rc, dura
 # code (77/EX_AUTH_FATAL, egg_agent.auth_errors.EX_AUTH_FATAL — a
 # non-retryable credential/quota failure, #3373) is a genuine agent
 # passthrough rc and rides through here unchanged; the orchestrator event
-# loop reads it off the failed pod and fast-fails the dedupe key.
+# loop reads it off the failed pod and fast-fails the dedupe key. Same for
+# 124/EX_SESSION_TIMEOUT (the session's wall-clock budget expired, #3658),
+# which the loop reads as a session boundary and respawns without counting
+# toward the fail-streak halt.
 exit "$one_shot_rc"

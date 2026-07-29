@@ -898,3 +898,86 @@ class TestCleanupPipelineEndToEnd:
             "issue-2659-coder",
             "issue-2659-slice-3-coder",
         }.issubset(deleted_ids)
+
+
+# ---------------------------------------------------------------------------
+# #3684 — the record has to survive the filters its readers apply
+# ---------------------------------------------------------------------------
+
+
+class TestDiscardRecordSurvivesTheAgentChannel:
+    """A written record an agent cannot read is not a record (#3684).
+
+    ``mcp__brc__read_peer_artifact`` is the ONLY bus channel an agent has,
+    and both of its sources — the live ``/brc-transcript`` route and the
+    on-disk ``brc-history`` files ``_write_brc_history`` writes — select
+    with ``m.message_type in BRC_HISTORY_TYPES and m.phase == phase``.
+    ``_record_discarded_tip`` was the one STATUS emitter that left
+    ``Message.phase`` at its ``None`` default, so its record matched
+    neither filter: the salvage ran, the ref existed, and the agent that
+    needed it was told nothing.
+
+    This pins the coupling from both ends — that the emitter sets a phase,
+    and that the filter is really what turns that into visibility — so a
+    future change to either side cannot silently re-open the gap.
+    """
+
+    _PHASE = "implement"
+
+    def _record(self, **overrides):
+        from kubernetes_spawner._worktree import _record_discarded_tip
+
+        kwargs = {
+            "pipeline_id": "pipe-1",
+            "agent_worktree_id": "pipe-1-slice-1-coder",
+            "repo": "egg",
+            "branch": "egg/issue-1/slice-1",
+            "agent_role": "coder",
+            "slice_id": "slice-1",
+            "phase": self._PHASE,
+            "discarded_tip": "a" * 40,
+            "remote_tip": "b" * 40,
+            "n_commits": 8,
+            "was_dirty": True,
+            "recovery_ref": "egg/recovered/pipe-1/slice-1-coder/aaaaaaaaaaaa",
+            "salvage_error": None,
+            **overrides,
+        }
+        with patch("message_store.get_message_store") as get_store:
+            _record_discarded_tip(**kwargs)
+        return get_store.return_value.add_message.call_args.args[0]
+
+    @staticmethod
+    def _transcript_filter(messages, phase):
+        """The exact selection both readers apply."""
+        from routes.pipelines import BRC_HISTORY_TYPES
+
+        return [m for m in messages if m.message_type in BRC_HISTORY_TYPES and m.phase == phase]
+
+    def test_record_is_visible_to_the_transcript_filter(self):
+        msg = self._record()
+        assert self._transcript_filter([msg], self._PHASE) == [msg]
+
+    def test_a_phaseless_record_is_dropped_by_the_same_filter(self):
+        """The pre-#3684 behaviour, pinned as the thing that must not return."""
+        msg = self._record(phase=None)
+        assert self._transcript_filter([msg], self._PHASE) == []
+
+    def test_record_keeps_the_slice_scope_the_history_writer_buckets_on(self):
+        """``_write_brc_history`` partitions implement-phase records by
+        ``metadata['slice_id']``; without it the record lands in the
+        cross-cutting ``unattributed`` file instead of the slice's own."""
+        from slice_id_validation import SLICE_ID_PATTERN
+
+        msg = self._record()
+        assert SLICE_ID_PATTERN.fullmatch(msg.metadata["slice_id"])
+
+    def test_the_ref_and_a_usable_restore_command_are_in_the_body(self):
+        """The incident's agent had the ref two sentences away and still
+        re-derived, because the body led with "discarded" and the command
+        it offered (``reset --hard``) is one the gateway 403s."""
+        msg = self._record(ff_restorable=True)
+        assert "egg/recovered/pipe-1/slice-1-coder/aaaaaaaaaaaa" in msg.body
+        assert f"git merge --ff-only {'a' * 40}" in msg.body
+        assert "Do NOT `git reset --hard`" in msg.body
+        assert "PRESERVED" in msg.subject

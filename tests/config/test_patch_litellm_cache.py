@@ -557,25 +557,132 @@ def test_patch8_needle_disambiguates_the_two_drop_sites(tmp_path):
     assert result[start:end] == sibling, "patch 8 rewrote the embeddings-path drop site"
 
 
-def test_patch10_sets_cost_after_the_rebuild_not_before(tmp_path):
-    """Patch 10 must land on the far side of ``Usage(**model_dump())``.
+def test_patch10_needle_anchors_on_transform_request(tmp_path):
+    """Patch 10 must land in ``transform_request`` and nowhere else.
 
-    That constructor deletes a ``cost`` attribute it is handed as None, so a
-    carry inserted *before* the rebuild would be writing into an object the
-    rebuild is entitled to discard — the patch would apply cleanly, the build
-    would pass, and ``cost`` would still read null on every streamed call,
-    which is the bug it exists to fix."""
+    Both cache_control helpers are *named twice* in 1.86.2: each has its own
+    ``def``, and ``remove_cache_control_flag_from_messages_and_tools`` calls
+    ``_supports_cache_control_in_content`` too. A needle built from either call
+    alone could retarget after an upstream reorder — the same trap Patches 4
+    and 8 document. The needle therefore runs through the ``extra_body`` pop,
+    which happens only here."""
     patch10 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 10/"))
 
+    # A sibling that mentions the same helper, ahead of the real site.
+    sibling = (
+        "    def remove_cache_control_flag_from_messages_and_tools(\n"
+        "        self, model, messages, tools=None\n"
+        "    ):\n"
+        "        if self._supports_cache_control_in_content(model):\n"
+        "            return messages, tools\n"
+    )
     target = tmp_path / patch10["file"]
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(patch10["needle"])
+    target.write_text(sibling + "\n" + patch10["needle"])
+
     plc._apply(
         str(target),
         present=patch10["present"],
         needle=patch10["needle"],
         replacement=patch10["replacement"],
         label=patch10["label"],
+    )
+    result = target.read_text()
+
+    assert sibling in result, "the sibling call site must be left alone"
+    inserted_at = result.index(patch10["present"])
+    assert inserted_at > result.index(sibling), "patch 10 must land after the sibling"
+
+
+def test_patch10_preserves_the_cache_control_step(tmp_path):
+    """Patch 10 shares its needle with Patch 1's file and sits directly on top
+    of the cache_control rewrite. Asserting on the RESULT (rather than on the
+    replacement literal) is what catches a patch that dropped that step while
+    inserting its own."""
+    patch10 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 10/"))
+
+    target = tmp_path / patch10["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(patch10["needle"])
+
+    plc._apply(
+        str(target),
+        present=patch10["present"],
+        needle=patch10["needle"],
+        replacement=patch10["replacement"],
+        label=patch10["label"],
+    )
+    result = target.read_text()
+
+    # The cache_control step survives, and still precedes the extra_body pop.
+    assert "messages = self._move_cache_control_to_content(messages)" in result
+    assert result.index("_move_cache_control_to_content") < result.index("_egg_map_reasoning")
+    assert result.index("_egg_map_reasoning") < result.index('optional_params.pop("extra_body"')
+
+    # The mapping runs on the REQUEST path, and a failure in it cannot
+    # propagate into the request.
+    assert "except Exception:" in result
+    assert "_egg_reasoning_roundtrip" in result
+
+
+def test_patch10_passes_the_model_and_reports_an_unavailable_module(tmp_path):
+    """Two properties of the injected call site.
+
+    The module declines routes whose upstream re-verifies replayed reasoning
+    (anthropic/*, google/*), which it can only do if the call site hands it
+    ``model``. And an import failure means a broken image, not a bad request:
+    reverting to stock in silence there is invisible until a model quietly
+    reasons worse — the condition Patch 8 exists to stop repeating."""
+    patch10 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 10/"))
+
+    target = tmp_path / patch10["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(patch10["needle"])
+
+    plc._apply(
+        str(target),
+        present=patch10["present"],
+        needle=patch10["needle"],
+        replacement=patch10["replacement"],
+        label=patch10["label"],
+    )
+    result = target.read_text()
+
+    assert "_egg_map_reasoning(messages, model)" in result
+    assert "verbose_logger.warning(" in result
+    assert "_egg_reasoning_roundtrip_warned" in result, "warned once, not once per request"
+
+
+def test_patch10_maps_onto_the_request_not_the_response(tmp_path):
+    """Guard against the adjacent-patch confusion the docstring calls out:
+    patches 4/5a/5b are provider -> client, this one is client -> provider.
+    A patch that touched ``transform_response`` would be a different bug."""
+    patch10 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 10/"))
+
+    assert "transform_response" not in patch10["needle"]
+    assert "transform_response" not in patch10["replacement"]
+    assert patch10["file"] == plc.F1
+
+
+def test_patch11_sets_cost_after_the_rebuild_not_before(tmp_path):
+    """Patch 11 must land on the far side of ``Usage(**model_dump())``.
+
+    That constructor deletes a ``cost`` attribute it is handed as None, so a
+    carry inserted *before* the rebuild would be writing into an object the
+    rebuild is entitled to discard — the patch would apply cleanly, the build
+    would pass, and ``cost`` would still read null on every streamed call,
+    which is the bug it exists to fix."""
+    patch11 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 11/"))
+
+    target = tmp_path / patch11["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(patch11["needle"])
+    plc._apply(
+        str(target),
+        present=patch11["present"],
+        needle=patch11["needle"],
+        replacement=patch11["replacement"],
+        label=patch11["label"],
     )
     result = target.read_text()
 
@@ -598,25 +705,25 @@ def test_patch10_sets_cost_after_the_rebuild_not_before(tmp_path):
     ), "the latch must be set after the emit, not before it"
 
 
-def test_patch11_hooks_the_unmapped_branch_and_leaves_the_stock_raise(tmp_path):
-    """Patch 11 must be a fallback, not a replacement.
+def test_patch12_hooks_the_unmapped_branch_and_leaves_the_stock_raise(tmp_path):
+    """Patch 12 must be a fallback, not a replacement.
 
     It sits at the "isn't mapped yet" raise, so it runs only once every stock
     lookup has already failed: a slug the bundled map DOES carry keeps the
     bundled rate, and the live card can add a model but never reprice one.
     The stock ValueError must still be reachable, for the slug OpenRouter has
     not heard of either."""
-    patch11 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 11/"))
+    patch12 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 12/"))
 
-    target = tmp_path / patch11["file"]
+    target = tmp_path / patch12["file"]
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(patch11["needle"])
+    target.write_text(patch12["needle"])
     plc._apply(
         str(target),
-        present=patch11["present"],
-        needle=patch11["needle"],
-        replacement=patch11["replacement"],
-        label=patch11["label"],
+        present=patch12["present"],
+        needle=patch12["needle"],
+        replacement=patch12["replacement"],
+        label=patch12["label"],
     )
     result = target.read_text()
 
@@ -631,7 +738,7 @@ def test_patch11_hooks_the_unmapped_branch_and_leaves_the_stock_raise(tmp_path):
     assert "except Exception as _egg_exc:\n                    _egg_entry = None\n" in result
     # ...but not silently. A failed import is otherwise indistinguishable from
     # "OpenRouter has no rate for this slug", which is the null-cost_estimated
-    # symptom patch 11 exists to remove. Warned once, and the latch is set only
+    # symptom patch 12 exists to remove. Warned once, and the latch is set only
     # after the emit — inside its own try, because raising from an except block
     # would propagate into a live request.
     assert "_egg_warned_pricing" in result
@@ -647,14 +754,14 @@ def test_patch11_hooks_the_unmapped_branch_and_leaves_the_stock_raise(tmp_path):
 # build's own ``_check_parses`` would only catch it after a full image build.
 _BODY_CONTEXTS = (
     (
-        "Patch 10/",
+        "Patch 11/",
         "class ChunkProcessor:\n"
         "    def calculate_usage(self, chunks):\n"
         "        Usage = dict\n"
         "        returned_usage = Usage()\n",
     ),
     (
-        "Patch 11/",
+        "Patch 12/",
         "def _get_model_info_helper(model, custom_llm_provider):\n"
         "    _model_info = None\n"
         "    key = None\n"
@@ -664,7 +771,7 @@ _BODY_CONTEXTS = (
 )
 
 
-@pytest.mark.parametrize(("prefix", "preamble"), _BODY_CONTEXTS, ids=["patch10", "patch11"])
+@pytest.mark.parametrize(("prefix", "preamble"), _BODY_CONTEXTS, ids=["patch11", "patch12"])
 def test_patch_bodies_parse_at_their_insertion_indentation(prefix, preamble):
     """The spliced payload must be valid Python 3.11 — the image's interpreter.
 
@@ -680,14 +787,14 @@ def test_patch_bodies_parse_at_their_insertion_indentation(prefix, preamble):
     ast.parse(preamble + patch["replacement"], feature_version=(3, 11))
 
 
-def test_patch11_needle_disambiguates_the_two_unmapped_messages(tmp_path):
+def test_patch12_needle_disambiguates_the_two_unmapped_messages(tmp_path):
     """utils.py carries the "isn't mapped yet" string twice.
 
     The other one is the outer handler's re-raise, with a different message
     body and indentation. Matching loosely would insert a pricing fallback into
     an exception handler, where ``_model_info`` and ``key`` are not even in
     scope — same needle-uniqueness trap as Patches 4 and 8."""
-    patch11 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 11/"))
+    patch12 = next(p for p in plc.PATCHES if p["label"].startswith("Patch 12/"))
 
     sibling = (
         "SENTINEL_OUTER_HANDLER_BEGIN\n"
@@ -702,20 +809,20 @@ def test_patch11_needle_disambiguates_the_two_unmapped_messages(tmp_path):
         "        )\n"
         "SENTINEL_OUTER_HANDLER_END\n"
     )
-    target = tmp_path / patch11["file"]
+    target = tmp_path / patch12["file"]
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(patch11["needle"] + "\n" + sibling)
+    target.write_text(patch12["needle"] + "\n" + sibling)
 
     plc._apply(
         str(target),
-        present=patch11["present"],
-        needle=patch11["needle"],
-        replacement=patch11["replacement"],
-        label=patch11["label"],
+        present=patch12["present"],
+        needle=patch12["needle"],
+        replacement=patch12["replacement"],
+        label=patch12["label"],
     )
     result = target.read_text()
 
-    assert result.count(patch11["present"]) == 1
+    assert result.count(patch12["present"]) == 1
     start = result.index("SENTINEL_OUTER_HANDLER_BEGIN")
     end = result.index("SENTINEL_OUTER_HANDLER_END") + len("SENTINEL_OUTER_HANDLER_END\n")
-    assert result[start:end] == sibling, "patch 11 rewrote the outer handler's re-raise"
+    assert result[start:end] == sibling, "patch 12 rewrote the outer handler's re-raise"

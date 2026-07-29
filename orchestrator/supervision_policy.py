@@ -62,6 +62,29 @@ SUPERVISION_NOOP_PARK_RETRY_SECONDS = 1800
 # affects; keeping the value config-derived avoids that contradiction.
 
 # ---------------------------------------------------------------------------
+# Session-budget expiry (#3658)
+# ---------------------------------------------------------------------------
+# A one-shot agent that exhausts its wall-clock budget (``EX_SESSION_TIMEOUT``)
+# is not a crash: it was working and the clock ran out. The respawn re-attaches
+# to the same worktree and continues, so the boundary is legitimate and must not
+# feed the ``agent-invocation-fail-streak`` halt.
+#
+# It cannot be UNBOUNDED either. An arm that times out over and over while
+# making no progress burns two hours per attempt for nothing, and the streak
+# machinery — the thing that eventually stops a hopeless arm — is exactly what
+# the boundary treatment switches off. So the free boundaries are budgeted: the
+# first ``SUPERVISION_SESSION_TIMEOUT_BUDGET`` consecutive timeouts on a key are
+# session boundaries (streak untouched, prompt respawn), and every timeout after
+# that is recorded as an ordinary abort, handing the key back to the streak /
+# exhaustion / AGENT_FAILED path that terminates it.
+#
+# 3 is chosen against the budget it spends, not a failure rate: at the default
+# 7200s budget it grants ~6h of wall clock to a single event before the arm is
+# treated as stuck. A productive session is not charged for this at all — it
+# moves the BRC state, which mints a NEW dedupe key, and the counter starts over.
+SUPERVISION_SESSION_TIMEOUT_BUDGET = 3
+
+# ---------------------------------------------------------------------------
 # Transient rate-limit / cap-wall paced retry (#3364 PR C)
 # ---------------------------------------------------------------------------
 # A transient throttle (bare HTTP 429 / "rate limit" / "overloaded" — the

@@ -116,8 +116,9 @@ _ALLOWLIST: tuple[tuple[str, str, int], ...] = (
     # contract string from event_prompt.py:984 to the _compose.py
     # submodule of the routes/event_prompt/ package; #3556 added the
     # park-release context section ahead of it, shifting the line from
-    # 160 to 171.)
-    ("orchestrator/routes/event_prompt/_compose.py", "egg-orch message wait-loop", 171),
+    # 160 to 171; #3684 added the worktree-recovery section ahead of it,
+    # shifting it again from 171 to 182.)
+    ("orchestrator/routes/event_prompt/_compose.py", "egg-orch message wait-loop", 182),
 )
 
 

@@ -31,6 +31,7 @@ from . import (
     JOB_OUTCOME_LEGITIMATE,
     JOB_OUTCOME_RATE_LIMITED,
     JOB_OUTCOME_SUCCESS,
+    JOB_OUTCOME_TIMEOUT,
     SPAWN_ACTIONS,
     EventDecision,
     logger,
@@ -145,6 +146,36 @@ def _observe_jobs(self) -> None:
                 except Exception as exc:  # noqa: BLE001 — reaping is best-effort
                     logger.warning(
                         "event-loop: reap of rate-limited job failed",
+                        pipeline_id=self.pipeline_id,
+                        slice_id=self.slice_id,
+                        dedupe_key=key,
+                        error=str(exc),
+                    )
+            self._live_keys.discard(key)
+        elif outcome == JOB_OUTCOME_TIMEOUT:
+            # #3658: the agent's wall-clock budget expired mid-work. Route to
+            # ``record_session_timeout`` — NOT ``record_abort`` — so a healthy
+            # long-running producer is treated as needing another session rather
+            # than as a crash loop feeding the fail-streak halt. The budget in
+            # that method is what still terminates an arm that only ever times
+            # out. ``exit_detail`` is passed (unlike the rate-limit branch,
+            # whose loop-guard would misread a bare exit code as evidence): here
+            # it is pure history for the exhaustion report, so recording
+            # "exit_code=124" costs nothing and names the cause.
+            #
+            # Reap and drop from the live set exactly like the abnormal branch so
+            # the next poll re-derives and respawns; ``_key_meta`` is kept so the
+            # respawn re-labels the same arm and continues in the same worktree.
+            self.supervisor.record_session_timeout(
+                key, action, role, exit_detail=self._exit_detail(key)
+            )
+            reaper = getattr(self._job_status_view, "reap_terminated", None)
+            if reaper is not None:
+                try:
+                    reaper(key)
+                except Exception as exc:  # noqa: BLE001 — reaping is best-effort
+                    logger.warning(
+                        "event-loop: reap of timed-out job failed",
                         pipeline_id=self.pipeline_id,
                         slice_id=self.slice_id,
                         dedupe_key=key,

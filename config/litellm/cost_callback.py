@@ -28,7 +28,7 @@ reassembles the chunks via ``stream_chunk_builder`` -> ``ChunkProcessor.
 calculate_usage``, a rebuild that enumerates the token/cache counts and
 originally DROPPED the provider's ``cost`` / ``cost_details`` outright.
 That is why this module recorded ``cost: null`` on 1252 of 1252 sampled
-calls in run 6. The egg-litellm image's **patch 10** now carries those two
+calls in run 6. The egg-litellm image's **patch 11** now carries those two
 fields across the rebuild (``config/litellm/stream_cost_preservation.py``),
 so the billed figure reaches ``_extract_cost`` on the streaming path too
 and this module needs no change to read it — the value simply stops being
@@ -46,7 +46,7 @@ computed at logging time from the assembled usage and its pricing map
 (issue #3175). It is kept strictly separate from ``cost`` — an estimate
 from a possibly-stale rate card must never be mistaken for a bill — and
 follows the same null-not-zero rule when LiteLLM cannot price the model.
-That was the case for every route egg uses until the image's **patch 11**
+That was the case for every route egg uses until the image's **patch 12**
 taught the model-info lookup to read OpenRouter's published rate card; it
 remains the case for a model whose prompt-length surcharge lands on a
 boundary or component LiteLLM's map has no slot for, which is declined whole
@@ -165,7 +165,7 @@ def _usage_from_response_obj(response_obj):
     counts (the final usage chunk's counts are folded into
     ``response_obj.usage`` by ``stream_chunk_builder``) and, on the egg-litellm
     image, for cost as well: that reassembly rebuilds a fresh ``Usage`` and
-    stock drops ``cost`` / ``cost_details`` with it, which patch 10 restores.
+    stock drops ``cost`` / ``cost_details`` with it, which patch 11 restores.
     Under a stock LiteLLM the counts still arrive and ``_extract_cost`` returns
     None — see the module docstring."""
     if response_obj is None:
@@ -322,7 +322,7 @@ def _extract_estimated_cost(mcd):
     reported a bill. It is an estimate, not a bill: the pricing map may lag the
     provider's rates or lack cache-discount entries for a model. Returns None —
     never 0.0 — when LiteLLM couldn't price the call, mirroring the billed-cost
-    "unknown ≠ free" discipline. On the egg-litellm image patch 11 supplies
+    "unknown ≠ free" discipline. On the egg-litellm image patch 12 supplies
     OpenRouter's published rates for slugs the bundled map does not carry, so a
     None here now means a genuinely unpriceable model (an inexpressible
     prompt-length surcharge, or a provider with no live card to read) rather
@@ -376,7 +376,7 @@ def _extract_model(mcd):
 #
 # ``stream`` is included because it selects which of the two paths the cost on
 # this line came through (see the module docstring), and it was the reason
-# ``cost`` read null on every line before patch 10 — worth having next to the
+# ``cost`` read null on every line before patch 11 — worth having next to the
 # number rather than inferred, and worth keeping now that the null case is rare
 # enough to need explaining when it happens. ``max_tokens`` and ``n`` are not
 # sampling knobs but shape the generation, and are cheap to carry.

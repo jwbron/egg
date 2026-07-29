@@ -74,7 +74,13 @@ if TYPE_CHECKING:
 logger = get_logger("orchestrator.propose_check_runner")
 
 # In-pod wall-clock budget for the checks. Larger than the green gate's
-# 1800s because this gate runs the *full* suite, not the narrowed one.
+# 1800s because this gate runs each check in its ground-truth form when
+# the repo declares one (``full_command``, e.g. ``make test-all``) rather
+# than the changeset-narrowed one. It is headroom, not a promise: no
+# config shipped in this repo declares ``full_command`` (#3681), so
+# unless an operator has declared one in their own
+# ``repositories.yaml`` the budget sits well above what the resolved
+# commands need.
 TIMEOUT_ENV_VAR = "EGG_PROPOSE_CHECK_GATE_TIMEOUT_SECONDS"
 _DEFAULT_TIMEOUT_SECONDS = 3600
 

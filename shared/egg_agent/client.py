@@ -922,6 +922,12 @@ async def run_agent_async(
             metadata={"model": actual_model} if actual_model else None,
             window_occupancy=_compute_occupancy(last_assistant_usage),
             token_usage=_usage_components(last_assistant_usage),
+            # #3658: the session's wall-clock budget expired — a session
+            # BOUNDARY, not a crash. Flagged structurally (not left for a
+            # classifier to re-derive from the message above) so the CLI can map
+            # it to ``EX_SESSION_TIMEOUT`` and the orchestrator can respawn
+            # without feeding the abnormal fail-streak halt.
+            timed_out=True,
         )
 
     except (ProcessError, CLINotFoundError, ClaudeSDKError) as e:
