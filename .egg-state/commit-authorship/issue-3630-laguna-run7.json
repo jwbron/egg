@@ -16,6 +16,14 @@
       "repo": null,
       "role": "refiner"
     },
+    "c0778e722fc7ae2017f18dd485a5dd134c77d2ce": {
+      "branch": "egg/issue-3630-laguna-run7/work",
+      "patch_id": "91350eca21410dfb20b99adda14750ad39356846",
+      "pipeline_id": "issue-3630-laguna-run7",
+      "registered_at": "2026-07-29T20:02:50.725410+00:00",
+      "repo": null,
+      "role": "reviewer_refine"
+    },
     "c7affb4246b1d4bf2a9848fd2762940b9590e245": {
       "branch": "egg/issue-3630-laguna-run7/work",
       "patch_id": "1fc09af6207b7f4256722c1c10fba3d3e63b00ea",
