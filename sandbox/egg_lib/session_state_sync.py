@@ -33,6 +33,7 @@ __all__ = [
     "resolve_config_dir",
     "resolve_repo_path",
     "transcript_path",
+    "transcript_provenance",
     "write_pulled_state",
 ]
 

@@ -57,6 +57,33 @@ def _make_error(message: str, status_code: int = 400) -> tuple[Response, int]:
     return jsonify({"success": False, "message": message}), status_code
 
 
+# Cap for the advisory provenance strings. The only one today is an ISO-8601
+# timestamp (~24 chars); this is generous room for that, and a bound on a
+# client-supplied value that otherwise reaches the structured log stream
+# unmeasured.
+_MAX_PROVENANCE_STR = 64
+
+
+def _advisory_str(block: dict, key: str) -> str | None:
+    """A bounded string off the advisory block, or ``None``.
+
+    The provenance block never gates the push, so a wrong-typed member is
+    dropped rather than rejected — but "dropped" has to mean it does not reach
+    the log line either, which is what a bare ``block.get(key)`` would let it
+    do."""
+    value = block.get(key)
+    return value[:_MAX_PROVENANCE_STR] if isinstance(value, str) else None
+
+
+def _advisory_int(block: dict, key: str) -> int | None:
+    """An integer off the advisory block, or ``None``.
+
+    ``bool`` is excluded for the same reason it is everywhere else in egg:
+    ``isinstance(True, int)`` is True, and ``entries: true`` is not a count."""
+    value = block.get(key)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 @session_state_bp.route("/<pipeline_id>/session-state", methods=["POST"])
 def push_session_state(pipeline_id: str) -> tuple[Response, int]:
     """Persist (overwrite) a role's warm-resume record.
@@ -108,7 +135,12 @@ def push_session_state(pipeline_id: str) -> tuple[Response, int]:
     # current one indistinguishable by inspection. Logging the tail timestamp
     # against the push time turns that gap into a readable number. Advisory
     # and client-supplied: it describes the payload, it does not gate it, so a
-    # malformed block is dropped rather than failing the push.
+    # malformed block — or a malformed member of a well-formed block — is
+    # dropped rather than failing the push. Each member is type-checked on the
+    # way out, matching the handling of every other field on this route: these
+    # are the only client-supplied values here that reach a log line, and
+    # "advisory" is a reason not to reject the push, not a reason to forward
+    # arbitrary JSON into the structured log stream.
     prov = body.get("transcript_provenance")
     prov = prov if isinstance(prov, dict) else {}
     stored = get_session_state_store().put(
@@ -128,10 +160,10 @@ def push_session_state(pipeline_id: str) -> tuple[Response, int]:
         role=role,
         stored=stored,
         has_transcript=transcript is not None,
-        transcript_tail_timestamp=prov.get("tail_timestamp"),
-        transcript_entries=prov.get("entries"),
-        transcript_assistant_turns=prov.get("assistant_turns"),
-        transcript_bytes=prov.get("bytes"),
+        transcript_tail_timestamp=_advisory_str(prov, "tail_timestamp"),
+        transcript_entries=_advisory_int(prov, "entries"),
+        transcript_assistant_turns=_advisory_int(prov, "assistant_turns"),
+        transcript_bytes=_advisory_int(prov, "bytes"),
     )
     # ``stored=False`` is not an error: an empty session_id or oversized transcript
     # simply degrades to a cold reseed next event. Report it so the caller can log.

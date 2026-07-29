@@ -149,6 +149,45 @@ def _mcd(
     return mcd
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_build_lookup(monkeypatch):
+    """Keep every test in this file off the network, and off each other's caches.
+
+    ``_build_info`` gates its lookup on ``OPENROUTER_API_KEY``, so ANY test
+    that reaches ``_record`` — not only the build-attribution ones — spawns a
+    real HTTP request on a machine that happens to export the key. That is
+    exactly the machine someone editing ``config/litellm/`` is likely to be
+    sitting at, which makes the failure mode "hermetic on CI, chatty in the one
+    place it matters". Clearing the caches at both ends keeps a resolved
+    endpoint list from one test out of the next one's assertions.
+
+    Tests that want the lookup set the variable themselves; ``monkeypatch``
+    applies fixture and test in that order, so the local ``setenv`` wins."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("LITELLM_OPENROUTER_ENDPOINT_FETCH", raising=False)
+    monkeypatch.delenv("LITELLM_OPENROUTER_ENDPOINT_TTL", raising=False)
+    monkeypatch.delenv("LITELLM_OPENROUTER_ENDPOINT_TIMEOUT", raising=False)
+    for store in (cc._build_cache, cc._build_pending, cc._build_warned):
+        store.clear()
+    yield
+    for store in (cc._build_cache, cc._build_pending, cc._build_warned):
+        store.clear()
+
+
+def _endpoints_payload(*endpoints: dict) -> dict:
+    """An OpenRouter ``/models/{slug}/endpoints`` body carrying ``endpoints``."""
+    return {"data": {"endpoints": list(endpoints)}}
+
+
+def _endpoint(provider: str, *, name: str, quantization: str, context_length: int) -> dict:
+    return {
+        "provider_name": provider,
+        "name": name,
+        "quantization": quantization,
+        "context_length": context_length,
+    }
+
+
 _ATTRIBUTION_HEADERS = {
     "x-egg-pipeline-id": "pipeline-20260612-abc",
     "x-egg-agent-role": "reviewer_code",
@@ -389,34 +428,171 @@ class TestPromptTokensDelta:
         logger._record(_mcd("c", raw_usage=self._usage(12_000)), None)
         assert emitted[-1]["call"]["prompt_tokens_delta"] == -388_000
 
+    def test_deltas_are_tracked_per_model_within_a_session(self, monkeypatch):
+        # Summing COST across the models one session touched is meaningful;
+        # differencing prompt LENGTH across them is not. Claude Code's paired
+        # `<name>[1m]` alias puts short startup probes on the same session id
+        # as the main calls, so a session-wide key would inject a large
+        # negative delta followed by a large positive one into the exact signal
+        # this field carries.
+        emitted = self._capture(monkeypatch)
+        logger = cc.LiteLLMCostLogger()
+        main = _mcd("s", raw_usage=self._usage(460_000))
+        probe = _mcd("s", raw_usage=self._usage(40))
+        probe["model"] = "openrouter/qwen/qwen3-max[1m]"
+        logger._record(main, None)
+        logger._record(probe, None)
+        logger._record(_mcd("s", raw_usage=self._usage(460_527)), None)
+        deltas = [e["call"]["prompt_tokens_delta"] for e in emitted]
+        # The probe is the first call for ITS model, so it has no delta of its
+        # own, and it leaves the main model's series undisturbed.
+        assert deltas == [None, None, 527]
+
 
 class TestBuildAttribution:
     """Which physical build served the turn (#3692): provider per call off the
-    response, endpoint name + quantization per model from cached metadata."""
+    response, endpoint name + quantization selected out of cached per-model
+    metadata BY that provider."""
 
     def setup_method(self):
         cc._session_totals.clear()
-        cc._build_cache.clear()
-        cc._build_pending.clear()
 
     def _capture(self, monkeypatch) -> list[dict]:
         emitted: list[dict] = []
         monkeypatch.setattr(cc, "_emit", lambda payload: emitted.append(payload))
         return emitted
 
+    def _settle(self, slug: str) -> None:
+        """Join the daemon lookup thread by polling the cache."""
+        for _ in range(200):
+            if slug in cc._build_cache:
+                return
+            time.sleep(0.01)
+        pytest.fail(f"lookup for {slug} never landed")
+
     def test_no_network_without_a_configured_key(self, monkeypatch):
         # The logging hook must never reach for the network uninvited; without
         # the credential the proxy runs with, the lookup is not attempted.
-        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
         monkeypatch.setattr(
             cc, "_fetch_build_info", lambda slug: pytest.fail("fetched without a key")
         )
-        assert cc._build_info("openrouter/poolside/laguna-s-2.1") is None
+        assert cc._build_info("openrouter/poolside/laguna-s-2.1", "Poolside") is None
+
+    def test_the_kill_switch_stops_the_lookup(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+        monkeypatch.setenv("LITELLM_OPENROUTER_ENDPOINT_FETCH", "0")
+        monkeypatch.setattr(cc, "_fetch_build_info", lambda slug: pytest.fail("fetched when off"))
+        assert cc._build_info("openrouter/poolside/laguna-s-2.1", "Poolside") is None
 
     def test_slug_strips_the_openrouter_prefix(self):
         assert cc._upstream_slug("openrouter/poolside/laguna-s-2.1") == "poolside/laguna-s-2.1"
         assert cc._upstream_slug("poolside/laguna-s-2.1") == "poolside/laguna-s-2.1"
         assert cc._upstream_slug(None) is None
+
+    def test_slug_strips_the_context_window_opt_in_suffix(self):
+        # Claude Code's `[1m]` alias leaks through on startup probes and is not
+        # a published OpenRouter slug — left on, it 404s the lookup for a name
+        # that denotes the same model.
+        assert cc._upstream_slug("openrouter/qwen/qwen3-max[1m]") == "qwen/qwen3-max"
+        # A `:free`-style variant IS a different endpoint set, so it stays.
+        assert cc._upstream_slug("openrouter/qwen/qwen3-max:free") == "qwen/qwen3-max:free"
+
+    def test_the_endpoint_is_matched_on_provider_not_on_list_position(self, monkeypatch):
+        # The `extra_body.provider` pin routes the completion; it has no effect
+        # on this public metadata route, which takes no provider parameter. So
+        # index 0 is whatever OpenRouter's default sort returns — a real
+        # `z-ai/glm-4.6` lookup puts a provider we never talked to there, with
+        # its own quantization and context length.
+        monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+        monkeypatch.setattr(
+            cc,
+            "_fetch_build_info",
+            lambda slug: cc._parse_endpoints(
+                slug,
+                _endpoints_payload(
+                    _endpoint(
+                        "Venice",
+                        name="Venice | z-ai/glm-4.6",
+                        quantization="fp4",
+                        context_length=198000,
+                    ),
+                    _endpoint(
+                        "Z.AI",
+                        name="Z.AI | z-ai/glm-4.6",
+                        quantization="fp8",
+                        context_length=202752,
+                    ),
+                ),
+                "https://example.invalid",
+            ),
+        )
+        assert cc._build_info("openrouter/z-ai/glm-4.6", "Z.AI") is None
+        self._settle("z-ai/glm-4.6")
+        info = cc._build_info("openrouter/z-ai/glm-4.6", "Z.AI")
+        assert info == {
+            "name": "Z.AI | z-ai/glm-4.6",
+            "quantization": "fp8",
+            "context_length": 202752,
+        }
+        # Case and surrounding whitespace in the response's provider name must
+        # not decide whether attribution works.
+        assert cc._build_info("openrouter/z-ai/glm-4.6", " z.ai ") == info
+
+    def test_a_provider_with_no_published_row_reports_nothing(self, monkeypatch):
+        # Silence beats naming a build belonging to a provider we never talked
+        # to: the whole point of the field is post-mortems that turn on the
+        # quantization.
+        monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+        monkeypatch.setattr(
+            cc,
+            "_fetch_build_info",
+            lambda slug: cc._parse_endpoints(
+                slug,
+                _endpoints_payload(
+                    _endpoint(
+                        "Venice", name="Venice | m", quantization="fp4", context_length=198000
+                    ),
+                    _endpoint(
+                        "Novita", name="Novita | m", quantization="bf16", context_length=204800
+                    ),
+                ),
+                "https://example.invalid",
+            ),
+        )
+        cc._build_info("openrouter/m", "Alibaba")
+        self._settle("m")
+        assert cc._build_info("openrouter/m", "Alibaba") is None
+        # Same for a call whose provider never survived stream reassembly:
+        # with more than one endpoint published there is nothing to infer.
+        assert cc._build_info("openrouter/m", None) is None
+
+    def test_a_single_endpoint_model_answers_even_without_a_provider(self, monkeypatch):
+        # The streaming path (all agent traffic) usually cannot name the
+        # provider. A model publishing exactly one endpoint is still
+        # unambiguous — it was served by that endpoint or by nothing — so this
+        # is an inference, not a guess.
+        monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+        monkeypatch.setattr(
+            cc,
+            "_fetch_build_info",
+            lambda slug: cc._parse_endpoints(
+                slug,
+                _endpoints_payload(
+                    _endpoint(
+                        "Poolside",
+                        name="Poolside | poolside/laguna-s-2.1-20260720",
+                        quantization="bf16",
+                        context_length=1048576,
+                    )
+                ),
+                "https://example.invalid",
+            ),
+        )
+        cc._build_info("openrouter/poolside/laguna-s-2.1", None)
+        self._settle("poolside/laguna-s-2.1")
+        info = cc._build_info("openrouter/poolside/laguna-s-2.1", None)
+        assert info["quantization"] == "bf16"
+        assert info["name"].endswith("20260720")
 
     def test_metadata_is_fetched_once_per_model_then_cached(self, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "k")
@@ -425,52 +601,143 @@ class TestBuildAttribution:
         def fake_fetch(slug):
             calls.append(slug)
             return {
-                "name": "Poolside | poolside/laguna-s-2.1-20260720",
-                "quantization": "bf16",
-                "context_length": 1048576,
+                "by_provider": {
+                    "poolside": {
+                        "name": "Poolside | poolside/laguna-s-2.1-20260720",
+                        "quantization": "bf16",
+                        "context_length": 1048576,
+                    }
+                },
+                "sole": None,
             }
 
         monkeypatch.setattr(cc, "_fetch_build_info", fake_fetch)
         # Runs on a daemon thread, so the first sighting returns None; join by
         # polling the cache rather than sleeping a fixed interval.
-        assert cc._build_info("openrouter/poolside/laguna-s-2.1") is None
-        for _ in range(200):
-            if "poolside/laguna-s-2.1" in cc._build_cache:
-                break
-            time.sleep(0.01)
-        info = cc._build_info("openrouter/poolside/laguna-s-2.1")
+        assert cc._build_info("openrouter/poolside/laguna-s-2.1", "Poolside") is None
+        self._settle("poolside/laguna-s-2.1")
+        info = cc._build_info("openrouter/poolside/laguna-s-2.1", "Poolside")
         assert info["quantization"] == "bf16"
-        assert info["name"].endswith("20260720")
-        # A second and third sighting must not re-fetch.
-        cc._build_info("openrouter/poolside/laguna-s-2.1")
+        # A second and third sighting must not re-fetch — including one for a
+        # different provider, which is answered out of the same cached list.
+        cc._build_info("openrouter/poolside/laguna-s-2.1", "Poolside")
+        cc._build_info("openrouter/poolside/laguna-s-2.1", "Venice")
         assert calls == ["poolside/laguna-s-2.1"]
 
     def test_a_failed_lookup_is_cached_so_it_is_not_retried_per_call(self, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "k")
         calls = []
         monkeypatch.setattr(cc, "_fetch_build_info", lambda slug: calls.append(slug) or None)
-        cc._build_info("openrouter/m")
-        for _ in range(200):
-            if "m" in cc._build_cache:
-                break
-            time.sleep(0.01)
-        cc._build_info("openrouter/m")
-        cc._build_info("openrouter/m")
+        cc._build_info("openrouter/m", "P")
+        self._settle("m")
+        cc._build_info("openrouter/m", "P")
+        cc._build_info("openrouter/m", "P")
         assert calls == ["m"]
 
+    def test_a_cached_failure_expires_where_a_success_does_not(self, monkeypatch):
+        # A failure must be cached — otherwise a 404 slug fires an HTTP request
+        # per call — but caching it as durably as a success is what turns one
+        # DNS blip into permanently null attribution for the pod's lifetime.
+        monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+        calls = []
+        monkeypatch.setattr(cc, "_fetch_build_info", lambda slug: calls.append(slug) or None)
+        cc._build_info("openrouter/m", "P")
+        self._settle("m")
+        # Age the cached failure past its (shorter) TTL.
+        stamp, record = cc._build_cache["m"]
+        cc._build_cache["m"] = (stamp - cc.DEFAULT_BUILD_FAILURE_TTL_SECONDS - 1, record)
+        cc._build_info("openrouter/m", "P")
+        for _ in range(200):
+            if len(calls) > 1:
+                break
+            time.sleep(0.01)
+        assert calls == ["m", "m"]
+        assert cc.DEFAULT_BUILD_FAILURE_TTL_SECONDS < cc.DEFAULT_BUILD_TTL_SECONDS
+
+    def test_every_failure_path_is_reported(self, monkeypatch):
+        # The operator-visible symptom of a bad slug and of a lookup that has
+        # simply not landed yet is the same null. Only the log tells them
+        # apart, so silence on any of these branches is the defect.
+        monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+        logged: list[tuple] = []
+
+        # Returns True, like the real ``_log`` does on a successful emit: the
+        # warn-once latch is deliberately conditional on that, so a fake that
+        # returned None would never latch and would hide the demotion.
+        def _fake_log(level, msg, *a):
+            logged.append((level, msg % a))
+            return True
+
+        monkeypatch.setattr(cc, "_log", _fake_log)
+
+        class _Boom:
+            def __enter__(self):
+                raise OSError("HTTP Error 404: Not Found")
+
+            def __exit__(self, *exc):
+                return False
+
+        monkeypatch.setattr(cc.urllib.request, "urlopen", lambda *a, **k: _Boom())
+        assert cc._fetch_build_info("qwen3-max") is None
+        assert len(logged) == 1
+        level, message = logged[0]
+        # First failure at warning — the one worth seeing — and it names both
+        # the slug and the URL that produced it.
+        assert level == "warning"
+        assert "qwen3-max" in message and "404" in message
+        # Repeats drop to debug rather than one line per TTL forever.
+        cc._fetch_build_info("qwen3-max")
+        assert logged[1][0] == "debug"
+
+    def test_a_non_json_body_is_reported_rather_than_swallowed(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+        logged: list[tuple] = []
+
+        # Returns True, like the real ``_log`` does on a successful emit: the
+        # warn-once latch is deliberately conditional on that, so a fake that
+        # returned None would never latch and would hide the demotion.
+        def _fake_log(level, msg, *a):
+            logged.append((level, msg % a))
+            return True
+
+        monkeypatch.setattr(cc, "_log", _fake_log)
+
+        class _Body:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def read(self):
+                return b"<html>gateway timeout</html>"
+
+        monkeypatch.setattr(cc.urllib.request, "urlopen", lambda *a, **k: _Body())
+        assert cc._fetch_build_info("m") is None
+        assert logged and "non-JSON" in logged[0][1]
+
     def test_provider_is_read_off_the_nonstreaming_response_body(self):
-        mcd = {"original_response": json.dumps({"provider": "Poolside", "usage": {}})}
-        assert cc._extract_provider(mcd, None) == "Poolside"
+        body = json.loads(json.dumps({"provider": "Poolside", "usage": {}}))
+        assert cc._extract_provider(body, None) == "Poolside"
 
     def test_provider_falls_back_to_the_assembled_object(self):
         obj = types.SimpleNamespace(provider="Poolside")
-        assert cc._extract_provider({}, obj) == "Poolside"
+        assert cc._extract_provider(None, obj) == "Poolside"
 
     def test_unknown_provider_is_none_not_a_guess(self):
-        assert cc._extract_provider({}, None) is None
+        assert cc._extract_provider(None, None) is None
+
+    def test_the_litellm_route_provider_is_not_reported_as_the_upstream(self):
+        # `_hidden_params["custom_llm_provider"]` is the literal string
+        # "openrouter" on every model egg registers — litellm's ROUTE, not the
+        # upstream that served the turn. Reading it would make this field
+        # non-null on every streamed call while answering a different
+        # question, so `endpoint.provider == null` would find nothing and an
+        # operator would conclude attribution was working.
+        obj = types.SimpleNamespace(_hidden_params={"custom_llm_provider": "openrouter"})
+        assert cc._extract_provider(None, obj) is None
 
     def test_endpoint_block_is_emitted_with_nulls_before_the_lookup_lands(self, monkeypatch):
-        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
         emitted = self._capture(monkeypatch)
         cc.LiteLLMCostLogger()._record(_mcd("b1", raw_usage=_usage_with_cost()), None)
         ep = emitted[0]["endpoint"]
@@ -685,16 +952,19 @@ class TestExtractRequestParams:
         assert params["repetition_penalty"] == 1.05
         assert params["reasoning_effort"] == "high"
 
-    def test_prompt_bearing_params_are_excluded(self):
+    def test_prompt_payloads_are_excluded_while_the_mode_selector_is_kept(self):
         # optional_params also carries the translated tool schemas (Claude Code
         # sends a dozen-plus per request). Dumping it whole would bloat every
         # line and spill task text into a cost stream. The allowlist is the
         # guard; this pins it.
         #
-        # ``tools`` is recorded by ARITY only (``tools_count``): tool presence
-        # is the strongest observed lever on whether the model reasons, so the
-        # integer is load-bearing while the schemas it counts are exactly the
-        # bloat the allowlist exists to keep out.
+        # The line the allowlist draws is payload vs selector, not "anything
+        # tool-shaped": ``tools`` is recorded by ARITY only (``tools_count``)
+        # because tool presence is the strongest observed lever on whether the
+        # model reasons, while the schemas it counts are exactly the bloat the
+        # allowlist exists to keep out; ``tool_choice`` is a small scalar mode
+        # selector carrying no prompt text, and is recorded verbatim. What
+        # stays out either way is the schema bodies and the messages.
         params = cc._extract_request_params(
             _mcd(
                 "r",
