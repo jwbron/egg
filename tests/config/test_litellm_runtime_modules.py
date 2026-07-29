@@ -564,6 +564,263 @@ def test_tiered_rate_card_is_declined_rather_than_under_reported(caps, logger, m
     assert len(logger.messages("warning")) == 1
 
 
+def _tiered_payload(model_id, override, base=None):
+    pricing = dict(base or {"prompt": "0.000003", "completion": "0.000015"})
+    pricing["overrides"] = [override] if isinstance(override, dict) else list(override)
+    return {"data": [{"id": model_id, "pricing": pricing}]}
+
+
+def test_a_tier_landing_on_a_litellm_slot_is_translated_not_declined(caps, logger, monkeypatch):
+    """Declining every tiered card left most of them unpriced for no reason.
+
+    LiteLLM has real rate slots at 128000/200000/272000, and ``x-ai/grok-4.5``
+    and friends publish a single boundary that lands exactly on one. Declining
+    those cost ``cost_estimated`` on ~7% of the live roster — including several
+    likely routing targets — while the warning told the operator LiteLLM could
+    not express a boundary it can.
+    """
+    _install_http_stub(
+        monkeypatch,
+        payload=_tiered_payload(
+            "x-ai/grok-4.5",
+            {
+                "min_prompt_tokens": 200000,
+                "prompt": "0.000004",
+                "completion": "0.000012",
+                "input_cache_read": "0.0000006",
+            },
+            base={
+                "prompt": "0.000002",
+                "completion": "0.000006",
+                "input_cache_read": "0.0000003",
+            },
+        ),
+    )
+    assert caps.get_model_cost_entry("x-ai/grok-4.5") == {
+        "key": "x-ai/grok-4.5",
+        "litellm_provider": "openrouter",
+        "mode": "chat",
+        "input_cost_per_token": 2e-06,
+        "output_cost_per_token": 6e-06,
+        "cache_read_input_token_cost": 3e-07,
+        "input_cost_per_token_above_200k_tokens": 4e-06,
+        "output_cost_per_token_above_200k_tokens": 1.2e-05,
+        "cache_read_input_token_cost_above_200k_tokens": 6e-07,
+    }
+    assert logger.messages("warning") == [], "nothing was declined, so nothing to explain"
+
+
+def test_a_tier_is_declined_when_one_published_component_has_no_slot(caps, logger, monkeypatch):
+    """Slot coverage is uneven *per component*, not just per boundary.
+
+    ``openai/gpt-5.6-luna-pro`` really does surcharge ``input_cache_write`` at
+    272000, and LiteLLM has no ``cache_creation_input_token_cost_above_272k_tokens``
+    — the field is absent from the explicit enumeration ``_get_model_info_helper``
+    builds its return from, so a key by that name is dropped on the way out.
+    Emitting the three components that *do* fit would leave cache writes billed
+    at the base rate above the boundary: a silent under-report on exactly the
+    long-prompt turns the surcharge exists for, which is the failure the
+    all-or-nothing rule exists to prevent.
+    """
+    _install_http_stub(
+        monkeypatch,
+        payload=_tiered_payload(
+            "openai/gpt-5.6-luna-pro",
+            {
+                "min_prompt_tokens": 272000,
+                "prompt": "0.000001",
+                "completion": "0.0000045",
+                "input_cache_read": "0.0000001",
+                "input_cache_write": "0.00000125",
+            },
+        ),
+    )
+    assert caps.get_model_cost_entry("openai/gpt-5.6-luna-pro") is None
+    (message,) = logger.messages("warning")
+    assert "272000" in message
+    # The old wording asserted LiteLLM "cannot express those boundaries", which
+    # is now false for most cards and would send an operator after the wrong
+    # limit. 272000 *is* an expressible boundary; the component is not.
+    assert "cannot express those boundaries" not in message
+
+
+def test_a_tier_publishing_only_a_component_we_never_price_is_still_translated(caps, monkeypatch):
+    """An unmapped component is out of scope at the base tier too.
+
+    ``image`` has no per-token slot LiteLLM's chat-path calculation reads, so it
+    is already absent from the base entry. Declining the whole card over it
+    would withhold a rate card that is no less complete above the boundary than
+    below it — the all-or-nothing rule is about components we *do* price.
+    """
+    _install_http_stub(
+        monkeypatch,
+        payload=_tiered_payload(
+            "some/multimodal",
+            {"min_prompt_tokens": 128000, "prompt": "0.000006", "image": "0.003"},
+        ),
+    )
+    entry = caps.get_model_cost_entry("some/multimodal")
+    assert entry["input_cost_per_token_above_128k_tokens"] == 6e-06
+    assert not [k for k in entry if "image" in k]
+
+
+def test_a_tier_with_no_prompt_surcharge_is_declined_as_unreachable(caps, monkeypatch):
+    """LiteLLM finds the applicable boundary by scanning for
+    ``input_cost_per_token_above_*`` keys, so a tier publishing only a
+    completion surcharge would contribute a key nothing ever reads — and bill
+    the whole turn at base while looking translated."""
+    _install_http_stub(
+        monkeypatch,
+        payload=_tiered_payload(
+            "some/completion-only",
+            {"min_prompt_tokens": 200000, "completion": "0.00003"},
+        ),
+    )
+    assert caps.get_model_cost_entry("some/completion-only") is None
+
+
+def test_a_string_tier_boundary_is_parsed_like_every_other_number(caps, monkeypatch):
+    """``pricing.prompt`` right beside it arrives as a decimal string, so
+    OpenRouter demonstrably does serialize numbers as strings in this block. An
+    ``isinstance(raw, int)`` gate would report a perfectly expressible boundary
+    as "unparseable" the day ``min_prompt_tokens`` follows suit."""
+    _install_http_stub(
+        monkeypatch,
+        payload=_tiered_payload(
+            "some/stringy",
+            {"min_prompt_tokens": "272000", "prompt": "0.00001", "completion": "0.000045"},
+        ),
+    )
+    entry = caps.get_model_cost_entry("some/stringy")
+    assert entry["input_cost_per_token_above_272k_tokens"] == 1e-05
+    assert entry["output_cost_per_token_above_272k_tokens"] == 4.5e-05
+
+
+@pytest.mark.parametrize("boundary", [32000, 256000, 128000.5, True, None])
+def test_an_inexpressible_boundary_is_still_declined(caps, monkeypatch, boundary):
+    """The narrowing is to the boundaries LiteLLM actually has slots for, not
+    to "anything that looks like a number". A fractional token count means the
+    field is not what this thinks it is; a bool is not a count at all."""
+    _install_http_stub(
+        monkeypatch,
+        payload=_tiered_payload(
+            "some/arbitrary",
+            {"min_prompt_tokens": boundary, "prompt": "0.000006", "completion": "0.00003"},
+        ),
+    )
+    assert caps.get_model_cost_entry("some/arbitrary") is None
+
+
+def test_the_1h_cache_write_and_reasoning_rates_are_carried(caps, monkeypatch):
+    """Two more components with an exact LiteLLM destination that is read on
+    the chat cost path: ``generic_cost_per_token`` prices reasoning tokens off
+    ``output_cost_per_reasoning_token``, and ``calculate_cache_writing_cost``
+    prices a 1h TTL block off ``cache_creation_input_token_cost_above_1hr``.
+
+    ``input_cache_write_1h`` is 2x the 5m rate on every Anthropic route. Claude
+    Code defaults to 5m so it does not fire today — but dropping it meant that
+    the moment anything sets ``ttl: "1h"``, cache writes get priced at half of
+    actual with no signal, which is the same under-report this module declines
+    a whole rate card to avoid.
+    """
+    _install_http_stub(
+        monkeypatch,
+        payload={
+            "data": [
+                {
+                    "id": "anthropic/claude-opus-4.8",
+                    "pricing": {
+                        "prompt": "0.000005",
+                        "completion": "0.000025",
+                        "input_cache_write": "0.00000625",
+                        "input_cache_write_1h": "0.00001",
+                        "internal_reasoning": "0.000025",
+                        # Published, but per-request rather than per-token, and
+                        # LiteLLM's chat cost path never reads a query rate.
+                        "web_search": "0.01",
+                    },
+                }
+            ]
+        },
+    )
+    entry = caps.get_model_cost_entry("anthropic/claude-opus-4.8")
+    assert entry["cache_creation_input_token_cost"] == 6.25e-06
+    assert entry["cache_creation_input_token_cost_above_1hr"] == 1e-05
+    assert entry["output_cost_per_reasoning_token"] == 2.5e-05
+    assert "input_cost_per_query" not in entry
+
+
+def test_a_pricing_only_entry_does_not_shadow_a_parameter_answer(caps, monkeypatch):
+    """The candidate loop must skip a record that cannot answer the asked half.
+
+    Before the pricing half existed, ``_fetch`` dropped entries with no
+    ``supported_parameters`` outright and the loop fell through them by
+    accident. Keeping them for their rates turned that accident into a silent
+    regression of Patch 7: ``reasoning_effort`` dropped for a variant slug
+    whose roster entry happens to carry only a rate card.
+    """
+    _install_http_stub(
+        monkeypatch,
+        payload={
+            "data": [
+                {
+                    "id": "some/model:beta",
+                    "pricing": {"prompt": "0.000001", "completion": "0.000002"},
+                },
+                {"id": "some/model", "supported_parameters": ["reasoning_effort"]},
+            ]
+        },
+    )
+    assert caps.get_supported_parameters("some/model:beta") == {"reasoning_effort"}
+    # ...and the reverse direction still resolves against the variant itself.
+    assert caps.get_model_cost_entry("some/model:beta")["key"] == "some/model:beta"
+
+
+def test_a_variant_slug_never_inherits_its_base_models_rate_card(caps, monkeypatch):
+    """Union-only is safe for parameters and wrong for pricing.
+
+    A variant accepts at least what its base does, so inheriting a parameter
+    list can admit a param and never withdraw one. A variant suffix is
+    frequently *what changes the rate* — ``:free`` is 0 against a paid base,
+    ``:batch`` is half — so inheriting would report a confident, authoritative
+    number that is wrong by construction. OpenRouter retires ``:free`` variants
+    routinely, which is exactly when the fallback would have fired.
+    """
+    _install_http_stub(
+        monkeypatch,
+        payload={
+            "data": [
+                {
+                    "id": "poolside/laguna-s-2.1",
+                    "supported_parameters": ["reasoning"],
+                    "pricing": {"prompt": "0.0000001", "completion": "0.0000002"},
+                }
+            ]
+        },
+    )
+    assert caps.get_model_cost_entry("poolside/laguna-s-2.1:free") is None
+    # The parameter half keeps the fallback, and keeps it deliberately.
+    assert caps.get_supported_parameters("poolside/laguna-s-2.1:free") == {"reasoning"}
+
+
+def test_the_decline_latch_is_rearmed_by_a_refetch_not_only_by_reset_cache(caps, monkeypatch):
+    """``reset_cache`` is test-only, so a latch cleared solely there is latched
+    for the life of the pod — the exact outcome the comment beside it claimed
+    to prevent. A model that acquires or drops a surcharge tier has to be
+    reported against the roster the change was read from."""
+    _install_http_stub(
+        monkeypatch,
+        payload=_tiered_payload("some/tiered", {"min_prompt_tokens": 32000, "prompt": "0.000006"}),
+    )
+    monkeypatch.setenv("LITELLM_OPENROUTER_CAPABILITY_TTL", "0")
+    recorder = _install_logger(monkeypatch, _RecordingLogger())
+
+    assert caps.get_model_cost_entry("some/tiered") is None
+    assert len(recorder.messages("warning")) == 1
+    assert caps.get_model_cost_entry("some/tiered") is None
+    assert len(recorder.messages("warning")) == 2, "each refetch re-arms the per-slug latch"
+
+
 def test_a_tiered_card_with_unparseable_boundaries_is_still_explained(caps, logger, monkeypatch):
     """A tiered card whose boundaries do not parse is still a tiered card.
 
@@ -1016,6 +1273,83 @@ def test_a_hostile_usage_object_cannot_break_the_response(streamcost):
 
     usage = _Usage()
     assert streamcost.carry_upstream_cost([_Chunk(usage=_Exploding())], usage) is usage
+
+
+def test_an_undeclared_field_survives_on_a_real_pydantic_usage(streamcost):
+    """``cost_details`` is not a declared field on litellm's ``Usage``.
+
+    It exists only because ``Usage`` inherits openai's ``BaseModel``, which sets
+    ``ConfigDict(extra="allow")``; under the default ``extra`` the same
+    ``setattr`` raises ``ValueError: "Usage" object has no field "cost_details"``.
+    ``carry_upstream_cost`` swallows that — correctly, a cost must never break a
+    response — so if a litellm bump ever tightens the config, the ``cost_details``
+    half becomes a completely silent no-op. The plain-Python ``_Usage`` double
+    above cannot express that failure: ``setattr`` always works on it.
+
+    This models the real shape (declared ``cost``, undeclared ``cost_details``)
+    with an actual pydantic model, and asserts the round-trip through
+    ``model_dump()`` as well — which is how ``cost_callback._coerce_usage``
+    reads it, so an extra that survives ``setattr`` but is dropped by the dump
+    would still be a silent loss.
+    """
+    pydantic = pytest.importorskip("pydantic")
+
+    class _PydanticUsage(pydantic.BaseModel):
+        model_config = pydantic.ConfigDict(extra="allow")
+
+        prompt_tokens: int = 0
+        cost: float | None = None
+
+    usage = _PydanticUsage(prompt_tokens=100)
+    chunks = [_Chunk(usage=_Usage(cost=0.0, cost_details={"upstream_inference_cost": 0.0045}))]
+    streamcost.carry_upstream_cost(chunks, usage)
+
+    assert usage.cost == 0.0
+    assert usage.cost_details == {"upstream_inference_cost": 0.0045}
+    dumped = usage.model_dump()
+    assert dumped["cost"] == 0.0
+    assert dumped["cost_details"] == {"upstream_inference_cost": 0.0045}
+
+
+def test_the_carried_cost_is_readable_by_the_callback_that_consumes_it(streamcost, monkeypatch):
+    """Joins the producer to the consumer, which prose alone was doing.
+
+    ``test_cost_callback.py`` asserts against a hand-built dict that *describes*
+    what patch 10 is supposed to leave behind; nothing ran the real
+    ``carry_upstream_cost`` output through the real ``_coerce_usage`` /
+    ``_extract_cost``. This does, on the BYOK shape — ``cost`` 0, the money in
+    ``cost_details.upstream_inference_cost`` — which is the one where the two
+    modules have to agree on a nested key name to produce a number at all.
+    """
+    litellm = sys.modules.get("litellm") or types.ModuleType("litellm")
+    integrations = types.ModuleType("litellm.integrations")
+    custom_logger_mod = types.ModuleType("litellm.integrations.custom_logger")
+
+    class _CustomLogger:  # the module only subclasses it
+        pass
+
+    custom_logger_mod.CustomLogger = _CustomLogger
+    monkeypatch.setitem(sys.modules, "litellm", litellm)
+    monkeypatch.setitem(sys.modules, "litellm.integrations", integrations)
+    monkeypatch.setitem(sys.modules, "litellm.integrations.custom_logger", custom_logger_mod)
+    cc = _load("cost_callback")
+
+    pydantic = pytest.importorskip("pydantic")
+
+    class _PydanticUsage(pydantic.BaseModel):
+        model_config = pydantic.ConfigDict(extra="allow")
+
+        prompt_tokens: int = 0
+        completion_tokens: int = 0
+        cost: float | None = None
+
+    usage = _PydanticUsage(prompt_tokens=1000, completion_tokens=50)
+    chunks = [
+        _Chunk(usage=_Usage(cost=0.0, cost_details={"upstream_inference_cost": 0.0045})),
+    ]
+    carried = streamcost.carry_upstream_cost(chunks, usage)
+
+    assert cc._extract_cost(cc._coerce_usage(carried)) == 0.0045
 
 
 # --------------------------------------------------------------------------
