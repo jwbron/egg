@@ -38,3 +38,9 @@ Changed `fix` handling to check `"fix" in c` (key presence), then validate `isin
 ## Assessment
 - Issue #3630 requirements fully met: `fix` validated as non-empty string; warning logged on invalid values; `config/repo_config.py` parallel path aligned.
 - All required test cases covered: valid non-empty string accepted; empty string rejected with warning; `false`/`0` rejected with warning; list value rejected with warning; absent `fix` key unchanged.
+
+## BRC Status
+- Proposal sent: commit `c36b3c28e` on `egg/issue-3630-laguna-run7/work`
+- Reviewers: `reviewer_plan`, `risk_analyst`, `simplifier`
+- Status: PROPOSED (pending review)
+- Note: Source code changes are in the working tree but NOT committed (phase gate blocks task_planner from committing source files). The plan draft and BRC memory are committed. The coder role will implement the actual source changes in the implement phase.
