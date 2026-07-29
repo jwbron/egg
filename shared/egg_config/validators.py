@@ -8,9 +8,12 @@ This module provides validators for common configuration patterns:
 - Secret masking utilities
 """
 
+import logging
 import re
 from typing import Any
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 
 def validate_url(url: str, *, require_https: bool = True) -> tuple[bool, str | None]:
@@ -172,7 +175,11 @@ def validate_checks(checks: list[Any]) -> list[dict[str, str]]:
     key names a shell command that auto-remediates a failing check
     (e.g. ``make lint-fix`` for a ``lint`` check); the per-slice green
     gate runs it at the slice tip and commits the result (#3409). A
-    ``fix`` that is present but empty/None is dropped from the entry.
+    ``fix`` that is present but is not a non-empty string — empty,
+    ``None``, falsy (``false`` / ``0``), or a non-string such as a YAML
+    list — is dropped from the entry and a warning is logged (#3630).
+    It is never ``str()``-coerced, since coercing a list would hand the
+    shell a command like ``"['make fmt', 'make lint-fix']"``.
 
     An optional ``full_command`` key names the **ground-truth** form of
     the same check, for repos whose ``command`` is deliberately narrowed
@@ -200,8 +207,17 @@ def validate_checks(checks: list[Any]) -> list[dict[str, str]]:
         if not (isinstance(c, dict) and "name" in c and "command" in c):
             continue
         entry = {"name": str(c["name"]), "command": str(c["command"])}
-        if c.get("fix"):
-            entry["fix"] = str(c["fix"])
+        if "fix" in c:
+            fix = c["fix"]
+            if isinstance(fix, str) and fix:
+                entry["fix"] = fix
+            else:
+                logger.warning(
+                    "validate_checks: check %r has invalid fix %r "
+                    "(expected non-empty string); dropping fix",
+                    c.get("name"),
+                    fix,
+                )
         if c.get("full_command"):
             entry["full_command"] = str(c["full_command"])
         result.append(entry)

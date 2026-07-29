@@ -2,6 +2,8 @@
 Tests for egg_config.validators module.
 """
 
+import logging
+
 from egg_config.validators import (
     mask_secret,
     validate_anthropic_key,
@@ -40,9 +42,13 @@ class TestValidateChecks:
         assert result == [{"name": "ok", "command": "true"}]
 
     def test_values_coerced_to_strings(self):
-        """Non-string values are coerced to strings."""
-        result = validate_checks([{"name": 1, "command": 2, "fix": 3}])
-        assert result == [{"name": "1", "command": "2", "fix": "3"}]
+        """Non-string name/command values are coerced to strings.
+
+        ``fix`` is deliberately excluded: a non-string ``fix`` is
+        rejected rather than coerced (#3630).
+        """
+        result = validate_checks([{"name": 1, "command": 2}])
+        assert result == [{"name": "1", "command": "2"}]
 
     def test_fix_key_preserved(self):
         """The optional fix auto-remediation command survives (#3409)."""
@@ -57,11 +63,52 @@ class TestValidateChecks:
             {"name": "test", "command": "make test"},
         ]
 
-    def test_empty_fix_dropped(self):
-        """A present-but-empty fix is dropped from the entry."""
+    def test_empty_fix_dropped_with_warning(self, caplog):
+        """A present-but-empty fix is dropped and warned about (#3630)."""
         for empty in ("", None):
-            result = validate_checks([{"name": "lint", "command": "make lint", "fix": empty}])
+            caplog.clear()
+            with caplog.at_level(logging.WARNING, logger="egg_config.validators"):
+                result = validate_checks([{"name": "lint", "command": "make lint", "fix": empty}])
             assert result == [{"name": "lint", "command": "make lint"}]
+            assert "invalid fix" in caplog.text
+            assert "lint" in caplog.text
+
+    def test_fix_false_rejected_with_warning(self, caplog):
+        """``fix: false`` is dropped with a warning, not silently (#3630)."""
+        with caplog.at_level(logging.WARNING, logger="egg_config.validators"):
+            result = validate_checks([{"name": "lint", "command": "make lint", "fix": False}])
+        assert result == [{"name": "lint", "command": "make lint"}]
+        assert "invalid fix" in caplog.text
+
+    def test_fix_zero_rejected_with_warning(self, caplog):
+        """``fix: 0`` is dropped with a warning, not silently (#3630)."""
+        with caplog.at_level(logging.WARNING, logger="egg_config.validators"):
+            result = validate_checks([{"name": "lint", "command": "make lint", "fix": 0}])
+        assert result == [{"name": "lint", "command": "make lint"}]
+        assert "invalid fix" in caplog.text
+
+    def test_fix_non_string_rejected_with_warning(self, caplog):
+        """A truthy non-string fix is rejected, not ``str()``-coerced (#3630)."""
+        with caplog.at_level(logging.WARNING, logger="egg_config.validators"):
+            result = validate_checks([{"name": "lint", "command": "make lint", "fix": 3}])
+        assert result == [{"name": "lint", "command": "make lint"}]
+        assert "invalid fix" in caplog.text
+
+    def test_fix_list_rejected_with_warning(self, caplog):
+        """A YAML list fix never becomes a broken shell command (#3630)."""
+        with caplog.at_level(logging.WARNING, logger="egg_config.validators"):
+            result = validate_checks(
+                [{"name": "lint", "command": "make lint", "fix": ["make fmt", "make lint-fix"]}]
+            )
+        assert result == [{"name": "lint", "command": "make lint"}]
+        assert "invalid fix" in caplog.text
+
+    def test_fix_absent_unchanged(self, caplog):
+        """An absent fix key is not a config error — no warning (#3630)."""
+        with caplog.at_level(logging.WARNING, logger="egg_config.validators"):
+            result = validate_checks([{"name": "lint", "command": "make lint"}])
+        assert result == [{"name": "lint", "command": "make lint"}]
+        assert caplog.text == ""
 
     def test_unknown_keys_dropped(self):
         """Keys outside the schema never pass through."""
