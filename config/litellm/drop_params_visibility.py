@@ -2,7 +2,7 @@
 
 ``drop_params`` exists so an unsupported parameter does not fail the whole
 request, and that tradeoff is right. But dropping a parameter *changes
-generation behaviour*, and in stock LiteLLM 1.86.2 it happens with no signal
+generation behaviour*, and in stock LiteLLM it happens with no signal
 at all: the branch that pops them is a bare loop with no logging. A
 ``reasoning_effort``, ``temperature`` or penalty set in a proxy config simply
 never reaches the provider, and nothing in the logs or the response says so.
@@ -15,14 +15,14 @@ was discarded before the request body was built. It took a full investigation
 to notice (jwbron/egg#3620, #3624). One log line would have made it a
 five-minute question.
 
-Patch 7 fixes the OpenRouter false-negative specifically; this covers the rest.
+Patch 4 fixes the OpenRouter false-negative specifically; this covers the rest.
 A drop can still be *correct* and worth knowing about: ``poolside/laguna-s-2.1``
 genuinely does not accept ``reasoning_effort``, so the knob is dropped on
 purpose, and without this the operator has no way to learn why their config
 line does nothing.
 
 Mirrors jwbron/litellm#7 (merged into the fork the host proxy runs). The
-cluster image pins stock 1.86.2, which predates it, hence this patch.
+cluster image pins a stock release, which does not carry it, hence this patch.
 """
 
 # Warn-once bookkeeping, keyed by (provider, model, sorted dropped param

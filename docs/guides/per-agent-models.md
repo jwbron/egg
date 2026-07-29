@@ -593,8 +593,8 @@ data:
 > Claude Code prepends (the block's `cch=` hash invalidates the cache key
 > every turn). egg ships a custom **`egg-litellm`** image
 > ([`config/litellm/Dockerfile`](../../config/litellm/Dockerfile)) that
-> bakes in twelve patches closing those gaps, the reasoning ones below,
-> and the cost-visibility ones after that
+> bakes in ten patches closing those gaps, the reasoning-parameter ones
+> below, and the cost-visibility ones after that
 > ([`config/litellm/patch_litellm_cache.py`](../../config/litellm/patch_litellm_cache.py));
 > the build fails loudly if a LiteLLM bump moves the patched code. Pinning
 > the OpenRouter provider (`extra_body.provider.order` + `allow_fallbacks:
@@ -614,7 +614,7 @@ data:
 > (issue #3691; before them, 1252 of 1252 sampled calls on run 6 reported
 > `cost: null`, so egg had no dollar figure at all for its LLM spend).
 >
-> - **Patch 11 — the bill survives streaming.** `cost` is what OpenRouter
+> - **Patch 8 — the BYOK bill survives streaming.** `cost` is what OpenRouter
 >   charged, reported on the final streamed usage chunk. No config change is
 >   needed to get it: stock LiteLLM's `OpenrouterConfig.transform_request`
 >   already sets `usage: {"include": true}` on every request, so the number
@@ -623,26 +623,37 @@ data:
 >   enumerates and dropped `cost` / `cost_details` at that seam. Claude Code
 >   streams every `/v1/messages` request, so that was ~100% of routed
 >   traffic; the non-streaming path was never affected, which is why it read
->   as a property of the route rather than as a transport bug. The patch
->   copies the two fields across the rebuild and interprets neither: a `0`
->   under BYOK is the literal truth about the OpenRouter bill, with the real
->   number beside it under `cost_details.upstream_inference_cost`.
-> - **Patch 12 — the estimate has a rate card.** `cost_estimated` is
+>   as a property of the route rather than as a transport bug. litellm 1.94.0
+>   now carries `cost` natively, so the patch is down to `cost_details` —
+>   which is the half that matters under BYOK, where the top-level `cost` is a
+>   literal `0` and the real number is `cost_details.upstream_inference_cost`.
+>   The patch interprets neither field; it only transports.
+> - **Patch 9 — the estimate has a rate card.** `cost_estimated` is
 >   LiteLLM's own `response_cost`, computed from its bundled pricing map —
 >   which carries none of the slugs egg routes, exactly as it carries none of
->   their `supported_parameters` (patch 7, same root cause). The patch reads
+>   their `supported_parameters` (patch 4, same root cause). The patch reads
 >   OpenRouter's published rate card off the same `GET /api/v1/models` fetch
->   patch 7 already makes, and hands it to the model-info lookup only after
+>   patch 4 already makes, and hands it to the model-info lookup only after
 >   every bundled lookup has failed — so a mapped slug keeps its bundled
 >   rate, and the live card can add a model but never reprice one.
 >   `LITELLM_OPENROUTER_PRICING=0` turns off just this half.
+> - **Patch 10 — the estimate stays independent under BYOK.** From 1.94.0
+>   LiteLLM copies a provider-reported `usage.cost` into `_hidden_params` and
+>   `response_cost_calculator` returns that value *before* it reaches
+>   `completion_cost()`. Its guard is `is not None`, and under BYOK OpenRouter
+>   reports `cost: 0.0` — so unpatched, the calculator is handed a zero,
+>   `cost_estimated` reads null on ~100% of egg's traffic, and patch 9 (which
+>   lives inside `completion_cost()`) never runs at all. The patch narrows the
+>   guard to a positive, finite charge. A route that reports a real bill still
+>   propagates it unchanged, in which case `cost_estimated` mirrors `cost`
+>   rather than pricing the turn independently.
 >
 > `cost_estimated` can still read null for a model that **prices by prompt
 > length**. OpenRouter publishes a long-context surcharge as
 > `pricing.overrides` keyed by an arbitrary `min_prompt_tokens`. LiteLLM has
 > named rate slots at exactly three boundaries — 128000, 200000, 272000 — and
 > its coverage is uneven *per component*: there is no cache-read slot at
-> 128000 and no cache-write slot at 128000 or 272000. Patch 12 translates a
+> 128000 and no cache-write slot at 128000 or 272000. Patch 9 translates a
 > surcharge when every published boundary and every priced component in it has
 > a slot (about half the tiered models on the current roster, including the
 > gpt-5.5 and grok-4.x families), and declines the **whole** card otherwise.
@@ -661,9 +672,13 @@ data:
 > by one of those reads low under `cost_estimated` — another reason to compare
 > the two fields rather than trusting either alone.
 >
-> The two fields are independent measurements of the same turn, so read them
-> together: a persistent gap between them is itself a signal (a stale rate
-> card, an unexpected provider, or a surcharge tier). Neither is ever
+> On a BYOK route — every route egg currently uses — the two fields are
+> independent measurements of the same turn, so read them together: a
+> persistent gap between them is itself a signal (a stale rate card, an
+> unexpected provider, or a surcharge tier). On a route where the provider
+> reports a positive charge, patch 10 lets that charge through to LiteLLM's
+> calculator and `cost_estimated` mirrors `cost`; agreement there is
+> arithmetic, not corroboration. Neither is ever
 > coerced to `0.0` when unknown — a zero would read in the logs as "this
 > route is free", the exact inversion of the signal. The session totals sum
 > only the calls that reported, so compare `cost_known_calls` /
@@ -684,7 +699,7 @@ data:
 > [`k8s/base/litellm-deployment.yaml`](../../k8s/base/litellm-deployment.yaml)
 > (where they are present but commented out) without rebuilding the image:
 >
-> - **Patch 7 — live capability lookup.** LiteLLM gates reasoning params on
+> - **Patch 4 — live capability lookup.** LiteLLM gates reasoning params on
 >   its bundled model-cost map, which does not carry current OpenRouter
 >   slugs, so a `reasoning_effort` set in `litellm_params` was discarded
 >   before the request body was built — no exception, no log line. The patch
@@ -698,10 +713,10 @@ data:
 >   phase) tune it. A fetch that fails is cached for the TTL too, so an
 >   offline cluster costs one attempt per hour rather than one per request,
 >   and the first failure is logged at `warning`. Note `_FETCH=0` also
->   disables patch 12's pricing lookup — one fetch serves both, so the master
+>   disables patch 9's pricing lookup — one fetch serves both, so the master
 >   switch governs both; `LITELLM_OPENROUTER_PRICING=0` turns off only the
 >   pricing half.
-> - **Patch 9 — no synthesized reasoning ceiling.** On `/v1/messages` (the
+> - **Patch 6 — no synthesized reasoning ceiling.** On `/v1/messages` (the
 >   route Claude Code uses) LiteLLM's Anthropic adapter converts each
 >   request's `thinking: {budget_tokens: N}` into a bucketed
 >   `reasoning_effort` for any non-Claude model. That value is not in any
@@ -716,7 +731,7 @@ data:
 >   adaptive request that names an effort outright
 >   (`output_config: {effort: ...}`) is an instruction rather than a
 >   manufactured ceiling, and still reaches the provider with this off.
-> - **Patch 10 — prior-turn reasoning actually reaches the provider.** The
+> - **Patch 7 — prior-turn reasoning actually reaches the provider.** The
 >   same adapter parks each historical assistant turn's thinking on a
 >   `thinking_blocks` field that no OpenRouter request-path code reads, so
 >   every previous turn arrived with its reasoning missing. On a model whose
@@ -755,7 +770,7 @@ data:
 > - **It is read after `drop_params` has acted**, so it reports what the wire
 >   carried, not what your config asked for. A knob you set in
 >   `litellm_params` that does not appear here was discarded or relocated
->   into `extra_body` by LiteLLM's parameter mapper. Patch 8
+>   into `extra_body` by LiteLLM's parameter mapper. Patch 5
 >   (`drop_params_visibility.py`) also logs a `litellm.drop_params: dropped
 >   ...` warning once per (provider, model, param-set) combo, for as long as
 >   the proxy's bookkeeping set holds that combo, naming the params and — when

@@ -548,12 +548,12 @@ config/
 ├── litellm/                          # egg-litellm image sources
 │   ├── Dockerfile                    # Builds egg-litellm: stock LiteLLM + prompt-cache and reasoning-parameter patches
 │   ├── .ruff.toml                    # Pins this directory to target-version = py311 — everything here runs on the litellm base image's interpreter, not the repo's 3.14, and `ruff format` under py314 emits PEP 758 syntax the image cannot import
-│   ├── patch_litellm_cache.py        # Build-time patches: cache_control passthrough on Qwen/DeepSeek routes, live OpenRouter capability + pricing lookup, drop_params visibility, no synthesized reasoning ceiling, prior-turn reasoning round-trip, streamed cost preservation
-│   ├── openrouter_capabilities.py    # Patches 7 + 12: live GET /api/v1/models lookup — advertised parameters (unioned with LiteLLM's bundled model-cost map) and the published rate card for slugs that map has never heard of, including prompt-length surcharges that fit LiteLLM's 128k/200k/272k rate slots
-│   ├── drop_params_visibility.py     # Patch 8: warn once per proxy process per (provider, model, param-set) when drop_params discards a parameter
-│   ├── anthropic_thinking_policy.py  # Patch 9: stop synthesizing a reasoning_effort ceiling from the caller's thinking budget on non-Claude models
-│   ├── openrouter_reasoning_roundtrip.py  # Patch 10: map prior-turn assistant thinking_blocks onto reasoning_content so OpenRouter models that re-render prior thinking stop seeing empty <think></think>
-│   ├── stream_cost_preservation.py   # Patch 11: carry the provider-billed cost / cost_details across LiteLLM's stream reassembly, which enumerates token counts only and drops them
+│   ├── patch_litellm_cache.py        # Build-time patches: cache_control passthrough on Qwen/DeepSeek routes, live OpenRouter capability + pricing lookup, drop_params visibility, no synthesized reasoning ceiling, prior-turn reasoning round-trip, streamed cost preservation, billable-cost gate on hidden params (patch 10 — inline, no companion module)
+│   ├── openrouter_capabilities.py    # Patches 4 + 9: live GET /api/v1/models lookup — advertised parameters (unioned with LiteLLM's bundled model-cost map) and the published rate card for slugs that map has never heard of, including prompt-length surcharges that fit LiteLLM's 128k/200k/272k rate slots
+│   ├── drop_params_visibility.py     # Patch 5: warn once per proxy process per (provider, model, param-set) when drop_params discards a parameter
+│   ├── anthropic_thinking_policy.py  # Patch 6: stop synthesizing a reasoning_effort ceiling from the caller's thinking budget on non-Claude models
+│   ├── openrouter_reasoning_roundtrip.py  # Patch 7: map prior-turn assistant thinking_blocks onto reasoning_content so OpenRouter models that re-render prior thinking stop seeing empty <think></think>
+│   ├── stream_cost_preservation.py   # Patch 8: carry the provider's cost_details across LiteLLM's stream reassembly (1.94.0 carries `cost` itself, but not this — it is where the BYOK bill lives)
 │   └── cost_callback.py              # LiteLLM custom logger: upstream + estimated cost, per-role attribution (x-egg-* headers), cache hit rate, per-call decoding config -> pod stdout
 ├── redis/                            # egg-redis image sources
 │   └── Dockerfile                    # Builds egg-redis: pinned stock Redis, repackaged for the local build/publish supply chain; backs the orchestrator's Redis Streams message store
