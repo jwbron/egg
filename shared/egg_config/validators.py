@@ -8,9 +8,12 @@ This module provides validators for common configuration patterns:
 - Secret masking utilities
 """
 
+import logging
 import re
 from typing import Any
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 
 def validate_url(url: str, *, require_https: bool = True) -> tuple[bool, str | None]:
@@ -172,7 +175,15 @@ def validate_checks(checks: list[Any]) -> list[dict[str, str]]:
     key names a shell command that auto-remediates a failing check
     (e.g. ``make lint-fix`` for a ``lint`` check); the per-slice green
     gate runs it at the slice tip and commits the result (#3409). A
-    ``fix`` that is present but empty/None is dropped from the entry.
+    ``fix`` that is present but is not a non-empty string — empty,
+    whitespace-only, ``None``, falsy (``false`` / ``0``), or a
+    non-string such as a YAML list — is dropped from the entry and a
+    warning is logged (#3630). It is never ``str()``-coerced, since
+    coercing a list would hand the shell a command like
+    ``"['make fmt', 'make lint-fix']"``. Whitespace-only is rejected
+    for the same reason the other cases are: handing the green gate a
+    no-op command produces exactly the silent-pass confusion #3630 set
+    out to eliminate.
 
     An optional ``full_command`` key names the **ground-truth** form of
     the same check, for repos whose ``command`` is deliberately narrowed
@@ -184,6 +195,15 @@ def validate_checks(checks: list[Any]) -> list[dict[str, str]]:
     mistaken for a full one. A ``full_command`` that is present but
     empty/None is dropped from the entry, leaving ``command`` as the
     only form of the check.
+
+    ``full_command`` is deliberately **not** validated the way ``fix``
+    is: it still keys off truthiness and is ``str()``-coerced, so a
+    falsy value is dropped without a warning and a non-string is
+    coerced. That is the same defect #3630 fixed for ``fix``, one key
+    over, and it is more consequential here because a coerced value is
+    truthy and so the gate attests ``narrowed: "false"`` over a command
+    it could not have run. Left in place because #3630 scoped itself to
+    ``fix``; tracked in #3705.
 
     Args:
         checks: Raw list of check entries (e.g. from YAML or JSON).
@@ -200,8 +220,17 @@ def validate_checks(checks: list[Any]) -> list[dict[str, str]]:
         if not (isinstance(c, dict) and "name" in c and "command" in c):
             continue
         entry = {"name": str(c["name"]), "command": str(c["command"])}
-        if c.get("fix"):
-            entry["fix"] = str(c["fix"])
+        if "fix" in c:
+            fix = c["fix"]
+            if isinstance(fix, str) and fix.strip():
+                entry["fix"] = fix
+            else:
+                logger.warning(
+                    "validate_checks: check %r has invalid fix %r "
+                    "(expected non-empty string); dropping fix",
+                    c.get("name"),
+                    fix,
+                )
         if c.get("full_command"):
             entry["full_command"] = str(c["full_command"])
         result.append(entry)

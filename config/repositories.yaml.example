@@ -77,11 +77,11 @@ readable_repos:
 #   - checks: List of check commands for the SDLC pipeline implement phase
 #     Each entry has "name" (display label), "command" (shell command) and
 #     an optional "fix" (single shell command string — a YAML list is
-#     silently coerced to its Python repr and will never run, so chain
-#     steps with "&&" or point at a make target; an empty or omitted
-#     value — a bare "fix:", "", false, 0 — is dropped entirely,
-#     leaving the check with no fix and a block message that never
-#     mentions "fix")
+#     rejected with a warning and dropped, so chain steps with "&&" or
+#     point at a make target; any non-string, empty or whitespace-only
+#     value — "", "   ", null, false, 0 — is dropped with a warning so
+#     the misconfiguration surfaces at config load time rather than as a
+#     no-op "remediation" that reports success at the green gate)
 #     These run sequentially during the tester step
 #     "fix" auto-remediates that check at the per-slice green gate: when the
 #     gate finds the check red at the slice tip it runs the fix command and
@@ -135,6 +135,11 @@ readable_repos:
 #     "command" narrows MUST declare "full_command" or the gate will
 #     certify a narrowed run. The per-slice green gate is unaffected and
 #     keeps running "command" (a slice tip wants the narrowed run).
+#     Unlike "fix", a malformed "full_command" is NOT yet validated: an
+#     empty or false value is dropped with no warning, and a non-string
+#     (e.g. a YAML list) is str()-coerced into a broken command that the
+#     gate then attests as a full, non-narrowed run. Declare it as a
+#     single non-empty string. Tracked in #3705.
 #   - build_commands: Commands to run during Docker image build to install
 #     project-specific dependencies. Results are baked into the image so
 #     containers start with dependencies pre-installed (critical for private

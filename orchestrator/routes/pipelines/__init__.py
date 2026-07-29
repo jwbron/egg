@@ -466,6 +466,22 @@ try:
 except ImportError:
 
     def validate_checks(checks: list) -> list[dict[str, str]]:  # type: ignore[misc]
+        """Validate and normalize a list of check command entries.
+
+        Mirrors ``egg_config.validators.validate_checks``, including the
+        optional ``fix`` auto-remediation command (#3409) and the
+        optional ``full_command`` ground-truth form of a deliberately
+        narrowed check (#3669).
+
+        A ``fix`` that is present but is not a non-empty string —
+        including whitespace-only — is dropped from the entry and a
+        warning is logged, rather than being silently dropped or
+        ``str()``-coerced (#3630).
+
+        ``full_command`` is deliberately **not** validated that way: it
+        still keys off truthiness and is ``str()``-coerced, matching the
+        canonical copy. Same defect, one key over; tracked in #3705.
+        """
         if not isinstance(checks, list):
             return []
         result = []
@@ -473,8 +489,19 @@ except ImportError:
             if not (isinstance(c, dict) and "name" in c and "command" in c):
                 continue
             entry = {"name": str(c["name"]), "command": str(c["command"])}
-            if c.get("fix"):
-                entry["fix"] = str(c["fix"])
+            if "fix" in c:
+                fix = c["fix"]
+                if isinstance(fix, str) and fix.strip():
+                    entry["fix"] = fix
+                else:
+                    logger.warning(
+                        "validate_checks: check %r has invalid fix %r "
+                        "(expected non-empty string); dropping fix",
+                        c.get("name"),
+                        fix,
+                    )
+            if c.get("full_command"):
+                entry["full_command"] = str(c["full_command"])
             result.append(entry)
         return result
 
