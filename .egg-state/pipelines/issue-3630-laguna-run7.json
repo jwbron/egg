@@ -218,10 +218,28 @@
       "phase": "refine",
       "content_changed": null,
       "resolution_outcome": "approved"
+    },
+    {
+      "id": "decision-3",
+      "question": "The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.\n\nDecision ledger: 1 decision(s) registered this phase (decision-1), 1 resolved.",
+      "context": "# Plan: Fix validate_checks silently dropping/str()-coercing malformed fix values (#3630)\n\n## Problem\n\n`validate_checks` in `shared/egg_config/validators.py` handles the optional `fix` key with:\n\n```python\nif c.get(\"fix\"):\n    entry[\"fix\"] = str(c[\"fix\"])\n```\n\nTwo operator-hostile behaviors:\n\n1. **Silent drop on falsy values**: `fix: \"\"`, `fix: false`, `fix: 0` are dropped with no warning.\n2. **`str()` coercion of non-strings**: A YAML list like `fix: [make fmt, make lint-fix]` is coerced to the literal string `\"['make fmt', 'make lint-fix']\"` and handed to the shell as a command, failing with an opaque subprocess error.\n\n## Fix\n\nValidate that `fix`, when present (key exists in the dict), is a non-empty string. Log a warning when it is not, so config errors surface at load time.\n\n### Implementation\n\nReplace:\n```python\nif c.get(\"fix\"):\n    entry[\"fix\"] = str(c[\"fix\"])\n```\n\nWith:\n```python\nif \"fix\" in c:\n    fix = c[\"fix\"]\n    if isinstance(fix, str) and fix:\n        entry[\"fix\"] = fix\n    else:\n        logger.warning(\n            \"validate_checks: check %r has invalid fix %r \"\n            \"(expected non-empty string); dropping fix\",\n            c.get(\"name\"),\n            fix,\n        )\n```\n\n### Files to change\n\n1. **`shared/egg_config/validators.py`** (primary):\n   - Add `import logging` and module-level `logger = logging.getLogger(\"egg_config.validators\")`\n   - Replace `fix` handling in `validate_checks` with validation + warning\n   - Update docstring\n\n2. **`config/repo_config.py`** (parallel fallback):\n   - Align the fallback `validate_checks` (inside `except ImportError`) with the same fix\n   - Use the existing module-level `logger`\n   - Update docstring\n\n3. **`orchestrator/routes/pipelines/__init__.py`** (parallel fallback):\n   - Align the fallback `validate_checks` (inside `except ImportError`) with the same fix\n   - Use the existing module-level `logger`\n\n4. **`tests/egg_config/test_validators.py`**:\n   - Update `test_values_coerced_to_strings`: remove `fix: 3` (now rejected, not coerced)\n   - Update `test_empty_fix_dropped` → `test_empty_fix_dropped_with_warning`: also assert warning logged\n   - Add `test_fix_false_rejected_with_warning`\n   - Add `test_fix_zero_rejected_with_warning`\n   - Add `test_fix_non_string_rejected_with_warning`\n   - Add `test_fix_list_rejected_with_warning`\n   - Add `test_fix_absent_unchanged`\n\n### Scope\n\n- Only `fix` key handling changed. `full_command` handling left untouched (same `str()` coercion pattern retained, per \"tightly scoped to the fix key handling\" directive).\n- No refactoring of surrounding validators.\n\n## Test Plan\n\n- `tests/egg_config/test_validators.py`: 61 tests pass (including 5 new + 2 updated)\n- `orchestrator/tests/test_propose_check_gate.py::TestValidateChecksFullCommand` + `TestGateChecks`: 9 tests pass\n- `ruff check` on all 4 modified files: All checks passed\n\n## Risks\n\n- Low: The change only affects the `fix` key handling. Entries with invalid `fix` values are now dropped with a warning instead of being silently dropped or `str()`-coerced. This is strictly an improvement in observability.\n- The `full_command` key retains the same `str()` coercion behavior — this is intentional per scope notes.\n\n```yaml\n# yaml-tasks\npr:\n  title: \"Fix validate_checks silently dropping/str()-coercing malformed fix values (#3630)\"\n  description: |\n    validate_checks used `if c.get(\"fix\"): entry[\"fix\"] = str(c[\"fix\"])` which\n    silently dropped falsy fix values (empty string, false, 0) and str()-coerced\n    non-string values (e.g. YAML lists) into broken shell commands. Fix: validate\n    that fix, when present, is a non-empty string; log a warning when it is not.\n    Aligned parallel fallbacks in config/repo_config.py and orchestrator pipelines.\n  test_plan: |\n    - Automated: 61 tests in tests/egg_config/test_validators.py pass (5 new + 2 updated)\n    - Automated: 9 tests in orchestrator/tests/test_propose_check_gate.py pass\n    - Automated: ruff check passes on all 4 modified files\n  manual_steps: |\n    Pre-merge: None\n    Post-merge: Monitor config load logs for new \"invalid fix\" warnings\nphases:\n  - id: 1\n    name: Implement\n    goal: \"Validate fix key as non-empty string with warning in validate_checks\"\n    tasks:\n      - id: task-1-1\n        description: \"In shared/egg_config/validators.py, add import logging and module-level logger; replace fix handling in validate_checks to check 'fix' in c, validate isinstance(fix, str) and fix, log warning on invalid; update docstring.\"\n        acceptance: \"validate_checks logs a warning and drops fix when it is not a non-empty string; valid non-empty string fix is retained\"\n        files:\n          - shared/egg_config/validators.py\n      - id: task-1-2\n        description: \"In config/repo_config.py, align the fallback validate_checks (inside except ImportError) with the same fix validation and warning using the module-level logger; update docstring.\"\n        acceptance: \"Fallback validate_checks in repo_config.py validates fix as non-empty string with warning\"\n        files:\n          - config/repo_config.py\n      - id: task-1-3\n        description: \"In orchestrator/routes/pipelines/__init__.py, align the fallback validate_checks (inside except ImportError) with the same fix validation and warning using the module-level logger.\"\n        acceptance: \"Fallback validate_checks in pipelines __init__.py validates fix as non-empty string with warning\"\n        files:\n          - orchestrator/routes/pipelines/__init__.py\n      - id: task-1-4\n        description: \"In tests/egg_config/test_validators.py, update test_values_coerced_to_strings (remove fix:3 coercion), update test_empty_fix_dropped to test_empty_fix_dropped_with_warning (assert warning), add test_fix_false_rejected_with_warning, test_fix_zero_rejected_with_warning, test_fix_non_string_rejected_with_warning, test_fix_list_rejected_with_warning, test_fix_absent_unchanged.\"\n        acceptance: \"All tests pass: valid string accepted, empty/false/0/list/non-string rejected with warning, absent key unchanged\"\n        files:\n          - tests/egg_config/test_validators.py\n```\n",
+      "options": [
+        "approve",
+        "request changes"
+      ],
+      "decision_type": "phase_gate",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-07-29T21:38:45.442698Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan",
+      "content_changed": null,
+      "resolution_outcome": null
     }
   ],
   "created_at": "2026-07-29T19:25:06.367330Z",
-  "updated_at": "2026-07-29T21:38:45.389794Z",
+  "updated_at": "2026-07-29T21:38:45.454897Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -234,7 +252,7 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-07-29T20:52:36.348276Z",
-  "version": 27,
+  "version": 28,
   "jira_ticket": null,
   "is_epic": false,
   "pipeline_mode": null,
