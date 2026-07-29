@@ -473,8 +473,17 @@ except ImportError:
             if not (isinstance(c, dict) and "name" in c and "command" in c):
                 continue
             entry = {"name": str(c["name"]), "command": str(c["command"])}
-            if c.get("fix"):
-                entry["fix"] = str(c["fix"])
+            if "fix" in c:
+                fix = c["fix"]
+                if isinstance(fix, str) and fix:
+                    entry["fix"] = fix
+                else:
+                    logger.warning(
+                        "validate_checks: check %r has an invalid fix value %r "
+                        "(expected a non-empty string); dropping fix",
+                        c.get("name"),
+                        fix,
+                    )
             result.append(entry)
         return result
 
