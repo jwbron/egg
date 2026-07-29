@@ -86,7 +86,7 @@
         {
           "id": "task-1-4",
           "description": "In tests/egg_config/test_validators.py, update test_values_coerced_to_strings (remove fix:3 coercion), update test_empty_fix_dropped to test_empty_fix_dropped_with_warning (assert warning), add test_fix_false_rejected_with_warning, test_fix_zero_rejected_with_warning, test_fix_non_string_rejected_with_warning, test_fix_list_rejected_with_warning, test_fix_absent_unchanged.",
-          "status": "pending",
+          "status": "complete",
           "commit": "89117f58d6a6683745bc70c2ac4b5a1168f4460b",
           "checkpoint_id": null,
           "notes": "",
@@ -243,6 +243,17 @@
       "old_value": null,
       "new_value": "89117f58d6a6683745bc70c2ac4b5a1168f4460b",
       "reason": "Linked commit 89117f5 to task-1-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-07-29T22:32:49.477814Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-4 as complete",
       "checkpoint_id": null
     }
   ],
