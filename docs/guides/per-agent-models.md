@@ -638,15 +638,29 @@ data:
 >   rate, and the live card can add a model but never reprice one.
 >   `LITELLM_OPENROUTER_PRICING=0` turns off just this half.
 >
-> `cost_estimated` stays null for a model that **prices by prompt length**.
-> OpenRouter publishes a long-context surcharge as `pricing.overrides` keyed
-> by an arbitrary `min_prompt_tokens` (qwen3-max: 32000 and 128000);
-> LiteLLM's map has slots for three fixed thresholds and drops the rest, so
-> registering the base tier would under-report by 2-2.5x on precisely the
-> long-prompt turns agent traffic is made of — silently, under a field name
-> an operator would reasonably use to choose a model. Those models are left
-> unpriced and the reason is logged once, at `warning`, naming the tiers.
-> Read the provider-billed `cost` for them; it is exact.
+> `cost_estimated` can still read null for a model that **prices by prompt
+> length**. OpenRouter publishes a long-context surcharge as
+> `pricing.overrides` keyed by an arbitrary `min_prompt_tokens`. LiteLLM has
+> named rate slots at exactly three boundaries — 128000, 200000, 272000 — and
+> its coverage is uneven *per component*: there is no cache-read slot at
+> 128000 and no cache-write slot at 128000 or 272000. Patch 8 translates a
+> surcharge when every published boundary and every priced component in it has
+> a slot (about half the tiered models on the current roster, including the
+> gpt-5.5 and grok-4.x families), and declines the **whole** card otherwise.
+> Declining the whole card is the point: translating the components that fit
+> and letting the rest fall back to the base rate would under-report the
+> dropped component by 2-2.5x on precisely the long-prompt turns agent traffic
+> is made of — silently, under a field name an operator would reasonably use
+> to choose a model. `anthropic/claude-sonnet-4.5` is a live example (its 200k
+> tier surcharges the 1h cache-write rate, which LiteLLM has no tiered slot
+> for). A declined model is logged once, at `warning`, naming the boundaries.
+> Read the provider-billed `cost` for those; it is exact.
+>
+> The estimate also omits components LiteLLM's chat cost path has no per-token
+> slot for: `web_search` and `request` (both per-request), and the `image` /
+> `audio` / `input_audio_cache` modality rates. A model whose bill is dominated
+> by one of those reads low under `cost_estimated` — another reason to compare
+> the two fields rather than trusting either alone.
 >
 > The two fields are independent measurements of the same turn, so read them
 > together: a persistent gap between them is itself a signal (a stale rate

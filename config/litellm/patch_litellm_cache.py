@@ -146,10 +146,12 @@ an image paying full input rate on every Qwen turn.
      one. ``_egg_capabilities`` grows a second entry point for this off
      the roster it already caches; it answers for OpenRouter alone,
      carries cost fields only (a ``supports_*`` flag through this door
-     would change parameter admission, which is 4's job), and declines a
-     tiered rate card outright rather than registering a base tier that
-     would silently under-report the long prompts agent traffic is made
-     of. Proposed upstream as jwbron/litellm#10.
+     would change parameter admission, which is 4's job), and translates
+     a prompt-length surcharge only into the rate slots LiteLLM actually
+     has, declining the whole card when one does not fit rather than
+     registering a base tier that would silently under-report the long
+     prompts agent traffic is made of. Proposed upstream as
+     jwbron/litellm#10.
 
 Idempotent: each patch detects whether it is already applied. Fails
 loudly (non-zero exit) if a needle is missing, so a LiteLLM version bump
@@ -633,8 +635,29 @@ PATCHES: list[dict[str, str]] = [
             "            )\n"
             "\n"
             "            returned_usage = _egg_carry_upstream_cost(chunks, returned_usage)\n"
-            "        except Exception:\n"
-            "            pass\n"
+            "        except Exception as _egg_exc:\n"
+            "            # Swallowed, because a cost figure must never break a\n"
+            "            # response — but not silently. A failed import here looks\n"
+            "            # from the outside exactly like `the provider reported no\n"
+            "            # cost`, which is the symptom this patch exists to remove.\n"
+            "            # Warned once per process, and the latch is set only after\n"
+            "            # the emit succeeded; verbose_logger is imported here rather\n"
+            "            # than read from module scope because this file does not\n"
+            "            # import it.\n"
+            "            try:\n"
+            "                if not globals().get('_egg_warned_stream_cost'):\n"
+            "                    from litellm._logging import verbose_logger\n"
+            "\n"
+            "                    verbose_logger.warning(\n"
+            "                        'egg cost patch: streamed cost preservation is '\n"
+            "                        'inactive (%s: %s); the provider-billed `cost` will '\n"
+            "                        'read null on every streamed call.',\n"
+            "                        type(_egg_exc).__name__,\n"
+            "                        _egg_exc,\n"
+            "                    )\n"
+            "                    globals()['_egg_warned_stream_cost'] = True\n"
+            "            except Exception:\n"
+            "                pass\n"
             "\n"
             "        return returned_usage\n"
         ),
@@ -655,9 +678,10 @@ PATCHES: list[dict[str, str]] = [
     # has failed: a slug the bundled map DOES carry keeps the bundled answer,
     # and the live rate card can add a model but never reprice one. The
     # companion module answers for OpenRouter alone (it checks
-    # ``custom_llm_provider``) and declines a tiered rate card outright rather
-    # than registering a base tier that would under-report long prompts —
-    # see ``openrouter_capabilities`` for that reasoning.
+    # ``custom_llm_provider``) and holds a prompt-length surcharge only in the
+    # rate slots LiteLLM has, declining the whole card when a published boundary
+    # or component does not fit rather than registering rates that would
+    # under-report long prompts — see ``openrouter_capabilities``.
     #
     # NEEDLE DISAMBIGUATION: utils.py carries the "isn't mapped yet" string
     # twice. The other one (~line 5999) is the outer handler's re-raise, with a
@@ -689,8 +713,26 @@ PATCHES: list[dict[str, str]] = [
             "                    _egg_entry = _egg_openrouter_cost_entry(\n"
             "                        model, custom_llm_provider\n"
             "                    )\n"
-            "                except Exception:\n"
+            "                except Exception as _egg_exc:\n"
             "                    _egg_entry = None\n"
+            "                    # Same reasoning as patch 7's handler: swallowed so a\n"
+            "                    # rate-card lookup can never break a request, warned once\n"
+            "                    # so its absence is not indistinguishable from a slug the\n"
+            "                    # roster simply does not carry. verbose_logger is already\n"
+            "                    # module-scope in utils.py; the warning is still wrapped\n"
+            "                    # because raising from an except block would propagate.\n"
+            "                    try:\n"
+            "                        if not globals().get('_egg_warned_pricing'):\n"
+            "                            verbose_logger.warning(\n"
+            "                                'egg pricing patch: OpenRouter rate-card '\n"
+            "                                'lookup is inactive (%s: %s); cost_estimated '\n"
+            "                                'will read null for unmapped slugs.',\n"
+            "                                type(_egg_exc).__name__,\n"
+            "                                _egg_exc,\n"
+            "                            )\n"
+            "                            globals()['_egg_warned_pricing'] = True\n"
+            "                    except Exception:\n"
+            "                        pass\n"
             "                if _egg_entry is not None:\n"
             "                    _model_info = _egg_entry\n"
             '                    key = _egg_entry.get("key") or model\n'

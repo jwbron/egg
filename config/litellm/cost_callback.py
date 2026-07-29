@@ -50,8 +50,9 @@ from a possibly-stale rate card must never be mistaken for a bill — and
 follows the same null-not-zero rule when LiteLLM cannot price the model.
 That was the case for every route egg uses until the image's **patch 8**
 taught the model-info lookup to read OpenRouter's published rate card; it
-remains the case for a model whose rate card is tiered by prompt length,
-which LiteLLM's map cannot express (see ``openrouter_capabilities``). With
+remains the case for a model whose prompt-length surcharge lands on a
+boundary or component LiteLLM's map has no slot for, which is declined whole
+rather than translated in part (see ``openrouter_capabilities``). With
 both patches in place the two fields are independent measurements of the
 same turn, and a persistent gap between them is a signal in its own right:
 a stale rate card, an unexpected provider, or a surcharge tier.
@@ -326,8 +327,9 @@ def _extract_estimated_cost(mcd):
     never 0.0 — when LiteLLM couldn't price the call, mirroring the billed-cost
     "unknown ≠ free" discipline. On the egg-litellm image patch 8 supplies
     OpenRouter's published rates for slugs the bundled map does not carry, so a
-    None here now means a genuinely unpriceable model (a tiered rate card, or a
-    provider with no live card to read) rather than the routine case it was.
+    None here now means a genuinely unpriceable model (an inexpressible
+    prompt-length surcharge, or a provider with no live card to read) rather
+    than the routine case it was.
 
     Reads the top-level ``response_cost`` first, then falls back to
     ``standard_logging_object.response_cost`` — the latter is LiteLLM's

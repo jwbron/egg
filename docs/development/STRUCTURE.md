@@ -542,8 +542,9 @@ config/
 ├── routing-policy.template.yaml      # Operator template for the gateway's hot-reloadable model routing policy: switchover remaps + fallback chains (copy to ~/.config/egg/routing-policy.yaml)
 ├── litellm/                          # egg-litellm image sources
 │   ├── Dockerfile                    # Builds egg-litellm: stock LiteLLM + prompt-cache and reasoning-parameter patches
+│   ├── .ruff.toml                    # Pins this directory to target-version = py311 — everything here runs on the litellm base image's interpreter, not the repo's 3.14, and `ruff format` under py314 emits PEP 758 syntax the image cannot import
 │   ├── patch_litellm_cache.py        # Build-time patches: cache_control passthrough on Qwen/DeepSeek routes, live OpenRouter capability + pricing lookup, drop_params visibility, no synthesized reasoning ceiling, streamed cost preservation
-│   ├── openrouter_capabilities.py    # Patches 4 + 8: live GET /api/v1/models lookup — advertised parameters (unioned with LiteLLM's bundled model-cost map) and the published rate card for slugs that map has never heard of
+│   ├── openrouter_capabilities.py    # Patches 4 + 8: live GET /api/v1/models lookup — advertised parameters (unioned with LiteLLM's bundled model-cost map) and the published rate card for slugs that map has never heard of, including prompt-length surcharges that fit LiteLLM's 128k/200k/272k rate slots
 │   ├── drop_params_visibility.py     # Patch 5: warn once per proxy process per (provider, model, param-set) when drop_params discards a parameter
 │   ├── anthropic_thinking_policy.py  # Patch 6: stop synthesizing a reasoning_effort ceiling from the caller's thinking budget on non-Claude models
 │   ├── stream_cost_preservation.py   # Patch 7: carry the provider's cost_details across LiteLLM's stream reassembly (1.94.0 carries `cost` itself, but not this — it is where the BYOK bill lives)
