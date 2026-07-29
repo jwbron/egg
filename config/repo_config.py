@@ -369,9 +369,10 @@ except ImportError:
         optional ``full_command`` ground-truth form of a deliberately
         narrowed check (#3669).
 
-        A ``fix`` that is present but is not a non-empty string is
-        dropped from the entry and a warning is logged, rather than
-        being silently dropped or ``str()``-coerced (#3630).
+        A ``fix`` that is present but is not a non-empty string —
+        including whitespace-only — is dropped from the entry and a
+        warning is logged, rather than being silently dropped or
+        ``str()``-coerced (#3630).
 
         Args:
             checks: Raw list of check entries (e.g. from YAML or JSON).
@@ -390,7 +391,7 @@ except ImportError:
             entry = {"name": str(c["name"]), "command": str(c["command"])}
             if "fix" in c:
                 fix = c["fix"]
-                if isinstance(fix, str) and fix:
+                if isinstance(fix, str) and fix.strip():
                     entry["fix"] = fix
                 else:
                     logger.warning(

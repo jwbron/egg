@@ -103,6 +103,32 @@ class TestValidateChecks:
         assert result == [{"name": "lint", "command": "make lint"}]
         assert "invalid fix" in caplog.text
 
+    def test_fix_whitespace_only_rejected_with_warning(self, caplog):
+        """A whitespace-only fix is rejected, not handed to the shell (#3630).
+
+        ``"   "`` is a non-empty ``str``, so a bare truthiness test lets
+        it through and the green gate runs a no-op "remediation" that
+        reports success without changing anything — the same silent-pass
+        confusion the falsy cases above cause, one step further in.
+        """
+        for blank in ("   ", "\t", "\n", " \t\n "):
+            caplog.clear()
+            with caplog.at_level(logging.WARNING, logger="egg_config.validators"):
+                result = validate_checks([{"name": "lint", "command": "make lint", "fix": blank}])
+            assert result == [{"name": "lint", "command": "make lint"}]
+            assert "invalid fix" in caplog.text
+
+    def test_fix_with_surrounding_whitespace_retained_verbatim(self):
+        """A fix with real content survives padding, unstripped (#3630).
+
+        ``.strip()`` gates the *decision*; it must not rewrite the value,
+        since the stored string is what the green gate executes.
+        """
+        result = validate_checks(
+            [{"name": "lint", "command": "make lint", "fix": "  make lint-fix\n"}]
+        )
+        assert result == [{"name": "lint", "command": "make lint", "fix": "  make lint-fix\n"}]
+
     def test_fix_absent_unchanged(self, caplog):
         """An absent fix key is not a config error — no warning (#3630)."""
         with caplog.at_level(logging.WARNING, logger="egg_config.validators"):

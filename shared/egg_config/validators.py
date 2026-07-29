@@ -176,10 +176,14 @@ def validate_checks(checks: list[Any]) -> list[dict[str, str]]:
     (e.g. ``make lint-fix`` for a ``lint`` check); the per-slice green
     gate runs it at the slice tip and commits the result (#3409). A
     ``fix`` that is present but is not a non-empty string — empty,
-    ``None``, falsy (``false`` / ``0``), or a non-string such as a YAML
-    list — is dropped from the entry and a warning is logged (#3630).
-    It is never ``str()``-coerced, since coercing a list would hand the
-    shell a command like ``"['make fmt', 'make lint-fix']"``.
+    whitespace-only, ``None``, falsy (``false`` / ``0``), or a
+    non-string such as a YAML list — is dropped from the entry and a
+    warning is logged (#3630). It is never ``str()``-coerced, since
+    coercing a list would hand the shell a command like
+    ``"['make fmt', 'make lint-fix']"``. Whitespace-only is rejected
+    for the same reason the other cases are: handing the green gate a
+    no-op command produces exactly the silent-pass confusion #3630 set
+    out to eliminate.
 
     An optional ``full_command`` key names the **ground-truth** form of
     the same check, for repos whose ``command`` is deliberately narrowed
@@ -209,7 +213,7 @@ def validate_checks(checks: list[Any]) -> list[dict[str, str]]:
         entry = {"name": str(c["name"]), "command": str(c["command"])}
         if "fix" in c:
             fix = c["fix"]
-            if isinstance(fix, str) and fix:
+            if isinstance(fix, str) and fix.strip():
                 entry["fix"] = fix
             else:
                 logger.warning(
