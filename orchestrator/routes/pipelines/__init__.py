@@ -477,6 +477,10 @@ except ImportError:
         including whitespace-only — is dropped from the entry and a
         warning is logged, rather than being silently dropped or
         ``str()``-coerced (#3630).
+
+        ``full_command`` is deliberately **not** validated that way: it
+        still keys off truthiness and is ``str()``-coerced, matching the
+        canonical copy. Same defect, one key over; tracked in #3705.
         """
         if not isinstance(checks, list):
             return []

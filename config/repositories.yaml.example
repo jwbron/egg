@@ -135,6 +135,11 @@ readable_repos:
 #     "command" narrows MUST declare "full_command" or the gate will
 #     certify a narrowed run. The per-slice green gate is unaffected and
 #     keeps running "command" (a slice tip wants the narrowed run).
+#     Unlike "fix", a malformed "full_command" is NOT yet validated: an
+#     empty or false value is dropped with no warning, and a non-string
+#     (e.g. a YAML list) is str()-coerced into a broken command that the
+#     gate then attests as a full, non-narrowed run. Declare it as a
+#     single non-empty string. Tracked in #3705.
 #   - build_commands: Commands to run during Docker image build to install
 #     project-specific dependencies. Results are baked into the image so
 #     containers start with dependencies pre-installed (critical for private

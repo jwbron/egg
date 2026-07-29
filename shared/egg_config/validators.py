@@ -196,6 +196,15 @@ def validate_checks(checks: list[Any]) -> list[dict[str, str]]:
     empty/None is dropped from the entry, leaving ``command`` as the
     only form of the check.
 
+    ``full_command`` is deliberately **not** validated the way ``fix``
+    is: it still keys off truthiness and is ``str()``-coerced, so a
+    falsy value is dropped without a warning and a non-string is
+    coerced. That is the same defect #3630 fixed for ``fix``, one key
+    over, and it is more consequential here because a coerced value is
+    truthy and so the gate attests ``narrowed: "false"`` over a command
+    it could not have run. Left in place because #3630 scoped itself to
+    ``fix``; tracked in #3705.
+
     Args:
         checks: Raw list of check entries (e.g. from YAML or JSON).
 
