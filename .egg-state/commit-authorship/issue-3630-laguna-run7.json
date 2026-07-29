@@ -88,6 +88,14 @@
       "repo": null,
       "role": "task_planner"
     },
+    "6f8c7dd955a819d71d62b9551b3c4be9d1898c0d": {
+      "branch": "egg/issue-3630-laguna-run7/work",
+      "patch_id": "dd30073a65568518e2d22f11b68753cd528ad705",
+      "pipeline_id": "issue-3630-laguna-run7",
+      "registered_at": "2026-07-29T22:01:58.756052+00:00",
+      "repo": null,
+      "role": "coder"
+    },
     "732e46fd0a4056ff6c7dfd8315da4bff82e29ba4": {
       "branch": "egg/issue-3630-laguna-run7/work",
       "patch_id": "b0b862b83d6e4cb30f45b9df37f610c3e5b8787d",
