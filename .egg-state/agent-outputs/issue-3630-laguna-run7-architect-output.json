@@ -1,0 +1,66 @@
+{
+  "issue": 3630,
+  "phase": "plan",
+  "agent": "architect",
+  "title": "Validate check 'fix' key is non-empty string in validate_checks (#3630)",
+  "summary": "Replace silent str()-coercion of the optional 'fix' key in validate_checks with explicit isinstance(fix, str) and truthiness validation. When fix is present but not a non-empty string (false, 0, '', or a YAML list), log a warning and drop it so the config error surfaces at load time rather than as a runtime green-gate mystery. Aligned all three copies: shared/egg_config/validators.py (primary), config/repo_config.py (ImportError fallback), orchestrator/routes/pipelines/__init__.py (ImportError fallback). Added unit tests covering valid string, empty string, false/0, list, and absent key cases.",
+  "problem_statement": {
+    "description": "validate_checks in shared/egg_config/validators.py handles the optional 'fix' key with `if c.get('fix'): entry['fix'] = str(c['fix'])`. This causes two operator-hostile behaviors: (1) silent drop on falsy values (fix: '', fix: false, fix: 0) with no warning, leaving the operator with a configured fix: in repositories.yaml and a green gate that never self-heals; (2) str() coercion of non-strings — a YAML list like fix: [make fmt, make lint-fix] is coerced to the literal string \"['make fmt', 'make lint-fix']\" and handed to the check runner as a shell command, failing as a subprocess with a message that does not point back at the config.",
+    "grounded_against_tree": "2026-07-29; live issue #3630 body fetched via gh issue view; all three copies of validate_checks confirmed to exist and carry the identical buggy pattern."
+  },
+  "current_architecture": {
+    "validate_checks_locations": {
+      "primary": "shared/egg_config/validators.py:164-208 — canonical implementation, no logger currently imported",
+      "fallback_repo_config": "config/repo_config.py:363-392 — ImportError fallback, has module-level logger (egg.repo_config)",
+      "fallback_orchestrator": "orchestrator/routes/pipelines/__init__.py:468-479 — ImportError fallback, has module-level logger (orchestrator.pipelines)"
+    },
+    "current_fix_handling": "All three copies use `if c.get('fix'): entry['fix'] = str(c['fix'])` — falsy values silently dropped, non-strings str()-coerced",
+    "logging_pattern": "repo_config.py uses logging.getLogger('egg.repo_config') with logger.warning(...) for config rejections; validators.py has no logging currently"
+  },
+  "findings": [
+    {"id": "F1", "finding": "Three copies of validate_checks exist with identical buggy fix handling: the primary in shared/egg_config/validators.py and two ImportError fallbacks in config/repo_config.py and orchestrator/routes/pipelines/__init__.py. All three must be aligned.", "confidence": "high"},
+    {"id": "F2", "finding": "The current test test_values_coerced_to_strings asserts fix: 3 is coerced to fix: '3' — this test will need updating since integer fix values should now be rejected, not coerced.", "confidence": "high"},
+    {"id": "F3", "finding": "The existing test_empty_fix_dropped tests fix: '' and fix: None but does not verify a warning is logged — it will need to be extended to assert the warning.", "confidence": "high"},
+    {"id": "F4", "finding": "The full_command key has the same str()-coercion pattern but the issue explicitly scopes the fix to the 'fix' key only ('Do not refactor the surrounding validators'). full_command is left unchanged.", "confidence": "high"},
+    {"id": "F5", "finding": "name and command keys are also str()-coerced but the issue says not to refactor surrounding validators — only fix key handling changes.", "confidence": "high"}
+  ],
+  "recommended_approach": {
+    "fix_validation_logic": "Replace `if c.get('fix'): entry['fix'] = str(c['fix'])` with: `if 'fix' in c: fix_val = c['fix']; if isinstance(fix_val, str) and fix_val: entry['fix'] = fix_val; else: logger.warning(...)`. This checks key presence (not truthiness) so absent fix is unchanged, and validates type+emptiness for present fix.",
+    "logging": "Add `import logging` and `logger = logging.getLogger(__name__)` to shared/egg_config/validators.py. Use logger.warning with a descriptive message including the check name and the invalid value, matching the style used in repo_config.py.",
+    "fallback_alignment": "Apply the identical fix_validation_logic to both ImportError fallback copies in config/repo_config.py (uses existing logger) and orchestrator/routes/pipelines/__init__.py (uses existing logger).",
+    "test_updates": "Update test_values_coerced_to_strings to expect fix: 3 to be dropped (not coerced). Extend test_empty_fix_dropped to verify warnings. Add tests for: valid string accepted, false/0 rejected with warning, list rejected with warning, absent key unchanged."
+  },
+  "implementation_plan": {
+    "files": [
+      "shared/egg_config/validators.py — add logging, replace fix handling, update docstring",
+      "config/repo_config.py — align fallback validate_checks fix handling",
+      "orchestrator/routes/pipelines/__init__.py — align fallback validate_checks fix handling",
+      "tests/egg_config/test_validators.py — update existing tests, add new test cases"
+    ],
+    "scope_boundary": "Tightly scoped to the fix key handling. No changes to name/command coercion, full_command handling, or surrounding validators."
+  },
+  "open_questions": [
+    {"id": "cq-1", "status": "resolved", "resolution": "not_operator_grade — full_command has the same pattern but issue #3630 explicitly scopes to fix key only. full_command left unchanged."},
+    {"id": "cq-2", "status": "resolved", "resolution": "not_operator_grade — name and command str()-coercion left unchanged per 'Do not refactor the surrounding validators'."},
+    {"id": "cq-3", "status": "resolved", "resolution": "not_operator_grade — invalid fix values drop just the fix key, not the entire check entry. The entry still has valid name and command, so it remains usable."}
+  ],
+  "risk_assessment": [
+    {"risk": "Existing configs with non-string fix values (e.g. YAML lists) that previously produced broken shell commands now get a warning and the fix is dropped — strict improvement since the coercion was already broken.", "likelihood": "low", "impact": "low", "mitigation": "The warning surfaces at load time; operators can fix their config."},
+    {"risk": "False positive on falsy-but-valid fix values", "likelihood": "low", "impact": "low", "mitigation": "String '0' is non-empty and truthy, so it is correctly retained. Only actual non-strings or empty strings are rejected."},
+    {"risk": "Test test_values_coerced_to_strings breaks because fix: 3 is no longer coerced to '3'", "likelihood": "high", "impact": "low", "mitigation": "Test is updated to expect fix: 3 to be dropped, matching the new behavior."},
+    {"risk": "Fallback copies in repo_config.py and orchestrator drift from the primary", "likelihood": "low", "impact": "medium", "mitigation": "All three copies are updated identically; the fallbacks are ImportError-only edge cases."}
+  ],
+  "binding_invariants": [
+    "Only the fix key handling changes — name, command, and full_command coercion are unchanged.",
+    "When fix is present and is a non-empty string, it is retained as-is (no str() coercion needed since it's already a string).",
+    "When fix is present but not a non-empty string, a warning is logged and the fix key is dropped from the entry (the entry itself is retained).",
+    "When fix key is absent, the entry has no fix key (unchanged behavior).",
+    "All three copies of validate_checks are aligned."
+  ],
+  "metrics": {
+    "files_changed": 4,
+    "lines_changed": 96,
+    "tests_added": 5,
+    "tests_updated": 2
+  }
+}
