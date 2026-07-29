@@ -5,7 +5,8 @@
 # stock image's Anthropic->OpenAI translation drops prompt-cache hits on
 # Qwen/DeepSeek, mis-streams reasoning models, silently drops params it does
 # not recognise, and manufactures a reasoning ceiling from the caller's
-# thinking budget. patch_litellm_cache.py closes the nine gaps at build time
+# thinking budget, and never sends prior-turn reasoning back.
+# patch_litellm_cache.py closes the ten gaps at build time
 # (see that script for the diagnosis);
 # cost_callback.py surfaces the resulting cost/cache stats into the pod log
 # stream. Both mirror the host-side dotfiles setup that took Qwen cache hit
@@ -31,6 +32,7 @@ COPY patch_litellm_cache.py /egg/patch_litellm_cache.py
 COPY openrouter_capabilities.py /egg/openrouter_capabilities.py
 COPY drop_params_visibility.py /egg/drop_params_visibility.py
 COPY anthropic_thinking_policy.py /egg/anthropic_thinking_policy.py
+COPY openrouter_reasoning_roundtrip.py /egg/openrouter_reasoning_roundtrip.py
 RUN python3 /egg/patch_litellm_cache.py
 
 # Custom cost/cache logger, registered as `cost_callback.cost_logger` under
